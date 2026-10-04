@@ -1,0 +1,19 @@
+{
+  "name": "frontier-texture-paint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontier Texture Paint \u2014 PBR texture painting with layer stack, material system and SVG/text decals. Fluid-theme experimental editor.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "engines": {
+    "node": ">=18.12.0"
+  }
+}

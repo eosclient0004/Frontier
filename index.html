@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b0b" />
+    <title>Texture Paint — Frontier Experimental</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Cpath d='m14 5 7 7-10 10H4v-7Z' fill='%23e0e0e0'/%3E%3Cpath d='M4 24h9' stroke='%23e0e0e0' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='21' r='5' fill='%2334c759'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/TexturePanel.css" />
+    <link rel="stylesheet" href="./src/ThemeSpecification.css" />
+    <link rel="stylesheet" href="./src/TextureExtras.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="document-dock">
+          <div
+            id="document-tabs"
+            class="document-tabs"
+            role="tablist"
+            aria-label="Texture documents"
+          ></div>
+          <button
+            id="new-document"
+            class="icon-button"
+            title="New texture document"
+            aria-label="New texture document"
+            data-icon="plus"
+          ></button>
+        </div>
+        <nav class="top-nav" aria-label="Workspace">
+          <button class="nav-button active" id="workspace-button">Paint</button
+          ><button class="nav-button" id="library-button">Library</button>
+        </nav>
+        <div class="header-end">
+          <span class="gas-tag pbr-tag"><i></i>PBR texture</span
+          ><button
+            class="icon-button"
+            id="help-button"
+            title="Shortcuts and prototype information"
+            aria-label="Help"
+            data-icon="help"
+          ></button
+          ><button id="export-button" class="button export-button">
+            <span data-icon="download"></span>Save project
+          </button>
+        </div>
+      </header>
+      <div class="document-bar">
+        <span data-icon="file"></span
+        ><input
+          id="document-name"
+          value="Untitled texture"
+          aria-label="Texture name"
+          maxlength="64"
+        /><span class="document-extension">.texpaint</span
+        ><span
+          id="dirty-indicator"
+          title="Unsaved changes"
+          class="dirty-indicator"
+        ></span
+        ><span class="document-note">Layer stack · PBR authoring</span
+        ><button id="import-button" class="text-button">
+          Open project<span data-icon="folder"></span></button
+        ><input
+          type="file"
+          id="import-file"
+          accept=".json,.texpaint,application/json"
+          hidden
+        />
+      </div>
+      <main class="workspace" id="texture-workspace">
+        <aside class="left-panel">
+          <div class="outliner-heading">
+            <div>
+              <h1>Layers</h1>
+              <span class="outliner-subtitle"
+                >Stack · <span id="scene-count">0</span> layers</span
+              >
+            </div>
+            <button
+              id="compact-outliner"
+              class="icon-button"
+              title="Compact layers"
+              aria-label="Compact layers"
+              aria-pressed="false"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 5v14M17 5v14" />
+              </svg>
+            </button>
+          </div>
+          <div class="scene-statistics">
+            <div class="scene-stat">
+              <span class="stat-symbol enabled-symbol">✓</span
+              ><span class="stat-label">Visible</span
+              ><strong id="enabled-count">0</strong>
+            </div>
+            <div class="scene-stat">
+              <span
+                class="stat-symbol disabled-symbol"
+                data-icon="hidden"
+              ></span
+              ><span class="stat-label">Hidden</span
+              ><strong id="disabled-count">0</strong>
+            </div>
+          </div>
+          <label class="search scene-search"
+            ><span data-icon="search"></span
+            ><input
+              type="search"
+              id="scene-search"
+              placeholder="Search layers…"
+              aria-label="Search layers"
+            /><kbd>Ctrl ⇧ F</kbd></label
+          >
+          <div
+            class="scene-filters"
+            id="scene-filters"
+            aria-label="Layer filters"
+          >
+            <button data-layer-filter="all" class="active" aria-pressed="true">
+              All</button
+            ><button data-layer-filter="paint" aria-pressed="false">Paint</button
+            ><button data-layer-filter="fill" aria-pressed="false">Fill</button
+            ><button data-layer-filter="decal" aria-pressed="false">
+              Decal
+            </button>
+          </div>
+          <div class="scene-toolbar">
+            <button
+              id="collection-toggle"
+              aria-expanded="true"
+              aria-controls="scene-tree"
+            >
+              <span class="collection-chevron">⌄</span
+              ><span data-icon="layers"></span
+              ><span>Layer stack</span></button
+            ><button
+              id="add-button"
+              class="icon-button"
+              title="Add layer"
+              aria-label="Add layer"
+              aria-expanded="false"
+              data-icon="plus"
+            ></button>
+          </div>
+          <div
+            id="scene-tree"
+            class="scene-tree layer-tree"
+            role="tree"
+            aria-label="Layers"
+          ></div>
+          <div class="scene-footnote">
+            <span data-icon="link"></span>Editing live composite
+          </div>
+          <div class="library" id="library">
+            <div class="panel-heading">
+              <span>Library</span
+              ><span class="count" id="preset-count"></span
+              ><span data-icon="grid"></span>
+            </div>
+            <label class="search"
+              ><span data-icon="search"></span
+              ><input
+                type="search"
+                id="preset-search"
+                placeholder="Find a preset…"
+                aria-label="Search library"
+              /><kbd>/</kbd></label
+            >
+            <div class="filter-row" id="preset-filters">
+              <button class="active" data-library="brush">Brushes</button
+              ><button data-library="material">Materials</button
+              ><button data-library="decal">Decals</button>
+            </div>
+            <div class="preset-list" id="presets-list"></div>
+            <div id="empty-presets" class="empty-presets" hidden>
+              No matching presets.<button class="text-button" id="reset-search">
+                Clear search
+              </button>
+            </div>
+          </div>
+          <div class="left-footer">
+            <span data-icon="box"></span
+            ><span id="left-footer-text">1024 × 1024 · 8-bit sRGB</span>
+          </div>
+        </aside>
+        <section class="center-panel">
+          <div class="viewport-bar">
+            <span data-icon="viewport"></span><strong>Paint view</strong
+            ><span class="bar-divider"></span
+            ><select id="view-mode" aria-label="View mode">
+              <option value="2d">2D paint</option>
+              <option value="split">2D + 3D</option>
+              <option value="3d">3D material</option>
+            </select>
+            <select id="mesh-select" aria-label="Preview mesh" hidden>
+              <option value="sphere">Sphere</option>
+              <option value="cube">Cube</option>
+              <option value="plane">Plane</option>
+              <option value="cylinder">Cylinder</option>
+            </select>
+            <div class="viewport-bar-end">
+              <select id="render-channel" aria-label="View channel">
+                <option value="composite">Composite</option>
+                <option value="albedo">Albedo</option>
+                <option value="metallic">Metallic</option>
+                <option value="roughness">Roughness</option>
+                <option value="emissive">Emissive</option>
+                <option value="height">Height</option>
+                <option value="normal">Normal</option>
+                <option value="mask">Layer mask</option>
+              </select>
+              <button
+                id="tiling-button"
+                class="icon-button"
+                aria-label="Toggle tiling preview"
+                title="Tiling preview · 2×2"
+                data-icon="grid"
+              ></button>
+              <button
+                id="overlays-button"
+                class="icon-button active"
+                aria-label="Toggle checkerboard"
+                title="Checkerboard · C"
+                data-icon="box"
+              ></button>
+              <button
+                id="focus-button"
+                class="icon-button"
+                title="Fit to view · F"
+                aria-label="Fit to view"
+                data-icon="focus"
+              ></button>
+              <button
+                id="maximize-button"
+                class="icon-button"
+                title="Maximize viewport"
+                aria-label="Maximize viewport"
+                data-icon="maximize"
+              ></button>
+            </div>
+          </div>
+          <div class="viewport" id="viewport">
+            <canvas
+              id="paint-canvas"
+              aria-label="2D texture painting viewport"
+            ></canvas>
+            <canvas
+              id="preview-canvas"
+              aria-label="3D PBR material preview"
+              hidden
+            ></canvas>
+            <div id="decal-gizmo" class="decal-gizmo" hidden>
+              <div class="gizmo-box"></div>
+              <button class="gizmo-handle" data-handle="nw" aria-label="Scale"></button>
+              <button class="gizmo-handle" data-handle="ne" aria-label="Scale"></button>
+              <button class="gizmo-handle" data-handle="sw" aria-label="Scale"></button>
+              <button class="gizmo-handle" data-handle="se" aria-label="Scale"></button>
+              <button class="gizmo-rotate" data-handle="rotate" aria-label="Rotate"></button>
+            </div>
+            <div class="viewport-caption">
+              <span class="live-pill" id="live-pill"
+                ><i></i><span>LIVE</span></span
+              ><span id="viewport-object">Paint layer</span
+              ><small id="viewport-subtitle"
+                >PBR composite · 1024² · sRGB</small
+              >
+            </div>
+            <div class="viewport-tools" aria-label="Paint tools">
+              <button
+                class="active icon-button"
+                data-tool="paint"
+                title="Paint brush · B"
+                aria-label="Paint brush"
+                data-icon="brush"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="eraser"
+                title="Eraser · E"
+                aria-label="Eraser"
+                data-icon="eraser"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="smudge"
+                title="Smudge · U"
+                aria-label="Smudge"
+                data-icon="smudge"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="fill"
+                title="Fill · G"
+                aria-label="Fill"
+                data-icon="fill"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="eyedropper"
+                title="Eyedropper · I"
+                aria-label="Eyedropper"
+                data-icon="eyedropper"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="shape"
+                title="Shape · R"
+                aria-label="Shape"
+                data-icon="shape"
+              ></button>
+              <span></span>
+              <button
+                class="icon-button"
+                data-tool="move"
+                title="Move decal · V"
+                aria-label="Move decal"
+                data-icon="move"
+              ></button>
+              <button
+                class="icon-button"
+                data-tool="pan"
+                title="Pan view · H"
+                aria-label="Pan view"
+                data-icon="pan"
+              ></button>
+            </div>
+            <div class="viewport-right-hud">
+              <span class="live-metric"><b id="zoom-level">100%</b> ZOOM</span>
+              <span class="live-metric" id="doc-hud">1024² RGBA</span>
+            </div>
+            <div class="viewport-help">
+              <span>Drag to paint</span><i>·</i><span>Wheel to zoom</span
+              ><i>·</i><span>Space-drag to pan</span>
+            </div>
+            <div class="navigator" id="navigator" aria-label="Navigator">
+              <canvas id="navigator-canvas" width="120" height="120"></canvas>
+            </div>
+            <div class="gpu-error" id="gpu-error" hidden>
+              <span data-icon="warning"></span>
+              <h2>3D preview unavailable</h2>
+              <p id="gpu-error-message"></p>
+              <button class="button" id="retry-gpu">Retry WebGL2</button>
+            </div>
+            <div id="toast" class="toast" role="status" hidden></div>
+            <div id="diagnostics" class="diagnostics" hidden>
+              <div class="panel-heading">
+                LIVE DIAGNOSTICS<button
+                  class="icon-button"
+                  id="close-diagnostics"
+                  aria-label="Close diagnostics"
+                  data-icon="close"
+                ></button>
+              </div>
+              <dl id="diagnostic-values"></dl>
+              <p>
+                Composite time is CPU canvas time. Channel caches rebuild only
+                when a layer or stroke marks them dirty.
+              </p>
+            </div>
+          </div>
+          <div class="transport">
+            <div class="transport-buttons">
+              <button
+                class="icon-button"
+                id="undo-button"
+                title="Undo · Ctrl Z"
+                aria-label="Undo"
+                data-icon="undo"
+              ></button>
+              <button
+                class="icon-button"
+                id="redo-button"
+                title="Redo · Ctrl Y"
+                aria-label="Redo"
+                data-icon="redo"
+              ></button>
+            </div>
+            <span class="timecode" id="brush-readout">Ø 64 px</span
+            ><span class="transport-divider"></span
+            ><select id="symmetry-select" aria-label="Paint symmetry">
+              <option value="none">No symmetry</option>
+              <option value="x">Mirror X</option>
+              <option value="y">Mirror Y</option>
+              <option value="quad">Quad</option></select
+            ><span class="transport-live"><i></i>Live composite</span>
+            <div class="transport-actions">
+              <select id="shape-kind" aria-label="Shape kind">
+                <option value="line">Line</option>
+                <option value="rect">Rectangle</option>
+                <option value="ellipse">Ellipse</option></select
+              ><button class="button burst-button" id="clear-button">
+                <span data-icon="trash"></span>Clear<span class="key-hint"
+                  >Del</span
+                >
+              </button>
+            </div>
+          </div>
+          <div class="timeline" aria-label="Material channels">
+            <div class="timeline-label">
+              <span data-icon="clock"></span>CHANNELS<span id="frame-counter"
+                >8-BIT SDR</span
+              >
+            </div>
+            <div class="channel-strip" id="channel-strip"></div>
+          </div>
+        </section>
+        <aside class="inspector-panel">
+          <div class="panel-heading">
+            <span>Inspector</span
+            ><button
+              id="reset-properties"
+              class="icon-button"
+              title="Reset this inspector tab"
+              aria-label="Reset this inspector tab"
+              data-icon="rotate"
+            ></button>
+          </div>
+          <div class="object-heading">
+            <div
+              class="object-symbol"
+              id="object-symbol"
+              data-icon="brush"
+            ></div>
+            <div>
+              <input
+                id="object-name"
+                value="Paint layer"
+                maxlength="64"
+                aria-label="Layer name"
+              /><span id="object-type">PAINT LAYER</span>
+            </div>
+            <label class="switch" title="Toggle layer visibility"
+              ><input
+                type="checkbox"
+                id="object-enabled"
+                aria-label="Toggle layer visibility"
+                checked /><span></span
+            ></label>
+          </div>
+          <div class="inspector-tabs" id="inspector-tabs">
+            <button class="active" data-tab="tool">Tool</button
+            ><button data-tab="layer">Layer</button
+            ><button data-tab="material">Material</button>
+          </div>
+          <div id="inspector-body" class="inspector-body"></div>
+          <button id="delete-layer" class="remove-object">
+            Delete layer
+          </button>
+          <div class="inspector-footer">
+            <span data-icon="link"></span>Changes apply while painting
+          </div>
+        </aside>
+      </main>
+      <footer class="status-bar">
+        <span class="status-ready" id="status-ready"
+          ><i></i>Ready</span
+        ><span class="status-divider"></span
+        ><span id="layer-count">0 layers</span
+        ><span class="status-divider"></span
+        ><span id="doc-size">1024 × 1024 px</span
+        ><span class="status-right"
+          ><span class="gpu-dot"></span
+          ><select id="renderer-select" aria-label="Preview quality">
+            <option value="high">Preview · high</option>
+            <option value="low">Preview · low</option></select
+          ><span class="status-divider"></span>FRONTIER / TEXTURE
+          <span class="version">0.1</span></span
+        >
+      </footer>
+    </div>
+    <div id="add-menu" class="popover add-menu" hidden role="menu">
+      <div class="popover-label">ADD LAYER</div>
+      <button data-add="paint" role="menuitem">
+        <span data-icon="brush"></span
+        ><span>Paint layer<small>Freehand strokes + material paint</small></span></button
+      ><button data-add="fill" role="menuitem">
+        <span data-icon="fill-layer"></span
+        ><span>Fill layer<small>Solid, gradient, checker or noise</small></span>
+      </button>
+      <div class="menu-divider"></div>
+      <button data-add="svg" role="menuitem">
+        <span data-icon="svg"></span
+        ><span>SVG decal<small>Vector artwork, non-destructive</small></span></button
+      ><button data-add="text" role="menuitem">
+        <span data-icon="text"></span
+        ><span>Text decal<small>Editable type layer</small></span></button
+      ><button data-add="image" role="menuitem">
+        <span data-icon="image"></span
+        ><span>Image layer<small>Import PNG, JPG or WebP</small></span>
+      </button>
+      <div class="menu-divider"></div>
+      <button data-add="adjust" role="menuitem">
+        <span data-icon="adjust"></span
+        ><span>Adjustment layer<small>Grade everything below</small></span>
+      </button>
+      <p>
+        Layers composite bottom-up into every PBR channel. Decals stay editable
+        until rasterized.
+      </p>
+    </div>
+    <dialog id="help-dialog">
+      <div class="dialog-heading">
+        <span data-icon="brush"></span>
+        <h2>A studio for surfaces.</h2>
+        <button
+          class="icon-button"
+          id="close-help"
+          aria-label="Close help"
+          data-icon="close"
+        ></button>
+      </div>
+      <p>
+        Paint albedo, metallic, roughness, height and emissive together. The 2D
+        canvas is your brush surface; the 3D preview shades the same composite
+        with a PBR renderer.
+      </p>
+      <div class="shortcut-list">
+        <span>Paint / eraser<kbd>B / E</kbd></span
+        ><span>Smudge / fill<kbd>U / G</kbd></span
+        ><span>Eyedropper / shape<kbd>I / R</kbd></span
+        ><span>Move decal / pan<kbd>V / H</kbd></span
+        ><span>Brush size<kbd>[ ]</kbd></span
+        ><span>Brush opacity<kbd>1 – 0</kbd></span
+        ><span>Undo / redo<kbd>Ctrl Z / Y</kbd></span
+        ><span>Save project<kbd>Ctrl S</kbd></span
+        ><span>Fit view<kbd>F</kbd></span
+        ><span>Checkerboard<kbd>C</kbd></span
+        ><span>Search library<kbd>/</kbd></span
+        ><span>Search layers<kbd>Ctrl ⇧ F</kbd></span>
+      </div>
+      <div class="help-note">
+        Projects save layers, decals, masks and material values as .texpaint
+        JSON. Export PNGs per channel — or a packed ORM map — from the Material
+        tab. Double-click a layer to rename it. Drag layers to reorder. Decal
+        layers expose SVG source and typography without rasterizing.
+      </div>
+    </dialog>
+    <dialog id="new-dialog">
+      <div class="dialog-heading">
+        <span data-icon="plus"></span>
+        <h2>New texture</h2>
+        <button
+          id="close-new"
+          class="icon-button"
+          aria-label="Close new texture"
+          data-icon="close"
+        ></button>
+      </div>
+      <p id="new-scene-name">A fresh layer stack with PBR defaults.</p>
+      <fieldset id="new-settings" class="bake-settings">
+        <label
+          >Name<input
+            id="new-name"
+            type="text"
+            value="Untitled texture"
+            maxlength="64"
+        /></label>
+        <label
+          >Resolution<select id="new-size">
+            <option value="512">512 × 512</option>
+            <option value="1024" selected>1024 × 1024</option>
+            <option value="2048">2048 × 2048</option>
+            <option value="4096">4096 × 4096</option>
+          </select></label
+        >
+        <label
+          >Base fill<select id="new-base">
+            <option value="transparent">Transparent</option>
+            <option value="dark" selected>Dark neutral</option>
+            <option value="mid">Mid grey</option>
+            <option value="light">Light neutral</option>
+          </select></label
+        >
+        <label
+          >Template<select id="new-template">
+            <option value="blank">Blank stack</option>
+            <option value="checker">UV checker</option>
+            <option value="testgrid">PBR test grid</option>
+            <option value="label">Decal label demo</option>
+          </select></label
+        >
+      </fieldset>
+      <div class="bake-actions">
+        <button id="new-create" class="button">Create texture</button>
+      </div>
+      <p id="new-progress-label" role="status">
+        2048 and 4096 allocate large per-channel caches; history depth is
+        reduced automatically at those sizes.
+      </p>
+    </dialog>
+    <dialog id="export-dialog">
+      <div class="dialog-heading">
+        <span data-icon="download"></span>
+        <h2>Export textures</h2>
+        <button
+          id="close-export"
+          class="icon-button"
+          aria-label="Close export"
+          data-icon="close"
+        ></button>
+      </div>
+      <p id="export-scene-name"></p>
+      <p class="bake-description">
+        Straight-alpha PNGs composited at full resolution from the current
+        layer stack. ORM packs occlusion, roughness and metallic into one map.
+      </p>
+      <fieldset id="export-settings" class="bake-settings">
+        <label
+          >Resolution<select id="export-size">
+            <option value="256">256 × 256</option>
+            <option value="512">512 × 512</option>
+            <option value="doc" selected>Document size</option>
+            <option value="2048">2048 × 2048</option>
+          </select></label
+        >
+        <label
+          >Naming<select id="export-naming">
+            <option value="suffix">name_channel.png</option>
+            <option value="prefix">channel_name.png</option>
+          </select></label
+        >
+        <label class="bake-check"
+          ><input id="export-albedo" type="checkbox" checked />Albedo
+          (sRGB)</label
+        >
+        <label class="bake-check"
+          ><input id="export-metallic" type="checkbox" checked />Metallic</label
+        >
+        <label class="bake-check"
+          ><input id="export-roughness" type="checkbox" checked />Roughness</label
+        >
+        <label class="bake-check"
+          ><input id="export-normal" type="checkbox" checked />Normal
+          (OpenGL)</label
+        >
+        <label class="bake-check"
+          ><input id="export-emissive" type="checkbox" />Emissive</label
+        >
+        <label class="bake-check"
+          ><input id="export-height" type="checkbox" />Height</label
+        >
+        <label class="bake-check"
+          ><input id="export-orm" type="checkbox" checked />Packed ORM</label
+        >
+        <label class="bake-check"
+          ><input id="export-project" type="checkbox" checked />Include
+          .texpaint</label
+        >
+      </fieldset>
+      <div class="bake-actions">
+        <button id="export-start" class="button">Export PNGs</button>
+      </div>
+      <p id="export-progress-label" role="status">
+        Each map downloads as a separate file, prefixed with the texture name.
+      </p>
+    </dialog>
+    <input type="file" id="layer-image-file" accept="image/*" hidden />
+    <input type="file" id="decal-file" accept=".svg,image/svg+xml" hidden />
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
