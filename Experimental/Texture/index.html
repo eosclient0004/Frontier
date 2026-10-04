@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b0b" />
+    <title>Texture — Frontier Experimental</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2321252b'/%3E%3Cpath d='M19 6l7 7-11 11H8v-7Z' fill='%23e0e0e0'/%3E%3Cpath d='M8 24h8' stroke='%23efa56f' stroke-width='3'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./src/PanelBase.css" />
+    <link rel="stylesheet" href="./src/ThemeSpecification.css" />
+    <link rel="stylesheet" href="./src/TexturePanel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="document-dock">
+          <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Texture documents"></div>
+          <button id="new-document" class="icon-button" title="New texture set · Ctrl Alt N" aria-label="New texture set" data-icon="plus"></button>
+        </div>
+        <nav class="top-nav" aria-label="Workspace">
+          <button class="nav-button active" id="workspace-button">Workspace</button><button class="nav-button" id="library-button">Materials</button>
+        </nav>
+        <div class="header-end">
+          <span class="gas-tag"><i></i> Texture paint</span
+          ><button class="icon-button" id="help-button" title="Shortcuts and workflow" aria-label="Help" data-icon="help"></button
+          ><button id="save-button" class="button export-button" title="Save project · Ctrl S"><span data-icon="download"></span>Save project</button>
+        </div>
+      </header>
+      <div class="document-bar">
+        <span data-icon="file"></span
+        ><input id="document-name" value="Untitled set" aria-label="Project name" maxlength="64" /><span class="document-extension">.ftex</span
+        ><span id="dirty-indicator" title="Unsaved changes" class="dirty-indicator clean"></span
+        ><span class="document-note" id="document-note">PBR · metal / roughness</span
+        ><span class="history-buttons"
+          ><button id="undo-button" class="text-button" title="Undo · Ctrl Z"><span data-icon="undo"></span>Undo</button
+          ><button id="redo-button" class="text-button" title="Redo · Ctrl Shift Z"><span data-icon="redo"></span>Redo</button></span
+        ><button id="open-button" class="text-button">Open project<span data-icon="folder"></span></button>
+      </div>
+      <main class="workspace" id="texture-workspace">
+        <aside class="left-panel">
+          <div class="outliner-heading">
+            <div>
+              <h1>Layers</h1>
+              <span class="outliner-subtitle">Texture set · <span id="layer-count">0</span> layers</span>
+            </div>
+            <button id="compact-outliner" class="icon-button" title="Compact layer list" aria-label="Compact layer list" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14M17 5v14" /></svg>
+            </button>
+          </div>
+          <div class="scene-statistics">
+            <div class="scene-stat">
+              <span class="stat-symbol enabled-symbol">✓</span><span class="stat-label">Visible</span><strong id="visible-count">0</strong>
+            </div>
+            <div class="scene-stat">
+              <span class="stat-symbol disabled-symbol" data-icon="hidden"></span><span class="stat-label">Hidden</span><strong id="hidden-count">0</strong>
+            </div>
+          </div>
+          <label class="search scene-search"
+            ><span data-icon="search"></span><input type="search" id="layer-search" placeholder="Search layers…" aria-label="Search layers" /><kbd>Ctrl ⇧ F</kbd></label
+          >
+          <div class="scene-filters" id="layer-filters" aria-label="Layer filters">
+            <button data-layer-filter="all" class="active" aria-pressed="true">All</button
+            ><button data-layer-filter="paint" aria-pressed="false">Paint</button
+            ><button data-layer-filter="fill" aria-pressed="false">Fill</button
+            ><button data-layer-filter="decal" aria-pressed="false">Decal</button>
+          </div>
+          <div class="scene-toolbar">
+            <button id="collection-toggle" aria-expanded="true" aria-controls="layer-tree"
+              ><span class="collection-chevron">⌄</span><span data-icon="layers"></span><span>Layer stack</span></button
+            ><button id="add-button" class="icon-button" title="Add layer" aria-label="Add layer" aria-expanded="false" data-icon="plus"></button>
+          </div>
+          <div id="layer-tree" class="scene-tree layer-tree" role="tree" aria-label="Layer stack"></div>
+          <div class="scene-footnote"><span data-icon="link"></span><span id="layer-footnote">Strokes land on the active layer</span></div>
+          <div class="library" id="library">
+            <div class="panel-heading">
+              <span>Material library</span><span class="count" id="material-count"></span><span data-icon="grid"></span>
+            </div>
+            <label class="search"
+              ><span data-icon="search"></span><input type="search" id="material-search" placeholder="Find a material…" aria-label="Search materials" /><kbd>/</kbd></label
+            >
+            <div class="filter-row" id="material-filters"></div>
+            <div class="preset-list" id="material-list"></div>
+            <div id="empty-materials" class="empty-presets" hidden>
+              No matching materials.<button class="text-button" id="reset-material-search">Clear search</button>
+            </div>
+          </div>
+          <div class="left-footer"><span data-icon="sphere"></span><span id="left-footer-text">Metal / roughness · 5 channels</span></div>
+        </aside>
+        <section class="center-panel">
+          <div class="viewport-bar">
+            <span data-icon="viewport"></span><strong>Viewport</strong><span class="bar-divider"></span
+            ><select id="view-mode" aria-label="View layout">
+              <option value="3d">3D view</option>
+              <option value="uv">UV view</option>
+              <option value="split">Split 3D · UV</option></select
+            ><select id="view-channel" aria-label="Displayed channel"></select>
+            <div class="viewport-bar-end">
+              <button id="export-button" class="button bake-toolbar" title="Export texture maps"><span data-icon="download"></span>Export</button
+              ><button id="wire-button" class="icon-button" title="Wireframe · W" aria-label="Toggle wireframe" aria-pressed="false" data-icon="wire"></button
+              ><button id="env-button" class="icon-button" title="Show environment" aria-label="Toggle environment background" aria-pressed="false" data-icon="sun"></button
+              ><button id="focus-button" class="icon-button" title="Frame model · F" aria-label="Frame model" data-icon="focus"></button
+              ><button id="maximize-button" class="icon-button" title="Maximize viewport" aria-label="Maximize viewport" data-icon="maximize"></button>
+            </div>
+          </div>
+          <div class="viewport" id="viewport">
+            <canvas id="paint-canvas" aria-label="Texture painting viewport"></canvas>
+            <div class="split-divider" id="split-divider" hidden></div>
+            <svg id="decal-gizmo" class="decal-gizmo" aria-label="Decal placement" style="display: none"></svg>
+            <div id="brush-cursor" class="brush-cursor" hidden><i></i></div>
+            <div class="viewport-caption">
+              <span class="live-pill" id="mode-pill"><i></i><span>PAINT</span></span><span id="viewport-object">Paint layer</span><small id="viewport-subtitle">Projection painting · metal / rough</small>
+            </div>
+            <div class="viewport-tools" aria-label="Viewport tools">
+              <button class="icon-button active" data-tool="paint" title="Paint · B" aria-label="Paint" data-icon="brush"></button
+              ><button class="icon-button" data-tool="erase" title="Erase · E" aria-label="Erase" data-icon="eraser"></button
+              ><button class="icon-button" data-tool="decal" title="Place decal · D" aria-label="Place decal" data-icon="target"></button
+              ><button class="icon-button" data-tool="picker" title="Sample material · I" aria-label="Sample material" data-icon="picker"></button
+              ><span></span
+              ><button class="icon-button" data-tool="orbit" title="Orbit · O (or Alt + drag)" aria-label="Orbit camera" data-icon="orbit"></button>
+            </div>
+            <div class="viewport-right-hud">
+              <span class="live-metric"><b id="fps">—</b> FPS</span><span class="live-metric" id="texel-hud">1024² TEXELS</span>
+            </div>
+            <div class="viewport-help" id="viewport-help">
+              <span>Alt-drag to orbit</span><i>·</i><span>Right-drag to pan</span><i>·</i><span>Scroll to zoom</span><i>·</i><span>[ ] brush size</span>
+            </div>
+            <div class="axis-gizmo" aria-label="World axes">
+              <svg viewBox="0 0 76 76" id="axis-svg"></svg>
+            </div>
+            <div class="gpu-error" id="gpu-error" hidden>
+              <span data-icon="warning"></span>
+              <h2>GPU renderer unavailable</h2>
+              <p id="gpu-error-message"></p>
+              <button class="button" id="retry-gpu">Reload editor</button>
+            </div>
+            <div id="toast" class="toast" role="status" hidden></div>
+            <div id="busy" class="busy" hidden><i></i><span id="busy-label">Working…</span></div>
+          </div>
+          <div class="transport brush-bar">
+            <label class="brush-swatch" title="Brush color"><input type="color" id="brush-color" aria-label="Brush color" /><span id="brush-swatch-fill"></span></label>
+            <span class="transport-divider"></span>
+            <div class="brush-chips" id="brush-chips"></div>
+            <div class="transport-actions">
+              <div class="segmented" id="paint-target" role="radiogroup" aria-label="Paint target">
+                <button data-target="layer" class="active" role="radio" aria-checked="true">Layer</button
+                ><button data-target="mask" role="radio" aria-checked="false">Mask<span class="key-hint">M</span></button>
+              </div>
+              <button class="button mask-value" id="mask-value" title="Mask paint value · X" hidden><i></i><span>Reveal</span></button>
+            </div>
+          </div>
+          <div class="timeline texture-strip" aria-label="Texture set channels">
+            <div class="timeline-label">
+              <span data-icon="grid"></span>TEXTURE SET<span id="texture-strip-label">1024 × 1024 · 7 MAPS</span>
+            </div>
+            <div class="channel-tiles" id="channel-tiles"></div>
+          </div>
+        </section>
+        <aside class="inspector-panel">
+          <div class="panel-heading">
+            <span>Inspector</span><button id="reset-properties" class="icon-button" title="Reset this inspector tab" aria-label="Reset this inspector tab" data-icon="rotate"></button>
+          </div>
+          <div class="object-heading">
+            <div class="object-symbol" id="object-symbol" data-icon="brush"></div>
+            <div>
+              <input id="object-name" value="Paint layer" maxlength="64" aria-label="Layer name" /><span id="object-type">PAINT LAYER</span>
+            </div>
+            <label class="switch" title="Layer visibility" id="object-switch"
+              ><input type="checkbox" id="object-enabled" aria-label="Layer visible" checked /><span></span
+            ></label>
+          </div>
+          <div class="inspector-tabs" id="inspector-tabs"></div>
+          <div id="inspector-body" class="inspector-body"></div>
+          <div class="inspector-footer"><span data-icon="link"></span><span id="inspector-footer-text">Non-destructive · Ctrl Z to undo</span></div>
+        </aside>
+      </main>
+      <footer class="status-bar">
+        <span class="status-ready" id="status-ready"><i></i>Initializing GPU</span><span class="status-divider"></span
+        ><span id="resolution-status">1024 × 1024 px</span><span class="status-divider"></span
+        ><span id="mesh-status">— triangles</span><span class="status-divider"></span
+        ><span id="history-status">History 0</span
+        ><span class="status-right"
+          ><span class="gpu-dot"></span><span id="gpu-status">WebGL2</span><span class="status-divider"></span>FRONTIER / TEXTURE
+          <span class="version">0.1</span></span
+        >
+      </footer>
+    </div>
+
+    <div id="add-menu" class="popover add-menu" hidden role="menu">
+      <div class="popover-label">ADD LAYER</div>
+      <button data-add="paint" role="menuitem"><span data-icon="brush"></span><span>Paint layer<small>Strokes on every PBR channel</small></span></button
+      ><button data-add="fill" role="menuitem"><span data-icon="bucket"></span><span>Fill layer<small>Procedural material, masked</small></span></button>
+      <div class="menu-divider"></div>
+      <button data-add="svg" role="menuitem"><span data-icon="shape"></span><span>SVG decal<small>Vector artwork, projected</small></span></button
+      ><button data-add="text" role="menuitem"><span data-icon="type"></span><span>Text decal<small>Typeset label, projected</small></span></button>
+      <p>New layers are inserted above the active layer. Decals project from the current view onto the surface.</p>
+    </div>
+
+    <dialog id="help-dialog">
+      <div class="dialog-heading">
+        <span data-icon="brush"></span>
+        <h2>Paint straight onto the surface.</h2>
+        <button class="icon-button" id="close-help" aria-label="Close help" data-icon="close"></button>
+      </div>
+      <p>
+        Strokes are projected from the camera into texture space, so they wrap across UV seams. Every layer carries base color, roughness,
+        metallic, height and emission.
+      </p>
+      <div class="shortcut-list">
+        <span>Paint / erase<kbd>B / E</kbd></span><span>Place decal<kbd>D</kbd></span><span>Sample material<kbd>I</kbd></span
+        ><span>Orbit<kbd>Alt + drag</kbd></span><span>Brush size<kbd>[ ]</kbd></span><span>Hardness<kbd>⇧ [ ]</kbd></span
+        ><span>Paint on mask<kbd>M</kbd></span><span>Reveal / hide<kbd>X</kbd></span><span>Straight line<kbd>⇧ click</kbd></span
+        ><span>3D / UV / split<kbd>1 / 2 / 3</kbd></span><span>Wireframe<kbd>W</kbd></span><span>Frame model<kbd>F</kbd></span
+        ><span>Undo / redo<kbd>Ctrl Z / ⇧ Z</kbd></span><span>New paint layer<kbd>Ctrl ⇧ N</kbd></span><span>Duplicate layer<kbd>Ctrl D</kbd></span
+        ><span>Delete layer<kbd>Del</kbd></span><span>Save project<kbd>Ctrl S</kbd></span><span>Search materials<kbd>/</kbd></span>
+      </div>
+      <div class="help-note">
+        Click a material card to load it into the brush (paint layers) or assign it (fill and decal layers); the ↗ button adds it as a new
+        fill layer. Smart materials add a masked stack. Mask generators read curvature, height and facing baked from the mesh. Decal
+        tool: click the model to stick the active decal there, drag the round handle to rotate and the corners to scale. Projects save as
+        a .ftex archive with lossless layer data; Export writes PNG maps (height as 16-bit).
+      </div>
+    </dialog>
+
+    <dialog id="export-dialog">
+      <div class="dialog-heading">
+        <span data-icon="download"></span>
+        <h2>Export texture maps</h2>
+        <button id="close-export" class="icon-button" aria-label="Close export" data-icon="close"></button>
+      </div>
+      <p id="export-summary"></p>
+      <fieldset class="bake-settings export-settings">
+        <label class="bake-check"><input type="checkbox" data-export="BaseColor" checked />Base color · sRGB</label>
+        <label class="bake-check"><input type="checkbox" data-export="Roughness" checked />Roughness</label>
+        <label class="bake-check"><input type="checkbox" data-export="Metallic" checked />Metallic</label>
+        <label class="bake-check"><input type="checkbox" data-export="Height" checked />Height · 16-bit</label>
+        <label class="bake-check"><input type="checkbox" data-export="Normal" checked />Normal</label>
+        <label class="bake-check"><input type="checkbox" data-export="Emissive" checked />Emissive</label>
+        <label class="bake-check"><input type="checkbox" data-export="ORM" />Packed ORM (Unreal)</label>
+        <label class="bake-check"><input type="checkbox" data-export="Mask" />Unity mask map</label>
+        <label>Normal convention<select id="export-normal"><option value="gl">OpenGL (Y+)</option><option value="dx">DirectX (Y−)</option></select></label>
+        <label>File prefix<input id="export-prefix" type="text" maxlength="48" /></label>
+      </fieldset>
+      <div class="bake-actions">
+        <button id="export-start" class="button primary-button">Download ZIP</button>
+      </div>
+      <progress id="export-progress" max="1" value="0"></progress>
+      <p id="export-label" role="status">Maps are dilated past UV seams and flipped to image orientation (V up).</p>
+    </dialog>
+
+    <input type="file" id="open-file" accept=".ftex,application/zip" hidden />
+    <input type="file" id="svg-file" accept=".svg,image/svg+xml" hidden />
+    <input type="file" id="obj-file" accept=".obj" hidden />
+    <input type="file" id="bitmap-file" accept="image/png,image/jpeg,image/webp" hidden />
+    <input type="file" id="font-file" accept=".ttf,.otf,.woff,.woff2" hidden />
+    <input type="file" id="material-file" accept=".json,application/json" hidden />
+    <script type="module" src="./src/TexturePanel.js"></script>
+  </body>
+</html>
