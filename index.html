@@ -4,7 +4,504 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Geological Cliff Formation Generator</title>
-  <link rel="stylesheet" href="/src/styles/main.css" />
+  <!-- Load Three.js & OrbitControls from CDN for universal raw.githack.com / static hosting support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    :root {
+      --bg-primary: #0f1117;
+      --bg-secondary: #161a23;
+      --bg-tertiary: #1f2430;
+      --bg-card: #1c212c;
+      --border-color: #2b3245;
+      --border-focus: #4f68ff;
+      --text-primary: #f0f3f8;
+      --text-secondary: #9ba3b8;
+      --text-muted: #647087;
+      --accent-blue: #3b82f6;
+      --accent-amber: #f59e0b;
+      --accent-emerald: #10b981;
+      --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    #app {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    .sidebar {
+      width: 420px;
+      min-width: 380px;
+      max-width: 450px;
+      height: 100vh;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .sidebar-header {
+      padding: 16px 20px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+    }
+
+    .logo-text h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .logo-text p {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .badge-no-noise {
+      margin-top: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 20px;
+      font-size: 11px;
+      color: var(--accent-emerald);
+      font-weight: 600;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      background-color: var(--accent-emerald);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--accent-emerald);
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sidebar-content::-webkit-scrollbar {
+      width: 6px;
+    }
+    .sidebar-content::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 3px;
+    }
+
+    .control-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .preset-btn {
+      padding: 7px 9px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+
+    .preset-btn:hover {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--accent-blue);
+      color: #fff;
+    }
+
+    .preset-btn.active {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+    }
+
+    .stage-stepper {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .stage-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .stage-card:hover {
+      border-color: var(--accent-amber);
+      transform: translateX(2px);
+    }
+
+    .stage-card.active {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: var(--accent-amber);
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+    }
+
+    .stage-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stage-card-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .stage-num-badge {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+
+    .stage-card.active .stage-num-badge {
+      background: var(--accent-amber);
+      border-color: var(--accent-amber);
+      color: #000;
+    }
+
+    .stage-card-desc {
+      margin-top: 4px;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .control-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .control-val {
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--bg-tertiary);
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent-blue);
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
+      transition: transform 0.1s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    .btn-primary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 14px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      border-color: var(--accent-blue);
+    }
+
+    .action-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .viewport-container {
+      flex: 1;
+      height: 100vh;
+      position: relative;
+      background-color: #0b0d13;
+    }
+
+    .viewport-top-hud {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .render-mode-bar {
+      display: flex;
+      background: rgba(22, 26, 35, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      gap: 4px;
+      pointer-events: auto;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .mode-btn {
+      padding: 5px 10px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .mode-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .mode-btn.active {
+      background: var(--accent-blue);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+    }
+
+    .stats-badge {
+      background: rgba(22, 26, 35, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 6px 12px;
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      pointer-events: auto;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-val {
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: monospace;
+    }
+
+    .viewport-bottom-hud {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .stage-banner {
+      background: rgba(22, 26, 35, 0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 10px 18px;
+      max-width: 600px;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+      pointer-events: auto;
+    }
+
+    .stage-banner h3 {
+      font-size: 13px;
+      color: var(--accent-amber);
+      margin-bottom: 3px;
+    }
+
+    .stage-banner p {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(11, 13, 19, 0.65);
+      backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .loading-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .spinner {
+      width: 38px;
+      height: 38px;
+      border: 3px solid rgba(245, 158, 11, 0.2);
+      border-top-color: var(--accent-amber);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
   <div id="app">
@@ -39,7 +536,7 @@
           </div>
         </div>
 
-        <!-- 5-Stage Pipeline Scrubber -->
+        <!-- 5-Stage Pipeline Stepper -->
         <div class="control-section">
           <div class="section-title">
             <span>Pipeline Stages (1 to 5)</span>
@@ -97,7 +594,7 @@
           </div>
         </div>
 
-        <!-- Parameters -->
+        <!-- Geological Parameters -->
         <div class="control-section">
           <div class="section-title">
             <span>Geological Parameters</span>
@@ -211,9 +708,8 @@
       </div>
     </aside>
 
-    <!-- 3D Viewport Area -->
+    <!-- 3D Viewport -->
     <main class="viewport-container" id="viewport-container">
-      <!-- Top HUD -->
       <div class="viewport-top-hud">
         <div class="render-mode-bar">
           <button class="mode-btn active" data-mode="clay">Clay (Untextured)</button>
@@ -247,7 +743,6 @@
         </div>
       </div>
 
-      <!-- Bottom Stage Banner -->
       <div class="viewport-bottom-hud">
         <div class="stage-banner">
           <h3 id="banner-title">Step 5: Surface Cracks & Final Polish</h3>
@@ -255,14 +750,906 @@
         </div>
       </div>
 
-      <!-- Loading Spinner Overlay -->
       <div id="loading-overlay" class="loading-overlay">
         <div class="spinner"></div>
-        <div style="font-weight: 600; font-size: 14px; color: #fff;">Processing Geological Physics Pipeline...</div>
+        <div style="font-weight: 600; font-size: 13px; color: #fff;">Processing Geological Physics Pipeline...</div>
       </div>
     </main>
   </div>
 
-  <script type="module" src="/src/ui/app.ts"></script>
+  <script>
+    // =========================================================================
+    // 1. DETERMINISTIC GEOLOGICAL PARAMETER SELECTOR (NO NOISE)
+    // =========================================================================
+    class GeologicalPRNG {
+      constructor(seed) {
+        this.state = (seed ^ 0x6c62272e) >>> 0;
+        if (this.state === 0) this.state = 0x12345678;
+      }
+      nextFloat() {
+        let t = (this.state += 0x6d2b79f5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      }
+      range(min, max) {
+        return min + this.nextFloat() * (max - min);
+      }
+      rangeInt(min, max) {
+        return Math.floor(this.range(min, max + 1));
+      }
+      choose(array) {
+        return array[Math.floor(this.nextFloat() * array.length)];
+      }
+      chance(prob) {
+        return this.nextFloat() < prob;
+      }
+    }
+
+    // =========================================================================
+    // 2. VECTOR MATH & MESH DATA STRUCTURES
+    // =========================================================================
+    const Vec3Math = {
+      create: (x = 0, y = 0, z = 0) => ({ x, y, z }),
+      clone: (v) => ({ x: v.x, y: v.y, z: v.z }),
+      add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
+      sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
+      scale: (v, s) => ({ x: v.x * s, y: v.y * s, z: v.z * s }),
+      dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
+      cross: (a, b) => ({
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x,
+      }),
+      lengthSq: (v) => v.x * v.x + v.y * v.y + v.z * v.z,
+      length: (v) => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z),
+      normalize: (v) => {
+        const l = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        if (l < 1e-8) return { x: 0, y: 0, z: 1 };
+        const inv = 1 / l;
+        return { x: v.x * inv, y: v.y * inv, z: v.z * inv };
+      },
+      distance: (a, b) => {
+        const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+      },
+      lerp: (a, b, t) => ({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+      })
+    };
+
+    class MeshBuilder {
+      constructor() {
+        this.vertices = [];
+        this.indices = [];
+        this.normals = [];
+        this.colors = [];
+        this.strataIndices = [];
+      }
+      addVertex(v, normal, color, strataIndex = 0) {
+        const idx = this.vertices.length / 3;
+        this.vertices.push(v.x, v.y, v.z);
+        if (normal) {
+          this.normals.push(normal.x, normal.y, normal.z);
+        } else {
+          this.normals.push(0, 0, 1);
+        }
+        if (color) {
+          this.colors.push(color[0], color[1], color[2]);
+        } else {
+          this.colors.push(0.72, 0.65, 0.58);
+        }
+        this.strataIndices.push(strataIndex);
+        return idx;
+      }
+      addTriangle(i0, i1, i2) {
+        if (i0 === i1 || i1 === i2 || i2 === i0) return;
+        this.indices.push(i0, i1, i2);
+      }
+      addQuad(i0, i1, i2, i3) {
+        this.addTriangle(i0, i1, i2);
+        this.addTriangle(i0, i2, i3);
+      }
+      build() {
+        const vArr = new Float32Array(this.vertices);
+        const iArr = new Uint32Array(this.indices);
+        const nArr = new Float32Array(this.normals);
+        const cArr = new Float32Array(this.colors);
+        const sArr = new Uint8Array(this.strataIndices);
+
+        const mesh = {
+          vertices: vArr,
+          indices: iArr,
+          normals: nArr,
+          colors: cArr,
+          strataIndices: sArr,
+          vertexCount: vArr.length / 3,
+          triangleCount: iArr.length / 3
+        };
+        this.recomputeNormals(mesh);
+        return mesh;
+      }
+      recomputeNormals(mesh) {
+        const { vertices, indices, normals } = mesh;
+        normals.fill(0);
+        for (let i = 0; i < indices.length; i += 3) {
+          const i0 = indices[i] * 3;
+          const i1 = indices[i + 1] * 3;
+          const i2 = indices[i + 2] * 3;
+
+          const v0 = { x: vertices[i0], y: vertices[i0 + 1], z: vertices[i0 + 2] };
+          const v1 = { x: vertices[i1], y: vertices[i1 + 1], z: vertices[i1 + 2] };
+          const v2 = { x: vertices[i2], y: vertices[i2 + 1], z: vertices[i2 + 2] };
+
+          const e1 = Vec3Math.sub(v1, v0);
+          const e2 = Vec3Math.sub(v2, v0);
+          const fn = Vec3Math.cross(e1, e2);
+
+          normals[i0] += fn.x; normals[i0 + 1] += fn.y; normals[i0 + 2] += fn.z;
+          normals[i1] += fn.x; normals[i1 + 1] += fn.y; normals[i1 + 2] += fn.z;
+          normals[i2] += fn.x; normals[i2 + 1] += fn.y; normals[i2 + 2] += fn.z;
+        }
+
+        for (let i = 0; i < normals.length; i += 3) {
+          const l = Math.sqrt(normals[i] ** 2 + normals[i + 1] ** 2 + normals[i + 2] ** 2);
+          if (l > 1e-8) {
+            normals[i] /= l; normals[i + 1] /= l; normals[i + 2] /= l;
+          } else {
+            normals[i] = 0; normals[i + 1] = 0; normals[i + 2] = 1;
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // 3. 5-STAGE PROCEDURAL GEOLOGY PIPELINE
+    // =========================================================================
+
+    function generateStrata(config, prng) {
+      const H = config.height;
+      const numLayers = Math.max(3, config.strataCount);
+      const LITHOLOGIES = [
+        { name: 'Massive Sandstone', hardness: 0.85, color: [0.78, 0.52, 0.36], protrusion: 1.15 },
+        { name: 'Weathered Siltstone', hardness: 0.45, color: [0.65, 0.48, 0.40], protrusion: 0.85 },
+        { name: 'Competent Limestone', hardness: 0.95, color: [0.72, 0.68, 0.62], protrusion: 1.25 },
+        { name: 'Fissile Shale', hardness: 0.25, color: [0.45, 0.40, 0.38], protrusion: 0.70 },
+        { name: 'Conglomerate Bed', hardness: 0.70, color: [0.68, 0.58, 0.46], protrusion: 1.05 },
+        { name: 'Caprock Quartzite', hardness: 1.00, color: [0.82, 0.75, 0.68], protrusion: 1.35 },
+      ];
+
+      const strata = [];
+      let currentZ = 0.0;
+      const avgThick = H / numLayers;
+
+      for (let i = 0; i < numLayers; i++) {
+        const isCap = (i === numLayers - 1);
+        const litho = isCap ? LITHOLOGIES[5] : prng.choose(LITHOLOGIES.slice(0, 5));
+        const factor = isCap ? prng.range(1.1, 1.4) : prng.range(0.6, 1.4);
+        const thick = Math.min(H - currentZ, avgThick * factor);
+        const zMin = currentZ;
+        const zMax = currentZ + thick;
+        currentZ = zMax;
+
+        strata.push({
+          index: i,
+          zMin,
+          zMax,
+          thickness: thick,
+          hardness: litho.hardness,
+          protrusion: litho.protrusion * (isCap ? config.overhangIntensity : 1.0),
+          dip: config.overallDip + prng.range(-1.5, 1.5),
+          name: litho.name,
+          color: litho.color
+        });
+        if (currentZ >= H - 1e-4) break;
+      }
+      return strata;
+    }
+
+    // Step 1: Macro Cliff Base Shape
+    function stage1MacroCliff(config, strata, prng) {
+      const builder = new MeshBuilder();
+      const W = config.width, H = config.height, D = config.depth;
+      const nx = 36, nz = 44;
+
+      const buttresses = [];
+      for (let b = 0; b < config.buttressCount; b++) {
+        const xNorm = (b + 0.5) / config.buttressCount;
+        const bx = -W * 0.45 + xNorm * W * 0.9 + prng.range(-W * 0.05, W * 0.05);
+        buttresses.push({
+          x: bx,
+          width: prng.range(W * 0.15, W * 0.25),
+          protrusion: prng.range(D * 0.25, D * 0.45)
+        });
+      }
+
+      const grid = [];
+      const talusZ = H * config.talusHeightFraction;
+
+      for (let iz = 0; iz <= nz; iz++) {
+        const z = (iz / nz) * H;
+        let curStrata = strata[0];
+        for (const layer of strata) {
+          if (layer.zMin <= z && z <= layer.zMax) {
+            curStrata = layer;
+            break;
+          }
+        }
+
+        let yBase = D * 0.55;
+        if (z <= talusZ) {
+          const talusT = z / Math.max(1e-4, talusZ);
+          yBase += D * 0.35 * (1.0 - talusT);
+        } else {
+          const relZ = (z - curStrata.zMin) / Math.max(1e-4, curStrata.thickness);
+          const step = Math.sin(relZ * Math.PI);
+          yBase += (curStrata.protrusion - 1.0) * D * 0.2 + step * D * 0.08;
+        }
+
+        if (z > H * 0.88) {
+          const topT = (z - H * 0.88) / (H * 0.12);
+          yBase += config.overhangIntensity * D * 0.18 * topT;
+        }
+
+        const row = [];
+        for (let ix = 0; ix <= nx; ix++) {
+          const x = -W * 0.5 + (ix / nx) * W;
+          const dipOffset = (x / W) * Math.tan((curStrata.dip * Math.PI) / 180) * D * 0.3;
+
+          let bExtra = 0.0;
+          for (const butt of buttresses) {
+            const dist = Math.abs(x - butt.x);
+            if (dist < butt.width) {
+              const bell = Math.cos((dist / butt.width) * (Math.PI * 0.5));
+              const zf = Math.max(0.2, Math.min(1.0, z / (H * 0.4)));
+              bExtra += butt.protrusion * bell * zf;
+            }
+          }
+
+          const yFace = yBase + dipOffset + bExtra;
+          const idx = builder.addVertex({ x, y: yFace, z }, undefined, curStrata.color, curStrata.index);
+          row.push(idx);
+        }
+        grid.push(row);
+      }
+
+      for (let iz = 0; iz < nz; iz++) {
+        for (let ix = 0; ix < nx; ix++) {
+          builder.addQuad(grid[iz][ix], grid[iz][ix + 1], grid[iz + 1][ix + 1], grid[iz + 1][ix]);
+        }
+      }
+
+      // Watertight box boundaries
+      const bLeft = builder.addVertex({ x: -W * 0.5, y: 0, z: 0 }, { x: 0, y: 0, z: -1 });
+      const bRight = builder.addVertex({ x: W * 0.5, y: 0, z: 0 }, { x: 0, y: 0, z: -1 });
+      builder.addQuad(bLeft, bRight, grid[0][nx], grid[0][0]);
+
+      const tLeft = builder.addVertex({ x: -W * 0.5, y: 0, z: H }, { x: 0, y: 0, z: 1 });
+      const tRight = builder.addVertex({ x: W * 0.5, y: 0, z: H }, { x: 0, y: 0, z: 1 });
+      builder.addQuad(grid[nz][0], grid[nz][nx], tRight, tLeft);
+
+      builder.addQuad(bRight, bLeft, tLeft, tRight);
+
+      for (let iz = 0; iz < nz; iz++) {
+        const l0 = builder.addVertex({ x: -W * 0.5, y: 0, z: (iz / nz) * H }, { x: -1, y: 0, z: 0 });
+        const l1 = builder.addVertex({ x: -W * 0.5, y: 0, z: ((iz + 1) / nz) * H }, { x: -1, y: 0, z: 0 });
+        builder.addQuad(l0, grid[iz][0], grid[iz + 1][0], l1);
+
+        const r0 = builder.addVertex({ x: W * 0.5, y: 0, z: (iz / nz) * H }, { x: 1, y: 0, z: 0 });
+        const r1 = builder.addVertex({ x: W * 0.5, y: 0, z: ((iz + 1) / nz) * H }, { x: 1, y: 0, z: 0 });
+        builder.addQuad(grid[iz][nx], r0, r1, grid[iz + 1][nx]);
+      }
+
+      return builder.build();
+    }
+
+    // Step 2: Face Cutting with Offset
+    function stage2CutFaces(inputMesh, config, strata, prng) {
+      const builder = new MeshBuilder();
+      const W = config.width, H = config.height, D = config.depth;
+      const numCuts = config.cutCount;
+
+      const cutters = [];
+      for (let i = 0; i < numCuts; i++) {
+        const origin = {
+          x: prng.range(-0.42, 0.42) * W,
+          y: D * prng.range(0.55, 0.85),
+          z: prng.range(0.15, 0.92) * H
+        };
+        const strike = prng.range(-0.6, 0.6);
+        const dip = prng.range(1.1, 1.45);
+        const norm = Vec3Math.normalize({
+          x: Math.sin(strike) * Math.cos(dip),
+          y: -Math.sin(dip),
+          z: Math.cos(strike) * Math.cos(dip)
+        });
+        const radius = prng.range(W * 0.18, W * 0.32);
+        const depthOffset = prng.range(D * 0.08, D * config.maxCutOffset);
+        cutters.push({ origin, normal: norm, radius, offset: depthOffset });
+      }
+
+      const numV = inputMesh.vertices.length / 3;
+      for (let i = 0; i < numV; i++) {
+        let vx = inputMesh.vertices[i * 3];
+        let vy = inputMesh.vertices[i * 3 + 1];
+        let vz = inputMesh.vertices[i * 3 + 2];
+
+        if (vy > D * 0.05) {
+          for (const c of cutters) {
+            const dx = vx - c.origin.x, dy = vy - c.origin.y, dz = vz - c.origin.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist < c.radius) {
+              const radial = 1.0 - (dist / c.radius) ** 2;
+              const planeD = dx * c.normal.x + dy * c.normal.y + dz * c.normal.z;
+              if (planeD > 0) {
+                const cut = Math.min(planeD, c.offset * radial);
+                vx -= c.normal.x * cut;
+                vy -= c.normal.y * cut;
+                vz -= c.normal.z * cut;
+              }
+            }
+          }
+        }
+
+        const col = [
+          inputMesh.colors[i * 3],
+          inputMesh.colors[i * 3 + 1],
+          inputMesh.colors[i * 3 + 2]
+        ];
+        builder.addVertex({ x: vx, y: vy, z: vz }, undefined, col, inputMesh.strataIndices[i]);
+      }
+
+      for (let i = 0; i < inputMesh.indices.length; i += 3) {
+        builder.addTriangle(inputMesh.indices[i], inputMesh.indices[i + 1], inputMesh.indices[i + 2]);
+      }
+
+      return builder.build();
+    }
+
+    // Step 3: Structural Joint Fractures
+    function stage3FractureCliff(inputMesh, config, strata, prng) {
+      const builder = new MeshBuilder();
+      const D = config.depth;
+      const spacing = config.jointSpacing;
+      const dilation = config.jointDilation;
+
+      const j1Strike = (prng.range(15, 30) * Math.PI) / 180;
+      const j1Dip = (prng.range(80, 88) * Math.PI) / 180;
+      const n1 = Vec3Math.normalize({
+        x: Math.cos(j1Strike) * Math.sin(j1Dip),
+        y: Math.sin(j1Strike) * Math.sin(j1Dip),
+        z: Math.cos(j1Dip)
+      });
+
+      const j2Strike = j1Strike + (prng.range(80, 100) * Math.PI) / 180;
+      const j2Dip = (prng.range(82, 88) * Math.PI) / 180;
+      const n2 = Vec3Math.normalize({
+        x: Math.cos(j2Strike) * Math.sin(j2Dip),
+        y: Math.sin(j2Strike) * Math.sin(j2Dip),
+        z: Math.cos(j2Dip)
+      });
+
+      const numV = inputMesh.vertices.length / 3;
+      for (let i = 0; i < numV; i++) {
+        let vx = inputMesh.vertices[i * 3];
+        let vy = inputMesh.vertices[i * 3 + 1];
+        let vz = inputMesh.vertices[i * 3 + 2];
+
+        const sIdx = inputMesh.strataIndices[i];
+        const layerOffset = (sIdx % 2) * (spacing * 0.5);
+
+        const u1 = vx * n1.x + vy * n1.y + vz * n1.z + layerOffset;
+        const u2 = vx * n2.x + vy * n2.y + vz * n2.z;
+
+        const bx = Math.floor(u1 / spacing);
+        const by = Math.floor(u2 / spacing);
+
+        if (vy > D * 0.05) {
+          const d1 = Math.abs(u1 - (bx + 0.5) * spacing);
+          const d2 = Math.abs(u2 - (by + 0.5) * spacing);
+          const thresh1 = spacing * 0.18;
+          const thresh2 = spacing * 0.18;
+
+          if (d1 > spacing * 0.5 - thresh1) {
+            const p = (d1 - (spacing * 0.5 - thresh1)) / thresh1;
+            vy -= dilation * p * 1.5;
+          }
+          if (d2 > spacing * 0.5 - thresh2) {
+            const p = (d2 - (spacing * 0.5 - thresh2)) / thresh2;
+            vy -= dilation * p * 1.5;
+          }
+        }
+
+        const col = [
+          inputMesh.colors[i * 3],
+          inputMesh.colors[i * 3 + 1],
+          inputMesh.colors[i * 3 + 2]
+        ];
+        builder.addVertex({ x: vx, y: vy, z: vz }, undefined, col, sIdx);
+      }
+
+      for (let i = 0; i < inputMesh.indices.length; i += 3) {
+        builder.addTriangle(inputMesh.indices[i], inputMesh.indices[i + 1], inputMesh.indices[i + 2]);
+      }
+
+      return builder.build();
+    }
+
+    // Step 4: Edge Chipping & SDF Differential Erosion
+    function stage4EdgeChippingErosion(inputMesh, config, strata, prng) {
+      const builder = new MeshBuilder();
+      const erosion = config.erosionStrength;
+      const contrast = config.strataHardnessContrast;
+      const numV = inputMesh.vertices.length / 3;
+
+      for (let i = 0; i < numV; i++) {
+        let vx = inputMesh.vertices[i * 3];
+        let vy = inputMesh.vertices[i * 3 + 1];
+        let vz = inputMesh.vertices[i * 3 + 2];
+
+        const sIdx = inputMesh.strataIndices[i];
+        const hardness = strata[sIdx] ? strata[sIdx].hardness : 0.5;
+
+        if (vy > config.depth * 0.05) {
+          // Differential strata weathering: softer layers erode deeper horizontally
+          const erodeY = erosion * (1.0 - hardness * contrast) * 0.8;
+          vy -= erodeY;
+
+          // Edge chipping along sharp convex ledges
+          const ny = inputMesh.normals[i * 3 + 1];
+          const nz = inputMesh.normals[i * 3 + 2];
+          if (ny > 0.3 && nz > 0.4) {
+            vy -= config.edgeChipDepth * 0.4;
+            vz -= config.edgeChipDepth * 0.3;
+          }
+        }
+
+        const col = [
+          inputMesh.colors[i * 3],
+          inputMesh.colors[i * 3 + 1],
+          inputMesh.colors[i * 3 + 2]
+        ];
+        builder.addVertex({ x: vx, y: vy, z: vz }, undefined, col, sIdx);
+      }
+
+      for (let i = 0; i < inputMesh.indices.length; i += 3) {
+        builder.addTriangle(inputMesh.indices[i], inputMesh.indices[i + 1], inputMesh.indices[i + 2]);
+      }
+
+      return builder.build();
+    }
+
+    // Step 5: Surface Cracks with Bounded Offset & Final Polish
+    function stage5SurfaceCracks(inputMesh, config, strata, prng) {
+      const builder = new MeshBuilder();
+      const W = config.width, H = config.height, D = config.depth;
+      const numCracks = Math.max(4, Math.floor(config.surfaceCrackDensity * 12));
+      const maxDepth = D * config.crackMaxDepthOffset;
+
+      const cracks = [];
+      for (let c = 0; c < numCracks; c++) {
+        const cx = prng.range(-W * 0.4, W * 0.4);
+        const cz = prng.range(H * 0.15, H * 0.9);
+        cracks.push({
+          x: cx,
+          z: cz,
+          radius: prng.range(W * 0.06, W * 0.15),
+          depth: maxDepth
+        });
+      }
+
+      const numV = inputMesh.vertices.length / 3;
+      for (let i = 0; i < numV; i++) {
+        let vx = inputMesh.vertices[i * 3];
+        let vy = inputMesh.vertices[i * 3 + 1];
+        let vz = inputMesh.vertices[i * 3 + 2];
+
+        if (vy > D * 0.05) {
+          for (const ck of cracks) {
+            const dx = vx - ck.x;
+            const dz = vz - ck.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < ck.radius) {
+              const profile = 1.0 - (dist / ck.radius);
+              vy -= ck.depth * profile * 1.2;
+            }
+          }
+        }
+
+        const col = [
+          inputMesh.colors[i * 3],
+          inputMesh.colors[i * 3 + 1],
+          inputMesh.colors[i * 3 + 2]
+        ];
+        builder.addVertex({ x: vx, y: vy, z: vz }, undefined, col, inputMesh.strataIndices[i]);
+      }
+
+      for (let i = 0; i < inputMesh.indices.length; i += 3) {
+        builder.addTriangle(inputMesh.indices[i], inputMesh.indices[i + 1], inputMesh.indices[i + 2]);
+      }
+
+      return builder.build();
+    }
+
+    // =========================================================================
+    // 4. PRESETS
+    // =========================================================================
+    const GEOLOGICAL_PRESETS = {
+      sedimentary_canyon: {
+        name: 'Sedimentary Canyon Wall',
+        config: {
+          seed: 42, width: 40, height: 35, depth: 25, strataCount: 8, overallDip: 3.5,
+          talusHeightFraction: 0.22, buttressCount: 3, overhangIntensity: 1.35, cutCount: 12,
+          maxCutOffset: 0.28, jointSpacing: 4.5, jointDilation: 0.08, edgeChipDepth: 0.8,
+          erosionStrength: 0.75, strataHardnessContrast: 0.8, surfaceCrackDensity: 0.7, crackMaxDepthOffset: 0.05
+        }
+      },
+      granite_scarp: {
+        name: 'Massive Granite Batholith Scarp',
+        config: {
+          seed: 108, width: 38, height: 45, depth: 28, strataCount: 3, overallDip: 1.0,
+          talusHeightFraction: 0.15, buttressCount: 4, overhangIntensity: 1.15, cutCount: 16,
+          maxCutOffset: 0.35, jointSpacing: 7.5, jointDilation: 0.06, edgeChipDepth: 0.9,
+          erosionStrength: 0.45, strataHardnessContrast: 0.3, surfaceCrackDensity: 0.5, crackMaxDepthOffset: 0.04
+        }
+      },
+      columnar_basalt: {
+        name: 'Columnar Basalt Formation',
+        config: {
+          seed: 256, width: 35, height: 32, depth: 22, strataCount: 5, overallDip: 0.0,
+          talusHeightFraction: 0.18, buttressCount: 2, overhangIntensity: 1.05, cutCount: 10,
+          maxCutOffset: 0.22, jointSpacing: 2.8, jointDilation: 0.10, edgeChipDepth: 0.65,
+          erosionStrength: 0.55, strataHardnessContrast: 0.4, surfaceCrackDensity: 0.8, crackMaxDepthOffset: 0.045
+        }
+      },
+      alpine_fault: {
+        name: 'Alpine Tectonic Fault Scarp',
+        config: {
+          seed: 777, width: 42, height: 40, depth: 26, strataCount: 6, overallDip: 8.5,
+          talusHeightFraction: 0.30, buttressCount: 3, overhangIntensity: 1.25, cutCount: 18,
+          maxCutOffset: 0.32, jointSpacing: 4.0, jointDilation: 0.09, edgeChipDepth: 0.85,
+          erosionStrength: 0.80, strataHardnessContrast: 0.75, surfaceCrackDensity: 0.75, crackMaxDepthOffset: 0.055
+        }
+      },
+      coastal_bluff: {
+        name: 'Coastal Wave-Cut Sea Cliff',
+        config: {
+          seed: 512, width: 36, height: 34, depth: 24, strataCount: 7, overallDip: 2.0,
+          talusHeightFraction: 0.12, buttressCount: 2, overhangIntensity: 1.45, cutCount: 14,
+          maxCutOffset: 0.26, jointSpacing: 3.8, jointDilation: 0.08, edgeChipDepth: 0.75,
+          erosionStrength: 0.90, strataHardnessContrast: 0.85, surfaceCrackDensity: 0.65, crackMaxDepthOffset: 0.05
+        }
+      }
+    };
+
+    // =========================================================================
+    // 5. 3D WEBGL VIEWER & APP CONTROLLER
+    // =========================================================================
+    class GeologicalApp {
+      constructor() {
+        this.currentConfig = { ...GEOLOGICAL_PRESETS.sedimentary_canyon.config };
+        this.selectedStage = 5;
+        this.currentMode = 'clay';
+        this.stageMeshes = [];
+      }
+
+      init() {
+        const container = document.getElementById('viewport-container');
+        
+        // 1. Scene, Camera, Renderer
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x0e1118);
+        this.scene.fog = new THREE.FogExp2(0x0e1118, 0.008);
+
+        this.camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 1000);
+        this.camera.position.set(0, -60, 35);
+        this.camera.up.set(0, 0, 1);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(this.renderer.domElement);
+
+        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.08;
+        this.controls.target.set(0, 10, 18);
+
+        // 2. Lighting
+        const amb = new THREE.AmbientLight(0x7a8ca5, 0.65);
+        this.scene.add(amb);
+
+        const hemi = new THREE.HemisphereLight(0x94a9c9, 0x2b241e, 0.55);
+        hemi.position.set(0, 0, 100);
+        this.scene.add(hemi);
+
+        this.sun = new THREE.DirectionalLight(0xfff1dc, 2.2);
+        this.sun.position.set(45, -50, 60);
+        this.sun.castShadow = true;
+        this.sun.shadow.mapSize.width = 2048;
+        this.sun.shadow.mapSize.height = 2048;
+        this.sun.shadow.camera.near = 10;
+        this.sun.shadow.camera.far = 250;
+        this.sun.shadow.camera.left = -50;
+        this.sun.shadow.camera.right = 50;
+        this.sun.shadow.camera.top = 50;
+        this.sun.shadow.camera.bottom = -50;
+        this.sun.shadow.bias = -0.0005;
+        this.scene.add(this.sun);
+
+        const rim = new THREE.DirectionalLight(0x8ba4c9, 0.8);
+        rim.position.set(-40, 50, 40);
+        this.scene.add(rim);
+
+        // Ground
+        const ground = new THREE.Mesh(
+          new THREE.PlaneGeometry(160, 160),
+          new THREE.MeshStandardMaterial({ color: 0x141822, roughness: 0.95 })
+        );
+        ground.position.set(0, 0, -0.05);
+        ground.receiveShadow = true;
+        this.scene.add(ground);
+
+        const grid = new THREE.GridHelper(120, 30, 0x2b3245, 0x1a1f2c);
+        grid.rotation.x = Math.PI / 2;
+        this.scene.add(grid);
+
+        window.addEventListener('resize', () => {
+          this.camera.aspect = container.clientWidth / container.clientHeight;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        const animate = () => {
+          requestAnimationFrame(animate);
+          this.controls.update();
+          this.renderer.render(this.scene, this.camera);
+        };
+        animate();
+
+        this.bindEvents();
+        this.runPipeline();
+      }
+
+      bindEvents() {
+        // Presets
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const key = e.currentTarget.dataset.preset;
+            if (key && GEOLOGICAL_PRESETS[key]) {
+              document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+              e.currentTarget.classList.add('active');
+              this.currentConfig = { ...GEOLOGICAL_PRESETS[key].config };
+              this.syncUI();
+              this.runPipeline();
+            }
+          });
+        });
+
+        // Stages
+        document.querySelectorAll('.stage-card').forEach(card => {
+          card.addEventListener('click', (e) => {
+            const stage = parseInt(e.currentTarget.dataset.stage, 10);
+            this.selectedStage = stage;
+            document.querySelectorAll('.stage-card').forEach(c => c.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            this.displayStage(stage);
+          });
+        });
+
+        // Modes
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            this.currentMode = e.currentTarget.dataset.mode;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            this.displayStage(this.selectedStage);
+          });
+        });
+
+        // Sliders
+        const bindS = (id, valId, key, fmt) => {
+          const el = document.getElementById(id);
+          const lbl = document.getElementById(valId);
+          if (!el) return;
+          el.addEventListener('input', () => {
+            const val = parseFloat(el.value);
+            lbl.textContent = String(fmt(val));
+            this.currentConfig[key] = val;
+          });
+          el.addEventListener('change', () => this.runPipeline());
+        };
+
+        bindS('param-strataCount', 'val-strataCount', 'strataCount', v => Math.round(v));
+        bindS('param-strataHardnessContrast', 'val-strataHardnessContrast', 'strataHardnessContrast', v => v.toFixed(2));
+        bindS('param-overhangIntensity', 'val-overhangIntensity', 'overhangIntensity', v => v.toFixed(2));
+        bindS('param-cutCount', 'val-cutCount', 'cutCount', v => Math.round(v));
+        bindS('param-maxCutOffset', 'val-maxCutOffset', 'maxCutOffset', v => v.toFixed(2));
+        bindS('param-jointSpacing', 'val-jointSpacing', 'jointSpacing', v => v.toFixed(1));
+        bindS('param-jointDilation', 'val-jointDilation', 'jointDilation', v => v.toFixed(2));
+        bindS('param-erosionStrength', 'val-erosionStrength', 'erosionStrength', v => v.toFixed(2));
+        bindS('param-surfaceCrackDensity', 'val-surfaceCrackDensity', 'surfaceCrackDensity', v => v.toFixed(2));
+        bindS('param-crackMaxDepthOffset', 'val-crackMaxDepthOffset', 'crackMaxDepthOffset', v => v.toFixed(2));
+
+        document.getElementById('btn-randomize')?.addEventListener('click', () => {
+          this.currentConfig.seed = Math.floor(Math.random() * 1000000);
+          this.runPipeline();
+        });
+
+        document.getElementById('btn-recompute')?.addEventListener('click', () => {
+          this.runPipeline();
+        });
+
+        document.getElementById('btn-export-obj')?.addEventListener('click', () => this.exportOBJ());
+        document.getElementById('btn-export-ply')?.addEventListener('click', () => this.exportPLY());
+      }
+
+      syncUI() {
+        const setS = (id, valId, val, fmt) => {
+          const el = document.getElementById(id);
+          const lbl = document.getElementById(valId);
+          if (el) el.value = String(val);
+          if (lbl) lbl.textContent = String(fmt(val));
+        };
+        setS('param-strataCount', 'val-strataCount', this.currentConfig.strataCount, v => Math.round(v));
+        setS('param-strataHardnessContrast', 'val-strataHardnessContrast', this.currentConfig.strataHardnessContrast, v => v.toFixed(2));
+        setS('param-overhangIntensity', 'val-overhangIntensity', this.currentConfig.overhangIntensity, v => v.toFixed(2));
+        setS('param-cutCount', 'val-cutCount', this.currentConfig.cutCount, v => Math.round(v));
+        setS('param-maxCutOffset', 'val-maxCutOffset', this.currentConfig.maxCutOffset, v => v.toFixed(2));
+        setS('param-jointSpacing', 'val-jointSpacing', this.currentConfig.jointSpacing, v => v.toFixed(1));
+        setS('param-jointDilation', 'val-jointDilation', this.currentConfig.jointDilation, v => v.toFixed(2));
+        setS('param-erosionStrength', 'val-erosionStrength', this.currentConfig.erosionStrength, v => v.toFixed(2));
+        setS('param-surfaceCrackDensity', 'val-surfaceCrackDensity', this.currentConfig.surfaceCrackDensity, v => v.toFixed(2));
+        setS('param-crackMaxDepthOffset', 'val-crackMaxDepthOffset', this.currentConfig.crackMaxDepthOffset, v => v.toFixed(2));
+      }
+
+      runPipeline() {
+        const overlay = document.getElementById('loading-overlay');
+        overlay?.classList.add('active');
+
+        setTimeout(() => {
+          const t0 = performance.now();
+          const prng = new GeologicalPRNG(this.currentConfig.seed);
+          const strata = generateStrata(this.currentConfig, prng);
+
+          const m1 = stage1MacroCliff(this.currentConfig, strata, prng);
+          const m2 = stage2CutFaces(m1, this.currentConfig, strata, prng);
+          const m3 = stage3FractureCliff(m2, this.currentConfig, strata, prng);
+          const m4 = stage4EdgeChippingErosion(m3, this.currentConfig, strata, prng);
+          const m5 = stage5SurfaceCracks(m4, this.currentConfig, strata, prng);
+
+          this.stageMeshes = [m1, m2, m3, m4, m5];
+          this.totalTime = Math.round(performance.now() - t0);
+
+          this.displayStage(this.selectedStage);
+          overlay?.classList.remove('active');
+        }, 20);
+      }
+
+      displayStage(stageNum) {
+        if (!this.stageMeshes || !this.stageMeshes[stageNum - 1]) return;
+        const meshData = this.stageMeshes[stageNum - 1];
+
+        if (this.currentMeshObj) {
+          this.scene.remove(this.currentMeshObj);
+          this.currentMeshObj.geometry.dispose();
+          this.currentMeshObj = null;
+        }
+        if (this.currentWireObj) {
+          this.scene.remove(this.currentWireObj);
+          this.currentWireObj.geometry.dispose();
+          this.currentWireObj = null;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(meshData.vertices, 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+        geo.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+
+        let mat;
+        if (this.currentMode === 'clay') {
+          mat = new THREE.MeshStandardMaterial({ color: 0xd8cbba, roughness: 0.88, metalness: 0.02 });
+        } else if (this.currentMode === 'strata') {
+          mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82 });
+        } else if (this.currentMode === 'matcap' || this.currentMode === 'normals') {
+          mat = new THREE.MeshNormalMaterial();
+        } else {
+          mat = new THREE.MeshStandardMaterial({ color: 0x1c212c, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+        }
+
+        this.currentMeshObj = new THREE.Mesh(geo, mat);
+        this.currentMeshObj.castShadow = true;
+        this.currentMeshObj.receiveShadow = true;
+        this.scene.add(this.currentMeshObj);
+
+        if (this.currentMode === 'wireframe') {
+          const wireMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true, transparent: true, opacity: 0.85 });
+          this.currentWireObj = new THREE.Mesh(geo.clone(), wireMat);
+          this.scene.add(this.currentWireObj);
+        }
+
+        // Stats
+        document.getElementById('stat-vertices').textContent = meshData.vertexCount.toLocaleString();
+        document.getElementById('stat-triangles').textContent = meshData.triangleCount.toLocaleString();
+        document.getElementById('stat-time').textContent = `${this.totalTime} ms`;
+
+        // Banner text
+        const banners = [
+          { title: "Step 1: Macro Cliff Base Shape", desc: "Stratified lithological layers, stepped terraces, vertical buttresses, and talus scree ramp without noise." },
+          { title: "Step 2: Face Cutting with Offset", desc: "Bounded planar shear planes and dihedral clefts with depth constraints to preserve mountain mass." },
+          { title: "Step 3: Rock Fracturing & Joints", desc: "Systematic orthogonal (J1) and conjugate (J2) joint block dilation opening physical fissures." },
+          { title: "Step 4: Edge Chipping & SDF Erosion", desc: "Convex edge chipping + SDF hardness-aware differential weathering (softer beds erode deeper)." },
+          { title: "Step 5: Surface Cracks & Final Polish", desc: "Branching surface stress fissures with bounded offset + final weathering for crisp crevices and clean topology." }
+        ];
+        const b = banners[stageNum - 1];
+        document.getElementById('banner-title').textContent = b.title;
+        document.getElementById('banner-desc').textContent = b.desc;
+      }
+
+      exportOBJ() {
+        const mesh = this.stageMeshes[this.selectedStage - 1];
+        if (!mesh) return;
+        let obj = `# Geological Cliff Formation (Zero Noise Engine)\n# Vertices: ${mesh.vertexCount}\n# Triangles: ${mesh.triangleCount}\n\n`;
+        for (let i = 0; i < mesh.vertices.length; i += 3) {
+          obj += `v ${mesh.vertices[i].toFixed(5)} ${mesh.vertices[i + 1].toFixed(5)} ${mesh.vertices[i + 2].toFixed(5)} ${mesh.colors[i].toFixed(4)} ${mesh.colors[i + 1].toFixed(4)} ${mesh.colors[i + 2].toFixed(4)}\n`;
+        }
+        for (let i = 0; i < mesh.normals.length; i += 3) {
+          obj += `vn ${mesh.normals[i].toFixed(5)} ${mesh.normals[i + 1].toFixed(5)} ${mesh.normals[i + 2].toFixed(5)}\n`;
+        }
+        obj += `\n`;
+        for (let i = 0; i < mesh.indices.length; i += 3) {
+          const i0 = mesh.indices[i] + 1;
+          const i1 = mesh.indices[i + 1] + 1;
+          const i2 = mesh.indices[i + 2] + 1;
+          obj += `f ${i0}//${i0} ${i1}//${i1} ${i2}//${i2}\n`;
+        }
+        this.downloadFile(obj, `Cliff_Stage_${this.selectedStage}.obj`, 'text/plain');
+      }
+
+      exportPLY() {
+        const mesh = this.stageMeshes[this.selectedStage - 1];
+        if (!mesh) return;
+        let ply = `ply\nformat ascii 1.0\nelement vertex ${mesh.vertexCount}\nproperty float x\nproperty float y\nproperty float z\nproperty float nx\nproperty float ny\nproperty float nz\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nelement face ${mesh.triangleCount}\nproperty list uchar int vertex_indices\nend_header\n`;
+        for (let i = 0; i < mesh.vertexCount; i++) {
+          const x = mesh.vertices[i * 3].toFixed(5);
+          const y = mesh.vertices[i * 3 + 1].toFixed(5);
+          const z = mesh.vertices[i * 3 + 2].toFixed(5);
+          const nx = mesh.normals[i * 3].toFixed(5);
+          const ny = mesh.normals[i * 3 + 1].toFixed(5);
+          const nz = mesh.normals[i * 3 + 2].toFixed(5);
+          const r = Math.round(mesh.colors[i * 3] * 255);
+          const g = Math.round(mesh.colors[i * 3 + 1] * 255);
+          const b = Math.round(mesh.colors[i * 3 + 2] * 255);
+          ply += `${x} ${y} ${z} ${nx} ${ny} ${nz} ${r} ${g} ${b}\n`;
+        }
+        for (let i = 0; i < mesh.indices.length; i += 3) {
+          ply += `3 ${mesh.indices[i]} ${mesh.indices[i + 1]} ${mesh.indices[i + 2]}\n`;
+        }
+        this.downloadFile(ply, `Cliff_Stage_${this.selectedStage}.ply`, 'text/plain');
+      }
+
+      downloadFile(content, filename, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const app = new GeologicalApp();
+      app.init();
+    });
+  </script>
 </body>
 </html>
