@@ -318,3 +318,16 @@
 .gpu-error .gpu-actions .button { margin-top: 0; }
 .status-ready.error i { background: #ff3b30; box-shadow: 0 0 0 3px #ff3b3022; }
 #inspector-tabs:empty { display: none; }
+
+/* ------------------------------------------------- shader compile notice */
+.compile-pill {
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%); z-index: 12;
+  display: flex; align-items: center; gap: 9px; padding: 8px 14px 8px 11px; pointer-events: none;
+  background: #121212d9; backdrop-filter: blur(14px); border: 1px solid #ffffff12; border-radius: 999px;
+  font-size: 11px; color: #cfcfcf;
+}
+.compile-pill[hidden] { display: none; }
+.compile-pill i {
+  width: 12px; height: 12px; border-radius: 50%; border: 2px solid #ffffff2a; border-top-color: #e0e0e0;
+  animation: spin 0.8s linear infinite;
+}

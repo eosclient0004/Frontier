@@ -147,10 +147,19 @@ class TexturePanel {
       if (ErrorMessage) this.Notify(ErrorMessage);
       this.ThumbsDirty = true;
     };
-    this.Engine.OnContextLost = () =>
+    this.Engine.OnContextLost = () => {
+      // Remember the reset so the next launch starts lighter.
+      try { localStorage.setItem("frontier-texture-safe-mode", String(Date.now())); } catch {}
       this.ShowGpuError(GpuError("lost", "The GPU dropped the WebGL context (a driver reset, sleep/wake or GPU switch). Layer pixels lived on the GPU, so reload to start again.", ProbeGraphics()));
+    };
     Select("#gpu-status").textContent = `WebGL2 · RGBA16F · max ${this.Engine.MaxTexture}`;
-    this.CreateDocument({ Name: "Frontier crate" }, true);
+    let SafeMode = false;
+    try { SafeMode = Date.now() - Number(localStorage.getItem("frontier-texture-safe-mode") || 0) < 7 * 864e5; } catch {}
+    this.CreateDocument(SafeMode ? { Name: "Frontier crate", Resolution: 512 } : { Name: "Frontier crate" }, true);
+    if (SafeMode) {
+      try { localStorage.removeItem("frontier-texture-safe-mode"); } catch {}
+      setTimeout(() => this.Notify("The GPU reset during the last session, so this one started at 512² as a precaution. Raise the resolution in the Texture tab."), 400);
+    }
     new ResizeObserver(() => this.Resize()).observe(Select("#viewport"));
     this.Resize();
     this.SetStatus("Ready");
@@ -176,6 +185,15 @@ class TexturePanel {
   }
   SetStatus(Text) {
     Select("#status-ready").innerHTML = `<i></i>${Escape(Text)}`;
+  }
+  ShowCompiling(Compiling, FirstRun) {
+    const State = Compiling ? (FirstRun ? "first" : "busy") : "";
+    if (State === this.CompilingState) return;
+    this.CompilingState = State;
+    Select("#compile-pill").hidden = !Compiling;
+    Select("#compile-pill span").textContent = FirstRun ? "Preparing shaders…" : "Compiling shader…";
+    if (Compiling) this.SetStatus("Compiling shaders");
+    else if (Select("#status-ready").textContent === "Compiling shaders") this.SetStatus("Ready");
   }
   Busy(Label) {
     Select("#busy").hidden = !Label;
@@ -704,11 +722,18 @@ class TexturePanel {
         this.Stroke.Pending = [];
         Doc.Gpu.Dirty = true;
       }
-      if (Doc.Gpu.Dirty) {
+      if (Doc.Gpu.Dirty || this.MaskPending) {
         const Stroke = this.Stroke ? this.StrokeParameters(this.Doc.Layers.find((L) => L.Id === this.Stroke.LayerId), this.Stroke.Target, this.Stroke.Erase) : null;
-        this.Engine.Composite(Doc, Stroke, this.Doc.ActiveId);
-        if (this.Channel === "mask" || this.ThumbsDirty) this.Engine.RenderMask(Doc, this.Layer, Stroke);
-        this.NeedsRender = true;
+        // Async: while a shader variant compiles the page stays interactive
+        // and the previous result stays on screen.
+        const Composited = !Doc.Gpu.Dirty || this.Engine.Composite(Doc, Stroke, this.Doc.ActiveId, true);
+        if (Composited) {
+          if (Doc.Gpu.Dirty === false && (this.MaskPending || this.Channel === "mask" || this.ThumbsDirty))
+            this.MaskPending = !this.Engine.RenderMask(Doc, this.Layer, Stroke, true);
+          Doc.Gpu.Composited = true;
+          this.NeedsRender = true;
+        }
+        this.ShowCompiling(!Composited || this.MaskPending, !Doc.Gpu.Composited);
       }
       if (this.NeedsRender) this.Render();
       if (this.ThumbsDirty && !this.Stroke && Time - this.LastThumbs > 350) {
@@ -2071,6 +2096,12 @@ class TexturePanel {
       if (this.Thumbnails.has(Preset.id)) continue;
       const Material = Preset.material || Preset.layers[Preset.layers.length > 1 ? 1 : 0].Material;
       if (Material.Bitmap && !this.Engine.BitmapTexture(Material.Bitmap)) continue;
+      // Wait for the document's first composite, then for this preview's
+      // shader variant, without blocking the page.
+      while (this.Doc?.Gpu && !this.Doc.Gpu.Composited && !this.Engine.Lost) await new Promise((Resolve) => setTimeout(Resolve, 100));
+      const Variant = this.Engine.PreviewVariant(Material);
+      while (!Variant.Ready()) await new Promise((Resolve) => setTimeout(Resolve, 30));
+      if (this.Engine.Lost) return;
       const Pixels = this.Engine.RenderPreview(Material, 88, Environment);
       const Image_ = Context.createImageData(88, 88);
       for (let Y = 0; Y < 88; Y++) Image_.data.set(Pixels.subarray((87 - Y) * 352, (88 - Y) * 352), Y * 352);

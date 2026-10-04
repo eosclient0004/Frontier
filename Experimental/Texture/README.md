@@ -21,3 +21,11 @@ npm run dev      # http://localhost:5173
   (OpenGL/DirectX normals, ORM, Unity mask map) and OBJ mesh import.
 
 Press `?` in the header for the full shortcut list.
+
+## GPU safety
+
+- Material, mask and layer shaders are compiled as small **variants** per feature combination (pattern, mapping, warp, grain, bitmap, layer type, stroke mode, mask generator) instead of one uber shader. Direct3D shader compilers (Chrome/Edge on Windows) could spend tens of seconds on the uber shader, which stalls every tab and can trip the GPU watchdog.
+- With `KHR_parallel_shader_compile` variants compile on driver threads; the viewport keeps the previous result and shows "Preparing shaders…" instead of blocking the page.
+- Every layer pass is flushed as its own GPU submission so no batch approaches the OS timeout (TDR).
+- If the WebGL context is lost, the next launch starts the demo set at 512² ("safe mode").
+- When WebGL2 is refused, the viewport lists browser-specific fixes and a copyable diagnostics report.

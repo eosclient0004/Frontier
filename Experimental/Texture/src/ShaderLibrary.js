@@ -70,6 +70,11 @@ vec3 Voronoi(vec2 P) {
 }
 `;
 
+// Material evaluation is specialised at compile time through MAT_PATTERN,
+// MAT_MAPPING (0 triplanar · 1 uv), MAT_WARP, MAT_GRAIN and MAT_BITMAP. An uber
+// shader holding every pattern took Direct3D shader compilers tens of seconds
+// and could exceed the GPU watchdog, so every program that evaluates a
+// material is compiled per variant (see TextureEngine.Variant).
 const MaterialLibrary = `
 struct Material {
   vec3 Color;
@@ -101,23 +106,32 @@ struct Surface {
   vec3 Emissive;
 };
 
-float RawPattern(int Type, vec2 P) {
-  if (Type == 1) return Fbm(P);
-  if (Type == 2) {
+float RawPattern(vec2 P) {
+#if MAT_PATTERN == 0
+  return 0.0;
+
+#elif MAT_PATTERN == 1
+  return Fbm(P);
+#elif MAT_PATTERN == 2
+  {
     float N = Fbm(P * 0.7);
     float V = Voronoi(P * 1.3).x;
     return clamp(N * 1.25 - V * 0.4 + 0.08, 0.0, 1.0);
   }
-  if (Type == 3) {
+#elif MAT_PATTERN == 3
+  {
     vec3 V = Voronoi(P);
     return clamp((1.0 - V.x) * 0.75 + V.z * 0.25, 0.0, 1.0);
   }
-  if (Type == 4) {
+#elif MAT_PATTERN == 4
+  {
     vec3 V = Voronoi(P + (vec2(Fbm(P * 2.0), Fbm(P * 2.0 + 7.0)) - 0.5) * 0.35);
     return 1.0 - smoothstep(0.0, 0.07, V.y - V.x);
   }
-  if (Type == 5) return Fbm(vec2(P.x * 0.06, P.y * 14.0)) * 0.8 + ValueNoise(vec2(P.x * 0.3, P.y * 60.0)) * 0.2;
-  if (Type == 6) {
+#elif MAT_PATTERN == 5
+  return Fbm(vec2(P.x * 0.06, P.y * 14.0)) * 0.8 + ValueNoise(vec2(P.x * 0.3, P.y * 60.0)) * 0.2;
+#elif MAT_PATTERN == 6
+  {
     float S = 0.0;
     for (int K = 0; K < 4; K++) {
       float Angle = Hash12(vec2(float(K), 3.7)) * 3.14159;
@@ -132,9 +146,12 @@ float RawPattern(int Type, vec2 P) {
     }
     return S;
   }
-  if (Type == 7) return 0.5 + 0.5 * sin(P.x * 6.2831853);
-  if (Type == 8) { vec2 C = floor(P); return mod(C.x + C.y, 2.0); }
-  if (Type == 9) {
+#elif MAT_PATTERN == 7
+  return 0.5 + 0.5 * sin(P.x * 6.2831853);
+#elif MAT_PATTERN == 8
+  { vec2 C = floor(P); return mod(C.x + C.y, 2.0); }
+#elif MAT_PATTERN == 9
+  {
     vec2 Q = vec2(P.x, P.y * 2.0);
     float Row = floor(Q.y);
     Q.x += mod(Row, 2.0) * 0.5;
@@ -143,7 +160,8 @@ float RawPattern(int Type, vec2 P) {
     float Brick = smoothstep(0.018, 0.034, D);
     return clamp(1.0 - Brick * (0.82 + 0.18 * Hash12(floor(Q))), 0.0, 1.0);
   }
-  if (Type == 10) {
+#elif MAT_PATTERN == 10
+  {
     vec2 S = vec2(1.0, 1.7320508);
     vec2 A = mod(P, S) - S * 0.5;
     vec2 B = mod(P - S * 0.5, S) - S * 0.5;
@@ -152,12 +170,14 @@ float RawPattern(int Type, vec2 P) {
     float D = max(dot(AG, vec2(0.8660254, 0.5)), AG.y);
     return smoothstep(0.42, 0.47, D);
   }
-  if (Type == 11) {
+#elif MAT_PATTERN == 11
+  {
     vec2 Q = vec2(P.x * 0.18, P.y);
     float Ring = fract(length(Q) * 3.0 + Fbm(P * vec2(0.4, 3.0)) * 0.7);
     return clamp(pow(Ring, 2.5) + (ValueNoise(P * vec2(2.0, 40.0)) - 0.5) * 0.25, 0.0, 1.0);
   }
-  if (Type == 12) {
+#elif MAT_PATTERN == 12
+  {
     vec2 C = floor(P);
     vec2 F = fract(P);
     bool Horizontal = mod(C.x - C.y, 4.0) < 2.0;
@@ -165,23 +185,28 @@ float RawPattern(int Type, vec2 P) {
     float Tow = sqrt(max(0.0, sin(Across * 3.14159)));
     return Horizontal ? 0.25 + 0.75 * Tow : 0.1 * Tow;
   }
-  if (Type == 13) {
+#elif MAT_PATTERN == 13
+  {
     vec2 C = floor(P);
     vec2 F = fract(P);
     float Thread = mod(C.x + C.y, 2.0) < 1.0 ? sin(F.y * 3.14159) : sin(F.x * 3.14159);
     return Thread * (0.75 + 0.25 * ValueNoise(P * 6.0));
   }
-  if (Type == 14) return 1.0 - smoothstep(0.26, 0.3, length(fract(P) - 0.5));
+#elif MAT_PATTERN == 14
+  return 1.0 - smoothstep(0.26, 0.3, length(fract(P) - 0.5));
+#else
   return 0.0;
+#endif
 }
 
 float PatternAt(Material M, vec2 P) {
   float Angle = radians(M.Rotation);
   P = mat2(cos(Angle), sin(Angle), -sin(Angle), cos(Angle)) * P;
   P += vec2(M.Seed * 7.31, M.Seed * 3.17);
-  if (M.Warp > 0.0)
-    P += (vec2(Fbm(P * 0.5 + 5.2), Fbm(P * 0.5 + 1.3)) - 0.5) * 2.0 * M.Warp;
-  return RawPattern(M.Pattern, P);
+#if MAT_WARP == 1
+  P += (vec2(Fbm(P * 0.5 + 5.2), Fbm(P * 0.5 + 1.3)) - 0.5) * 2.0 * M.Warp;
+#endif
+  return RawPattern(P);
 }
 
 vec3 TriplanarWeights(vec3 N) {
@@ -193,37 +218,40 @@ Surface EvaluateMaterial(Material M, sampler2D Bitmap, vec2 Uv, vec3 Position, v
   float T = 0.0;
   float Grain = 0.5;
   vec3 W = TriplanarWeights(Normal);
-  if (M.Pattern > 0) {
-    if (M.Mapping == 1) T = PatternAt(M, Uv * M.Scale);
-    else {
-      vec3 P = Position * M.Scale * 0.5;
-      T = W.x * PatternAt(M, P.zy) + W.y * PatternAt(M, P.xz) + W.z * PatternAt(M, P.xy);
-    }
-    T = clamp((T - 0.5) * M.Contrast + 0.5 + M.Balance, 0.0, 1.0);
-  }
-  if (M.Grain > 0.0) {
-    if (M.Mapping == 1) Grain = ValueNoise(Uv * 900.0);
-    else {
-      vec3 P = Position * 220.0;
-      Grain = W.x * ValueNoise(P.zy) + W.y * ValueNoise(P.xz) + W.z * ValueNoise(P.xy);
-    }
-  }
+#if MAT_PATTERN > 0
+#if MAT_MAPPING == 1
+  T = PatternAt(M, Uv * M.Scale);
+#else
+  vec3 PP = Position * M.Scale * 0.5;
+  T = W.x * PatternAt(M, PP.zy) + W.y * PatternAt(M, PP.xz) + W.z * PatternAt(M, PP.xy);
+#endif
+  T = clamp((T - 0.5) * M.Contrast + 0.5 + M.Balance, 0.0, 1.0);
+#endif
+#if MAT_GRAIN == 1
+#if MAT_MAPPING == 1
+  Grain = ValueNoise(Uv * 900.0);
+#else
+  vec3 PG = Position * 220.0;
+  Grain = W.x * ValueNoise(PG.zy) + W.y * ValueNoise(PG.xz) + W.z * ValueNoise(PG.xy);
+#endif
+#endif
   Surface S;
   S.Color = mix(M.Color, M.Color2, T);
   S.Roughness = mix(M.Roughness.x, M.Roughness.y, T) + (Grain - 0.5) * M.Grain * 0.5;
   S.Metallic = mix(M.Metallic.x, M.Metallic.y, T);
   S.Height = M.Height + T * M.HeightAmount;
   S.Color *= 1.0 + (Grain - 0.5) * M.Grain * 0.2;
-  if (M.UseBitmap == 1) {
-    vec3 Texel;
-    if (M.Mapping == 1) Texel = texture(Bitmap, Uv * M.BitmapScale).rgb;
-    else {
-      vec3 P = Position * M.BitmapScale * 0.5 + 0.5;
-      Texel = W.x * texture(Bitmap, P.zy).rgb + W.y * texture(Bitmap, P.xz).rgb + W.z * texture(Bitmap, P.xy).rgb;
-    }
-    S.Color *= Texel;
-    S.Height += (dot(Texel, vec3(0.299, 0.587, 0.114)) - 0.5) * M.BitmapHeight;
-  }
+#if MAT_BITMAP == 1
+  vec3 Texel;
+#if MAT_MAPPING == 1
+  Texel = texture(Bitmap, Uv * M.BitmapScale).rgb;
+#else
+  vec3 PB = Position * M.BitmapScale * 0.5 + 0.5;
+  Texel = W.x * texture(Bitmap, PB.zy).rgb + W.y * texture(Bitmap, PB.xz).rgb + W.z * texture(Bitmap, PB.xy).rgb;
+#endif
+  S.Color *= Texel;
+  S.Height += (dot(Texel, vec3(0.299, 0.587, 0.114)) - 0.5) * M.BitmapHeight;
+#endif
   S.Emissive = M.Emissive * (M.EmissiveFromPattern > 0.5 ? T : 1.0);
   S.Color = clamp(S.Color, 0.0, 1.0);
   S.Roughness = clamp(S.Roughness, 0.02, 1.0);
@@ -449,10 +477,8 @@ void main() {
   vec4 T2 = texelFetch(u_T2, Texel, 0);
   vec4 T3 = texelFetch(u_T3, Texel, 0);
   float A = clamp(texelFetch(u_Stroke, Texel, 0).r, 0.0, 1.0) * u_BrushOpacity;
-  if (A > 0.0) {
-    Surface S = EvaluateMaterial(u_Material[1], u_Bitmap1, v_Uv, texelFetch(u_Position, Texel, 0).xyz, normalize(texelFetch(u_Normal, Texel, 0).xyz + vec3(0.0, 1e-4, 0.0)));
-    ApplyStroke(T0, T1, T2, T3, A, S, u_BrushChannels, u_BrushEmissive, u_Erase == 1);
-  }
+  Surface S = EvaluateMaterial(u_Material[1], u_Bitmap1, v_Uv, texelFetch(u_Position, Texel, 0).xyz, normalize(texelFetch(u_Normal, Texel, 0).xyz + vec3(0.0, 1e-4, 0.0)));
+  ApplyStroke(T0, T1, T2, T3, A, S, u_BrushChannels, u_BrushEmissive, u_Erase == 1);
   o_T0 = T0; o_T1 = T1; o_T2 = T2; o_T3 = T3;
 }`;
 
@@ -471,6 +497,11 @@ void main() {
 
 // One layer of the stack. Reads the accumulated channels below and writes
 // the result of blending this layer on top.
+// Specialised per layer through the defines LAYER_TYPE (1 paint · 2 fill ·
+// 3 decal), STROKE_MODE (0 none · 1 paint · 2 mask), OUTPUT_MASK, MASK_ENABLED,
+// MASK_PAINTED, MASK_GEN, MASK_BREAKUP and DECAL_MAPPING, plus the MAT_*
+// material defines. Small variants compile quickly and never execute
+// patterns or branches the layer does not use.
 export const CompositeFragment = `${Header}
 ${Noise}
 ${MaterialLibrary}
@@ -491,22 +522,16 @@ uniform sampler2D u_Bitmap0;
 uniform sampler2D u_Bitmap1;
 uniform Material u_Material[2];
 
-uniform int u_Type;          // 1 paint · 2 fill · 3 decal
-uniform int u_OutputMask;    // 1: write only this layer's mask
 uniform float u_Opacity;
 uniform int u_Blend;
 uniform int u_HeightBlend;
 uniform vec4 u_Channels;
 uniform float u_EmissiveChannel;
 
-uniform int u_MaskEnabled;
-uniform int u_MaskPainted;
-uniform int u_MaskGenerator;
 uniform vec4 u_MaskParams;   // scale, contrast, offset, seed
 uniform vec2 u_MaskExtra;    // invert, breakup
 uniform vec2 u_HeightRange;  // object min/max y
 
-uniform int u_DecalMapping;  // 0 projected · 1 uv
 uniform vec3 u_DecalOrigin;
 uniform vec3 u_DecalRight;
 uniform vec3 u_DecalUp;
@@ -518,7 +543,6 @@ uniform int u_DecalSourceColor;
 uniform int u_DecalReady;
 uniform int u_DecalTwoSided;
 
-uniform int u_StrokeMode;    // 0 none · 1 paint stroke · 2 mask stroke
 uniform vec4 u_BrushChannels;
 uniform float u_BrushEmissive;
 uniform float u_BrushOpacity;
@@ -567,31 +591,41 @@ float TriplanarFbm(vec3 P, vec3 N) {
 }
 
 float LayerMask(ivec2 Texel, vec3 P, vec3 N, float Curvature) {
-  if (u_MaskEnabled == 0) return 1.0;
+#if MASK_ENABLED == 0
+  return 1.0;
+#else
   float Mask = 1.0;
-  if (u_MaskPainted == 1) {
-    Mask = texelFetch(u_Mask, Texel, 0).r;
-    if (u_StrokeMode == 2) {
-      float A = clamp(texelFetch(u_Stroke, Texel, 0).r, 0.0, 1.0) * u_BrushOpacity;
-      Mask = mix(Mask, u_MaskValue, A);
-    }
-  }
-  if (u_MaskGenerator > 0) {
-    float Scale = u_MaskParams.x;
-    vec3 Seed = vec3(u_MaskParams.w * 3.7, u_MaskParams.w * 1.3, u_MaskParams.w * 5.1);
-    float G = 0.0;
-    if (u_MaskGenerator == 1) G = TriplanarFbm(P * Scale + Seed, N);
-    else if (u_MaskGenerator == 2) G = (P.y - u_HeightRange.x) / max(1e-4, u_HeightRange.y - u_HeightRange.x);
-    else if (u_MaskGenerator == 3) G = N.y * 0.5 + 0.5;
-    else if (u_MaskGenerator == 4) G = clamp(Curvature * 0.08 * Scale, 0.0, 1.0);
-    else if (u_MaskGenerator == 5) G = clamp(-Curvature * 0.08 * Scale, 0.0, 1.0);
-    if (u_MaskGenerator > 1 && u_MaskExtra.y > 0.0)
-      G += (TriplanarFbm(P * 7.0 + Seed, N) - 0.5) * u_MaskExtra.y * 0.5;
-    G = clamp((G + u_MaskParams.z - 0.5) * u_MaskParams.y + 0.5, 0.0, 1.0);
-    if (u_MaskExtra.x > 0.5) G = 1.0 - G;
-    Mask *= G;
-  }
+#if MASK_PAINTED == 1
+  Mask = texelFetch(u_Mask, Texel, 0).r;
+#if STROKE_MODE == 2
+  float A = clamp(texelFetch(u_Stroke, Texel, 0).r, 0.0, 1.0) * u_BrushOpacity;
+  Mask = mix(Mask, u_MaskValue, A);
+#endif
+#endif
+#if MASK_GEN > 0
+  float Scale = u_MaskParams.x;
+  vec3 Seed = vec3(u_MaskParams.w * 3.7, u_MaskParams.w * 1.3, u_MaskParams.w * 5.1);
+  float G = 0.0;
+#if MASK_GEN == 1
+  G = TriplanarFbm(P * Scale + Seed, N);
+#elif MASK_GEN == 2
+  G = (P.y - u_HeightRange.x) / max(1e-4, u_HeightRange.y - u_HeightRange.x);
+#elif MASK_GEN == 3
+  G = N.y * 0.5 + 0.5;
+#elif MASK_GEN == 4
+  G = clamp(Curvature * 0.08 * Scale, 0.0, 1.0);
+#elif MASK_GEN == 5
+  G = clamp(-Curvature * 0.08 * Scale, 0.0, 1.0);
+#endif
+#if MASK_GEN > 1 && MASK_BREAKUP == 1
+  G += (TriplanarFbm(P * 7.0 + Seed, N) - 0.5) * u_MaskExtra.y * 0.5;
+#endif
+  G = clamp((G + u_MaskParams.z - 0.5) * u_MaskParams.y + 0.5, 0.0, 1.0);
+  if (u_MaskExtra.x > 0.5) G = 1.0 - G;
+  Mask *= G;
+#endif
   return Mask;
+#endif
 }
 
 void main() {
@@ -600,12 +634,11 @@ void main() {
   vec4 NC = texelFetch(u_Normal, Texel, 0);
   vec3 N = normalize(NC.xyz + vec3(0.0, 1e-4, 0.0));
   float Mask = LayerMask(Texel, P.xyz, N, NC.w);
-  if (u_OutputMask == 1) {
-    o_A0 = vec4(vec3(Mask), 1.0);
-    o_A1 = vec4(0.0);
-    o_A2 = vec4(0.0);
-    return;
-  }
+#if OUTPUT_MASK == 1
+  o_A0 = vec4(vec3(Mask), 1.0);
+  o_A1 = vec4(0.0);
+  o_A2 = vec4(0.0);
+#else
   vec4 Prev0 = texelFetch(u_Prev0, Texel, 0);
   vec4 Prev1 = texelFetch(u_Prev1, Texel, 0);
   vec4 Prev2 = texelFetch(u_Prev2, Texel, 0);
@@ -614,18 +647,17 @@ void main() {
   vec4 Coverage = vec4(0.0);   // color, roughness, metallic, height
   float EmissiveCoverage = 0.0;
 
-  if (u_Type == 1) {
+#if LAYER_TYPE == 1
+  {
     vec4 T0 = texelFetch(u_T0, Texel, 0);
     vec4 T1 = texelFetch(u_T1, Texel, 0);
     vec4 T2 = texelFetch(u_T2, Texel, 0);
     vec4 T3 = texelFetch(u_T3, Texel, 0);
-    if (u_StrokeMode == 1) {
-      float A = clamp(texelFetch(u_Stroke, Texel, 0).r, 0.0, 1.0) * u_BrushOpacity;
-      if (A > 0.0) {
-        Surface B = EvaluateMaterial(u_Material[1], u_Bitmap1, v_Uv, P.xyz, N);
-        ApplyStroke(T0, T1, T2, T3, A, B, u_BrushChannels, u_BrushEmissive, u_Erase == 1);
-      }
-    }
+#if STROKE_MODE == 1
+    float A = clamp(texelFetch(u_Stroke, Texel, 0).r, 0.0, 1.0) * u_BrushOpacity;
+    Surface B = EvaluateMaterial(u_Material[1], u_Bitmap1, v_Uv, P.xyz, N);
+    ApplyStroke(T0, T1, T2, T3, A, B, u_BrushChannels, u_BrushEmissive, u_Erase == 1);
+#endif
     Coverage = vec4(T0.a, T2.x, T2.y, T2.z);
     EmissiveCoverage = T2.w;
     S.Color = T0.rgb / max(T0.a, 1e-4);
@@ -633,14 +665,17 @@ void main() {
     S.Metallic = T1.y / max(T2.y, 1e-4);
     S.Height = T1.z / max(T2.z, 1e-4);
     S.Emissive = T3.rgb * 16.0 / max(T2.w, 1e-4);
-  } else if (u_Type == 2) {
-    S = EvaluateMaterial(u_Material[0], u_Bitmap0, v_Uv, P.xyz, N);
-    Coverage = vec4(1.0);
-    EmissiveCoverage = 1.0;
-  } else if (u_Type == 3) {
+  }
+#elif LAYER_TYPE == 2
+  S = EvaluateMaterial(u_Material[0], u_Bitmap0, v_Uv, P.xyz, N);
+  Coverage = vec4(1.0);
+  EmissiveCoverage = 1.0;
+#else
+  {
     vec2 Local;
     float Inside = 0.0;
-    if (u_DecalMapping == 0) {
+#if DECAL_MAPPING == 0
+    {
       vec3 D = P.xyz - u_DecalOrigin;
       Local = vec2(dot(D, u_DecalRight), dot(D, u_DecalUp));
       float Depth = dot(D, u_DecalNormal);
@@ -648,19 +683,21 @@ void main() {
       if (u_DecalTwoSided == 1) Facing = abs(Facing);
       float Angular = smoothstep(u_DecalAngle.x - u_DecalAngle.y, u_DecalAngle.x + u_DecalAngle.y, Facing);
       Inside = step(abs(Depth), 1.0) * Angular * P.w;
-    } else {
-      Local = u_DecalInverse * (v_Uv - u_DecalCenter);
-      Inside = 1.0;
     }
+#else
+    Local = u_DecalInverse * (v_Uv - u_DecalCenter);
+    Inside = 1.0;
+#endif
     vec2 DecalUv = Local + 0.5;
     Inside *= step(0.0, DecalUv.x) * step(DecalUv.x, 1.0) * step(0.0, DecalUv.y) * step(DecalUv.y, 1.0);
-    vec4 Texel4 = u_DecalReady == 1 ? texture(u_Decal, DecalUv) : vec4(0.0);
+    vec4 Texel4 = texture(u_Decal, DecalUv) * float(u_DecalReady);
     float Alpha = Texel4.a * Inside;
     S = EvaluateMaterial(u_Material[0], u_Bitmap0, DecalUv, P.xyz, N);
     if (u_DecalSourceColor == 1) S.Color = Texel4.rgb;
     Coverage = vec4(Alpha);
     EmissiveCoverage = Alpha;
   }
+#endif
 
   float Strength = u_Opacity * Mask;
   Coverage *= u_Channels * Strength;
@@ -675,6 +712,7 @@ void main() {
   o_A0 = vec4(Color, 1.0);
   o_A1 = vec4(Roughness, Metallic, Height, 1.0);
   o_A2 = vec4(Emissive, 1.0);
+#endif
 }`;
 
 // Tangent-space normal map from the composited height (OpenGL, +Y up).

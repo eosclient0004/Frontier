@@ -1,33 +1,59 @@
 // Thin WebGL2 helpers: programs with cached uniform setters, textures,
 // framebuffers and a fullscreen triangle pair.
 
+// Programs link asynchronously when KHR_parallel_shader_compile is present:
+// the driver compiles on worker threads, Ready() polls without blocking and
+// the first Use() waits only if the program is still compiling.
 export class Program {
   constructor(GL, VertexSource, FragmentSource, Name = "program") {
     this.GL = GL;
     this.Name = Name;
-    const Compile = (Type, Source) => {
+    this.Sources = [VertexSource, FragmentSource];
+    this.Parallel = GL.getExtension("KHR_parallel_shader_compile");
+    const Shaders = [[GL.VERTEX_SHADER, VertexSource], [GL.FRAGMENT_SHADER, FragmentSource]].map(([Type, Source]) => {
       const Shader = GL.createShader(Type);
       GL.shaderSource(Shader, Source);
       GL.compileShader(Shader);
-      if (!GL.getShaderParameter(Shader, GL.COMPILE_STATUS)) {
-        const Log = GL.getShaderInfoLog(Shader);
-        const Lines = Source.split("\n").map((Line, Index) => `${Index + 1}: ${Line}`);
-        console.error(`${Name} shader error\n${Log}\n${Lines.join("\n")}`);
-        throw new Error(`${Name}: ${Log}`);
-      }
       return Shader;
-    };
+    });
+    this.Shaders = Shaders;
     this.Handle = GL.createProgram();
-    GL.attachShader(this.Handle, Compile(GL.VERTEX_SHADER, VertexSource));
-    GL.attachShader(this.Handle, Compile(GL.FRAGMENT_SHADER, FragmentSource));
+    Shaders.forEach((Shader) => GL.attachShader(this.Handle, Shader));
     GL.linkProgram(this.Handle);
-    if (!GL.getProgramParameter(this.Handle, GL.LINK_STATUS))
-      throw new Error(`${Name} link: ${GL.getProgramInfoLog(this.Handle)}`);
+    this.Linked = false;
     this.Locations = new Map();
     this.Units = new Map();
     this.NextUnit = 0;
   }
+  Ready() {
+    if (this.Linked) return true;
+    if (this.Parallel && !this.GL.getProgramParameter(this.Handle, this.Parallel.COMPLETION_STATUS_KHR)) return false;
+    this.Finish();
+    return true;
+  }
+  Finish() {
+    if (this.Linked) return;
+    const GL = this.GL;
+    if (!GL.getProgramParameter(this.Handle, GL.LINK_STATUS)) {
+      const Logs = this.Shaders.map((Shader, Index) => {
+        if (GL.getShaderParameter(Shader, GL.COMPILE_STATUS)) return "";
+        const Lines = this.Sources[Index].split("\n").map((Line, Number) => `${Number + 1}: ${Line}`);
+        return `${GL.getShaderInfoLog(Shader)}\n${Lines.join("\n")}`;
+      }).filter(Boolean);
+      const Log = GL.getProgramInfoLog(this.Handle);
+      console.error(`${this.Name} shader error\n${Log}\n${Logs.join("\n")}`);
+      throw new Error(`${this.Name}: ${Log || Logs[0]?.split("\n")[0] || "link failed"}`);
+    }
+    this.Shaders.forEach((Shader) => { GL.detachShader(this.Handle, Shader); GL.deleteShader(Shader); });
+    this.Shaders = [];
+    this.Sources = null;
+    this.Linked = true;
+  }
+  Dispose() {
+    this.GL.deleteProgram(this.Handle);
+  }
   Use() {
+    if (!this.Linked) this.Finish();
     this.GL.useProgram(this.Handle);
     this.NextUnit = 0;
     return this;

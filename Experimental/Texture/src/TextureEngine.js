@@ -153,9 +153,7 @@ export class TextureEngine {
       Curvature: P(F, Shaders.CurvatureFragment, "curvature"),
       Pick: P(Shaders.PickVertex, Shaders.PickFragment, "pick"),
       Stroke: P(F, Shaders.StrokeFragment, "stroke"),
-      Commit: P(F, Shaders.CommitFragment, "commit"),
       MaskCommit: P(F, Shaders.MaskCommitFragment, "mask-commit"),
-      Composite: P(F, Shaders.CompositeFragment, "composite"),
       Normal: P(F, Shaders.NormalFragment, "normal"),
       Dilate: P(F, Shaders.DilateFragment, "dilate"),
       Viewport: P(Shaders.ViewportVertex, Shaders.ViewportFragment, "viewport"),
@@ -163,10 +161,10 @@ export class TextureEngine {
       Background: P(F, Shaders.BackgroundFragment, "background"),
       UvView: P(Shaders.UvViewVertex, Shaders.UvViewFragment, "uv-view"),
       UvLine: P(Shaders.UvLineVertex, Shaders.LineFragment, "uv-line"),
-      Preview: P(F, Shaders.PreviewFragment, "preview"),
       Decode: P(F, Shaders.DecodeFragment, "decode"),
       Blit: P(F, Shaders.BlitFragment, "blit"),
     };
+    this.Variants = new Map();
     this.White = this.SolidTexture([255, 255, 255, 255]);
     this.Black = this.SolidTexture([0, 0, 0, 0]);
     this.Bitmaps = new Map();
@@ -362,6 +360,79 @@ export class TextureEngine {
     }
     return Entry.Ready ? Entry.Texture : null;
   }
+  // ------------------------------------------------------- shader variants
+  // Programs that evaluate materials or layer masks are compiled per feature
+  // combination; the cache keeps recently used variants.
+  Variant(Kind, Defines) {
+    const Key = `${Kind}|${Object.entries(Defines).map(([K, V]) => `${K}=${V}`).join(",")}`;
+    let Entry = this.Variants.get(Key);
+    if (!Entry) {
+      const Fragment = { composite: Shaders.CompositeFragment, commit: Shaders.CommitFragment, preview: Shaders.PreviewFragment }[Kind];
+      const Lines = Object.entries(Defines).map(([K, V]) => `#define ${K} ${V}`).join("\n");
+      const Source = Fragment.replace("#version 300 es\n", `#version 300 es\n${Lines}\n`);
+      Entry = new Program(this.GL, Shaders.FullscreenVertex, Source, Key);
+      this.Variants.set(Key, Entry);
+      if (this.Variants.size > 96) {
+        const [OldKey, Old] = this.Variants.entries().next().value;
+        Old.Dispose();
+        this.Variants.delete(OldKey);
+      }
+    } else {
+      this.Variants.delete(Key);
+      this.Variants.set(Key, Entry);
+    }
+    return Entry;
+  }
+  MaterialDefines(Material) {
+    const Pattern = Material ? PatternIndex(Material.Pattern) : 0;
+    return {
+      MAT_PATTERN: Pattern,
+      MAT_MAPPING: Material?.Mapping === "uv" ? 1 : 0,
+      MAT_WARP: Pattern > 0 && Material.Warp > 0 ? 1 : 0,
+      MAT_GRAIN: Material?.Grain > 0 ? 1 : 0,
+      MAT_BITMAP: Material?.Bitmap ? 1 : 0,
+    };
+  }
+  CompositeVariant(Layer, Stroke, OutputMask = 0) {
+    const Mask = Layer.Mask;
+    const Painted = Mask.Enabled && Mask.Painted && Layer.Gpu?.Mask ? 1 : 0;
+    const IsStrokeLayer = Stroke && Stroke.LayerId === Layer.Id;
+    const StrokeMode = IsStrokeLayer ? (Stroke.Target === "mask" ? (Painted ? 2 : 0) : Layer.Type === "paint" ? 1 : 0) : 0;
+    const Generator = Mask.Enabled ? MaskGeneratorIndex(Mask.Generator) : 0;
+    let Material = null;
+    if (!OutputMask) {
+      if (Layer.Type === "paint") Material = StrokeMode === 1 ? Stroke.Material : null;
+      else Material = Layer.Material;
+    }
+    return this.Variant("composite", {
+      LAYER_TYPE: OutputMask ? 1 : { paint: 1, fill: 2, decal: 3 }[Layer.Type],
+      STROKE_MODE: OutputMask && StrokeMode === 1 ? 0 : StrokeMode,
+      OUTPUT_MASK: OutputMask,
+      MASK_ENABLED: Mask.Enabled ? 1 : 0,
+      MASK_PAINTED: Painted,
+      MASK_GEN: Generator,
+      MASK_BREAKUP: Generator > 1 && (Mask.Breakup ?? 0.4) > 0 ? 1 : 0,
+      DECAL_MAPPING: !OutputMask && Layer.Type === "decal" && Layer.Decal.Mapping !== "projected" ? 1 : 0,
+      ...this.MaterialDefines(Material),
+    });
+  }
+  CommitVariant(Material) {
+    return this.Variant("commit", this.MaterialDefines(Material));
+  }
+  PreviewVariant(Material) {
+    return this.Variant("preview", this.MaterialDefines(Material));
+  }
+  // True while any variant needed to composite this document is compiling.
+  Compiling(Doc, Stroke = null) {
+    let Busy = false;
+    for (const Layer of Doc.Layers) {
+      if (!Layer.Visible || Layer.Opacity <= 0) continue;
+      if (!this.CompositeVariant(Layer, Stroke).Ready()) Busy = true;
+    }
+    if (Stroke && Stroke.Target !== "mask") this.CommitVariant(Stroke.Material);
+    return Busy;
+  }
+
   SetMaterial(ProgramRef, Index, Material) {
     const Name = (Field) => `u_Material[${Index}].${Field}`;
     const Bitmap = this.BitmapTexture(Material.Bitmap);
@@ -448,19 +519,14 @@ export class TextureEngine {
   }
   BindLayerUniforms(ProgramRef, Doc, Layer, Stroke) {
     const G = Doc.Gpu;
-    const Type = { paint: 1, fill: 2, decal: 3 }[Layer.Type];
     const C = Layer.Channels;
-    ProgramRef.Int("u_Type", Type)
-      .Float("u_Opacity", Layer.Opacity)
+    ProgramRef.Float("u_Opacity", Layer.Opacity)
       .Int("u_Blend", BlendIndex(BLEND_MODES, Layer.Blend))
       .Int("u_HeightBlend", BlendIndex(HEIGHT_BLENDS, Layer.HeightBlend))
       .Vec4("u_Channels", [C.color ? 1 : 0, C.roughness ? 1 : 0, C.metallic ? 1 : 0, C.height ? 1 : 0])
       .Float("u_EmissiveChannel", C.emissive ? 1 : 0);
     const Mask = Layer.Mask;
-    ProgramRef.Int("u_MaskEnabled", Mask.Enabled ? 1 : 0)
-      .Int("u_MaskPainted", Mask.Painted && Layer.Gpu.Mask ? 1 : 0)
-      .Int("u_MaskGenerator", MaskGeneratorIndex(Mask.Generator))
-      .Vec4("u_MaskParams", [Mask.Scale, Mask.Contrast, Mask.Offset, Mask.Seed])
+    ProgramRef.Vec4("u_MaskParams", [Mask.Scale, Mask.Contrast, Mask.Offset, Mask.Seed])
       .Vec2("u_MaskExtra", Mask.Invert ? 1 : 0, Mask.Breakup ?? 0.4)
       .Vec2("u_HeightRange", G.Mesh.Bounds.Min[1], G.Mesh.Bounds.Max[1])
       .Texture("u_Mask", Layer.Gpu.Mask || this.White);
@@ -483,8 +549,7 @@ export class TextureEngine {
         const Frame = DecalFrame(D.Normal, D.Up, (D.Rotation * Math.PI) / 180);
         const Right = Frame.Right.map((V) => (V * (D.FlipX ? -1 : 1)) / Width);
         const Up = Frame.Up.map((V) => (V * (D.FlipY ? -1 : 1)) / Height);
-        ProgramRef.Int("u_DecalMapping", 0)
-          .Vec3("u_DecalOrigin", D.Position)
+        ProgramRef.Vec3("u_DecalOrigin", D.Position)
           .Vec3("u_DecalRight", Right)
           .Vec3("u_DecalUp", Up)
           .Vec3("u_DecalNormal", Frame.Normal.map((V) => V / Math.max(0.005, D.Depth)))
@@ -498,14 +563,12 @@ export class TextureEngine {
         const SX = (D.FlipX ? -1 : 1) / UvWidth;
         const SY = (D.FlipY ? -1 : 1) / UvHeight;
         // Local = Scale · R(-angle) · (uv - center); column-major mat2.
-        ProgramRef.Int("u_DecalMapping", 1)
-          .Vec2("u_DecalCenter", D.UvCenter[0], D.UvCenter[1])
+        ProgramRef.Vec2("u_DecalCenter", D.UvCenter[0], D.UvCenter[1])
           .Mat2("u_DecalInverse", [C_ * SX, -S_ * SY, S_ * SX, C_ * SY]);
       }
       ProgramRef.Int("u_DecalSourceColor", D.SourceColor ? 1 : 0);
     }
     const IsStrokeLayer = Stroke && Stroke.LayerId === Layer.Id;
-    ProgramRef.Int("u_StrokeMode", IsStrokeLayer ? (Stroke.Target === "mask" ? 2 : 1) : 0);
     if (IsStrokeLayer) this.BindBrush(ProgramRef, Stroke);
     else ProgramRef.Texture("u_Stroke", this.Black).Texture("u_Bitmap1", this.White);
   }
@@ -520,9 +583,12 @@ export class TextureEngine {
     this.SetMaterial(ProgramRef, 1, Stroke.Material);
   }
 
-  Composite(Doc, Stroke = null, FocusLayerId = null) {
+  // With Async the call returns false (leaving the document dirty) while a
+  // needed shader variant is still compiling, so the page never blocks on it.
+  Composite(Doc, Stroke = null, FocusLayerId = null, Async = false) {
     const GL = this.GL;
     const G = Doc.Gpu;
+    if (Async && this.Compiling(Doc, Stroke)) return false;
     GL.disable(GL.BLEND);
     GL.disable(GL.DEPTH_TEST);
     GL.disable(GL.CULL_FACE);
@@ -531,7 +597,6 @@ export class TextureEngine {
     const Base = Doc.Base;
     const BaseColor = HexToRgb(Base.Color);
     const BaseValues = [[...BaseColor, 1], [Base.Roughness, Base.Metallic, Base.Height, 1], [0, 0, 0, 1]];
-    const Program_ = this.Programs.Composite;
     let Current = G.Accum[0];
     let Next = G.Accum[1];
     let Start = 0;
@@ -544,8 +609,7 @@ export class TextureEngine {
       const Layer = Layers[Index];
       if (Current === G.Cache) Next = G.Accum[0];
       this.Targets.Bind(Next);
-      Program_.Use()
-        .Int("u_OutputMask", 0)
+      const Program_ = this.CompositeVariant(Layer, Stroke).Use()
         .Texture("u_Prev0", Current[0])
         .Texture("u_Prev1", Current[1])
         .Texture("u_Prev2", Current[2])
@@ -553,6 +617,9 @@ export class TextureEngine {
         .Texture("u_Normal", G.Normal);
       this.BindLayerUniforms(Program_, Doc, Layer, Stroke);
       this.DrawQuad();
+      // One submission per layer keeps every GPU batch far below the OS
+      // watchdog (TDR) even on weak integrated GPUs.
+      GL.flush();
       const Previous = Current;
       Current = Next;
       Next = Previous === G.Cache ? G.Accum[1] : Previous;
@@ -585,20 +652,22 @@ export class TextureEngine {
       GL.bindTexture(GL.TEXTURE_2D, Texture);
       GL.generateMipmap(GL.TEXTURE_2D);
     }
+    GL.flush();
     G.Dirty = false;
+    return true;
   }
 
-  RenderMask(Doc, Layer, Stroke) {
+  RenderMask(Doc, Layer, Stroke, Async = false) {
     const G = Doc.Gpu;
     if (!Layer) {
       this.Clear([G.MaskView], [[1, 1, 1, 1]]);
-      return;
+      return true;
     }
+    const Variant = this.CompositeVariant(Layer, Stroke, 1);
+    if (Async && !Variant.Ready()) return false;
     this.GL.disable(this.GL.BLEND);
-    const Program_ = this.Programs.Composite;
     this.Targets.Bind([G.MaskView, null, null]);
-    Program_.Use()
-      .Int("u_OutputMask", 1)
+    const Program_ = Variant.Use()
       .Texture("u_Prev0", this.Black)
       .Texture("u_Prev1", this.Black)
       .Texture("u_Prev2", this.Black)
@@ -606,6 +675,7 @@ export class TextureEngine {
       .Texture("u_Normal", G.Normal);
     this.BindLayerUniforms(Program_, Doc, Layer, Stroke);
     this.DrawQuad();
+    return true;
   }
 
   // ---------------------------------------------------------------- strokes
@@ -694,7 +764,7 @@ export class TextureEngine {
     );
     if (!New.some(Boolean)) return { Textures: {} };
     this.Targets.Bind(New);
-    const Program_ = this.Programs.Commit.Use()
+    const Program_ = this.CommitVariant(Stroke.Material).Use()
       .Texture("u_T0", Old[0])
       .Texture("u_T1", Old[1])
       .Texture("u_T2", Old[2])
@@ -885,7 +955,7 @@ export class TextureEngine {
     this.Targets.Bind([this.PreviewTarget]);
     GL.disable(GL.BLEND);
     GL.clearBufferfv(GL.COLOR, 0, [0, 0, 0, 0]);
-    const Program_ = this.Programs.Preview.Use();
+    const Program_ = this.PreviewVariant(Material).Use();
     this.SetMaterial(Program_, 0, Material);
     this.SetEnvironment(Program_, Environment);
     this.DrawQuad();
