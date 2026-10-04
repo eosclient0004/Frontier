@@ -41,9 +41,10 @@ export class TexturePanel {
     this.docIndex = -1;
     this.view = {
       zoom: 1, panX: 0, panY: 0, fitScale: 1,
-      mode: "2d", channel: "composite",
-      tiling: false, checker: true,
+      mode: "3d", channel: "composite",
+      tiling: false, checker: true, showMaskOverlay: false,
     };
+    this.overlayCanvas = null;
     this.inspectorTab = "tool";
     this.libraryTab = "brush";
     this.libraryQuery = "";
@@ -71,6 +72,7 @@ export class TexturePanel {
     this.buildChannelStrip();
     this.connectInterface();
     this.createDocument("Untitled texture", 1024, "dark", "blank", true);
+    this.setViewMode("3d", true);
     this.fitView();
     new ResizeObserver(() => this.layoutCanvases()).observe(Select("#viewport"));
     if (document.fonts && document.fonts.ready) {
@@ -128,6 +130,7 @@ export class TexturePanel {
     this.view.channel = "composite";
     Select("#render-channel").value = "composite";
     Select("#document-name").value = Document.name;
+    this.syncViewModeUI();
     this.fitView();
     this.renderAll();
   }
@@ -238,6 +241,11 @@ export class TexturePanel {
     Select("#clear-button").disabled = !Active;
     Select("#tiling-button").classList.toggle("active", this.view.tiling);
     Select("#overlays-button").classList.toggle("active", this.view.checker);
+    Select("#quickmask-button").classList.toggle("active", Document.quickMaskActive);
+    if (Document.quickMaskActive) {
+      const Pill = Select("#live-pill span");
+      if (Pill) Pill.textContent = "QUICK MASK";
+    }
     const Scale = this.view.fitScale * this.view.zoom;
     Select("#zoom-level").textContent = `${Math.round(Scale * 100)}%`;
     if (document.activeElement !== Select("#symmetry-select")) {
@@ -1015,12 +1023,18 @@ export class TexturePanel {
         ${this.toggleRow({ id: "layer-clip", label: "Clip to layers below" })}
         ${this.toggleRow({ id: "layer-lock", label: "Lock pixels" })}
         ${Layer.channels.mask ? this.toggleRow({ id: "layer-mask-edit", label: "Paint on mask (◐)" }) : ""}
+        ${Layer.channels.mask ? this.toggleRow({ id: "layer-mask-overlay", label: "Rubylith overlay" }) : ""}
         <div class="button-row">
           ${Layer.channels.mask
             ? `<button class="button" id="layer-mask-toggle">${Layer.maskEnabled ? "Bypass mask" : "Enable mask"}</button><button class="button danger" id="layer-mask-remove">Delete</button>`
             : (Layer.kind === "adjust" ? "" : `<button class="button" id="layer-mask-add">Add mask</button>`)}
         </div>
+        ${Layer.channels.mask ? `<div class="button-row"><button class="button" id="layer-mask-invert">Invert</button><button class="button" id="layer-mask-reveal">Reveal all</button><button class="button" id="layer-mask-conceal">Conceal</button></div>` : ""}
+        ${Layer.channels.mask ? this.sliderRow({ id: "layer-mask-feather", label: "Feather", min: 0, max: 24, step: 0.5, value: 0, unit: "px" }) : ""}
+        ${Layer.channels.mask ? this.sliderRow({ id: "layer-mask-density", label: "Density", min: 0, max: 1, step: 0.01, value: Layer.maskDensity === undefined ? 1 : Layer.maskDensity, format: (V) => `${Math.round(V * 100)}%` }) : ""}
+        <div class="button-row"><button class="button" id="layer-quickmask">Quick mask (Q)</button></div>
         ${Layer.maskSelected ? `<p class="property-hint">◐ Painting reveals, erasing conceals. The channel strip previews the mask.</p>` : ""}
+        ${Document.quickMaskActive ? `<p class="property-hint">◑ Quick mask live — paint, then Q to commit or Esc to discard.</p>` : ""}
       `)}
       ${KindHtml}
       ${this.group("Arrange", `${Index + 1} / ${Document.layers.length}`, `
@@ -1081,6 +1095,85 @@ export class TexturePanel {
       Document.removeMask(Layer);
       this.renderAll();
     });
+    const MaskOverlay = Select("#layer-mask-overlay");
+    if (MaskOverlay) {
+      MaskOverlay.checked = this.view.showMaskOverlay || Layer.maskSelected;
+      MaskOverlay.addEventListener("change", (Event) => {
+        this.view.showMaskOverlay = Event.target.checked;
+      });
+    }
+    const MaskInvert = Select("#layer-mask-invert");
+    if (MaskInvert) MaskInvert.addEventListener("click", () => {
+      Document.invertMask(Layer);
+      this.updateChrome();
+    });
+    const MaskReveal = Select("#layer-mask-reveal");
+    if (MaskReveal) MaskReveal.addEventListener("click", () => {
+      Document.fillMask(Layer, true);
+      this.updateChrome();
+    });
+    const MaskConceal = Select("#layer-mask-conceal");
+    if (MaskConceal) MaskConceal.addEventListener("click", () => {
+      Document.fillMask(Layer, false);
+      this.updateChrome();
+    });
+    const MaskFeather = Select("#layer-mask-feather-range");
+    if (MaskFeather) {
+      let Snapshot = null;
+      let Live = 0;
+      this.bindSlider("layer-mask-feather", {
+        min: 0, max: 24, step: 0.5,
+        get: () => Live,
+        set: (Value) => {
+          Live = Value;
+          if (Snapshot) Document.featherPreview(Layer, Snapshot, Value);
+        },
+        unit: "px",
+        onStart: () => {
+          Snapshot = makeCanvas(Document.width, Document.height);
+          Snapshot.getContext("2d").drawImage(Layer.channels.mask, 0, 0);
+        },
+        onCommit: (Done) => {
+          if (!Done || !Snapshot) return;
+          Document.commitMaskFeather(Layer, Snapshot);
+          Snapshot = null;
+          Live = 0;
+          // One-shot control: reset to zero without losing inspector state.
+          const Range = Select("#layer-mask-feather-range");
+          const NumberInput = Select("#layer-mask-feather-number");
+          const Output = Select("#layer-mask-feather-output");
+          if (Range) {
+            Range.value = 0;
+            Range.style.setProperty("--fraction", "0");
+            Range.style.setProperty("--range", "0%");
+          }
+          if (NumberInput) NumberInput.value = 0;
+          if (Output) Output.textContent = "0 px";
+        },
+      });
+    }
+    const MaskDensity = Select("#layer-mask-density-range");
+    if (MaskDensity) {
+      let StartValue = Layer.maskDensity === undefined ? 1 : Layer.maskDensity;
+      this.bindSlider("layer-mask-density", {
+        min: 0, max: 1, step: 0.01,
+        get: () => (Layer.maskDensity === undefined ? 1 : Layer.maskDensity),
+        set: (Value) => {
+          Layer.maskDensity = Value;
+          Layer.thumbDirty = true;
+          Document.markDirty();
+        },
+        format: (V) => `${Math.round(V * 100)}%`,
+        onStart: () => {
+          StartValue = Layer.maskDensity === undefined ? 1 : Layer.maskDensity;
+        },
+        onCommit: (Done) => {
+          if (Done) this.pushPropsHistory(Layer, { maskDensity: StartValue }, { maskDensity: Layer.maskDensity }, "Mask density");
+        },
+      });
+    }
+    const QuickMaskButton = Select("#layer-quickmask");
+    if (QuickMaskButton) QuickMaskButton.addEventListener("click", () => this.toggleQuickMask());
 
     // Kind wiring.
     if (Layer.kind === "paint") this.wirePaintTab(Document, Layer);
@@ -1149,7 +1242,18 @@ export class TexturePanel {
       Last.label = Label;
       return;
     }
-    Document.pushHistory({
+    const ApplyProps = (Patch) => {
+      const Target = Document.layers.find((Entry) => Entry.id === Layer.id);
+      if (!Target) return;
+      Object.assign(Target, JSON.parse(JSON.stringify(Patch)));
+      Target.rasterDirty = true;
+      Target.fillCache = null;
+      Target.thumbDirty = true;
+      Document.markDirty();
+      this.renderAll();
+    };
+    // Undo/redo read through the entry so coalesced repeats redo correctly.
+    const Entry = {
       label: Label,
       type: "props",
       time: performance.now(),
@@ -1157,27 +1261,10 @@ export class TexturePanel {
       layerId: Layer.id,
       before: JSON.parse(JSON.stringify(Before)),
       after: JSON.parse(JSON.stringify(After)),
-      undo: () => {
-        const Target = Document.layers.find((Entry) => Entry.id === Layer.id);
-        if (!Target) return;
-        Object.assign(Target, JSON.parse(JSON.stringify(Before)));
-        Target.rasterDirty = true;
-        Target.fillCache = null;
-        Target.thumbDirty = true;
-        Document.markDirty();
-        this.renderAll();
-      },
-      redo: () => {
-        const Target = Document.layers.find((Entry) => Entry.id === Layer.id);
-        if (!Target) return;
-        Object.assign(Target, JSON.parse(JSON.stringify(After)));
-        Target.rasterDirty = true;
-        Target.fillCache = null;
-        Target.thumbDirty = true;
-        Document.markDirty();
-        this.renderAll();
-      },
-    });
+      undo: () => ApplyProps(Entry.before),
+      redo: () => ApplyProps(Entry.after),
+    };
+    Document.pushHistory(Entry);
   }
 
   /** Live param mutation helper for decal/fill sliders (no history until release). */
@@ -1637,21 +1724,24 @@ export class TexturePanel {
       }
       Document.markDirty();
     };
-    Document.pushHistory({
+    // Undo/redo read through the entry so coalesced repeats redo correctly.
+    const Entry = {
       label: Label,
       type: "material",
       time: performance.now(),
       keys: Keys,
+      before: BeforeCopy,
       after: AfterCopy,
       undo: () => {
-        Apply(BeforeCopy);
+        Apply(Entry.before);
         this.renderAll();
       },
       redo: () => {
-        Apply(AfterCopy);
+        Apply(Entry.after);
         this.renderAll();
       },
-    });
+    };
+    Document.pushHistory(Entry);
   }
 
   drawMaterialPreview() {
@@ -1944,6 +2034,7 @@ export class TexturePanel {
         }
       }
     }
+    this.drawMaskOverlay(Context, Origin, Scale, Dw, Dh, Tiles);
     // Pixel grid at high zoom.
     if (Scale >= 9 && Tiles === 1) {
       const StartX = Math.max(0, Math.floor(-Origin.x / Scale));
@@ -2036,6 +2127,43 @@ export class TexturePanel {
         Context.restore();
       }
     }
+  }
+
+  /** Rubylith overlay: red where the mask (or quick mask) conceals. */
+  drawMaskOverlay(Context, Origin, Scale, Dw, Dh, Tiles) {
+    const Document = this.doc;
+    if (!Document) return;
+    let Source = null;
+    if (Document.quickMaskActive && Document.quickMask) {
+      Source = Document.quickMask;
+    } else {
+      const Active = Document.activeLayer;
+      if (Active && Active.channels.mask && Active.maskEnabled && (this.view.showMaskOverlay || Active.maskSelected)) {
+        Source = Active.channels.mask;
+      }
+    }
+    if (!Source) return;
+    if (!this.overlayCanvas || this.overlayCanvas.width !== Document.width || this.overlayCanvas.height !== Document.height) {
+      this.overlayCanvas = makeCanvas(Document.width, Document.height);
+    }
+    const Overlay = this.overlayCanvas.getContext("2d");
+    Overlay.save();
+    Overlay.globalCompositeOperation = "source-over";
+    Overlay.clearRect(0, 0, Document.width, Document.height);
+    Overlay.fillStyle = "rgba(255,64,64,1)";
+    Overlay.fillRect(0, 0, Document.width, Document.height);
+    Overlay.globalCompositeOperation = "destination-out";
+    Overlay.drawImage(Source, 0, 0);
+    Overlay.restore();
+    Context.save();
+    Context.globalAlpha = 0.45;
+    Context.imageSmoothingEnabled = Scale < 7;
+    for (let Ty = 0; Ty < Tiles; Ty++) {
+      for (let Tx = 0; Tx < Tiles; Tx++) {
+        Context.drawImage(this.overlayCanvas, Origin.x + Tx * Dw, Origin.y + Ty * Dh, Dw, Dh);
+      }
+    }
+    Context.restore();
   }
 
   paintChecker(Context, X, Y, W, H, Scale) {
@@ -2413,6 +2541,7 @@ export class TexturePanel {
       SelectAll(".channel-thumb").forEach((Thumb) => Thumb.classList.toggle("active", Thumb.dataset.channel === this.view.channel));
       this.updateChrome();
     });
+    Select("#quickmask-button").addEventListener("click", () => this.toggleQuickMask());
     Select("#tiling-button").addEventListener("click", () => {
       this.view.tiling = !this.view.tiling;
       this.updateChrome();
@@ -2621,6 +2750,12 @@ export class TexturePanel {
         this.engine.cancelStroke();
         return;
       }
+      if (this.doc && this.doc.quickMaskActive) {
+        this.doc.discardQuickMask();
+        this.updateChrome();
+        this.notify("Quick mask discarded.");
+        return;
+      }
       this.toggleAddMenu(false);
       for (const Selector of ["#help-dialog", "#new-dialog", "#export-dialog"]) {
         const Dialog = Select(Selector);
@@ -2629,6 +2764,10 @@ export class TexturePanel {
       return;
     }
     if (Typing) return;
+    if (Event.key === "Enter" && this.doc && this.doc.quickMaskActive) {
+      this.toggleQuickMask();
+      return;
+    }
     const Key = Event.key.toLowerCase();
     const Mod = Event.ctrlKey || Event.metaKey;
     if (Mod && Key === "z" && !Event.shiftKey) {
@@ -2674,6 +2813,9 @@ export class TexturePanel {
       case "d":
         Select("#diagnostics").hidden = !Select("#diagnostics").hidden;
         this.updateDiagnostics();
+        break;
+      case "q":
+        this.toggleQuickMask();
         break;
       case "/":
         Event.preventDefault();
@@ -2766,7 +2908,8 @@ export class TexturePanel {
       this.notify("Add a layer to paint on.");
       return;
     }
-    if (Layer.locked) {
+    const QuickMask = Document.quickMaskActive;
+    if (Layer.locked && !QuickMask) {
       this.notify(`${Layer.name} is locked.`);
       return;
     }
@@ -2788,7 +2931,7 @@ export class TexturePanel {
       return;
     }
     if (this.engine.tool === "fill") {
-      if (Layer.kind !== "paint") {
+      if (Layer.kind !== "paint" && !QuickMask) {
         this.notify("Fill paints raster layers — rasterize or pick a paint layer.");
         return;
       }
@@ -2798,7 +2941,7 @@ export class TexturePanel {
       if (!Filled) this.notify("Nothing within tolerance at that point.");
       return;
     }
-    if (Layer.kind !== "paint") {
+    if (Layer.kind !== "paint" && !QuickMask) {
       this.notify(`${LAYER_KINDS[Layer.kind].label} is procedural — rasterize it or pick a paint layer.`);
       return;
     }
@@ -2967,19 +3110,48 @@ export class TexturePanel {
     this.updateChrome();
   }
 
+  /* ================= Quick Mask ================= */
+
+  toggleQuickMask() {
+    const Document = this.doc;
+    if (!Document) return;
+    if (Document.quickMaskActive) {
+      if (Document.commitQuickMask()) {
+        this.compositeVersion++;
+        this.renderAll();
+        this.notify("Quick mask committed to the layer mask.");
+      }
+      return;
+    }
+    if (this.engine.painting) return;
+    if (!Document.enterQuickMask()) {
+      this.notify("Quick mask needs an editable layer — not an adjustment.");
+      return;
+    }
+    if (this.view.mode === "3d") this.setViewMode("split", true);
+    this.updateChrome();
+    this.notify("Quick mask: paint to reveal, erase to conceal. Q commits · Esc discards · Enter commits.");
+  }
+
   /* ================= View modes / history ================= */
 
-  setViewMode(Mode) {
+  setViewMode(Mode, Silent = false) {
     this.view.mode = Mode;
-    const Viewport = Select("#viewport");
-    Viewport.classList.toggle("split", Mode === "split");
+    this.syncViewModeUI();
+    this.layoutCanvases();
+    if (!Silent) {
+      this.notify(Mode === "2d" ? "2D paint view." : Mode === "3d" ? "3D material preview — drag to orbit." : "Split view — paint left, shade right.");
+    }
+  }
+
+  syncViewModeUI() {
+    const Mode = this.view.mode;
+    Select("#viewport").classList.toggle("split", Mode === "split");
     Select("#paint-canvas").hidden = Mode === "3d";
     Select("#preview-canvas").hidden = Mode === "2d";
     Select("#mesh-select").hidden = Mode === "2d";
     Select("#view-mode").value = Mode;
     Select("#navigator").style.display = Mode === "3d" ? "none" : "";
-    this.layoutCanvases();
-    this.notify(Mode === "2d" ? "2D paint view." : Mode === "3d" ? "3D material preview — drag to orbit." : "Split view — paint left, shade right.");
   }
 
   undo() {

@@ -342,6 +342,10 @@ console.log("import OK");
 
 const panel = new TexturePanel();
 console.log("construct OK, docs:", panel.documents.length, "layers:", panel.doc.layers.length);
+if (panel.view.mode !== "3d") throw new Error("expected 3D default view, got " + panel.view.mode);
+panel.setViewMode("2d");
+pumpFrames(panel, 2);
+console.log("default 3D + switch to 2D OK");
 pumpFrames(panel, 4);
 console.log("frames OK, compositeVersion:", panel.compositeVersion);
 
@@ -417,6 +421,79 @@ console.log("presets OK, layers:", panel.doc.layers.length);
   pumpFrames(panel, 2);
   doc.removeMask(layer);
   console.log("mask OK");
+
+// Extended mask ops: invert / fill / feather / density + masked fill composite
+{
+  const doc = panel.doc;
+  const layer = doc.activeLayer;
+  if (!layer.channels.mask) doc.toggleMask(layer);
+  doc.invertMask(layer);
+  doc.fillMask(layer, false);
+  doc.fillMask(layer, true);
+  const snap = document.createElement("canvas");
+  snap.width = doc.width; snap.height = doc.height;
+  snap.getContext("2d").drawImage(layer.channels.mask, 0, 0);
+  doc.featherPreview(layer, snap, 4);
+  doc.commitMaskFeather(layer, snap);
+  doc.setLayerProps(layer, { maskDensity: 0.5 }, "density test");
+  // Mask on a FILL layer exercises applyMaskToCanvas; multi-channel masked
+  // paint (metal/rough) exercises fresh-snapshot maskedSource.
+  const fill = doc.layers.find((l) => l.kind === "fill");
+  if (fill) {
+    doc.setActiveLayer(fill.id);
+    doc.toggleMask(fill);
+  }
+  doc.renderComposite(true);
+  panel.view.showMaskOverlay = true;
+  pumpFrames(panel, 2);
+  panel.view.showMaskOverlay = false;
+  console.log("mask ops OK, history:", doc.history.length);
+}
+
+// Quick Mask: enter, paint every tool, commit, discard
+{
+  const doc = panel.doc;
+  const paint = doc.layers.find((l) => l.kind === "paint" && !l.locked) || doc.activeLayer;
+  doc.setActiveLayer(paint.id);
+  panel.toggleQuickMask();
+  if (!doc.quickMaskActive) throw new Error("quick mask did not activate");
+  pumpFrames(panel, 2); // overlay render path
+  const eng = panel.engine;
+  eng.tool = "paint";
+  eng.beginStroke(doc, paint, 60, 60, 1);
+  eng.strokeTo(160, 160, 1);
+  eng.endStroke();
+  eng.tool = "eraser";
+  eng.beginStroke(doc, paint, 100, 100, 1);
+  eng.strokeTo(140, 140, 1);
+  eng.endStroke();
+  eng.tool = "smudge";
+  eng.beginStroke(doc, paint, 120, 120, 1);
+  eng.strokeTo(150, 150, 1);
+  eng.endStroke();
+  eng.tool = "shape";
+  eng.shapeKind = "rect";
+  eng.beginStroke(doc, paint, 200, 200, 1);
+  eng.strokeTo(300, 280, 1);
+  eng.endStroke();
+  eng.tool = "paint";
+  eng.floodFill(doc, paint, 400, 400);
+  const before = doc.history.length;
+  panel.toggleQuickMask(); // commit
+  if (doc.quickMaskActive) throw new Error("quick mask did not commit");
+  if (!paint.channels.mask) throw new Error("commit produced no mask");
+  if (doc.history.length !== before + 1) throw new Error("commit history mismatch");
+  doc.renderComposite(true);
+  pumpFrames(panel, 2);
+  // discard path
+  panel.toggleQuickMask();
+  eng.beginStroke(doc, paint, 60, 60, 1);
+  eng.strokeTo(90, 90, 1);
+  eng.endStroke();
+  doc.discardQuickMask();
+  if (doc.quickMaskActive) throw new Error("discard failed");
+  console.log("quick mask OK");
+}
 }
 
 // Undo/redo everything
@@ -500,6 +577,13 @@ console.log("views OK");
     }, extra));
   };
   for (const k of ["b", "e", "u", "g", "i", "r", "v", "h", "x", "f", "c", "t", "d", "[", "]", "1", "5", "0"]) fire(k);
+  fire("q"); // enter quick mask
+  if (!panel.doc.quickMaskActive) throw new Error("q did not enter quick mask");
+  panel.onKeyDown({ key: "Enter", target: { tagName: "DIV" }, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, preventDefault() {} });
+  if (panel.doc.quickMaskActive) throw new Error("Enter did not commit quick mask");
+  fire("q");
+  panel.onKeyDown({ key: "Escape", target: { tagName: "DIV" }, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, preventDefault() {} });
+  if (panel.doc.quickMaskActive) throw new Error("Escape did not discard quick mask");
   fire("z", { ctrlKey: true });
   fire("y", { ctrlKey: true });
   fire("s", { ctrlKey: true });

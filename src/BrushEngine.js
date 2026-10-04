@@ -43,6 +43,7 @@ export class BrushEngine {
 
   resetStroke() {
     this.painting = false;
+    this.qm = false;
     this.doc = null;
     this.layer = null;
     this.capture = null;
@@ -58,6 +59,7 @@ export class BrushEngine {
 
   strokeTargets() {
     // Which layer channels this stroke will write.
+    if (this.doc && this.doc.quickMaskActive) return ["qm"];
     if (this.layer && this.layer.maskSelected && this.layer.channels.mask) return ["mask"];
     if (this.tool === "smudge") return ["albedo"];
     if (this.tool === "eraser") {
@@ -76,26 +78,46 @@ export class BrushEngine {
     return Keys.length ? Keys : ["albedo"];
   }
 
+  quickMaskCanvas() {
+    return this.doc && this.doc.quickMaskActive ? this.doc.quickMask : null;
+  }
+
   beginStroke(Doc, Layer, X, Y, Pressure = 1) {
-    if (!Doc || !Layer || Layer.locked) return false;
-    if (Layer.kind !== "paint") return false;
+    if (!Doc) return false;
     this.doc = Doc;
     this.layer = Layer;
-    this.strokeSeed = (Math.random() * 1e9) | 0;
-    const Targets = this.tool === "shape" ? this.strokeTargets() : this.strokeTargets();
-    this.capture = {};
-    for (const Key of Targets) {
-      const Existing = Layer.channels[Key];
-      const Clone = makeCanvas(Doc.width, Doc.height);
-      if (Existing) Clone.getContext("2d").drawImage(Existing, 0, 0);
-      else if (Key === "albedo") {
-        Layer.channels.albedo = makeCanvas(Doc.width, Doc.height);
-      }
-      this.capture[Key] = Clone;
+    this.qm = !!Doc.quickMaskActive;
+    if (this.qm && !Doc.quickMask) {
+      this.resetStroke();
+      this.doc = Doc;
+      return false;
     }
-    // Lazily allocate painted scalar channels now (clone already holds blank).
-    for (const Key of Targets) {
-      if (!Layer.channels[Key]) Layer.channels[Key] = makeCanvas(Doc.width, Doc.height);
+    if (!this.qm && (!Layer || Layer.locked || Layer.kind !== "paint")) {
+      this.resetStroke();
+      this.doc = Doc;
+      return false;
+    }
+    this.strokeSeed = (Math.random() * 1e9) | 0;
+    const Targets = this.strokeTargets();
+    this.capture = {};
+    if (this.qm) {
+      const Clone = makeCanvas(Doc.width, Doc.height);
+      Clone.getContext("2d").drawImage(Doc.quickMask, 0, 0);
+      this.capture.qm = Clone;
+    } else {
+      for (const Key of Targets) {
+        const Existing = Layer.channels[Key];
+        const Clone = makeCanvas(Doc.width, Doc.height);
+        if (Existing) Clone.getContext("2d").drawImage(Existing, 0, 0);
+        else if (Key === "albedo") {
+          Layer.channels.albedo = makeCanvas(Doc.width, Doc.height);
+        }
+        this.capture[Key] = Clone;
+      }
+      // Lazily allocate painted scalar channels now (clone already holds blank).
+      for (const Key of Targets) {
+        if (!Layer.channels[Key]) Layer.channels[Key] = makeCanvas(Doc.width, Doc.height);
+      }
     }
     this.dirty = null;
     this.smooth = { x: X, y: Y };
@@ -150,10 +172,12 @@ export class BrushEngine {
     }
     const Layer = this.layer;
     const Doc = this.doc;
+    const WasQm = this.qm;
     const Label = this.tool === "eraser" ? "Erase" : this.tool === "smudge" ? "Smudge" : this.tool === "shape" ? `Shape ${this.shapeKind}` : "Paint stroke";
     const Rect = this.dirty;
     const Capture = this.capture;
     this.resetStroke();
+    if (WasQm) return Rect ? "Quick mask" : null;
     if (Layer && Doc && Rect) {
       Layer.thumbDirty = true;
       Doc.markDirty();
@@ -164,7 +188,21 @@ export class BrushEngine {
   }
 
   cancelStroke() {
-    if (!this.painting || !this.layer || !this.capture) {
+    if (!this.painting || !this.capture) {
+      this.resetStroke();
+      return;
+    }
+    if (this.qm && this.doc && this.doc.quickMask && this.capture.qm) {
+      const Context = this.doc.quickMask.getContext("2d");
+      Context.save();
+      Context.globalCompositeOperation = "source-over";
+      Context.clearRect(0, 0, this.doc.width, this.doc.height);
+      Context.drawImage(this.capture.qm, 0, 0);
+      Context.restore();
+      this.resetStroke();
+      return;
+    }
+    if (!this.layer) {
       this.resetStroke();
       return;
     }
@@ -234,14 +272,14 @@ export class BrushEngine {
     const Jy = Scatter ? (Math.random() * 2 - 1) * Scatter : 0;
     const Targets = this.strokeTargets();
     for (const Key of Targets) {
-      const Canvas = Layer.channels[Key];
+      const Canvas = Key === "qm" ? this.quickMaskCanvas() : Layer ? Layer.channels[Key] : null;
       if (!Canvas) continue;
       const Context = Canvas.getContext("2d");
       Context.save();
       if (this.tool === "eraser") {
         Context.globalCompositeOperation = "destination-out";
         this.stamp(Context, X + Jx, Y + Jy, Size, Alpha, [255, 255, 255]);
-      } else if (Key === "mask") {
+      } else if (Key === "mask" || Key === "qm") {
         Context.globalCompositeOperation = "source-over";
         this.stamp(Context, X + Jx, Y + Jy, Size, Alpha, [255, 255, 255]);
       } else if (Key === "albedo") {
@@ -268,7 +306,8 @@ export class BrushEngine {
       Context.restore();
     }
     this.growDirty(X + Jx, Y + Jy, Size);
-    Layer.thumbDirty = true;
+    if (this.qm) return; // scratch buffer: overlay redraws live, commit writes history
+    if (Layer) Layer.thumbDirty = true;
     Doc.markDirty(false);
     Doc.dirty = true;
   }
@@ -380,15 +419,19 @@ export class BrushEngine {
     this.smudgeHold = makeCanvas(Size, Size);
     const Context = this.smudgeHold.getContext("2d");
     Context.clearRect(0, 0, Size, Size);
-    Context.drawImage(this.layer.channels.albedo, X - Size / 2, Y - Size / 2, Size, Size, 0, 0, Size, Size);
+    const SmudgeSource = this.quickMaskCanvas() || (this.layer ? this.layer.channels.albedo : null);
+    if (SmudgeSource) Context.drawImage(SmudgeSource, X - Size / 2, Y - Size / 2, Size, Size, 0, 0, Size, Size);
   }
 
   smudgeDab(X, Y) {
     const Layer = this.layer;
     const Doc = this.doc;
+    const Qm = this.quickMaskCanvas();
+    const Surface = Qm || (Layer ? Layer.channels.albedo : null);
+    if (!Surface) return;
     const Size = Math.max(2, this.brush.size);
     const Strength = Math.max(0.05, Math.min(1, this.brush.smudge * this.brush.flow * 1.4));
-    const Target = Layer.channels.albedo.getContext("2d");
+    const Target = Surface.getContext("2d");
     Target.save();
     Target.globalCompositeOperation = "source-over";
     Target.globalAlpha = Strength * this.brush.opacity;
@@ -409,10 +452,11 @@ export class BrushEngine {
     HoldContext.globalAlpha = 1 - Strength * 0.5;
     HoldContext.drawImage(HoldContext.canvas, 0, 0);
     HoldContext.globalAlpha = 1;
-    HoldContext.drawImage(Layer.channels.albedo, X - Size / 2, Y - Size / 2, Size, Size, 0, 0, Size, Size);
+    HoldContext.drawImage(Surface, X - Size / 2, Y - Size / 2, Size, Size, 0, 0, Size, Size);
     HoldContext.restore();
     this.growDirty(X, Y, Size);
-    Layer.thumbDirty = true;
+    if (Qm) return; // scratch buffer
+    if (Layer) Layer.thumbDirty = true;
     Doc.markDirty(false);
     Doc.dirty = true;
   }
@@ -435,11 +479,18 @@ export class BrushEngine {
     const MaxY = Math.max(Preview.y0, Preview.y1);
     const Pad = this.shapeKind === "line" ? this.brush.size : 2;
     const Targets = this.strokeTargets().filter((Key) => Key !== "mask");
-    if (Layer.maskSelected && Layer.channels.mask) {
+    const Qm = this.quickMaskCanvas();
+    if (Qm) {
+      drawShapeOn(Qm.getContext("2d"), Preview, "#ffffff", this.brush.size, this.shapeFilled, "source-over", this.brush.opacity);
+      this.dirty = { x: MinX - Pad, y: MinY - Pad, w: MaxX - MinX + Pad * 2, h: MaxY - MinY + Pad * 2 };
+      return;
+    }
+    if (Layer && Layer.maskSelected && Layer.channels.mask) {
       drawShapeOn(Layer.channels.mask.getContext("2d"), Preview, "#ffffff", this.brush.size, this.shapeFilled, "source-over", 1);
       this.dirty = { x: MinX - Pad, y: MinY - Pad, w: MaxX - MinX + Pad * 2, h: MaxY - MinY + Pad * 2 };
       return;
     }
+    if (!Layer) return;
     for (const Key of Targets) {
       const Canvas = Layer.channels[Key];
       if (!Canvas) continue;
@@ -460,8 +511,10 @@ export class BrushEngine {
   /* ---------------- Flood fill ---------------- */
 
   floodFill(Doc, Layer, X, Y) {
-    if (!Doc || !Layer || Layer.locked || Layer.kind !== "paint") return 0;
-    const Targets = this.strokeTargets().filter((Key) => Key !== "emissive" || true);
+    if (!Doc) return 0;
+    if (Doc.quickMaskActive && Doc.quickMask) return this.floodFillQuickMask(Doc, X, Y);
+    if (!Layer || Layer.locked || Layer.kind !== "paint") return 0;
+    const Targets = this.strokeTargets();
     const Albedo = Layer.channels.albedo;
     const Width = Doc.width;
     const Height = Doc.height;
@@ -562,6 +615,69 @@ export class BrushEngine {
     Layer.thumbDirty = true;
     Doc.markDirty();
     Doc.pushStrokeHistory("Fill", Layer, Capture, { x: MinX, y: MinY, w: MaxX - MinX + 1, h: MaxY - MinY + 1 });
+    return (MaxX - MinX + 1) * (MaxY - MinY + 1);
+  }
+
+  /** Quick-mask fill: punch the contiguous region out of the scratch buffer. */
+  floodFillQuickMask(Doc, X, Y) {
+    const Width = Doc.width;
+    const Height = Doc.height;
+    const StartX = Math.max(0, Math.min(Width - 1, Math.floor(X)));
+    const StartY = Math.max(0, Math.min(Height - 1, Math.floor(Y)));
+    const Data = Doc.quickMask.getContext("2d").getImageData(0, 0, Width, Height);
+    const Pixels = Data.data;
+    const StartIndex = (StartY * Width + StartX) * 4;
+    const TargetA = Pixels[StartIndex + 3];
+    const Tolerance = Math.max(0, Math.min(100, this.fillTolerance)) * 2.55;
+    const Filled = new Uint8Array(Width * Height);
+    let MinX = Width;
+    let MinY = Height;
+    let MaxX = -1;
+    let MaxY = -1;
+    const Matches = (Index) => Math.abs(Pixels[Index + 3] - TargetA) <= Tolerance;
+    if (this.fillContiguous) {
+      const Stack = [StartX, StartY];
+      const Seen = new Uint8Array(Width * Height);
+      while (Stack.length) {
+        const Y0 = Stack.pop();
+        const X0 = Stack.pop();
+        if (X0 < 0 || Y0 < 0 || X0 >= Width || Y0 >= Height) continue;
+        const Flat = Y0 * Width + X0;
+        if (Seen[Flat]) continue;
+        Seen[Flat] = 1;
+        if (!Matches(Flat * 4)) continue;
+        Filled[Flat] = 1;
+        if (X0 < MinX) MinX = X0;
+        if (Y0 < MinY) MinY = Y0;
+        if (X0 > MaxX) MaxX = X0;
+        if (Y0 > MaxY) MaxY = Y0;
+        Stack.push(X0 + 1, Y0, X0 - 1, Y0, X0, Y0 + 1, X0, Y0 - 1);
+      }
+    } else {
+      for (let Index = 0; Index < Width * Height; Index++) {
+        if (!Matches(Index * 4)) continue;
+        Filled[Index] = 1;
+        const X0 = Index % Width;
+        const Y0 = Math.floor(Index / Width);
+        if (X0 < MinX) MinX = X0;
+        if (Y0 < MinY) MinY = Y0;
+        if (X0 > MaxX) MaxX = X0;
+        if (Y0 > MaxY) MaxY = Y0;
+      }
+    }
+    if (MaxX < 0) return 0;
+    const MaskCanvas = makeCanvas(Width, Height);
+    const MaskContext = MaskCanvas.getContext("2d");
+    const MaskImage = MaskContext.createImageData(Width, Height);
+    for (let Index = 0; Index < Width * Height; Index++) {
+      if (Filled[Index]) MaskImage.data[Index * 4 + 3] = 255;
+    }
+    MaskContext.putImageData(MaskImage, 0, 0);
+    const Context = Doc.quickMask.getContext("2d");
+    Context.save();
+    Context.globalCompositeOperation = "destination-out";
+    Context.drawImage(MaskCanvas, 0, 0);
+    Context.restore();
     return (MaxX - MinX + 1) * (MaxY - MinY + 1);
   }
 

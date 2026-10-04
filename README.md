@@ -19,18 +19,33 @@ viewport / inspector triptych).
   tint glaze, full typography controls (typeface, weight, tracking, leading,
   outline), and an on-canvas transform gizmo (move / scale / rotate, arrow-key
   nudge).
+- **Masking** — per-layer masks with rubylith overlay, invert, reveal/conceal
+  fills, feather and density; plus a Photoshop-style **Quick Mask** (`Q`):
+  paint the scratch buffer in red, `Q`/`Enter` commits it to the active mask,
+  `Esc` discards.
 - **Paint tools** — dab-engine brush with hardness, flow, spacing, scatter,
   stabilizer, symmetry and pressure; eraser, smudge, flood fill, eyedropper
   (samples all channels), shapes, 2D / 3D / split views, tiling preview,
   channel inspector, navigator, dirty-rect undo history, `.texpaint` projects.
 
+## Open it instantly (no install)
+
+Single-file build, served straight from GitHub:
+
+- **App:** https://raw.githack.com/eosclient0004/Frontier/arena/01a10787-frontier/texture-paint.html
+- Multi-file dev page: https://raw.githack.com/eosclient0004/Frontier/arena/01a10787-frontier/index.html
+
+The app boots into the **3D material view** — drag to orbit, switch to
+2D / split from the viewport bar to paint.
+
 ## Run it
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # static dist/
-npm test         # headless smoke suite (no browser needed)
+npm run dev               # http://localhost:5173
+npm run build             # static dist/
+npm run build:standalone  # single-file texture-paint.html (for githack)
+npm test                  # headless smoke suite (no browser needed)
 ```
 
 Node ≥ 18. No runtime dependencies besides Vite (dev).
@@ -55,4 +70,5 @@ Node ≥ 18. No runtime dependencies besides Vite (dev).
 
 `B` `E` `U` `G` `I` `R` `V` `H` tools · `[` `]` size · `1–0` opacity · `X` swap
 colors · `Ctrl Z/Y` undo/redo · `Ctrl S` save · `F` fit · `C` checker ·
-`T` tiling · `D` diagnostics · `/` library search · arrows nudge decal.
+`T` tiling · `D` diagnostics · `Q` quick mask (`Enter` commit · `Esc` discard) ·
+`/` library search · arrows nudge decal.

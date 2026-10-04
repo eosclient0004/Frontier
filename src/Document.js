@@ -73,6 +73,7 @@ export function createLayer(Document, Kind, Options = {}) {
     clip: false,
     maskEnabled: false,
     maskSelected: false,
+    maskDensity: 1,
     params: Object.assign(defaultLayerParams(Kind), Options.params || {}),
     channels: {},
     artCache: null,
@@ -120,6 +121,8 @@ export class TextureDocument {
     this.history = [];
     this.historyIndex = -1;
     this.historyLimit = Width >= 4096 ? 6 : Width >= 2048 ? 12 : 30;
+    this.quickMask = null;
+    this.quickMaskActive = false;
     this.dirty = false;
     this.lastCompositeMs = 0;
     this.onChange = null; // () => void — panel hook (async raster completion)
@@ -438,6 +441,177 @@ export class TextureDocument {
     return true;
   }
 
+  /* ---------------- Mask pixel ops (alpha-based: white/alpha = reveal) ---------------- */
+
+  /** History step for whole-mask edits. Before may be null (mask was created). */
+  pushMaskHistory(Label, Layer, Before, After) {
+    const LayerId = Layer.id;
+    const Last = this.history[this.historyIndex];
+    if (Last && Last.type === "mask" && Last.layerId === LayerId && performance.now() - Last.time < 1500) {
+      Last.after = After;
+      Last.time = performance.now();
+      Last.label = Label;
+      return;
+    }
+    const ApplyMask = (Data, Enable) => {
+      const Target = this.layers.find((Entry) => Entry.id === LayerId);
+      if (!Target) return;
+      if (!Data) {
+        delete Target.channels.mask;
+        Target.maskEnabled = false;
+        Target.maskSelected = false;
+      } else {
+        if (!Target.channels.mask) Target.channels.mask = makeCanvas(this.width, this.height);
+        Target.channels.mask.getContext("2d").putImageData(Data, 0, 0);
+        if (Enable) Target.maskEnabled = true;
+      }
+      Target.thumbDirty = true;
+      this.markDirty();
+    };
+    // Undo/redo read through the entry so coalesced repeats redo correctly.
+    const Entry = {
+      label: Label,
+      type: "mask",
+      time: performance.now(),
+      layerId: LayerId,
+      before: Before,
+      after: After,
+      undo: () => ApplyMask(Entry.before, false),
+      redo: () => ApplyMask(Entry.after, true),
+    };
+    this.pushHistory(Entry);
+  }
+
+  readMask(Layer) {
+    if (!Layer || !Layer.channels.mask) return null;
+    return Layer.channels.mask.getContext("2d").getImageData(0, 0, this.width, this.height);
+  }
+
+  invertMask(Layer = this.activeLayer) {
+    if (!Layer || !Layer.channels.mask) return false;
+    const Before = this.readMask(Layer);
+    const Context = Layer.channels.mask.getContext("2d");
+    const Data = Context.getImageData(0, 0, this.width, this.height);
+    const Pixels = Data.data;
+    for (let Index = 0; Index < Pixels.length; Index += 4) {
+      Pixels[Index] = 255;
+      Pixels[Index + 1] = 255;
+      Pixels[Index + 2] = 255;
+      Pixels[Index + 3] = 255 - Pixels[Index + 3];
+    }
+    Context.putImageData(Data, 0, 0);
+    Layer.thumbDirty = true;
+    this.markDirty();
+    this.pushMaskHistory("Invert mask", Layer, Before, this.readMask(Layer));
+    return true;
+  }
+
+  fillMask(Layer = this.activeLayer, Reveal = true) {
+    if (!Layer || Layer.kind === "adjust") return false;
+    if (!Layer.channels.mask) {
+      Layer.channels.mask = makeCanvas(this.width, this.height);
+      Layer.maskEnabled = true;
+    }
+    const Before = this.readMask(Layer);
+    const Context = Layer.channels.mask.getContext("2d");
+    Context.save();
+    Context.globalCompositeOperation = "source-over";
+    Context.clearRect(0, 0, this.width, this.height);
+    if (Reveal) {
+      Context.fillStyle = "#ffffff";
+      Context.fillRect(0, 0, this.width, this.height);
+    }
+    Context.restore();
+    Layer.thumbDirty = true;
+    this.markDirty();
+    this.pushMaskHistory(Reveal ? "Fill mask (reveal)" : "Fill mask (conceal)", Layer, Before, this.readMask(Layer));
+    return true;
+  }
+
+  /** Restore `Snapshot` then soften with a blur radius (no history; live drag). */
+  featherPreview(Layer, Snapshot, Radius) {
+    if (!Layer || !Layer.channels.mask || !Snapshot) return;
+    const Context = Layer.channels.mask.getContext("2d");
+    Context.save();
+    Context.globalCompositeOperation = "source-over";
+    Context.filter = "none";
+    Context.clearRect(0, 0, this.width, this.height);
+    Context.drawImage(Snapshot, 0, 0);
+    if (Radius > 0.01) {
+      const Temp = makeCanvas(this.width, this.height);
+      Temp.getContext("2d").drawImage(Layer.channels.mask, 0, 0);
+      Context.clearRect(0, 0, this.width, this.height);
+      try {
+        Context.filter = `blur(${Radius}px)`;
+      } catch {
+        Context.filter = "none";
+      }
+      Context.drawImage(Temp, 0, 0);
+      Context.filter = "none";
+    }
+    Context.restore();
+    Layer.thumbDirty = true;
+    this.markDirty();
+  }
+
+  commitMaskFeather(Layer, Snapshot, Label = "Feather mask") {
+    if (!Layer || !Layer.channels.mask || !Snapshot) return;
+    const Before = Snapshot.getContext("2d").getImageData(0, 0, this.width, this.height);
+    this.pushMaskHistory(Label, Layer, Before, this.readMask(Layer));
+  }
+
+  /* ---------------- Quick Mask (scratch buffer committed to the active mask) ---------------- */
+
+  enterQuickMask() {
+    const Layer = this.activeLayer;
+    if (!Layer || Layer.kind === "adjust") return false;
+    if (!this.quickMask || this.quickMask.width !== this.width || this.quickMask.height !== this.height) {
+      this.quickMask = makeCanvas(this.width, this.height);
+    }
+    const Context = this.quickMask.getContext("2d");
+    Context.save();
+    Context.globalCompositeOperation = "source-over";
+    Context.clearRect(0, 0, this.width, this.height);
+    if (Layer.channels.mask) Context.drawImage(Layer.channels.mask, 0, 0);
+    else {
+      Context.fillStyle = "#ffffff";
+      Context.fillRect(0, 0, this.width, this.height);
+    }
+    Context.restore();
+    this.quickMaskActive = true;
+    return true;
+  }
+
+  discardQuickMask() {
+    if (!this.quickMaskActive) return false;
+    this.quickMaskActive = false;
+    return true;
+  }
+
+  commitQuickMask() {
+    const Layer = this.activeLayer;
+    if (!Layer || !this.quickMaskActive || !this.quickMask || Layer.kind === "adjust") return false;
+    const Had = !!Layer.channels.mask;
+    const Before = Had ? this.readMask(Layer) : null;
+    if (!Had) {
+      Layer.channels.mask = makeCanvas(this.width, this.height);
+      Layer.maskEnabled = true;
+    }
+    const Context = Layer.channels.mask.getContext("2d");
+    Context.save();
+    Context.globalCompositeOperation = "source-over";
+    Context.clearRect(0, 0, this.width, this.height);
+    Context.drawImage(this.quickMask, 0, 0);
+    Context.restore();
+    Layer.maskEnabled = true;
+    Layer.maskSelected = false;
+    Layer.thumbDirty = true;
+    this.quickMaskActive = false;
+    this.markDirty();
+    this.pushMaskHistory("Quick mask commit", Layer, Before, this.readMask(Layer));
+    return true;
+  }
+
   /* ---------------- Layer property tweaks (coalesced history) ---------------- */
 
   setLayerProps(Layer, Props, Label = "Edit layer") {
@@ -465,7 +639,17 @@ export class TextureDocument {
       Last.label = Label;
       return;
     }
-    this.pushHistory({
+    const ApplyProps = (Patch) => {
+      const Target = this.layers.find((Entry) => Entry.id === Layer.id);
+      if (!Target) return;
+      Object.assign(Target, clone(Patch));
+      Target.rasterDirty = true;
+      Target.fillCache = null;
+      Target.thumbDirty = true;
+      this.markDirty();
+    };
+    // Undo/redo read through the entry so coalesced repeats redo correctly.
+    const Entry = {
       label: Label,
       type: "props",
       time: Now,
@@ -473,27 +657,10 @@ export class TextureDocument {
       layerId: Layer.id,
       before: Before,
       after: clone(After),
-      undo: () => {
-        const Target = this.layers.find((Entry) => Entry.id === Layer.id);
-        if (!Target) return;
-        Object.assign(Target, clone(Before));
-        Target.rasterDirty = true;
-        Target.fillCache = null;
-        Target.thumbDirty = true;
-        this.markDirty();
-      },
-      redo: () => {
-        const Target = this.layers.find((Entry) => Entry.id === Layer.id);
-        if (!Target) return;
-        const Entry = this.history.find((Step) => Step.type === "props" && Step.layerId === Layer.id && Step.after);
-        void Entry;
-        Object.assign(Target, clone(After));
-        Target.rasterDirty = true;
-        Target.fillCache = null;
-        Target.thumbDirty = true;
-        this.markDirty();
-      },
-    });
+      undo: () => ApplyProps(Entry.before),
+      redo: () => ApplyProps(Entry.after),
+    };
+    this.pushHistory(Entry);
   }
 
   pushStructure(Label, Apply) {
@@ -677,20 +844,23 @@ export class TextureDocument {
     return Out;
   }
 
+  /** Source intersected with the layer mask. Returns a fresh canvas so that
+      multiple channels can hold masked sources simultaneously. */
   maskedSource(Layer, Key) {
     const Source = Layer.channels[Key];
     if (!Source) return null;
     if (!Layer.maskEnabled || !Layer.channels.mask) return Source;
-    const Scratch = this.scratch.mask;
-    const Context = Scratch.getContext("2d");
-    Context.save();
-    Context.globalCompositeOperation = "source-over";
-    Context.clearRect(0, 0, this.width, this.height);
+    return this.applyMaskToCanvas(Source, Layer.channels.mask, Layer.maskDensity === undefined ? 1 : Layer.maskDensity);
+  }
+
+  applyMaskToCanvas(Source, Mask, Density = 1) {
+    const Out = makeCanvas(this.width, this.height);
+    const Context = Out.getContext("2d");
     Context.drawImage(Source, 0, 0);
     Context.globalCompositeOperation = "destination-in";
-    Context.drawImage(Layer.channels.mask, 0, 0);
-    Context.restore();
-    return Scratch;
+    Context.globalAlpha = Math.max(0, Math.min(1, Density));
+    Context.drawImage(Mask, 0, 0);
+    return Out;
   }
 
   fillLayerCanvases(Layer) {
@@ -788,7 +958,7 @@ export class TextureDocument {
       for (const [Id, Canvas] of Object.entries(Sources)) {
         if (!Canvas) continue;
         if (Layer.kind === "fill") {
-          Masked[Id] = MaskActive ? this.applyMaskToCanvas(Canvas, Layer.channels.mask) : Canvas;
+          Masked[Id] = MaskActive ? this.applyMaskToCanvas(Canvas, Layer.channels.mask, Layer.maskDensity === undefined ? 1 : Layer.maskDensity) : Canvas;
           continue;
         }
         const LayerKey = Id === "metallic" ? "metal" : Id === "roughness" ? "rough" : Id;
@@ -1014,6 +1184,7 @@ function serializeLayer(Layer) {
     clip: Layer.clip,
     maskEnabled: Layer.maskEnabled,
     maskSelected: Layer.maskSelected,
+    maskDensity: Layer.maskDensity === undefined ? 1 : Layer.maskDensity,
     params: clone(Layer.params),
     channels: Channels,
   };
@@ -1031,6 +1202,7 @@ function baseLayerFromData(Document, Data) {
     clip: !!Data.clip,
     maskEnabled: !!Data.maskEnabled,
     maskSelected: !!Data.maskSelected,
+    maskDensity: Data.maskDensity === undefined ? 1 : Data.maskDensity,
     params: Object.assign(defaultLayerParams(Data.kind), clone(Data.params || {})),
     channels: {},
     artCache: null,
