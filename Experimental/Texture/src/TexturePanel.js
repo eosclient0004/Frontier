@@ -594,9 +594,11 @@ class TexturePanel {
   FocusCamera() {
     const B = this.Doc.Gpu.Mesh.Bounds;
     const Center = B.Min.map((M, A) => (M + B.Max[A]) / 2);
-    const Radius = Math.hypot(...B.Max.map((M, A) => M - B.Min[A])) / 2;
+    // Fit the largest half-extent with a margin; the bounding-sphere fit leaves
+    // compact meshes tiny in frame.
+    const Radius = Math.max(...B.Max.map((M, A) => (M - B.Min[A]) / 2)) * 1.3;
     this.Camera.TargetCenter = Center;
-    this.Camera.TargetDistance = Clamp(Radius / Math.sin(this.Camera.FieldOfView / 2) * 1.12, 0.8, 14);
+    this.Camera.TargetDistance = Clamp(Radius / Math.tan(this.Camera.FieldOfView / 2), 0.8, 14);
     this.Uv = { Zoom: 1, PanX: 0, PanY: 0 };
     this.NeedsRender = true;
   }
@@ -1458,6 +1460,10 @@ class TexturePanel {
     if (Ctrl && Event.altKey && Key === "n") { Event.preventDefault(); return this.CreateDocument(); }
     if (Ctrl && Event.shiftKey && Key === "f") { Event.preventDefault(); return Select("#layer-search").focus(); }
     if (Ctrl) return;
+    if (Event.key === "?") {
+      Event.preventDefault();
+      return Select("#help-dialog").showModal();
+    }
     const Actions = {
       b: () => this.SetTool("paint"),
       e: () => this.SetTool("erase"),
