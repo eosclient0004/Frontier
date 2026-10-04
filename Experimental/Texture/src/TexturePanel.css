@@ -291,3 +291,30 @@
 @media (max-height: 820px) {
   .left-panel .scene-statistics { display: none; }
 }
+
+/* ---------------------------------------------------------- GPU failure */
+.gpu-error { z-index: 30; overflow-y: auto; justify-content: safe center; gap: 4px; }
+.gpu-error h2 { font-weight: 300; font-size: 24px; letter-spacing: -0.4px; margin: 10px 0 2px; color: #eee; }
+.gpu-error p { max-width: 520px; margin: 4px 0 6px; }
+.gpu-fixes {
+  max-width: 540px; margin: 8px 0 4px; padding: 14px 18px 14px 36px; text-align: left;
+  background: #1a1a1a; border: 1px solid #ffffff0d; border-radius: 18px;
+  font-size: 12px; line-height: 1.65; color: #b8b8b8;
+}
+.gpu-fixes li { margin: 4px 0; padding-left: 2px; }
+.gpu-fixes li::marker { color: #666; }
+.gpu-fixes b { color: #eee; font-weight: 400; }
+.gpu-fixes code, .gpu-diagnostics pre {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; color: #ddd;
+}
+.gpu-fixes code { background: #000; border: 1px solid #ffffff12; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.gpu-diagnostics { max-width: 540px; width: 100%; text-align: left; font-size: 11px; color: #888; margin-top: 6px; }
+.gpu-diagnostics summary { cursor: pointer; padding: 4px 2px; }
+.gpu-diagnostics pre {
+  margin: 6px 0 0; padding: 10px 12px; background: #000; border: 1px solid #ffffff10; border-radius: 12px;
+  white-space: pre-wrap; word-break: break-word; color: #aaa; max-height: 160px; overflow: auto;
+}
+.gpu-actions { display: flex; gap: 8px; margin-top: 12px; }
+.gpu-error .gpu-actions .button { margin-top: 0; }
+.status-ready.error i { background: #ff3b30; box-shadow: 0 0 0 3px #ff3b3022; }
+#inspector-tabs:empty { display: none; }

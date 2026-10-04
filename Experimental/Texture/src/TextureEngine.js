@@ -75,19 +75,71 @@ const Normalize = (V) => {
   return [V[0] / L, V[1] / L, V[2] / L];
 };
 
+// A GPU failure the UI can explain: Code is "webgl2" (no context), "float"
+// (missing extension) or "lost" (context lost after start-up).
+export function GpuError(Code, Message, Details = {}) {
+  const ErrorValue = new Error(Message);
+  ErrorValue.Code = Code;
+  ErrorValue.Details = Details;
+  return ErrorValue;
+}
+
+// Probes what the browser offers so a failure can name its cause.
+export function ProbeGraphics(StatusMessages = []) {
+  const Probe = (Type) => {
+    try {
+      const Context = document.createElement("canvas").getContext(Type);
+      if (!Context) return null;
+      const Info = Context.getExtension("WEBGL_debug_renderer_info");
+      const Renderer = Info ? Context.getParameter(Info.UNMASKED_RENDERER_WEBGL) : Context.getParameter(Context.RENDERER);
+      Context.getExtension("WEBGL_lose_context")?.loseContext();
+      return String(Renderer || "unknown renderer");
+    } catch {
+      return null;
+    }
+  };
+  return {
+    WebGL2: Probe("webgl2"),
+    WebGL1: Probe("webgl") || Probe("experimental-webgl"),
+    WebGPU: typeof navigator !== "undefined" && "gpu" in navigator,
+    StatusMessages: [...new Set(StatusMessages.filter(Boolean))],
+    UserAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+  };
+}
+
 export class TextureEngine {
+  // Tries progressively less demanding context attributes; some drivers refuse
+  // antialiasing or a high-performance adapter but accept a plain context.
+  static CreateContext(Canvas) {
+    const Messages = [];
+    const OnError = (Event) => Messages.push(Event.statusMessage);
+    Canvas.addEventListener("webglcontextcreationerror", OnError);
+    const Base = { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false };
+    const Attempts = [
+      { ...Base, antialias: true, powerPreference: "high-performance" },
+      { ...Base, antialias: false, powerPreference: "default" },
+      { ...Base, antialias: false, depth: true, stencil: false, failIfMajorPerformanceCaveat: false, powerPreference: "low-power" },
+    ];
+    let GL = null;
+    for (const Attributes of Attempts) {
+      try {
+        GL = Canvas.getContext("webgl2", Attributes);
+      } catch (ErrorValue) {
+        Messages.push(ErrorValue.message);
+      }
+      if (GL && !GL.isContextLost()) break;
+      GL = null;
+    }
+    Canvas.removeEventListener("webglcontextcreationerror", OnError);
+    if (!GL) throw GpuError("webgl2", "The browser refused to create a WebGL2 context.", ProbeGraphics(Messages));
+    return GL;
+  }
+
   constructor(Canvas) {
     this.Canvas = Canvas;
-    const GL = Canvas.getContext("webgl2", {
-      antialias: true,
-      alpha: false,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
-      powerPreference: "high-performance",
-    });
-    if (!GL) throw new Error("WebGL2 is not supported on this browser or device.");
+    const GL = TextureEngine.CreateContext(Canvas);
     if (!GL.getExtension("EXT_color_buffer_float"))
-      throw new Error("This GPU cannot render to floating-point textures (EXT_color_buffer_float).");
+      throw GpuError("float", "This GPU can run WebGL2 but cannot render to floating-point textures (EXT_color_buffer_float), which the layer compositor needs.");
     GL.getExtension("OES_texture_float_linear");
     this.GL = GL;
     this.MaxTexture = GL.getParameter(GL.MAX_TEXTURE_SIZE);

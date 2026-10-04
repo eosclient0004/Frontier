@@ -132,9 +132,14 @@
             </div>
             <div class="gpu-error" id="gpu-error" hidden>
               <span data-icon="warning"></span>
-              <h2>GPU renderer unavailable</h2>
+              <h2 id="gpu-error-title">GPU renderer unavailable</h2>
               <p id="gpu-error-message"></p>
-              <button class="button" id="retry-gpu">Reload editor</button>
+              <ol class="gpu-fixes" id="gpu-fixes"></ol>
+              <details class="gpu-diagnostics"><summary>Diagnostics</summary><pre id="gpu-diagnostics"></pre></details>
+              <div class="gpu-actions">
+                <button class="button primary-button" id="retry-gpu">Try again</button
+                ><button class="button" id="copy-gpu">Copy diagnostics</button>
+              </div>
             </div>
             <div id="toast" class="toast" role="status" hidden></div>
             <div id="busy" class="busy" hidden><i></i><span id="busy-label">Working…</span></div>

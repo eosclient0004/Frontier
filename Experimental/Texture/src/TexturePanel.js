@@ -1,4 +1,4 @@
-import { TextureEngine, ENVIRONMENTS, VIEW_CHANNELS } from "./TextureEngine.js";
+import { TextureEngine, ENVIRONMENTS, VIEW_CHANNELS, GpuError, ProbeGraphics } from "./TextureEngine.js";
 import { OrbitCamera } from "./OrbitCamera.js";
 import { Mat4, Clamp, Lerp, DecalFrame, HexToRgb, RgbToHex, Vec3 } from "./MathLibrary.js";
 import { CreateMesh, ParseObj, MESH_OPTIONS } from "./MeshLibrary.js";
@@ -126,18 +126,29 @@ class TexturePanel {
     FillIcons();
     this.BuildStaticInterface();
     this.ConnectInterface();
+    this.RefreshMaterials();
+    this.InitializeGpu();
+  }
+  // Creates the engine and the starter document. Safe to call again from the
+  // error panel: a canvas whose context request failed can ask again.
+  InitializeGpu() {
     try {
       this.Engine = new TextureEngine(Select("#paint-canvas"));
     } catch (ErrorValue) {
-      this.ShowGpuError(ErrorValue.message);
-      return;
+      this.Engine = null;
+      console.error(ErrorValue);
+      this.ShowGpuError(ErrorValue.Code ? ErrorValue : GpuError("webgl2", ErrorValue.message, ProbeGraphics([ErrorValue.message])));
+      return false;
     }
+    Select("#gpu-error").hidden = true;
+    Select("#status-ready").classList.remove("error");
     this.Engine.OnAssetReady = (Signature, ErrorMessage) => {
       for (const Doc of this.Documents) if (Doc.Gpu) { Doc.Gpu.CacheSignature = null; Doc.Gpu.Dirty = true; }
       if (ErrorMessage) this.Notify(ErrorMessage);
       this.ThumbsDirty = true;
     };
-    this.Engine.OnContextLost = () => this.ShowGpuError("The GPU context was lost. Save is unavailable; reload the editor to continue.");
+    this.Engine.OnContextLost = () =>
+      this.ShowGpuError(GpuError("lost", "The GPU dropped the WebGL context (a driver reset, sleep/wake or GPU switch). Layer pixels lived on the GPU, so reload to start again.", ProbeGraphics()));
     Select("#gpu-status").textContent = `WebGL2 · RGBA16F · max ${this.Engine.MaxTexture}`;
     this.CreateDocument({ Name: "Frontier crate" }, true);
     new ResizeObserver(() => this.Resize()).observe(Select("#viewport"));
@@ -145,6 +156,7 @@ class TexturePanel {
     this.SetStatus("Ready");
     requestAnimationFrame((Time) => this.Frame(Time));
     setTimeout(() => this.GenerateThumbnails(), 60);
+    return true;
   }
 
   // ------------------------------------------------------------ utilities
@@ -169,10 +181,80 @@ class TexturePanel {
     Select("#busy").hidden = !Label;
     if (Label) Select("#busy-label").textContent = Label;
   }
-  ShowGpuError(Message) {
-    Select("#gpu-error").hidden = false;
+  ShowGpuError(ErrorValue) {
+    const Code = ErrorValue.Code || "webgl2";
+    const Info = ErrorValue.Details?.UserAgent !== undefined ? ErrorValue.Details : ProbeGraphics();
+    const Agent = Info.UserAgent || "";
+    const Browser = /Edg\//.test(Agent) ? "edge" : /Firefox\//.test(Agent) ? "firefox" : /Chrome\/|Chromium\/|CriOS\//.test(Agent) ? "chrome" : /Safari\//.test(Agent) ? "safari" : "other";
+    const Status = Info.StatusMessages?.join(" ") || "";
+    const Blocked = /block|crash|lost|reset/i.test(Status) && !/policy|switch/i.test(Status);
+    const Policy = /policy|switch|commandline|command line/i.test(Status);
+    const Internal = Browser === "edge" ? "edge" : "chrome";
+    let Title = "GPU renderer unavailable";
+    let Message = "";
+    let Fixes = [];
+    if (Code === "lost") {
+      Title = "The GPU context was lost";
+      Message = ErrorValue.message;
+      Fixes = ["Reload the editor. Projects saved as .ftex reopen with every layer intact.", "If this keeps happening, lower the texture resolution in Texture set → Texture, and close other GPU-heavy tabs."];
+    } else if (Code === "float") {
+      Title = "This GPU is missing a required feature";
+      Message = ErrorValue.message;
+      Fixes = ["Try a desktop browser on a computer with a dedicated or recent integrated GPU.", "Update the browser and graphics driver; some older mobile GPUs lack float render targets."];
+    } else {
+      Message = Info.WebGL1 && !Info.WebGL2
+        ? "Your browser offers WebGL 1 but not WebGL 2, which the texture engine needs."
+        : Policy
+          ? `WebGL is switched off in this browser (“${Status}”), by an administrator policy, a launch flag or a setting.`
+          : Blocked
+          ? "The browser blocked WebGL for this page, usually after a GPU or driver crash earlier in this session."
+          : "The browser refused to create a WebGL 2 context. Hardware acceleration is probably off, or the GPU or driver is blocklisted. Current Chrome and Edge no longer fall back to software rendering.";
+      if (Policy && (Browser === "chrome" || Browser === "edge"))
+        Fixes.push(`Open <code>${Internal}://policy</code>: <b>HardwareAccelerationModeEnabled</b> = false or <b>Disable3DAPIs</b> = true turn WebGL off. On a managed device, ask your IT team; otherwise remove launch flags such as <code>--disable-gpu</code> or <code>--disable-webgl</code>.`);
+      if (Blocked) Fixes.push("Quit the browser completely (every window) and open it again. A WebGL block after a crash lasts until a full restart.");
+      if (Browser === "chrome" || Browser === "edge") {
+        const Name = Browser === "edge" ? "Edge" : "Chrome";
+        Fixes.push(
+          `In ${Name} Settings → System, turn on <b>“Use graphics acceleration when available”</b>, then press Relaunch.`,
+          `Open <code>${Internal}://gpu</code> and check that WebGL2 reads <b>Hardware accelerated</b>. “Disabled” or “Software only” means the GPU or driver is blocklisted — update the graphics driver.`,
+          `As a last resort, enable <code>${Internal}://flags/#ignore-gpu-blocklist</code> and relaunch (at your own risk on old drivers).`,
+        );
+      } else if (Browser === "firefox") {
+        Fixes.push(
+          "In Settings → General → Performance, allow recommended performance settings or hardware acceleration, then restart Firefox.",
+          "Open <code>about:support</code> and look at Graphics → WebGL 2 Driver Renderer for the reason it is blocked.",
+          "In <code>about:config</code> make sure <code>webgl.disabled</code> is false; <code>webgl.force-enabled</code> = true overrides a driver blocklist.",
+        );
+      } else if (Browser === "safari") {
+        Fixes.push("Update to Safari 15 or later (macOS Monterey / iOS 15 or newer).", "In Develop → Feature Flags, make sure WebGL 2.0 is enabled.");
+      } else {
+        Fixes.push("Open the editor in a current version of Chrome, Edge, Firefox or Safari with hardware acceleration enabled.");
+      }
+      Fixes.push("Remote desktops, virtual machines and some locked-down work devices have no GPU access; open the editor on the local machine instead.");
+    }
+    Select("#gpu-error-title").textContent = Title;
     Select("#gpu-error-message").textContent = Message;
+    Select("#gpu-fixes").innerHTML = Fixes.map((Fix) => `<li>${Fix}</li>`).join("");
+    this.GpuDiagnostics = [
+      `Problem: ${Code} — ${ErrorValue.message}`,
+      `WebGL 2: ${Info.WebGL2 || "unavailable"}`,
+      `WebGL 1: ${Info.WebGL1 || "unavailable"}`,
+      `WebGPU API: ${Info.WebGPU ? "present" : "absent"}`,
+      `Browser messages: ${Status || "none"}`,
+      `User agent: ${Agent}`,
+    ].join("\n");
+    Select("#gpu-diagnostics").textContent = this.GpuDiagnostics;
+    Select("#retry-gpu").textContent = Code === "lost" ? "Reload editor" : "Try again";
+    Select("#gpu-error").hidden = false;
+    Select("#gpu-status").textContent = "WebGL2 unavailable";
     this.SetStatus("GPU unavailable");
+    Select("#status-ready").classList.add("error");
+    if (!this.Doc) {
+      Select("#object-name").value = "No texture set";
+      Select("#object-type").textContent = "WAITING FOR WEBGL 2";
+      Select("#object-switch").hidden = true;
+      Select("#inspector-tabs").innerHTML = "";
+    }
   }
   MarkDirty() {
     if (!this.Doc) return;
@@ -209,6 +291,10 @@ class TexturePanel {
 
   // ------------------------------------------------------------- documents
   CreateDocument(Options = {}, Demo = false) {
+    if (!this.Engine || this.Engine.Lost) {
+      this.Notify("WebGL 2 is unavailable, so texture sets cannot be created. See the steps in the viewport.");
+      return null;
+    }
     if (this.Documents.length >= MAX_DOCUMENTS) {
       this.Notify(`Up to ${MAX_DOCUMENTS} texture sets stay resident on the GPU. Close one first.`);
       return null;
@@ -1159,7 +1245,18 @@ class TexturePanel {
   }
   ConnectInterface() {
     this.ConnectViewport();
-    Select("#retry-gpu").addEventListener("click", () => location.reload());
+    Select("#retry-gpu").addEventListener("click", () => {
+      if (this.Engine) return location.reload();
+      if (!this.InitializeGpu()) this.Notify("WebGL 2 is still unavailable — try the steps above, then retry.");
+    });
+    Select("#copy-gpu").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(this.GpuDiagnostics || "");
+        this.Notify("Diagnostics copied");
+      } catch {
+        this.Notify("Clipboard unavailable — expand Diagnostics and copy the text.");
+      }
+    });
     Select("#new-document").addEventListener("click", () => this.CreateDocument());
     Select("#document-tabs").addEventListener("click", (Event) => {
       const Close = Event.target.closest("[data-close-document]");
@@ -2339,6 +2436,7 @@ class TexturePanel {
     }
   }
   async OpenProject(File_, Buffer_) {
+    if (!this.Engine || this.Engine.Lost) return this.Notify("WebGL 2 is unavailable, so projects cannot be opened.");
     if (this.Documents.length >= MAX_DOCUMENTS) return this.Notify(`Close a tab first — up to ${MAX_DOCUMENTS} texture sets stay resident.`);
     this.Busy("Opening project…");
     let Doc = null;
