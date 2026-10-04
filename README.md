@@ -38,6 +38,11 @@ Single-file build, served straight from GitHub:
 The app boots into the **3D material view** — drag to orbit, switch to
 2D / split from the viewport bar to paint.
 
+**No-WebGL fallback:** the 3D view tries WebGL2, then WebGL1, then a CPU
+software renderer that shades the same PBR sphere — so blocked-GPU
+browsers still get a live preview instead of an error. The viewport
+subtitle names the active backend.
+
 ## Run it
 
 ```bash

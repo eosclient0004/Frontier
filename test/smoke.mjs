@@ -567,6 +567,56 @@ for (const ch of ["composite", "albedo", "metallic", "roughness", "emissive", "h
 }
 console.log("views OK");
 
+// Software renderer: stub GL resolves null, so boot must land on software.
+const { SoftwarePreview } = await import(path.join(ROOT, "src", "PreviewRenderer.js"));
+if (panel.preview.mode !== "software") throw new Error("expected software fallback in harness, got " + panel.preview.mode);
+if (!panel.preview.ready) throw new Error("software preview not ready after boot");
+// Real math on canned maps: lit red center, dark backdrop corner.
+const SWCanvas = document.createElement("canvas");
+SWCanvas.width = 300;
+SWCanvas.height = 300;
+const SWView = new SoftwarePreview(SWCanvas);
+SWView.setQuality("low");
+if (!SWView.initialize()) throw new Error("software init failed");
+const MS = 256, MN = MS * MS;
+const solid = (R, G, B) => {
+  const D = new Uint8ClampedArray(MN * 4);
+  for (let I = 0; I < MN; I++) {
+    D[I * 4] = R; D[I * 4 + 1] = G; D[I * 4 + 2] = B; D[I * 4 + 3] = 255;
+  }
+  return { d: D, w: MS, h: MS };
+};
+SWView.maps = {
+  albedo: solid(200, 40, 40),
+  metallic: solid(0, 0, 0),
+  roughness: solid(128, 128, 128),
+  normal: solid(128, 128, 255),
+  emissive: solid(0, 0, 0),
+};
+let captured = null, puts = 0;
+SWView.bctx.putImageData = (Image) => { captured = Image; puts++; };
+SWView.render(0, 0.016);
+if (!captured) throw new Error("software produced no frame");
+const at = (X, Y) => {
+  const I = (Y * SWView.internal + X) * 4;
+  return [captured.data[I], captured.data[I + 1], captured.data[I + 2]];
+};
+const C = at(SWView.internal >> 1, SWView.internal >> 1);
+const K = at(4, 4);
+console.log("  software center:", C.join(","), "corner:", K.join(","));
+if (!(C[0] > 60 && C[0] > C[2] + 30)) throw new Error("center pixel not lit red: " + C);
+if (!(K[0] < 60 && K[1] < 60 && K[2] < 70)) throw new Error("corner pixel not background: " + K);
+SWView.yaw += 0.5;
+SWView.dirty = true;
+SWView.lastFrame = 0;
+SWView.render(1, 0.016);
+if (puts < 2) throw new Error("second software frame missing");
+SWView.setQuality("high");
+if (SWView.internal !== 320) throw new Error("quality switch failed");
+SWView.resize(2);
+if (panel.preview.onFallback === undefined) throw new Error("panel did not wire onFallback");
+console.log("software renderer OK");
+
 // Keyboard shortcuts (simulate)
 {
   const fire = (key, extra = {}) => {

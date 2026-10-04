@@ -65,6 +65,10 @@ export class TexturePanel {
     this.svgThumbs = new Map();
     this.preview = new MaterialPreview(Select("#preview-canvas"));
     this.preview.onError = (Message) => this.showPreviewError(Message);
+    this.preview.onFallback = (Mode, Message) => {
+      this.notify(Message);
+      this.updateChrome();
+    };
 
     this.paintCanvas = Select("#paint-canvas");
     this.paintContext = this.paintCanvas.getContext("2d");
@@ -227,7 +231,8 @@ export class TexturePanel {
     Select("#object-enabled").checked = Active ? Active.visible : false;
     Select("#viewport-object").textContent = Active ? Active.name : "No layer";
     const Channel = CHANNELS.find((Entry) => Entry.id === this.view.channel);
-    Select("#viewport-subtitle").textContent = `PBR · ${Document.width}² · ${(Channel || {}).label || "Composite"}`;
+    const Backend = this.view.mode === "2d" ? (Channel || {}).label || "Composite" : `${this.preview.modeLabel} preview`;
+    Select("#viewport-subtitle").textContent = `PBR · ${Document.width}² · ${Backend}`;
     Select("#undo-button").disabled = !Document.canUndo;
     Select("#redo-button").disabled = !Document.canRedo;
     Select("#brush-readout").textContent = `Ø ${Math.round(this.engine.brush.size)} px`;
@@ -2425,7 +2430,7 @@ export class TexturePanel {
       <dt>History</dt><dd>${Document.historyIndex + 1} / ${Document.history.length}</dd>
       <dt>Version</dt><dd>v${this.compositeVersion}</dd>
       <dt>Normal map</dt><dd>${Document.normalDirty ? "stale" : "fresh"}</dd>
-      <dt>Preview</dt><dd>${this.preview.ready ? this.preview.mesh : "off"}</dd>`;
+      <dt>Preview</dt><dd>${this.preview.ready ? `${this.preview.mode} · ${this.preview.mode === "software" ? "sphere" : this.preview.mesh}` : "off"}</dd>`;
   }
 
   showPreviewError(Message) {
@@ -2535,6 +2540,9 @@ export class TexturePanel {
     Select("#view-mode").addEventListener("change", (Event) => this.setViewMode(Event.target.value));
     Select("#mesh-select").addEventListener("change", (Event) => {
       this.preview.mesh = Event.target.value;
+      if (this.preview.mode === "software") {
+        this.notify("Software preview always shades a sphere.");
+      }
     });
     Select("#render-channel").addEventListener("change", (Event) => {
       this.view.channel = Event.target.value;
@@ -2617,7 +2625,7 @@ export class TexturePanel {
     Select("#reset-properties").addEventListener("click", () => this.resetInspectorTab());
     Select("#delete-layer").addEventListener("click", () => this.deleteActiveLayer());
     Select("#renderer-select").addEventListener("change", (Event) => {
-      this.preview.turntable = Event.target.value !== "low" ? this.preview.turntable : true;
+      this.preview.setQuality(Event.target.value);
       this.layoutCanvases();
     });
 
@@ -2679,12 +2687,12 @@ export class TexturePanel {
     });
     PreviewCanvas.addEventListener("wheel", (Event) => {
       Event.preventDefault();
-      this.preview.distance = Clamp(this.preview.distance * (Event.deltaY < 0 ? 0.92 : 1.08), 1.4, 8);
+      this.preview.distance = Clamp(this.preview.distance * (Event.deltaY < 0 ? 0.92 : 1.08), 2.2, 9);
     }, { passive: false });
     PreviewCanvas.addEventListener("dblclick", () => {
       this.preview.yaw = 0.6;
       this.preview.pitch = 0.32;
-      this.preview.distance = 3.1;
+      this.preview.distance = 3.9;
     });
 
     // Gizmo handles.
