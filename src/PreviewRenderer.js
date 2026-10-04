@@ -106,12 +106,12 @@ void main() {
   vec3 color = base * vec3(0.10, 0.105, 0.115);
   float shininess = mix(220.0, 14.0, roughness);
   vec3 specColor = mix(vec3(1.0), albedo, metallic);
-  color += shadeLight(normalize(vec3(0.55, 0.75, 0.6)), vec3(3.2, 3.05, 2.85), N, V, base, F0, specColor, shininess);
+  color += shadeLight(normalize(vec3(0.55, 0.75, 0.6)), vec3(2.8, 2.68, 2.5), N, V, base, F0, specColor, shininess);
   color += shadeLight(normalize(vec3(-0.7, 0.25, -0.55)), vec3(0.85, 1.0, 1.35), N, V, base, F0, specColor, shininess);
   color += shadeLight(normalize(vec3(-0.15, -0.6, 0.75)), vec3(0.55, 0.5, 0.5), N, V, base, F0, specColor, shininess);
   color += base * pow(max(N.y * 0.5 + 0.5, 0.0), 2.0) * 0.12 * (1.0 - metallic);
   color += emissive;
-  color = aces(color * 1.05);
+  color = aces(color);
   color = pow(color, vec3(1.0 / 2.2));
   float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) / 255.0;
   ${Output("vec4(color + dither, 1.0)")}
@@ -286,7 +286,7 @@ const BUILDERS = { sphere: buildSphere, cube: buildCube, plane: buildPlane, cyli
 /* ---------------- Software fallback: CPU ray-traced PBR sphere ---------------- */
 
 const SOFTWARE_LIGHTS = [
-  { dir: [0.55, 0.75, 0.6], color: [3.2, 3.05, 2.85] },
+  { dir: [0.55, 0.75, 0.6], color: [2.8, 2.68, 2.5] },
   { dir: [-0.7, 0.25, -0.55], color: [0.85, 1.0, 1.35] },
   { dir: [-0.15, -0.6, 0.75], color: [0.55, 0.5, 0.5] },
 ];
@@ -303,7 +303,7 @@ export class SoftwarePreview {
   constructor(Canvas) {
     this.display = Canvas;
     this.dctx = null;
-    this.internal = 320;
+    this.internal = 384;
     this.buffer = null;
     this.bctx = null;
     this.image = null;
@@ -319,6 +319,9 @@ export class SoftwarePreview {
     this.normalStrength = 1;
     this.dirty = true;
     this.lastFrame = 0;
+    this.dynamic = "";
+    this.quality = "high";
+    this.lastUploadMs = 0;
   }
 
   initialize() {
@@ -333,7 +336,8 @@ export class SoftwarePreview {
   }
 
   setQuality(Quality) {
-    const Size = Quality === "low" ? 192 : 320;
+    this.quality = Quality === "low" ? "low" : "high";
+    const Size = this.quality === "low" ? 192 : 384;
     if (Size !== this.internal) {
       this.internal = Size;
       this.allocate();
@@ -352,6 +356,9 @@ export class SoftwarePreview {
   /** Downsample the composite maps to 256² for cache-friendly CPU sampling. */
   uploadTextures(Composite, Stamp) {
     if (Stamp === this.stamp) return;
+    const Now = typeof performance !== "undefined" ? performance.now() : 0;
+    if (this.stamp >= 0 && Now - this.lastUploadMs < 120) return; // stroke in flight — catch up next frame
+    this.lastUploadMs = Now;
     this.stamp = Stamp;
     const Size = 256;
     const Take = (Name, Source) => {
@@ -399,8 +406,14 @@ export class SoftwarePreview {
       this.yaw += DeltaSeconds * 0.22;
       this.dirty = true;
     }
+    const Want = this.dynamic ? 192 : this.quality === "low" ? 192 : 384;
+    if (Want !== this.internal) {
+      this.internal = Want;
+      this.allocate();
+    }
     const Now = typeof performance !== "undefined" ? performance.now() : 0;
-    if (!this.dirty || Now - this.lastFrame < 33) return; // ~30fps cap
+    const Gap = this.dynamic === "turntable" ? 80 : 0;
+    if (!this.dirty || Now - this.lastFrame < Gap) return;
     this.lastFrame = Now;
     this.dirty = false;
     this.trace();
@@ -594,9 +607,9 @@ export class SoftwarePreview {
         Cg += (Emi.d[Ti + 1] / 255) * 1.6;
         Cb += (Emi.d[Ti + 2] / 255) * 1.6;
         const Dith = ((((Px * 197 + Py * 2029) & 1023) / 1023) - 0.5) * (2 / 255);
-        Out[Index] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cr * 1.05), 1 / 2.2) + Dith)) * 255);
-        Out[Index + 1] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cg * 1.05), 1 / 2.2) + Dith)) * 255);
-        Out[Index + 2] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cb * 1.05), 1 / 2.2) + Dith)) * 255);
+        Out[Index] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cr), 1 / 2.2) + Dith)) * 255);
+        Out[Index + 1] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cg), 1 / 2.2) + Dith)) * 255);
+        Out[Index + 2] = Math.round(Math.min(1, Math.max(0, Math.pow(acesFilm(Cb), 1 / 2.2) + Dith)) * 255);
         Out[Index + 3] = 255;
       }
     }
@@ -656,6 +669,7 @@ export class MaterialPreview {
     this.quality = "high";
     this.textures = {};
     this.textureStamp = -1;
+    this.lastUploadMs = 0;
     this.meshes = {};
     this.onError = null;
     this.onFallback = null;
@@ -860,6 +874,9 @@ export class MaterialPreview {
       return;
     }
     if (Stamp === this.textureStamp) return;
+    const Now = typeof performance !== "undefined" && performance.now ? performance.now() : 0;
+    if (this.textureStamp >= 0 && Now - this.lastUploadMs < 120) return;
+    this.lastUploadMs = Now;
     this.textureStamp = Stamp;
     const Gl = this.gl;
     const Jobs = [
@@ -897,6 +914,70 @@ export class MaterialPreview {
     });
   }
 
+  /** Ray-cast a pointer to sphere UVs (buildSphere convention). Null on miss. */
+  pickSphere(ClientX, ClientY) {
+    const Rect = this.canvas.getBoundingClientRect();
+    let NdcX = 0;
+    let NdcY = 0;
+    let Aspect = 1;
+    if (this.mode === "software") {
+      // Software upscales a centered square (cover-fit).
+      const Size = Math.max(1, Math.max(Rect.width, Rect.height));
+      const Left = Rect.left + (Rect.width - Size) / 2;
+      const Top = Rect.top + (Rect.height - Size) / 2;
+      NdcX = ((ClientX - Left) / Size) * 2 - 1;
+      NdcY = 1 - ((ClientY - Top) / Size) * 2;
+    } else {
+      const W = Math.max(1, Rect.width);
+      const H = Math.max(1, Rect.height);
+      NdcX = ((ClientX - Rect.left) / W) * 2 - 1;
+      NdcY = 1 - ((ClientY - Rect.top) / H) * 2;
+      Aspect = this.canvas.width / Math.max(1, this.canvas.height);
+    }
+    // Camera basis mirrors render()/trace().
+    const Cp = Math.cos(this.pitch);
+    const Sp = Math.sin(this.pitch);
+    const Cy = Math.cos(this.yaw);
+    const Sy = Math.sin(this.yaw);
+    const Ex = Cp * Sy * this.distance;
+    const Ey = Sp * this.distance;
+    const Ez = Cp * Cy * this.distance;
+    const El = Math.hypot(Ex, Ey, Ez) || 1;
+    const Fx = -Ex / El;
+    const Fy = -Ey / El;
+    const Fz = -Ez / El;
+    let Rx = -Fz;
+    let Ry = 0;
+    let Rz = Fx;
+    const Rl = Math.hypot(Rx, Ry, Rz) || 1;
+    Rx /= Rl;
+    Ry /= Rl;
+    Rz /= Rl;
+    const Ux = Ry * Fz - Rz * Fy;
+    const Uy = Rz * Fx - Rx * Fz;
+    const Uz = Rx * Fy - Ry * Fx;
+    const TanH = Math.tan((32 * Math.PI) / 360);
+    let Dx = Fx + NdcX * TanH * Aspect * Rx + NdcY * TanH * Ux;
+    let Dy = Fy + NdcX * TanH * Aspect * Ry + NdcY * TanH * Uy;
+    let Dz = Fz + NdcX * TanH * Aspect * Rz + NdcY * TanH * Uz;
+    const Dl = Math.hypot(Dx, Dy, Dz) || 1;
+    Dx /= Dl;
+    Dy /= Dl;
+    Dz /= Dl;
+    const B = Ex * Dx + Ey * Dy + Ez * Dz;
+    const Disc = B * B - (Ex * Ex + Ey * Ey + Ez * Ez - 1);
+    if (Disc <= 0) return null;
+    const T = -B - Math.sqrt(Disc);
+    if (T <= 0) return null;
+    const Nx = Ex + Dx * T;
+    const Ny = Ey + Dy * T;
+    const Nz = Ez + Dz * T;
+    let U = Math.atan2(Nz, Ny) / (Math.PI * 2);
+    U -= Math.floor(U);
+    const ClampedX = Nx < -1 ? -1 : Nx > 1 ? 1 : Nx;
+    return { u: U, v: 1 - Math.acos(ClampedX) / Math.PI };
+  }
+
   resize() {
     if (this.mode === "software" && this.software) {
       this.software.resize(this.quality === "low" ? 1 : 2);
@@ -917,16 +998,25 @@ export class MaterialPreview {
 
   render(TimeSeconds, DeltaSeconds) {
     if (!this.ready) return;
+    if (this.canvas.hidden) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     if (this.turntable && !this.dragging) this.yaw += DeltaSeconds * 0.22;
     if (this.mode === "software") {
       const Software = this.software;
+      const Moved =
+        Software.yaw !== this.yaw ||
+        Software.pitch !== this.pitch ||
+        Software.distance !== this.distance ||
+        Software.normalStrength !== this.normalStrength;
       Software.yaw = this.yaw;
       Software.pitch = this.pitch;
       Software.distance = this.distance;
       Software.turntable = false; // facade already advanced yaw
       Software.dragging = this.dragging;
       Software.normalStrength = this.normalStrength;
-      Software.dirty = true;
+      const Turning = this.turntable && !this.dragging;
+      Software.dynamic = Turning ? "turntable" : Moved ? "orbit" : "";
+      if (Moved) Software.dirty = true;
       Software.render(TimeSeconds, DeltaSeconds);
       return;
     }

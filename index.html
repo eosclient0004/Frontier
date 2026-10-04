@@ -358,7 +358,7 @@
               <span data-icon="warning"></span>
               <h2>3D preview unavailable</h2>
               <p id="gpu-error-message"></p>
-              <button class="button" id="retry-gpu">Retry WebGL2</button>
+              <button class="button" id="retry-gpu">Retry 3D preview</button>
             </div>
             <div id="toast" class="toast" role="status" hidden></div>
             <div id="diagnostics" class="diagnostics" hidden>
@@ -529,9 +529,9 @@
         ></button>
       </div>
       <p>
-        Paint albedo, metallic, roughness, height and emissive together. The 2D
-        canvas is your brush surface; the 3D preview shades the same composite
-        with a PBR renderer.
+        Paint albedo, metallic, roughness, height and emissive together — on
+        the 2D canvas or directly on the 3D sphere. The preview shades the
+        same composite with a PBR renderer.
       </p>
       <div class="shortcut-list">
         <span>Paint / eraser<kbd>B / E</kbd></span
@@ -554,7 +554,8 @@
         tab. Double-click a layer to rename it. Drag layers to reorder. Decal
         layers expose SVG source and typography without rasterizing. If WebGL
         is blocked, the 3D view falls back to WebGL1 or a software renderer
-        automatically.
+        automatically. Brush tools paint directly on the 3D sphere — hold Alt
+        to orbit instead. Seeing a stale error wall? Hard-refresh (Ctrl+F5).
       </div>
     </dialog>
     <dialog id="new-dialog">

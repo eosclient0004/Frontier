@@ -58,6 +58,7 @@ export class TexturePanel {
     this.panning = null;
     this.decalDrag = null;
     this.orbiting = null;
+    this.previewPainting = null;
     this.spaceDown = false;
     this.navigatorDrag = false;
     this.lastFrame = performance.now();
@@ -66,6 +67,7 @@ export class TexturePanel {
     this.preview = new MaterialPreview(Select("#preview-canvas"));
     this.preview.onError = (Message) => this.showPreviewError(Message);
     this.preview.onFallback = (Mode, Message) => {
+      Select("#gpu-error").hidden = true;
       this.notify(Message);
       this.updateChrome();
     };
@@ -273,6 +275,14 @@ export class TexturePanel {
     this.toastTimeout = setTimeout(() => {
       Toast.hidden = true;
     }, 4200);
+  }
+
+  notifyOnce(Key, Message, WindowMs = 5000) {
+    const Now = typeof performance !== "undefined" ? performance.now() : 0;
+    this._notifyAt = this._notifyAt || {};
+    if (Now - (this._notifyAt[Key] || -1e9) < WindowMs) return;
+    this._notifyAt[Key] = Now;
+    this.notify(Message);
   }
 
   refreshAfterAsync() {
@@ -1837,6 +1847,7 @@ export class TexturePanel {
     this.paintCanvas.classList.toggle("paint-cursor", ["paint", "eraser", "smudge", "shape", "fill", "eyedropper"].includes(Tool));
     this.paintCanvas.classList.toggle("pan-cursor", Tool === "pan");
     this.paintCanvas.classList.toggle("move-cursor", Tool === "move");
+    Select("#preview-canvas").style.cursor = ["paint", "eraser", "smudge", "fill", "eyedropper"].includes(Tool) ? "crosshair" : "grab";
   }
 
   swapColors() {
@@ -2434,7 +2445,7 @@ export class TexturePanel {
   }
 
   showPreviewError(Message) {
-    Select("#gpu-error-message").textContent = Message || "WebGL2 preview failed.";
+    Select("#gpu-error-message").textContent = Message || "3D preview failed.";
     Select("#gpu-error").hidden = false;
   }
 
@@ -2669,22 +2680,12 @@ export class TexturePanel {
       void Event;
     });
 
-    // 3D orbit.
+    // 3D paint-on-model + orbit.
     const PreviewCanvas = Select("#preview-canvas");
-    PreviewCanvas.addEventListener("pointerdown", (Event) => {
-      this.orbiting = { x: Event.clientX, y: Event.clientY, yaw: this.preview.yaw, pitch: this.preview.pitch };
-      this.preview.dragging = true;
-      PreviewCanvas.setPointerCapture(Event.pointerId);
-    });
-    PreviewCanvas.addEventListener("pointermove", (Event) => {
-      if (!this.orbiting) return;
-      this.preview.yaw = this.orbiting.yaw + (Event.clientX - this.orbiting.x) * 0.008;
-      this.preview.pitch = Clamp(this.orbiting.pitch + (Event.clientY - this.orbiting.y) * 0.006, -1.2, 1.2);
-    });
-    PreviewCanvas.addEventListener("pointerup", () => {
-      this.orbiting = null;
-      this.preview.dragging = false;
-    });
+    PreviewCanvas.addEventListener("pointerdown", (Event) => this.onPreviewDown(Event));
+    PreviewCanvas.addEventListener("pointermove", (Event) => this.onPreviewMove(Event));
+    PreviewCanvas.addEventListener("pointerup", () => this.onPreviewUp());
+    PreviewCanvas.addEventListener("pointercancel", () => this.onPreviewCancel());
     PreviewCanvas.addEventListener("wheel", (Event) => {
       Event.preventDefault();
       this.preview.distance = Clamp(this.preview.distance * (Event.deltaY < 0 ? 0.92 : 1.08), 2.2, 9);
@@ -3017,6 +3018,154 @@ export class TexturePanel {
     }
   }
 
+  /* ============ 3D paint-on-model + orbit ============ */
+
+  previewPaintable() {
+    if (this.preview.mode === "software") return true;
+    return this.preview.mesh === "sphere";
+  }
+
+  pickPreviewTexture(ClientX, ClientY) {
+    const Document = this.doc;
+    if (!Document) return null;
+    const Hit = this.preview.pickSphere(ClientX, ClientY);
+    if (!Hit) return null;
+    return { x: Hit.u * Document.width, y: Hit.v * Document.height };
+  }
+
+  onPreviewDown(Event) {
+    const PreviewCanvas = Select("#preview-canvas");
+    const Tool = this.engine.tool;
+    const PaintTool = ["paint", "eraser", "smudge", "fill", "eyedropper"].includes(Tool);
+    const ForceOrbit = Event.button !== 0 || Event.altKey || this.spaceDown || !PaintTool;
+    if (!ForceOrbit) {
+      if (!this.previewPaintable()) {
+        this.notifyOnce("mesh-paint", "3D paint works on the sphere — switch mesh, or paint in 2D.");
+      } else {
+        const Hit = this.pickPreviewTexture(Event.clientX, Event.clientY);
+        if (Hit) {
+          const Outcome = this.beginPreviewStroke(Hit, Event);
+          if (Outcome !== "orbit") {
+            if (Outcome === "paint") PreviewCanvas.setPointerCapture(Event.pointerId);
+            return;
+          }
+        }
+        // Missed the model — fall through to orbit.
+      }
+    }
+    this.orbiting = { x: Event.clientX, y: Event.clientY, yaw: this.preview.yaw, pitch: this.preview.pitch };
+    this.preview.dragging = true;
+    PreviewCanvas.setPointerCapture(Event.pointerId);
+  }
+
+  beginPreviewStroke(Hit, Event) {
+    const Document = this.doc;
+    const Layer = Document ? Document.activeLayer : null;
+    if (this.engine.tool === "eyedropper") {
+      const Sample = this.engine.sample(Document, Hit.x, Hit.y);
+      if (Sample) {
+        this.engine.fgColor = Sample.color;
+        if (this.inspectorTab === "tool") this.renderInspector();
+        else this.drawBrushPreview();
+        this.notify(`Sampled ${Sample.color} · M ${Sample.metal.toFixed(2)} · R ${Sample.rough.toFixed(2)}`);
+      }
+      this.previewPainting = { mode: "eyedropper" };
+      this.preview.dragging = true;
+      return "paint";
+    }
+    if (!Layer) {
+      this.notify("Add a layer to paint on.");
+      return "swallow";
+    }
+    const QuickMask = Document.quickMaskActive;
+    if (Layer.locked && !QuickMask) {
+      this.notify(`${Layer.name} is locked.`);
+      return "swallow";
+    }
+    if (this.engine.tool === "fill") {
+      if (Layer.kind !== "paint" && !QuickMask) {
+        this.notify("Fill paints raster layers — rasterize or pick a paint layer.");
+        return "swallow";
+      }
+      const Filled = this.engine.floodFill(Document, Layer, Hit.x, Hit.y);
+      this.renderLayerList();
+      this.updateChrome();
+      if (!Filled) this.notify("Nothing within tolerance at that point.");
+      return "swallow";
+    }
+    if (Layer.kind !== "paint" && !QuickMask) {
+      this.notify(`${LAYER_KINDS[Layer.kind].label} is procedural — rasterize it or pick a paint layer.`);
+      return "swallow";
+    }
+    if (this.engine.beginStroke(Document, Layer, Hit.x, Hit.y, this.pointerPressure(Event))) {
+      this.previewPainting = { mode: "stroke", x: Hit.x, y: Hit.y };
+      this.preview.dragging = true;
+      Select("#live-pill span").textContent = "PAINTING";
+      return "paint";
+    }
+    return "swallow";
+  }
+
+  onPreviewMove(Event) {
+    if (this.previewPainting) {
+      const Hit = this.pickPreviewTexture(Event.clientX, Event.clientY);
+      if (this.previewPainting.mode === "eyedropper") {
+        if (Hit && Event.buttons) {
+          const Sample = this.engine.sample(this.doc, Hit.x, Hit.y);
+          if (Sample) {
+            this.engine.fgColor = Sample.color;
+            if (this.inspectorTab === "tool") this.renderInspector();
+          }
+        }
+        return;
+      }
+      if (!Hit || !this.engine.painting) return; // dragged off the model — hold the stroke
+      const Document = this.doc;
+      const JumpX = Math.abs(Hit.x - this.previewPainting.x);
+      const JumpY = Math.abs(Hit.y - this.previewPainting.y);
+      if (JumpX > Document.width / 2 || JumpY > Document.height / 2) {
+        // UV seam wrap — lift the pen silently instead of streaking.
+        this.engine.smooth = { x: Hit.x, y: Hit.y };
+        this.engine.lastDab = null;
+      } else {
+        this.engine.strokeTo(Hit.x, Hit.y, this.pointerPressure(Event));
+      }
+      this.previewPainting.x = Hit.x;
+      this.previewPainting.y = Hit.y;
+      return;
+    }
+    if (!this.orbiting) return;
+    this.preview.yaw = this.orbiting.yaw + (Event.clientX - this.orbiting.x) * 0.008;
+    this.preview.pitch = Clamp(this.orbiting.pitch + (Event.clientY - this.orbiting.y) * 0.006, -1.2, 1.2);
+  }
+
+  onPreviewUp() {
+    if (this.previewPainting) {
+      if (this.previewPainting.mode === "stroke" && this.engine.painting) {
+        this.engine.endStroke();
+        Select("#live-pill span").textContent = "LIVE";
+        this.updateChrome();
+      }
+      this.previewPainting = null;
+      this.preview.dragging = false;
+      return;
+    }
+    this.orbiting = null;
+    this.preview.dragging = false;
+  }
+
+  onPreviewCancel() {
+    if (this.previewPainting) {
+      if (this.engine.painting) {
+        this.engine.cancelStroke();
+        Select("#live-pill span").textContent = "LIVE";
+      }
+      this.previewPainting = null;
+    }
+    this.orbiting = null;
+    this.preview.dragging = false;
+  }
+
   /* ================= Decal dragging ================= */
 
   beginDecalDrag(ClientX, ClientY, Handle) {
@@ -3148,7 +3297,7 @@ export class TexturePanel {
     this.syncViewModeUI();
     this.layoutCanvases();
     if (!Silent) {
-      this.notify(Mode === "2d" ? "2D paint view." : Mode === "3d" ? "3D material preview — drag to orbit." : "Split view — paint left, shade right.");
+      this.notify(Mode === "2d" ? "2D paint view." : Mode === "3d" ? "3D preview — paint the sphere, Alt-drag to orbit." : "Split view — paint left, shade right.");
     }
   }
 
@@ -3160,6 +3309,15 @@ export class TexturePanel {
     Select("#mesh-select").hidden = Mode === "2d";
     Select("#view-mode").value = Mode;
     Select("#navigator").style.display = Mode === "3d" ? "none" : "";
+    const Help = Select(".viewport-help");
+    if (Help) {
+      Help.innerHTML =
+        Mode === "3d"
+          ? "<span>Drag the sphere to paint</span><i>·</i><span>Alt-drag to orbit</span><i>·</i><span>Wheel to zoom</span>"
+          : Mode === "split"
+            ? "<span>Paint left, shade right</span><i>·</i><span>Alt-drag orbits 3D</span><i>·</i><span>Wheel to zoom</span>"
+            : "<span>Drag to paint</span><i>·</i><span>Wheel to zoom</span><i>·</i><span>Space-drag to pan</span>";
+    }
   }
 
   undo() {

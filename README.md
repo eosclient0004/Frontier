@@ -43,6 +43,17 @@ software renderer that shades the same PBR sphere — so blocked-GPU
 browsers still get a live preview instead of an error. The viewport
 subtitle names the active backend.
 
+**Painting in 3D:** brush tools (paint, eraser, smudge, fill, eyedropper)
+work directly on the sphere — just drag on the model. Alt-drag (or the
+pan tool) orbits while a brush is selected; drags that miss the model
+orbit too. Cube / plane / cylinder meshes are orbit-only in 3D, so switch
+to the sphere or paint in 2D. The software renderer idles at zero CPU
+when the scene is static and renders turntable motion at reduced rate.
+
+**Stale page?** If you ever see the old "Retry WebGL2" error wall, your
+browser cached copy predates the fallback — hard-refresh with Ctrl+F5
+(Cmd+Shift+R on Mac) to load the current build.
+
 ## Run it
 
 ```bash

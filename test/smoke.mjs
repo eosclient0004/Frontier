@@ -612,10 +612,100 @@ SWView.lastFrame = 0;
 SWView.render(1, 0.016);
 if (puts < 2) throw new Error("second software frame missing");
 SWView.setQuality("high");
-if (SWView.internal !== 320) throw new Error("quality switch failed");
+if (SWView.internal !== 384) throw new Error("quality switch failed");
 SWView.resize(2);
 if (panel.preview.onFallback === undefined) throw new Error("panel did not wire onFallback");
 console.log("software renderer OK");
+
+// Renderer pacing: idle costs nothing, turntable is throttled, uploads collapse.
+{
+  panel.setViewMode("3d", true);
+  const SW = panel.preview.software;
+  SW.lastUploadMs = 0;
+  panel.preview.uploadTextures(panel.doc.composite, panel.compositeVersion + 5000);
+  if (!SW.maps) throw new Error("software maps missing after forced upload");
+  // Pick: canvas center hits the sphere, far corner misses.
+  const Hit = panel.preview.pickSphere(450, 350);
+  if (!Hit || Hit.u < 0 || Hit.u > 1 || Hit.v < 0 || Hit.v > 1) throw new Error("center pick missed: " + JSON.stringify(Hit));
+  const Miss = panel.preview.pickSphere(5, 5);
+  if (Miss !== null) throw new Error("corner pick should miss: " + JSON.stringify(Miss));
+  if (!panel.previewPaintable()) throw new Error("software sphere should be paintable");
+  console.log("  pick center:", Hit.u.toFixed(3), Hit.v.toFixed(3));
+  // Idle with turntable off: one settled frame, then silence.
+  panel.preview.turntable = false;
+  SW.dirty = true;
+  panel.preview.render(9.9, 0.016); // settles resolution (may reallocate)
+  let puts = 0;
+  SW.bctx.putImageData = () => { puts++; };
+  SW.dirty = true;
+  panel.preview.render(10, 0.016);
+  if (puts < 1) throw new Error("expected a settled re-render");
+  panel.preview.render(10.02, 0.016);
+  panel.preview.render(10.04, 0.016);
+  if (puts !== 1) throw new Error("idle frames retraced the sphere, puts=" + puts);
+  // Turntable slow path: a burst of frames renders at most once.
+  panel.preview.turntable = true;
+  SW.lastFrame = 0;
+  panel.preview.render(10.05, 0.016); // drops to dynamic res (reallocates)
+  puts = 0;
+  SW.bctx.putImageData = () => { puts++; };
+  SW.lastFrame = 0;
+  SW.dirty = true;
+  panel.preview.render(10.06, 0.016);
+  panel.preview.render(10.07, 0.016);
+  panel.preview.render(10.08, 0.016);
+  if (puts !== 1) throw new Error("turntable burst mis-throttled, puts=" + puts);
+  // Texture upload throttle: rapid re-stamps collapse into one upload.
+  SW.lastUploadMs = 0;
+  const down0 = SW.stamp;
+  panel.preview.uploadTextures(panel.doc.composite, down0 + 1001);
+  panel.preview.uploadTextures(panel.doc.composite, down0 + 1002);
+  if (SW.stamp !== down0 + 1001) throw new Error("upload throttle failed, stamp=" + SW.stamp);
+  delete SW.bctx.putImageData;
+  console.log("renderer pacing OK");
+}
+
+// 3D paint-on-model through the real wired handlers.
+{
+  panel.createDocument("paint-3d", 256, "dark", "blank");
+  panel.setViewMode("3d", true);
+  panel.setTool("paint");
+  const Doc3 = panel.doc;
+  const PL = Doc3.layers.find((l) => l.kind === "paint" && !l.locked);
+  if (!PL) throw new Error("fresh doc has no paint layer");
+  panel.selectLayer(PL.id);
+  const PV = document.querySelector("#preview-canvas");
+  if (PV.style.cursor !== "crosshair") throw new Error("preview cursor not crosshair for brush");
+  const H0 = Doc3.history.length;
+  PV._fire("pointerdown", { clientX: 450, clientY: 350, button: 0, buttons: 1, pointerId: 1 });
+  if (!panel.engine.painting) throw new Error("3D stroke did not start");
+  if (!panel.previewPainting) throw new Error("previewPainting state missing");
+  PV._fire("pointermove", { clientX: 470, clientY: 360, buttons: 1, pointerId: 1 });
+  PV._fire("pointermove", { clientX: 490, clientY: 372, buttons: 1, pointerId: 1 });
+  PV._fire("pointerup", { pointerId: 1 });
+  if (panel.engine.painting) throw new Error("3D stroke did not end");
+  if (Doc3.history.length <= H0) throw new Error("3D stroke left no history");
+  panel.setTool("fill");
+  const H1 = Doc3.history.length;
+  PV._fire("pointerdown", { clientX: 450, clientY: 350, button: 0, buttons: 1, pointerId: 1 });
+  if (panel.engine.painting) throw new Error("fill should not start a stroke");
+  if (Doc3.history.length < H1) throw new Error("3D fill corrupted history");
+  panel.setTool("eyedropper");
+  PV._fire("pointerdown", { clientX: 450, clientY: 350, button: 0, buttons: 1, pointerId: 1 });
+  if (!panel.previewPainting) throw new Error("3D sample did not start");
+  PV._fire("pointerup", {});
+  panel.setTool("pan");
+  PV._fire("pointerdown", { clientX: 450, clientY: 350, button: 0 });
+  if (!panel.orbiting) throw new Error("pan tool should orbit in 3D");
+  PV._fire("pointerup", {});
+  if (panel.orbiting) throw new Error("orbit did not end");
+  if (PV.style.cursor !== "grab") throw new Error("preview cursor not grab for pan");
+  panel.setTool("paint");
+  PV._fire("pointerdown", { clientX: 450, clientY: 350, button: 0, altKey: true });
+  if (!panel.orbiting) throw new Error("Alt-drag should orbit with a brush selected");
+  PV._fire("pointerup", {});
+  console.log("3D paint OK");
+}
 
 // Keyboard shortcuts (simulate)
 {
