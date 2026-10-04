@@ -1,0 +1,728 @@
+/* ============================================================================
+   Frontier — Texture Paint Studio : application components
+   Viewport, layer stack, inspector sections, sliders, toggles, decals.
+   ========================================================================== */
+
+/* --------------------------------------------------------------- viewport -- */
+.center-panel {
+  background: #0e0e0e;
+}
+
+.viewport-bar {
+  height: 46px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  background: #161616;
+}
+
+.viewport-bar > span {
+  color: #a0a0a0;
+}
+
+.viewport-bar strong {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bar-divider {
+  height: 14px;
+  width: 1px;
+  background: #ffffff14;
+  margin: 0 3px;
+}
+
+.viewport-bar select {
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #00000060;
+}
+
+.viewport-bar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #00000050;
+}
+
+.seg button {
+  padding: 5px 12px;
+  font-size: 11px;
+  color: #9a9a9a;
+  border-radius: 0;
+}
+
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+
+.seg button.active {
+  background: #ffffff14;
+  color: #f0f0f0;
+}
+
+.viewport-bar-end .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 180px;
+  overflow: hidden;
+  background: #0a0a0a;
+  touch-action: none;
+}
+
+.viewport canvas#paint-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.brush-cursor {
+  position: absolute;
+  border: 1px solid #ffffffcc;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px #00000080;
+  display: none;
+  z-index: 5;
+}
+
+.viewport-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.viewport-caption {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  text-shadow: 0 1px 6px #000;
+  z-index: 6;
+}
+
+.live-pill {
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  border: 1px solid #444444;
+  background: #222222c9;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  gap: 5px;
+  color: #bababa;
+}
+
+.live-pill i {
+  background: var(--green);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.live-pill.paused i {
+  background: #b9b9b9;
+}
+
+#viewport-object {
+  font-size: 11px;
+  color: #d7d7d7;
+}
+
+.viewport-help {
+  position: absolute;
+  bottom: 15px;
+  left: 18px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 9px;
+  color: #949494;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.viewport-help i {
+  color: #606060;
+  font-style: normal;
+}
+
+.viewport-right-hud {
+  position: absolute;
+  right: 16px;
+  top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #a4a4a4;
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  z-index: 6;
+}
+
+.live-metric {
+  padding: 4px 7px;
+  border: 1px solid #ffffff12;
+  border-radius: 6px;
+  background: #18181888;
+}
+
+.live-metric b {
+  font-weight: 500;
+  color: #c9c9c9;
+}
+
+.viewport-tools {
+  position: absolute;
+  left: 16px;
+  top: 80px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid #444444d9;
+  border-radius: 12px;
+  background: #1c1c1ceb;
+  box-shadow: 0 5px 20px #0006;
+  z-index: 6;
+}
+
+.viewport-tools .icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.viewport-tools > span {
+  height: 1px;
+  background: #484848;
+  margin: 3px;
+}
+
+/* ------------------------------------------------------------- inspector -- */
+.inspector-panel {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.inspector-section {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.inspector-section > .section-head {
+  height: 42px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -0.1px;
+  color: #e4e4e4;
+}
+
+.inspector-section > .section-head [data-icon] {
+  color: #8c8c8c;
+}
+
+.inspector-section .section-body {
+  padding: 0 16px;
+}
+
+/* layer stack ------------------------------------------------------------ */
+.layer-stack {
+  padding: 4px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layer-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  background: #ffffff06;
+}
+
+.layer-row:hover {
+  background: #ffffff0b;
+}
+
+.layer-row.selected {
+  background: var(--outliner-selection);
+  border-color: var(--outliner-stroke);
+}
+
+.layer-vis {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: #8f8f8f;
+  border-radius: 999px;
+}
+
+.layer-vis.off {
+  color: #5a5a5a;
+}
+
+.layer-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: #000;
+  border: 1px solid #ffffff14;
+  overflow: hidden;
+  position: relative;
+  background-image: linear-gradient(45deg, #1c1c1c 25%, transparent 25%),
+    linear-gradient(-45deg, #1c1c1c 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1c1c1c 75%),
+    linear-gradient(-45deg, transparent 75%, #1c1c1c 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+}
+
+.layer-thumb canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.layer-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.layer-name {
+  font-size: 12px;
+  color: #dcdcdc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-sub {
+  font-size: 9px;
+  color: #7c7c7c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-actions {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.layer-actions button {
+  width: 24px;
+  height: 28px;
+  color: #8a8a8a;
+  border-radius: 8px;
+}
+
+.layer-actions button:hover:not(:disabled) {
+  color: #fff;
+  background: #ffffff12;
+}
+
+.layer-actions button.danger:hover {
+  color: var(--danger);
+}
+
+.empty-hint {
+  padding: 14px 16px;
+  color: #7d7d7d;
+  font-size: 11px;
+  text-align: center;
+}
+
+.layer-props {
+  margin: 4px 10px 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff05;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* generic field rows ----------------------------------------------------- */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field > label {
+  width: 78px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #9a9a9a;
+}
+
+.field > .control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field .value {
+  font-size: 10px;
+  color: #b9b9b9;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  width: 42px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+input[type="text"],
+input[type="number"],
+textarea,
+select.field-control {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: #00000070;
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 58px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #ffffff1a;
+  border-radius: 999px;
+  outline: none;
+  padding: 0;
+  border: 0;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px #0b0b0b;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 0;
+  cursor: pointer;
+}
+
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 34px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #000;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 5px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #b0b0b0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle .tick {
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: #ffffff14;
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.toggle .tick::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #9a9a9a;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.toggle.on .tick {
+  background: #2f6b3e;
+  border-color: #3a8a4e;
+}
+
+.toggle.on .tick::after {
+  transform: translateX(15px);
+  background: #eafff0;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-row .button {
+  flex: 1;
+  padding: 9px 10px;
+  font-size: 11px;
+}
+
+.button.accent {
+  background: #2a2a2a;
+  border-color: #ffffff1f;
+  color: #f0f0f0;
+}
+
+.button.accent:hover {
+  background: #343434;
+}
+
+.button.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 6px 12px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #b0b0b0;
+  background: #ffffff06;
+}
+
+.chip:hover {
+  background: #ffffff12;
+  color: #fff;
+}
+
+.chip.active {
+  background: #ffffff16;
+  border-color: #ffffff2e;
+  color: #fff;
+}
+
+.decal-preview {
+  width: 100%;
+  height: 88px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #00000060;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.decal-preview canvas,
+.decal-preview svg {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.note {
+  font-size: 10px;
+  color: #7a7a7a;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin: 12px 0;
+}
+
+.map-export-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.map-export-grid .button {
+  padding: 8px 4px;
+  font-size: 10px;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 12px;
+}
+
+.map-export-grid .button small {
+  color: #8a8a8a;
+  font-size: 8px;
+}
+
+/* scrollbars ------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ffffff14;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ffffff24;
+}
+
+/* help modal ------------------------------------------------------------- */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: #000000a0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  backdrop-filter: blur(3px);
+}
+
+.modal {
+  width: min(560px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: #141414;
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  padding: 26px 28px;
+}
+
+.modal h2 {
+  margin: 0 0 4px;
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: -0.4px;
+}
+
+.modal p.sub {
+  margin: 0 0 18px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.modal kbd {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  border: 1px solid #404040;
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: #d0d0d0;
+  background: #00000050;
+}
+
+.modal ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 18px;
+  display: grid;
+  gap: 9px;
+}
+
+.modal li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12px;
+  color: #cfcfcf;
+}
+
+.modal li b {
+  color: #fff;
+  font-weight: 400;
+  min-width: 120px;
+}
+
+.modal .button {
+  width: 100%;
+}

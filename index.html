@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b0b" />
+    <title>Texture Paint — Frontier Experimental</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2321252b'/%3E%3Cpath d='M18 5c1 8-7 8-3 14-4-1-4-5-4-5-8 12 11 19 14 7 1-6-3-12-7-16' fill='%23efa56f'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+    <link rel="stylesheet" href="./src/app.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <a class="brand" href="#" aria-label="Frontier home">
+          <span class="brand-icon" data-icon="paint"></span>
+          <strong>FRONTIER</strong>
+          <span class="experimental">EXPERIMENTAL</span>
+        </a>
+        <div class="document-dock" style="display:flex;align-items:center;gap:10px;margin-left:8px">
+          <span class="experimental" style="border-radius:999px">TEXTURE PAINT</span>
+        </div>
+        <nav class="top-nav" aria-label="Workspace">
+          <button class="nav-button active" id="workspace-button">Workspace</button>
+          <button class="nav-button" id="library-button">Library</button>
+        </nav>
+        <div class="header-end">
+          <span class="paint-tag"><i></i> Layered PBR</span>
+          <button
+            class="icon-button"
+            id="help-button"
+            title="Shortcuts and prototype information"
+            aria-label="Help"
+            data-icon="help"
+          ></button>
+          <button id="export-button" class="button export-button">
+            <span data-icon="download"></span>Save material
+          </button>
+        </div>
+      </header>
+
+      <div class="document-bar">
+        <span data-icon="file"></span>
+        <input
+          id="document-name"
+          value="Rusty Plate"
+          aria-label="Material name"
+          maxlength="48"
+        />
+        <span class="document-extension">.texture</span>
+        <span
+          id="dirty-indicator"
+          title="Unsaved changes"
+          class="dirty-indicator clean"
+        ></span>
+        <span class="document-note">Layered PBR material authoring</span>
+        <button id="import-button" class="text-button">
+          Open material<span data-icon="folder"></span></button
+        >
+        <input
+          type="file"
+          id="import-file"
+          accept=".json,application/json"
+          hidden
+        />
+      </div>
+
+      <main class="workspace" id="workspace">
+        <!-- ===================== LEFT : MATERIAL OUTLINER + LIBRARY ===== -->
+        <aside class="left-panel">
+          <div class="outliner-heading">
+            <div>
+              <h1>Material</h1>
+              <span class="outliner-subtitle"
+                >PBR · <span id="channel-count">6</span> maps</span
+              >
+            </div>
+            <button
+              id="compact-outliner"
+              class="icon-button"
+              title="Compact outliner"
+              aria-label="Compact outliner"
+              aria-pressed="false"
+              data-icon="layers"
+            ></button>
+          </div>
+
+          <div class="scene-statistics">
+            <div class="scene-stat">
+              <span class="stat-symbol enabled-symbol" data-icon="eye"></span>
+              <span class="stat-label">Active maps</span>
+              <strong id="enabled-count">6</strong>
+            </div>
+            <div class="scene-stat">
+              <span class="stat-symbol disabled-symbol" data-icon="layers"></span>
+              <span class="stat-label">Layers</span>
+              <strong id="layer-count">1</strong>
+            </div>
+          </div>
+
+          <label class="search"
+            ><span data-icon="search"></span
+            ><input
+              type="search"
+              id="channel-search"
+              placeholder="Search maps…"
+              aria-label="Search maps"
+            /><kbd>/</kbd></label
+          >
+
+          <div class="scene-filters" id="channel-filters" aria-label="Map filters">
+            <button data-filter="all" class="active" aria-pressed="true">All</button>
+            <button data-filter="color" aria-pressed="false">Color</button>
+            <button data-filter="scalar" aria-pressed="false">Scalar</button>
+            <button data-filter="data" aria-pressed="false">Data</button>
+          </div>
+
+          <div class="scene-toolbar">
+            <button id="collection-toggle" aria-expanded="true" aria-controls="channel-tree">
+              <span class="collection-chevron">⌄</span>
+              <span data-icon="box"></span>
+              <span>Channel stack</span>
+            </button>
+            <button
+              id="add-channel"
+              class="icon-button"
+              title="Add paint layer"
+              aria-label="Add paint layer"
+              data-icon="plus"
+            ></button>
+          </div>
+
+          <div id="channel-tree" class="scene-tree" role="tree" aria-label="Material maps"></div>
+
+          <div class="scene-footnote">
+            <span data-icon="link"></span>Painting into the selected map
+          </div>
+
+          <div class="library" id="library">
+            <div class="panel-heading">
+              <span>Brush library</span>
+              <span class="count" id="brush-count">5</span>
+            </div>
+            <div class="preset-list" id="brush-library"></div>
+          </div>
+
+          <div class="library" id="decal-library-wrap">
+            <div class="panel-heading">
+              <span>Decal library</span>
+              <span class="count" id="decal-count">4</span>
+            </div>
+            <div class="preset-list" id="decal-library"></div>
+          </div>
+
+          <div class="left-footer">
+            <span data-icon="box"></span
+            ><span>Multi-channel layers · SVG &amp; text decals</span>
+          </div>
+        </aside>
+
+        <!-- ===================== CENTER : VIEWPORT ===================== -->
+        <section class="center-panel">
+          <div class="viewport-bar">
+            <span data-icon="viewport"></span><strong>Texture view</strong>
+            <span class="bar-divider"></span>
+            <select id="channel-quick" aria-label="Active map"></select>
+            <div class="viewport-bar-end">
+              <div class="seg" id="view-mode" role="group" aria-label="View mode">
+                <button data-mode="channel" class="active">Channel</button>
+                <button data-mode="shaded">Material</button>
+              </div>
+              <button
+                id="grid-toggle"
+                class="icon-button active"
+                title="Toggle grid"
+                aria-label="Toggle grid"
+                data-icon="grid"
+              ></button>
+              <button
+                id="zoom-out"
+                class="icon-button"
+                title="Zoom out"
+                aria-label="Zoom out"
+                data-icon="zoom-out"
+              ></button>
+              <button
+                id="zoom-in"
+                class="icon-button"
+                title="Zoom in"
+                aria-label="Zoom in"
+                data-icon="zoom-in"
+              ></button>
+              <button
+                id="zoom-reset"
+                class="icon-button"
+                title="Fit to view"
+                aria-label="Fit to view"
+                data-icon="reset"
+              ></button>
+            </div>
+          </div>
+
+          <div class="viewport" id="viewport">
+            <canvas id="paint-surface"></canvas>
+            <div class="brush-cursor" id="brush-cursor"></div>
+
+            <div class="viewport-caption">
+              <span class="live-pill" id="live-pill"><i></i> EDITING</span>
+              <span id="viewport-object">Base Color</span>
+            </div>
+
+            <div class="viewport-right-hud">
+              <span class="live-metric">RES <b id="hud-res">1024</b></span>
+              <span class="live-metric">ZOOM <b id="hud-zoom">100%</b></span>
+              <span class="live-metric">CURSOR <b id="hud-cursor">0, 0</b></span>
+            </div>
+
+            <div class="viewport-tools" id="tool-dock">
+              <button class="icon-button active" data-tool="brush" title="Brush (B)" data-icon="brush"></button>
+              <button class="icon-button" data-tool="eraser" title="Eraser (E)" data-icon="eraser"></button>
+              <button class="icon-button" data-tool="fill" title="Fill (G)" data-icon="droplet"></button>
+              <button class="icon-button" data-tool="eyedropper" title="Eyedropper (I)" data-icon="eyedropper"></button>
+              <span></span>
+              <button class="icon-button" data-tool="text" title="Text decal (T)" data-icon="text"></button>
+              <button class="icon-button" data-tool="svg" title="SVG decal (S)" data-icon="image"></button>
+            </div>
+
+            <div class="viewport-help">
+              <i>B</i> brush <i>E</i> erase <i>G</i> fill <i>I</i> pick
+              <i>T</i> text <i>S</i> svg <i>[ ]</i> size <i>Ctrl+Z</i> undo
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== RIGHT : INSPECTOR ==================== -->
+        <aside class="inspector-panel" id="inspector">
+          <!-- Layer stack -->
+          <div class="inspector-section">
+            <div class="section-head">
+              <span data-icon="layers"></span>Layer stack
+              <button
+                id="add-layer"
+                class="icon-button"
+                style="margin-left:auto"
+                title="Add layer"
+                aria-label="Add layer"
+                data-icon="plus"
+              ></button>
+            </div>
+            <div class="layer-stack" id="layer-stack"></div>
+            <div class="layer-props" id="layer-props"></div>
+          </div>
+
+          <!-- Brush -->
+          <div class="inspector-section">
+            <div class="section-head"><span data-icon="brush"></span>Brush</div>
+            <div class="section-body" id="brush-settings"></div>
+          </div>
+
+          <!-- Material -->
+          <div class="inspector-section">
+            <div class="section-head"><span data-icon="box"></span>Material</div>
+            <div class="section-body" id="material-settings"></div>
+          </div>
+
+          <!-- Decals -->
+          <div class="inspector-section">
+            <div class="section-head"><span data-icon="image"></span>Decals</div>
+            <div class="section-body" id="decal-settings"></div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

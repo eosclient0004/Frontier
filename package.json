@@ -1,0 +1,18 @@
+{
+  "name": "frontier-texture-painter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontier experimental texture paint studio — layered PBR material authoring with SVG and text decals, themed after the Slate Fluid prototype.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
