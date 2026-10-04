@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geological Cliff Formation Generator</title>
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar Controls -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-container">
+          <div class="logo-icon">⛰️</div>
+          <div class="logo-text">
+            <h1>Geological Cliff Studio</h1>
+            <p>Hybrid Polygon / SDF Engine</p>
+          </div>
+        </div>
+        <div class="badge-no-noise">
+          <span class="badge-dot"></span>
+          <span>Zero Noise • Pure Geological Physics</span>
+        </div>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Geological Presets -->
+        <div class="control-section">
+          <div class="section-title">
+            <span>Geological Presets</span>
+          </div>
+          <div class="preset-grid">
+            <button class="preset-btn active" data-preset="sedimentary_canyon">Canyon Wall</button>
+            <button class="preset-btn" data-preset="granite_scarp">Granite Scarp</button>
+            <button class="preset-btn" data-preset="columnar_basalt">Columnar Basalt</button>
+            <button class="preset-btn" data-preset="alpine_fault">Alpine Fault</button>
+            <button class="preset-btn" data-preset="coastal_bluff">Coastal Bluff</button>
+          </div>
+        </div>
+
+        <!-- 5-Stage Pipeline Scrubber -->
+        <div class="control-section">
+          <div class="section-title">
+            <span>Pipeline Stages (1 to 5)</span>
+          </div>
+          <div class="stage-stepper">
+            <div class="stage-card" data-stage="1">
+              <div class="stage-card-header">
+                <div class="stage-card-title">
+                  <span class="stage-num-badge">1</span>
+                  <span>Macro Cliff Base Shape</span>
+                </div>
+              </div>
+              <p class="stage-card-desc">Stratified bedding layers, terraces, vertical buttresses, and talus scree ramp.</p>
+            </div>
+
+            <div class="stage-card" data-stage="2">
+              <div class="stage-card-header">
+                <div class="stage-card-title">
+                  <span class="stage-num-badge">2</span>
+                  <span>Face Cutting with Offset</span>
+                </div>
+              </div>
+              <p class="stage-card-desc">Bounded planar shear planes and dihedral clefts with depth constraints.</p>
+            </div>
+
+            <div class="stage-card" data-stage="3">
+              <div class="stage-card-header">
+                <div class="stage-card-title">
+                  <span class="stage-num-badge">3</span>
+                  <span>Rock Fracturing & Joints</span>
+                </div>
+              </div>
+              <p class="stage-card-desc">Systematic orthogonal (J1) and conjugate (J2) joint block dilation.</p>
+            </div>
+
+            <div class="stage-card" data-stage="4">
+              <div class="stage-card-header">
+                <div class="stage-card-title">
+                  <span class="stage-num-badge">4</span>
+                  <span>Edge Chipping & SDF Erosion</span>
+                </div>
+              </div>
+              <p class="stage-card-desc">Convex edge chipping + SDF hardness-aware differential weathering.</p>
+            </div>
+
+            <div class="stage-card active" data-stage="5">
+              <div class="stage-card-header">
+                <div class="stage-card-title">
+                  <span class="stage-num-badge">5</span>
+                  <span>Surface Cracks & Polish</span>
+                </div>
+              </div>
+              <p class="stage-card-desc">Branching surface stress fissures with bounded offset + final weathering.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Parameters -->
+        <div class="control-section">
+          <div class="section-title">
+            <span>Geological Parameters</span>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Strata Layer Count</span>
+              <span id="val-strataCount" class="control-val">8</span>
+            </div>
+            <input type="range" id="param-strataCount" min="3" max="14" step="1" value="8" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Strata Hardness Contrast</span>
+              <span id="val-strataHardnessContrast" class="control-val">0.80</span>
+            </div>
+            <input type="range" id="param-strataHardnessContrast" min="0.1" max="1.0" step="0.05" value="0.8" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Caprock Overhang</span>
+              <span id="val-overhangIntensity" class="control-val">1.35</span>
+            </div>
+            <input type="range" id="param-overhangIntensity" min="1.0" max="1.8" step="0.05" value="1.35" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Face Cut Count</span>
+              <span id="val-cutCount" class="control-val">12</span>
+            </div>
+            <input type="range" id="param-cutCount" min="4" max="24" step="1" value="12" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Max Cut Depth Offset</span>
+              <span id="val-maxCutOffset" class="control-val">0.28</span>
+            </div>
+            <input type="range" id="param-maxCutOffset" min="0.1" max="0.5" step="0.02" value="0.28" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Joint Spacing</span>
+              <span id="val-jointSpacing" class="control-val">4.5</span>
+            </div>
+            <input type="range" id="param-jointSpacing" min="2.0" max="10.0" step="0.5" value="4.5" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Joint Dilation Gap</span>
+              <span id="val-jointDilation" class="control-val">0.08</span>
+            </div>
+            <input type="range" id="param-jointDilation" min="0.02" max="0.2" step="0.01" value="0.08" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>SDF Erosion Strength</span>
+              <span id="val-erosionStrength" class="control-val">0.75</span>
+            </div>
+            <input type="range" id="param-erosionStrength" min="0.1" max="1.5" step="0.05" value="0.75" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Surface Crack Density</span>
+              <span id="val-surfaceCrackDensity" class="control-val">0.70</span>
+            </div>
+            <input type="range" id="param-surfaceCrackDensity" min="0.1" max="1.2" step="0.05" value="0.7" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <span>Crack Max Depth Offset</span>
+              <span id="val-crackMaxDepthOffset" class="control-val">0.05</span>
+            </div>
+            <input type="range" id="param-crackMaxDepthOffset" min="0.02" max="0.12" step="0.01" value="0.05" />
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="action-row">
+          <button id="btn-randomize" class="btn-secondary">
+            <span>🎲 New Seed</span>
+          </button>
+          <button id="btn-recompute" class="btn-primary">
+            <span>⚡ Recompute</span>
+          </button>
+        </div>
+
+        <!-- Export -->
+        <div class="control-section">
+          <div class="section-title">
+            <span>Export 3D Deliverables</span>
+          </div>
+          <div class="action-row">
+            <button id="btn-export-obj" class="btn-secondary">
+              <span>💾 Export OBJ</span>
+            </button>
+            <button id="btn-export-ply" class="btn-secondary">
+              <span>💾 Export PLY</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 3D Viewport Area -->
+    <main class="viewport-container" id="viewport-container">
+      <!-- Top HUD -->
+      <div class="viewport-top-hud">
+        <div class="render-mode-bar">
+          <button class="mode-btn active" data-mode="clay">Clay (Untextured)</button>
+          <button class="mode-btn" data-mode="strata">Strata Layers</button>
+          <button class="mode-btn" data-mode="matcap">Matcap Curvature</button>
+          <button class="mode-btn" data-mode="normals">Normals</button>
+          <button class="mode-btn" data-mode="wireframe">Tri Wireframe</button>
+        </div>
+
+        <div class="stats-badge">
+          <div class="stat-item">
+            <span>Vertices</span>
+            <span id="stat-vertices" class="stat-val">0</span>
+          </div>
+          <div class="stat-item">
+            <span>Triangles</span>
+            <span id="stat-triangles" class="stat-val">0</span>
+          </div>
+          <div class="stat-item">
+            <span>N-Gons</span>
+            <span id="stat-ngons" class="stat-val" style="color: #10b981;">0 (Zero)</span>
+          </div>
+          <div class="stat-item">
+            <span>Topology</span>
+            <span id="stat-manifold" class="stat-val" style="color: #10b981;">Manifold</span>
+          </div>
+          <div class="stat-item">
+            <span>Time</span>
+            <span id="stat-time" class="stat-val">0 ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Stage Banner -->
+      <div class="viewport-bottom-hud">
+        <div class="stage-banner">
+          <h3 id="banner-title">Step 5: Surface Cracks & Final Polish</h3>
+          <p id="banner-desc">Shallow branching stress fissures chip rock faces, combined with final weathering to accent deep crevices while refining triangle geometry.</p>
+        </div>
+      </div>
+
+      <!-- Loading Spinner Overlay -->
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div style="font-weight: 600; font-size: 14px; color: #fff;">Processing Geological Physics Pipeline...</div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="/src/ui/app.ts"></script>
+</body>
+</html>

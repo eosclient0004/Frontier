@@ -1,0 +1,27 @@
+{
+  "name": "geological-cliff-generator",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eosclient0004/Frontier.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/eosclient0004/Frontier/issues"
+  },
+  "homepage": "https://github.com/eosclient0004/Frontier#readme",
+  "dependencies": {
+    "@types/three": "^0.186.0",
+    "lucide": "^1.52.0",
+    "three": "^0.186.1",
+    "vite": "^8.3.2"
+  }
+}
