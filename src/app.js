@@ -544,7 +544,7 @@ function addLayer(name, opts = {}) {
   state.selectedLayerId = layer.id;
   setDirty(true);
   invalidateShaded();
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
   updateStats();
   return layer;
@@ -560,7 +560,7 @@ function deleteLayer(id) {
   }
   setDirty(true);
   invalidateShaded();
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
   updateStats();
 }
@@ -573,7 +573,7 @@ function moveLayer(id, dir) {
   state.layers.splice(ni, 0, l);
   setDirty(true);
   invalidateShaded();
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
 }
 
@@ -583,7 +583,7 @@ function toggleLayerVis(id) {
   l.visible = !l.visible;
   setDirty(true);
   invalidateShaded();
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
 }
 
@@ -602,7 +602,7 @@ function setActiveChannel(id) {
   if (sel) sel.value = id;
   buildChannelTree();
   buildBrushSettings();
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
 }
 
@@ -622,7 +622,7 @@ function setResolution(res) {
   for (const l of state.layers) l.buffers = {};
   invalidateShaded();
   setDirty(true);
-  renderLayerStack();
+  buildLayerStack();
   renderViewport();
   updateStats();
 }
