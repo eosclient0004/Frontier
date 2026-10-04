@@ -1587,11 +1587,35 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* -------------------------------------------------------------------- seed */
+function seedDefaultContent(layer) {
+  const res = state.material.res;
+  const ctx = getBuffer(layer, "baseColor").getContext("2d");
+  ctx.fillStyle = "#1a1410";
+  ctx.fillRect(0, 0, res, res);
+  const g = ctx.createRadialGradient(res * 0.5, res * 0.44, res * 0.04, res * 0.5, res * 0.5, res * 0.72);
+  g.addColorStop(0, "#d9772f");
+  g.addColorStop(0.45, "#8a3f1d");
+  g.addColorStop(1, "#19120d");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, res, res);
+
+  const rb = getBuffer(layer, "roughness").getContext("2d");
+  rb.fillStyle = "#6e6e6e";
+  rb.fillRect(0, 0, res, res);
+  const rg = rb.createRadialGradient(res * 0.5, res * 0.5, res * 0.08, res * 0.5, res * 0.5, res * 0.72);
+  rg.addColorStop(0, "#d2d2d2");
+  rg.addColorStop(1, "#3c3c3c");
+  rb.fillStyle = rg;
+  rb.fillRect(0, 0, res, res);
+}
+
 /* ======================================================================= init */
 function init() {
   applyIcons(document);
-  // seed a starting paint layer
-  addLayer("Base layer");
+  // seed a starting paint layer with a visible starter material
+  const base = addLayer("Base layer");
+  seedDefaultContent(base);
   buildChannelTree();
   buildBrushLibrary();
   buildDecalLibrary();
