@@ -8,8 +8,8 @@ const GEN_TYPES = {
   voronoi:  { label:'Voronoi Cells',    color:'#8ebce8', icon:'⬡', desc:'Fractured mesas & craters', defaults:{scale:3.0, jitter:0.85, edge:0.32, seed:2}},
   warp:     { label:'Domain Warp',      color:'#93c779', icon:'≋', desc:'Large-scale flow drift', defaults:{intensity:0.45, scale:1.2, octaves:3, seed:7}},
   terrace:  { label:'Terrace / Strata', color:'#cab281', icon:'▤', desc:'Sedimentary staircases', defaults:{steps:7, steep:0.75, smooth:0.22, offset:0.0}},
-  thermal:  { label:'Thermal Erosion',  color:'#e2b65f', icon:'▲', desc:'Talus & scree collapse', defaults:{iter:8, talus:0.62, strength:0.55}},
-  hydraulic:{ label:'Fluvial Erosion',  color:'#74bdd4', icon:'≂', desc:'Hydraulic valleys', defaults:{iter:36, rain:0.18, sediment:0.12, evap:0.015, talus:0.6}},
+  thermal:  { label:'Thermal Erosion',  color:'#e2b65f', icon:'▲', desc:'Talus & scree collapse', defaults:{iter:6, talus:0.62, strength:0.55}},
+  hydraulic:{ label:'Fluvial Erosion',  color:'#74bdd4', icon:'≂', desc:'Hydraulic valleys', defaults:{iter:24, rain:0.16, sediment:0.12, evap:0.015, talus:0.6}},
   dune:     { label:'Dunes & Drift',    color:'#d6c7a3', icon:'∿', desc:'Aeolian ripples', defaults:{scale:6.0, amp:0.12, dir:38, elong:0.62}},
   snowmask: { label:'Snow Wash Mask',   color:'#c8d0de', icon:'❄', desc:'Height-based deposition (filter)', defaults:{bias:0.0, cover:0.35, slope:42}},
 };
@@ -39,8 +39,8 @@ let genLayers = [
   {id:'g1', type:'fbm',      enabled:true, opacity:1, blend:'Overwrite', params:{scale:2.4, octaves:6, lac:2.05, persist:0.48, warp:0.0, gain:1.0, seed:0}},
   {id:'g2', type:'ridged',   enabled:true, opacity:0.85, blend:'Max', params:{scale:1.65, octaves:5, lac:2.02, persist:0.5, sharp:0.82, seed:3}},
   {id:'g3', type:'voronoi',  enabled:true, opacity:0.22, blend:'Multiply', params:{scale:2.8, jitter:0.82, edge:0.28, seed:11}},
-  {id:'g4', type:'thermal',  enabled:true, opacity:1, blend:'Overwrite', params:{iter:10, talus:0.58, strength:0.65}},
-  {id:'g5', type:'hydraulic',enabled:true, opacity:1, blend:'Overwrite', params:{iter:42, rain:0.16, sediment:0.11, evap:0.014, talus:0.62}},
+  {id:'g4', type:'thermal',  enabled:true, opacity:1, blend:'Overwrite', params:{iter:6, talus:0.58, strength:0.65}},
+  {id:'g5', type:'hydraulic',enabled:true, opacity:1, blend:'Overwrite', params:{iter:22, rain:0.16, sediment:0.11, evap:0.014, talus:0.62}},
   {id:'g6', type:'terrace',  enabled:false, opacity:0.55, blend:'Overlay', params:{steps:6, steep:0.72, smooth:0.18, offset:0.0}},
 ];
 
@@ -279,94 +279,115 @@ function generateHeightmap(){
       const iter=Math.max(1,Math.min(30, Math.round(p.iter??8)));
       const talus=p.talus??0.6;
       const strength=p.strength??0.5;
-      // thermal: if slope > talus then move material downslope
+      // thermal: talus collapse — optimized without allocations
       const tmp = out.slice();
+      const tThresh = talus*0.032 + 0.004;
       for(let it=0;it<iter;it++){
-        for(let y=1;y<N-1;y++) for(let x=1;x<N-1;x++){
-          const idx=y*N+x;
-          const h=tmp[idx];
-          let maxDiff=0, maxDir=-1, diffs=[];
-          for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-            if(dx===0&&dy===0) continue;
-            const nid=(y+dy)*N+(x+dx);
-            const dh = h - tmp[nid];
-            if(dh>talus*0.03 + 0.005) diffs.push({nid, dh});
-            if(dh>maxDiff){maxDiff=dh; maxDir=nid;}
-          }
-          if(diffs.length){
-            // average transfer
-            let total=0;
-            for(const d of diffs) total+=d.dh - talus*0.03;
-            const amount = total*0.5*strength*0.25 / diffs.length;
-            tmp[idx]-= amount;
-            for(const d of diffs) tmp[d.nid]+= amount/diffs.length;
-            tmp[idx]=Math.max(0,Math.min(1,tmp[idx]));
+        for(let y=1;y<N-1;y++){
+          let row = y*N;
+          for(let x=1;x<N-1;x++){
+            const idx=row+x;
+            const h=tmp[idx];
+            // find lowest neighbor diff
+            let sum=0, cnt=0, lowest = -1;
+            let minH = h;
+            // 8-way check without array
+            const hL = tmp[idx-1], hR = tmp[idx+1], hU = tmp[idx-N], hD = tmp[idx+N];
+            const hUL = tmp[idx-N-1], hUR = tmp[idx-N+1], hDL = tmp[idx+N-1], hDR = tmp[idx+N+1];
+            const cand=[hL,hR,hU,hD,hUL,hUR,hDL,hDR];
+            const off=[-1,1,-N,N,-N-1,-N+1,N-1,N+1];
+            for(let k=0;k<8;k++){
+              const dh = h - cand[k];
+              if(dh > tThresh){ sum += dh - talus*0.032; cnt++; if(cand[k] < minH){ minH=cand[k]; lowest=idx+off[k];}}
+            }
+            if(cnt>0 && lowest!==-1){
+              const amount = sum * 0.125 * strength / cnt; // 0.5*0.25 =0.125
+              tmp[idx] -= amount;
+              tmp[lowest] += amount * 0.7;
+              // distribute remainder to other downslope neighbours lightly
+              for(let k=0;k<8;k++){
+                const dh = h - cand[k];
+                if(dh > tThresh && idx+off[k]!==lowest) tmp[idx+off[k]] += amount*0.3/(cnt- (cnt>1?1:0));
+              }
+              if(tmp[idx]<0) tmp[idx]=0; else if(tmp[idx]>1) tmp[idx]=1;
+            }
           }
         }
-        // swap?
-        if(it%2===1) { for(let i=0;i<N*N;i++) out[i]=tmp[i]; }
       }
       for(let i=0;i<N*N;i++) out[i]= blendMix(out[i], tmp[i], blend, op);
     } else if(layer.type==='hydraulic'){
-      const iter=Math.max(8,Math.min(120, Math.round(p.iter??36)));
+      const iter=Math.max(8,Math.min(80, Math.round(p.iter??22)));
       const rain=p.rain??0.16;
       const sedCap=p.sediment??0.12;
-      // simple hydraulic: water flows to lowest neighbor, erodes and deposits
+      const evap=p.evap??0.015;
+      // optimized hydraulic with ping-pong buffers (no per-iter alloc)
       let hmap=out.slice();
       let water=new Float32Array(N*N);
       let sediment=new Float32Array(N*N);
-      // init water
+      let newWater=new Float32Array(N*N);
+      let newSed=new Float32Array(N*N);
+      let newH=new Float32Array(N*N);
       for(let i=0;i<N*N;i++) water[i]=rain*0.5;
       for(let it=0;it<iter;it++){
-        // water addition
         for(let i=0;i<N*N;i++) water[i]+= rain*0.02;
-        // flow
-        const newWater=new Float32Array(N*N);
-        const newSed=new Float32Array(N*N);
-        const newH = hmap.slice();
-        for(let y=1;y<N-1;y++) for(let x=1;x<N-1;x++){
-          const idx=y*N+x;
-          const h=hmap[idx]+water[idx];
-          // find lowest neighbor
-          let lowest=idx, lowH=h;
-          for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-            if(dx===0&&dy===0) continue;
-            const nid=(y+dy)*N+(x+dx);
-            const nh=hmap[nid]+water[nid];
-            if(nh<lowH){lowH=nh; lowest=nid;}
-          }
-          if(lowest!==idx){
-            const dh = h - lowH;
-            const flow = Math.min(water[idx]*0.5, dh*0.5);
-            newWater[lowest]+= flow*0.92;
-            newWater[idx]+= water[idx]-flow;
-            // erode / deposit based on slope
-            const slope = dh*12;
-            const capacity = slope * flow * sedCap * 4;
-            const curSed=sediment[idx];
-            if(curSed < capacity && slope>0.01){
-              const eroded = Math.min(0.003* slope, capacity - curSed)*0.9;
-              newH[idx]-= eroded;
-              newSed[idx]+= eroded;
-            } else if(curSed > capacity){
-              const dep = (curSed - capacity)*0.5;
-              newH[idx]+= dep*0.6;
-              newSed[idx]-= dep;
+        newWater.fill(0); newSed.fill(0); newH.set(hmap);
+        for(let y=1;y<N-1;y++){
+          let row=y*N;
+          for(let x=1;x<N-1;x++){
+            const idx=row+x;
+            const h=hmap[idx]+water[idx];
+            // find lowest 8-neighbour
+            let lowest=idx, lowH=h;
+            // unrolled neighbor checks for speed
+            const wL = hmap[idx-1]+water[idx-1];
+            if(wL<lowH){lowH=wL; lowest=idx-1;}
+            const wR = hmap[idx+1]+water[idx+1];
+            if(wR<lowH){lowH=wR; lowest=idx+1;}
+            const wU = hmap[idx-N]+water[idx-N];
+            if(wU<lowH){lowH=wU; lowest=idx-N;}
+            const wD = hmap[idx+N]+water[idx+N];
+            if(wD<lowH){lowH=wD; lowest=idx+N;}
+            const wUL = hmap[idx-N-1]+water[idx-N-1];
+            if(wUL<lowH){lowH=wUL; lowest=idx-N-1;}
+            const wUR = hmap[idx-N+1]+water[idx-N+1];
+            if(wUR<lowH){lowH=wUR; lowest=idx-N+1;}
+            const wDL = hmap[idx+N-1]+water[idx+N-1];
+            if(wDL<lowH){lowH=wDL; lowest=idx+N-1;}
+            const wDR = hmap[idx+N+1]+water[idx+N+1];
+            if(wDR<lowH){lowH=wDR; lowest=idx+N+1;}
+            if(lowest!==idx){
+              const dh = h - lowH;
+              const flow = dh>0? Math.min(water[idx]*0.52, dh*0.48) : 0;
+              newWater[lowest]+= flow*0.92;
+              newWater[idx]+= water[idx]-flow;
+              const slope = dh*11;
+              const capacity = slope * flow * sedCap * 4.2;
+              const curSed=sediment[idx];
+              if(curSed < capacity && slope>0.012){
+                const eroded = Math.min(0.0032* slope, capacity - curSed)*0.92;
+                newH[idx]-= eroded;
+                newSed[idx]+= eroded;
+              } else if(curSed > capacity){
+                const dep = (curSed - capacity)*0.48;
+                newH[idx]+= dep*0.58;
+                newSed[idx]+= curSed - dep;
+              } else {
+                newSed[idx]+= curSed*0.92;
+              }
             } else {
-              newSed[idx]+= curSed*0.9;
+              newWater[idx]+= water[idx]*0.94;
+              newSed[idx]+= sediment[idx]*0.92;
             }
-          } else {
-            newWater[idx]+= water[idx]*0.94;
-            newSed[idx]+= sediment[idx]*0.9;
-            // evaporate a bit
+            newWater[idx]*=(1-evap);
+            if(newWater[idx]<0) newWater[idx]=0;
           }
-          // evaporation
-          newWater[idx]*=(1-(p.evap??0.015));
         }
-        // clamp heights
-        for(let i=0;i<N*N;i++){ newH[i]=Math.max(0,Math.min(1,newH[i])); if(newH[i]>1) newH[i]=1; }
-        hmap=newH; water=newWater; sediment=newSed;
-        // occasional smoothing
+        // clamp
+        for(let i=0;i<N*N;i++){ let v=newH[i]; if(v<0) v=0; else if(v>1) v=1; newH[i]=v; }
+        // swap buffers (copy back)
+        let tmpH=hmap; hmap=newH; newH=tmpH;
+        let tmpW=water; water=newWater; newWater=tmpW;
+        let tmpS=sediment; sediment=newSed; newSed=tmpS;
         if(it%12===11){
           for(let y=1;y<N-1;y++) for(let x=1;x<N-1;x++){
             const idx=y*N+x;
@@ -408,15 +429,15 @@ function generateHeightmap(){
 function bakeColormap(){
   const N=RES;
   const out=new Uint8Array(N*N*4);
-  // need slope map
-  // compute slope (0-90 deg) via height diff
+  // need slope map — use actual world scale for correct cliff angles
   const slope=new Float32Array(N*N);
   let maxSlope=0;
+  const pixelSize = worldScale / N;
+  const heightFactor = heightScale / (2*pixelSize);
   for(let y=1;y<N-1;y++) for(let x=1;x<N-1;x++){
     const idx=y*N+x;
-    const h=heightMap[idx];
-    const hx = (heightMap[idx+1]-heightMap[idx-1])*0.5 * 30; // scale
-    const hy = (heightMap[idx+N]-heightMap[idx-N])*0.5 * 30;
+    const hx = (heightMap[idx+1]-heightMap[idx-1]) * heightFactor;
+    const hy = (heightMap[idx+N]-heightMap[idx-N]) * heightFactor;
     const s = Math.atan(Math.sqrt(hx*hx+hy*hy))*180/Math.PI;
     slope[idx]=s;
     if(s>maxSlope) maxSlope=s;
@@ -1683,7 +1704,7 @@ fn fs(@location(0) uv: vec2<f32>, @location(1) worldPos: vec3<f32>, @location(2)
   let sky = mix(vec3<f32>(0.06,0.07,0.08), skyCol, clamp(N.y*0.5+0.5,0.0,1.0))*0.35*ao;
   // fog
   let dist = length(uni.camPos - worldPos);
-  let fogFactor = 1.0 - exp(-dist*0.00032);
+  var fogFactor = 1.0 - exp(-dist*0.00032);
   fogFactor = clamp(fogFactor,0.0,0.62);
   let fogCol = mix(vec3<f32>(0.78,0.82,0.86), vec3<f32>(0.52,0.58,0.66), clamp((worldPos.y-10.0)/380.0,0.0,1.0));
   // add distant haze with height
@@ -1959,14 +1980,14 @@ function multiplyMat4(a,b){
 
 function setupCanvasEvents(){
   const canvas=$('#terrainCanvas');
-  canvas.addEventListener('mousedown', e=>{
+  canvas.addEventListener('pointerdown', e=>{
     isDragging=true; lastX=e.clientX; lastY=e.clientY;
     dragMode = e.button===2 || e.ctrlKey ? 'pan' : 'orbit';
-    canvas.setPointerCapture(e.pointerId);
+    try{ canvas.setPointerCapture(e.pointerId); }catch{}
   });
-  canvas.addEventListener('mouseup', e=>{ isDragging=false; });
+  canvas.addEventListener('pointerup', e=>{ isDragging=false; try{ canvas.releasePointerCapture(e.pointerId);}catch{} });
   canvas.addEventListener('pointerleave', ()=> isDragging=false);
-  canvas.addEventListener('mousemove', e=>{
+  canvas.addEventListener('pointermove', e=>{
     if(!isDragging) return;
     const dx=e.clientX-lastX, dy=e.clientY-lastY;
     lastX=e.clientX; lastY=e.clientY;
