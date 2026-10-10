@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Frontier · WebGPU Geomorphology &amp; SatMap Terrain Studio</title>
+    <link rel="stylesheet" href="./TerrainStudio.css" />
+  </head>
+  <body>
+    <div id="App" class="studio-shell">
+      <!--===================================================================================================================================
+        TOP COMMAND & WORKFLOW BAR
+      ====================================================================================================================================-->
+      <header class="top-bar">
+        <div class="brand-cluster">
+          <div class="brand-mark">
+            <img src="./assets/icons/terrain.svg" width="15" height="15" class="native-icon" alt="" />
+          </div>
+          <div class="brand-text">
+            <div class="brand-title">
+              Frontier Terrain Studio <span>WebGPU</span>
+            </div>
+            <div class="brand-sub">Geomorphology &amp; SatMap Layer-Stack Engine</div>
+          </div>
+        </div>
+
+        <div class="top-divider"></div>
+
+        <div class="top-control-group">
+          <label>
+            <span>World Preset</span>
+            <select id="TopPresetSelect" aria-label="World Preset"></select>
+          </label>
+          <label>
+            <span>Grid</span>
+            <select id="TopResSelect" aria-label="Simulation Grid Resolution">
+              <option value="1024">1024 × 1024 (Preview)</option>
+              <option value="2048">2048 × 2048 (High)</option>
+              <option value="4096" selected>4096 × 4096 (4K, full GPU)</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- Two-Stage Workflow Switcher: 01 Terrain Stack -> 02 Texture Stack -> 03 World & Sky -->
+        <div class="workflow-pills" role="tablist" aria-label="Workflow Stage">
+          <button type="button" class="workflow-pill active" data-stage="terrain">
+            <b>01</b> Terrain Stack
+          </button>
+          <span class="workflow-arrow">→</span>
+          <button type="button" class="workflow-pill" data-stage="texture">
+            <b>02</b> Texture Stack
+          </button>
+          <span class="workflow-arrow">→</span>
+          <button type="button" class="workflow-pill" data-stage="world">
+            <b>03</b> World &amp; Sky
+          </button>
+          <button type="button" class="workflow-pill" data-stage="all">
+            All Layers
+          </button>
+        </div>
+
+        <div class="top-right">
+          <div id="GpuStatusPill" class="gpu-pill">
+            <i></i><span>WebGPU Compute · Live</span>
+          </div>
+          <button type="button" id="TopStepErodeBtn" class="top-action-btn" title="Run +25 Hydraulic & Thermal Erosion Steps (E)">
+            Erode +25
+          </button>
+          <button type="button" id="TopAutoErodeBtn" class="top-action-btn erode-live" title="Toggle Continuous Real-Time GPU Erosion">
+            Auto-Erode Sim
+          </button>
+          <button type="button" id="TopExportBtn" class="top-action-btn" title="Export 16-bit PNG Heightmap, Splatmap, Albedo & OBJ">
+            Export Maps
+          </button>
+          <button type="button" id="TopAddLayerBtn" class="top-action-btn primary-construct" title="Add Terrain or Texture Layer (A)">
+            + Add Layer
+          </button>
+        </div>
+      </header>
+
+      <!--===================================================================================================================================
+        3-COLUMN WORKSPACE:
+        1. LEFT / MAIN: 3D & 2D WEBGPU VIEWPORT
+        2. RIGHT-INNER: LAYER STACK DOCK (TERRAIN LAYER STACK + TEXTURE LAYER STACK)
+        3. RIGHT-OUTER: PROJECT-ZERO INSPECTOR DOCK
+      ====================================================================================================================================-->
+      <div class="workspace">
+        <!-- 1. MAIN VIEWPORT DOCK -->
+        <main class="dock viewport">
+          <div class="tab-strip" id="ViewportTabs">
+            <button type="button" class="document-tab active" data-view="3d">
+              <img src="./assets/icons/terrain.svg" width="12" height="12" class="native-icon" alt="" />
+              <span>3D Viewport</span>
+            </button>
+            <button type="button" class="document-tab" data-view="split">
+              <img src="./assets/icons/editor-grid.svg" width="12" height="12" class="native-icon" alt="" />
+              <span>Split 3D / 2D Map</span>
+            </button>
+            <button type="button" class="document-tab" data-view="map">
+              <img src="./assets/icons/editor-texture.svg" width="12" height="12" class="native-icon" alt="" />
+              <span>2D Data Map</span>
+            </button>
+            <button type="button" class="document-tab" data-view="profile">
+              <img src="./assets/icons/collection-stacked-layers.svg" width="12" height="12" class="native-icon" alt="" />
+              <span>Cross-Section Profile</span>
+            </button>
+          </div>
+
+          <div class="viewport-toolbar">
+            <div class="viewport-heading-row">
+              <div class="viewport-identity">
+                <img src="./assets/icons/terrain.svg" width="18" height="18" class="native-icon" alt="" />
+                <div>
+                  <strong>
+                    Real-Time Geomorphology Viewport
+                    <span id="ViewportPerfBadge" class="viewport-preview-badge">WEBGPU · 1.8 ms</span>
+                  </strong>
+                  <span id="ViewportSubInfo">5.0 × 5.0 km · Peak 2380 m · Mean Slope 28.4° · Snow 26%</span>
+                </div>
+              </div>
+
+              <div class="viewport-modes" id="ViewportShadingModes" aria-label="Diagnostic & Shading Modes"></div>
+            </div>
+
+            <div class="viewport-action-row">
+              <button type="button" id="BtnConstructLayer" class="viewport-construct">
+                <span>+ Construct Layer</span>
+                <kbd>A</kbd>
+              </button>
+
+              <span class="viewport-tool-divider"></span>
+
+              <button type="button" id="BtnStepErode" class="viewport-chip-btn" title="Step Hydraulic & Thermal Erosion (+25 cycles)">
+                <img src="./assets/icons/weather-rain.svg" width="13" height="13" class="native-icon" alt="" />
+                <span>Step Erosion</span>
+              </button>
+
+              <button type="button" id="BtnAutoErode" class="viewport-chip-btn sim-chip" aria-pressed="false" title="Continuous Live Erosion Simulation">
+                <span>Live Erosion</span>
+              </button>
+
+              <button type="button" id="BtnSculptToggle" class="viewport-chip-btn" aria-pressed="false" title="Interactive 3D Terrain Sculpt & Hydro Brush">
+                <span>3D Sculpt Brush</span>
+              </button>
+
+              <span class="viewport-tool-divider"></span>
+
+              <button type="button" id="BtnWaterToggle" class="viewport-chip-btn" aria-pressed="true" title="Toggle Water Table / Ocean / Alpine Lake">
+                <img src="./assets/icons/fluid.svg" width="13" height="13" class="native-icon" alt="" />
+                <span>Water Table</span>
+              </button>
+
+              <button type="button" id="BtnFogToggle" class="viewport-chip-btn" aria-pressed="true" title="Toggle Atmospheric Height Fog & Valley Mist">
+                <img src="./assets/icons/fog.svg" width="13" height="13" class="native-icon" alt="" />
+                <span>Atmosphere &amp; Fog</span>
+              </button>
+
+              <div class="viewport-secondary-tools">
+                <button type="button" id="BtnTurntable" class="viewport-chip-btn" aria-pressed="false" title="Orbit Turntable Camera">
+                  <span>Turntable</span>
+                </button>
+                <button type="button" id="BtnFrameCamera" class="viewport-chip-btn" title="Reset Camera Framing (F)">
+                  <img src="./assets/icons/camera.svg" width="13" height="13" class="native-icon" alt="" />
+                  <span>Frame</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3D & 2D STAGE -->
+          <div class="scene-stage">
+            <div id="Pane3D" class="stage-pane">
+              <canvas id="GpuCanvas"></canvas>
+
+              <!-- Top-Left Telemetry Overlay -->
+              <div class="viewport-hud-tl">
+                <div class="hud-badge">
+                  <span class="dot"></span>
+                  <span id="HudElevSpan">Relief <strong>0m – 2380m</strong> · Eroded <strong>18.4M m³</strong> · Cycles <strong>105</strong></span>
+                </div>
+              </div>
+
+              <!-- Interactive 3D Sculpt Brush Bar (shown when 3D Sculpt Brush is active) -->
+              <div id="SculptFloatingBar" class="sculpt-floating-bar" style="display: none;">
+                <button type="button" class="active" data-bmode="raise">Raise</button>
+                <button type="button" data-bmode="lower">Carve</button>
+                <button type="button" data-bmode="smooth">Smooth</button>
+                <button type="button" data-bmode="erode">Local Erode</button>
+                <button type="button" data-bmode="water">Hydro Spring</button>
+                <label>
+                  <span>Radius</span>
+                  <input id="BrushRadiusInput" type="range" min="0.1" max="1.4" step="0.05" value="0.42" style="--fill: 25%;" />
+                </label>
+                <label>
+                  <span>Strength</span>
+                  <input id="BrushStrengthInput" type="range" min="0.1" max="1.2" step="0.05" value="0.55" style="--fill: 45%;" />
+                </label>
+                <button type="button" id="BrushClearBtn" title="Clear manual brush edits">Reset Sculpt</button>
+              </div>
+
+              <!-- Scale Bar Legend -->
+              <div class="scale-legend">
+                <div class="scale-bar-line"></div>
+                <span>1.0 km Scale · LMB Orbit · RMB/Shift Pan · Alt+LMB Sun</span>
+              </div>
+
+              <!-- 3D Orientation Axis Gizmo -->
+              <svg class="view-axis" viewBox="0 0 96 100" aria-label="Viewport Orientation">
+                <g stroke-width="1.6" stroke-linecap="round">
+                  <line x1="48" y1="54" x2="82" y2="66" stroke="var(--axis-x)" />
+                  <line x1="48" y1="54" x2="48" y2="14" stroke="var(--axis-y)" />
+                  <line x1="48" y1="54" x2="16" y2="68" stroke="var(--axis-z)" />
+                </g>
+                <g id="AxisX" style="cursor: pointer;">
+                  <circle cx="84" cy="67" r="7" fill="var(--axis-x)" />
+                  <text x="84" y="70" text-anchor="middle" fill="#111">X</text>
+                </g>
+                <g id="AxisY" style="cursor: pointer;">
+                  <circle cx="48" cy="12" r="7" fill="var(--axis-y)" />
+                  <text x="48" y="15" text-anchor="middle" fill="#111">Y</text>
+                </g>
+                <g id="AxisZ" style="cursor: pointer;">
+                  <circle cx="14" cy="69" r="7" fill="var(--axis-z)" />
+                  <text x="14" y="72" text-anchor="middle" fill="#111">Z</text>
+                </g>
+              </svg>
+            </div>
+
+            <div id="PaneMap" class="stage-pane map-pane" style="display: none;">
+              <canvas id="MapCanvas"></canvas>
+            </div>
+          </div>
+
+          <footer class="viewport-footer">
+            <span id="FooterTimings">Gen <b>0.5ms</b> · Erosion <b>1.4ms</b> · Splat <b>0.4ms</b></span>
+            <span id="FooterCursorCoords">X <b>0.00km</b> · Z <b>0.00km</b> · Elev <b>1420m</b> · Slope <b>28°</b></span>
+            <span>Pipeline: <b class="status-live">Terrain Stack → Texture Stack</b></span>
+          </footer>
+        </main>
+
+        <!--=================================================================================================================================
+          2. RIGHT-INNER DOCK: LAYER STACK (TERRAIN LAYER STACK + TEXTURE LAYER STACK)
+        ==================================================================================================================================-->
+        <aside id="StackDock" class="dock outliner">
+          <div id="StackDivider" class="divider" title="Drag to resize Layer Stack"></div>
+
+          <div id="StackTabs" class="tab-strip"></div>
+
+          <div class="outliner-heading">
+            <img src="./assets/icons/collection-stacked-layers.svg" width="16" height="16" class="native-icon" alt="" />
+            <div>
+              <h1 id="StackTitle">Terrain Layer Stack</h1>
+            </div>
+            <small id="StackSubtitle">6 of 6 active</small>
+            <div class="heading-actions">
+              <button type="button" id="StackAddBtn" class="circle-icon-btn" title="Add Layer to Active Stack (A)">+</button>
+            </div>
+          </div>
+
+          <!-- ProjectZeroEditor .stats two-tile row -->
+          <div id="StackStats" class="stats"></div>
+
+          <!-- Search & Filter -->
+          <div class="outliner-search">
+            <label>
+              <span>⌕</span>
+              <input id="StackSearchInput" type="text" placeholder="Filter layers in stack..." />
+            </label>
+          </div>
+          <div id="StackFilterChips" class="filter-chips"></div>
+
+          <!-- Scrollable Layer Stack List -->
+          <div id="StackRows" class="outliner-rows" role="listbox" aria-label="Layer Stack"></div>
+
+          <!-- Stack Workflow Action Bar -->
+          <div class="stack-action-strip">
+            <button type="button" id="StackStepErodeBtn" class="primary-step" title="Run +25 Hydraulic & Thermal Erosion Iterations">
+              ⚡ Step Erosion (+25)
+            </button>
+            <button type="button" id="StackSwitchStageBtn" title="Switch between Stage 01 (Terrain Stack) and Stage 02 (Texture Stack)">
+              Switch Terrain ↔ Texture
+            </button>
+          </div>
+
+          <footer class="outliner-footer">
+            <span><small>STACK STATE</small><b>Evaluated</b></span>
+            <span><small>PEAK ELEV</small><b id="OutlinerFootPeak">2380 m</b></span>
+            <span><small>MEAN SLOPE</small><b id="OutlinerFootSlope">28.4°</b></span>
+            <span><small>SNOWPACK</small><b id="OutlinerFootSnow">26%</b></span>
+          </footer>
+        </aside>
+
+        <!--=================================================================================================================================
+          3. RIGHT-OUTER DOCK: PROJECT-ZERO INSPECTOR
+        ==================================================================================================================================-->
+        <aside id="InspectorDock" class="dock inspector">
+          <div id="InspectorDivider" class="divider" title="Drag to resize Inspector"></div>
+
+          <div id="InspectorTabs" class="tab-strip"></div>
+
+          <div id="InspectorContent" class="inspector-scroll"></div>
+
+          <footer class="inspector-footer">
+            <span>Non-Destructive Layer Stack</span>
+            <span>16-Bit Float Precision · Triplanar PBR</span>
+          </footer>
+        </aside>
+      </div>
+    </div>
+
+    <!-- Construct Layer Modal Host -->
+    <div id="ModalHost"></div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
