@@ -434,7 +434,7 @@ export const TERRAIN_LAYER_TYPES = {
       domainWarp: true,
       maskLock: false,
       iterations: 85,
-      dropletCountK: 75, // 75,000 Lagrangian droplets!
+      dropletCountK: 120, // 75,000 Lagrangian droplets!
       rainRate: 0.022,
       erosionRate: 0.78,
       depositionRate: 0.52,
@@ -937,7 +937,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Deep Dendritic Gully & Meltwater Erosion",
         iterations: 90,
-        dropletCountK: 85,
+        dropletCountK: 120,
         rainRate: 0.023,
         erosionRate: 0.82,
         depositionRate: 0.52,
@@ -1130,7 +1130,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Side-Canyon Flash Flood Gullies",
         iterations: 90,
-        dropletCountK: 85,
+        dropletCountK: 120,
         rainRate: 0.021,
         erosionRate: 0.84,
         depositionRate: 0.48,
@@ -1253,7 +1253,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Braided Glacial Gully Incision",
         iterations: 95,
-        dropletCountK: 90,
+        dropletCountK: 120,
         rainRate: 0.024,
         erosionRate: 0.84,
         depositionRate: 0.54,
@@ -1394,7 +1394,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Avalanche Couloir & Glacier Incision",
         iterations: 85,
-        dropletCountK: 80,
+        dropletCountK: 120,
         rainRate: 0.022,
         erosionRate: 0.8,
         channelSharpness: 0.9,
@@ -1519,7 +1519,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Pyroclastic Lahar Gully Erosion",
         iterations: 90,
-        dropletCountK: 85,
+        dropletCountK: 120,
         rainRate: 0.023,
         erosionRate: 0.82,
         depositionRate: 0.5,
@@ -1632,7 +1632,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Hyper-Dense Badland Rill Erosion",
         iterations: 110,
-        dropletCountK: 100,
+        dropletCountK: 120,
         rainRate: 0.026,
         erosionRate: 0.92,
         depositionRate: 0.52,
@@ -1852,7 +1852,7 @@ export const WORLD_PRESETS = {
       createTerrainLayer("hydraulic_erosion", {
         name: "Highland Burn & Waterfall Gullies",
         iterations: 90,
-        dropletCountK: 85,
+        dropletCountK: 120,
         rainRate: 0.023,
         erosionRate: 0.8,
         depositionRate: 0.5,

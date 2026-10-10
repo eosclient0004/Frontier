@@ -972,9 +972,8 @@ export class TerrainStudioEngine {
   //  PHYSICAL SHALLOW-WATER & STREAM-POWER HYDRAULIC EROSION SOLVER
   //==========================================================================================================================================
   runCpuHydraulicErosion(L, N, cellM, overrideIters = null) {
-    // Lagrangian droplet erosion (inertial particle tracing, sediment capacity, deposition, evaporation).
-    // Produces branching dendritic gullies, undercut channel heads and alluvial fans; also writes flow accumulation.
-    const passes = 1;
+    // Lagrangian droplet erosion: inertial particle tracing with sediment capacity, erosion/deposition,
+    // evaporation. Produces branching dendritic gullies, channel heads and alluvial fans; also writes flow accumulation.
     const dropScale = overrideIters ? overrideIters / 25 : (L.iterations ?? 90) / 90;
     const nDrop = Math.round((L.dropletCountK ?? 75) * 1000 * Math.max(0.05, Math.min(3, dropScale)));
     const op = L.opacity ?? 1.0;
@@ -989,19 +988,21 @@ export class TerrainStudioEngine {
     const S = this.cpuSediment;
     const acc = new Float32Array(N * N);
 
-    // Brush: 5x5 radial kernel for smooth erosion footprint
-    const brush = [];
+    // Flattened radial brush (radius 2) — offsets are safe because droplets stay in [2, N-3]
+    const bOff = [];
+    const bW = [];
     let wsum = 0;
     for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) {
       const d = Math.hypot(ox, oy);
       if (d > 2.0) continue;
-      const w = 2.0 - d;
-      brush.push([ox, oy, w]);
-      wsum += w;
+      bOff.push(oy * N + ox);
+      bW.push(2.0 - d);
+      wsum += 2.0 - d;
     }
-    for (const b of brush) b[2] /= wsum;
+    for (let b = 0; b < bW.length; b++) bW[b] /= wsum;
+    const nB = bOff.length;
 
-    let seed = (L.seed ?? 1) * 2654435761 >>> 0 || 1;
+    let seed = ((L.seed ?? 1) * 2654435761) >>> 0 || 1;
     const rnd = () => {
       seed ^= seed << 13; seed >>>= 0;
       seed ^= seed >>> 17;
@@ -1009,84 +1010,73 @@ export class TerrainStudioEngine {
       return seed / 4294967296;
     };
 
-    const inside = (x, y) => x >= 2 && y >= 2 && x < N - 3 && y < N - 3;
+    const lo = 2, hi = N - 3;
+    for (let d = 0; d < nDrop; d++) {
+      let px = lo + rnd() * (hi - lo);
+      let py = lo + rnd() * (hi - lo);
+      let dx = 0, dy = 0, speed = 1.0, water = 1.0, sed = 0.0;
 
-    for (let pass = 0; pass < passes; pass++) {
-      for (let d = 0; d < nDrop; d++) {
-        let px = rnd() * (N - 3) + 1;
-        let py = rnd() * (N - 3) + 1;
-        let dx = 0, dy = 0, speed = 1.0, water = 1.0, sed = 0.0;
+      for (let life = 0; life < maxLife; life++) {
+        const ix = px | 0, iy = py | 0;
+        if (ix < lo || iy < lo || ix > hi || iy > hi) break;
+        const fx = px - ix, fy = py - iy;
+        const i00 = iy * N + ix;
+        const h00 = H[i00], h10 = H[i00 + 1], h01 = H[i00 + N], h11 = H[i00 + N + 1];
+        const gx = (h10 - h00) * (1 - fy) + (h11 - h01) * fy;
+        const gy = (h01 - h00) * (1 - fx) + (h11 - h10) * fx;
+        const hOld = h00 * (1 - fx) * (1 - fy) + h10 * fx * (1 - fy) + h01 * (1 - fx) * fy + h11 * fx * fy;
 
-        for (let life = 0; life < maxLife; life++) {
-          const ix = Math.floor(px), iy = Math.floor(py);
-          if (!inside(ix, iy)) break;
-          const fx = px - ix, fy = py - iy;
-          const i00 = iy * N + ix;
-          const h00 = H[i00], h10 = H[i00 + 1], h01 = H[i00 + N], h11 = H[i00 + N + 1];
-          const gx = (h10 - h00) * (1 - fy) + (h11 - h01) * fy;
-          const gy = (h01 - h00) * (1 - fx) + (h11 - h10) * fx;
-          const hOld = h00 * (1 - fx) * (1 - fy) + h10 * fx * (1 - fy) + h01 * (1 - fx) * fy + h11 * fx * fy;
-
-          dx = dx * inertia - gx * (1 - inertia);
-          dy = dy * inertia - gy * (1 - inertia);
-          const dl = Math.hypot(dx, dy);
-          if (dl < 1e-6) {
-            const a = rnd() * Math.PI * 2;
-            dx = Math.cos(a); dy = Math.sin(a);
-          } else {
-            dx /= dl; dy /= dl;
-          }
-
-          px += dx; py += dy;
-          const nx = Math.floor(px), ny = Math.floor(py);
-          if (!inside(nx, ny)) break;
-          const gx2 = px - nx, gy2 = py - ny;
-          const j00 = ny * N + nx;
-          const hNew = H[j00] * (1 - gx2) * (1 - gy2) + H[j00 + 1] * gx2 * (1 - gy2) +
-                       H[j00 + N] * (1 - gx2) * gy2 + H[j00 + N + 1] * gx2 * gy2;
-
-          const deltaH = hNew - hOld;             // metres per step (negative = downhill)
-          const drop = -deltaH;
-          acc[i00] += water;
-
-          const capacity = Math.max(drop * speed * water * capF, 0.015);
-
-          if (sed > capacity || deltaH > 0) {
-            // Deposit: fill pits / slow-water zones, or sediment exceeding capacity
-            let dep = deltaH > 0 ? Math.min(deltaH, sed) : (sed - capacity) * kD;
-            dep = Math.max(0, Math.min(dep, sed));
-            sed -= dep;
-            H[i00] += dep * (1 - fx) * (1 - fy);
-            H[i00 + 1] += dep * fx * (1 - fy);
-            H[i00 + N] += dep * (1 - fx) * fy;
-            H[i00 + N + 1] += dep * fx * fy;
-            S[i00] += dep;
-          } else {
-            // Erode: take material up to capacity, distributed over the brush footprint
-            const er = Math.max(0, Math.min((capacity - sed) * kE, drop));
-            if (er > 0) {
-              for (let b = 0; b < brush.length; b++) {
-                const bx = ix + brush[b][0], by = iy + brush[b][1];
-                if (!inside(bx, by)) continue;
-                H[by * N + bx] -= er * brush[b][2];
-              }
-              sed += er;
-            }
-          }
-
-          // Speed from gradient (gravity), water evaporation
-          const slopeDim = drop / cellM;
-          speed = Math.min(4.0, Math.sqrt(Math.max(0.0001, speed * speed + slopeDim * gravity * 0.06)));
-          water *= 1 - evap;
-          if (water < 0.02) break;
+        dx = dx * inertia - gx * (1 - inertia);
+        dy = dy * inertia - gy * (1 - inertia);
+        const dl = Math.sqrt(dx * dx + dy * dy);
+        if (dl < 1e-6) {
+          const a = rnd() * 6.2831853;
+          dx = Math.cos(a); dy = Math.sin(a);
+        } else {
+          dx /= dl; dy /= dl;
         }
-        // Remaining sediment is dropped where the droplet dies
-        if (sed > 0.0001) {
-          const ix = Math.floor(px), iy = Math.floor(py);
-          if (inside(ix, iy)) {
-            H[iy * N + ix] += sed;
-            S[iy * N + ix] += sed;
+
+        px += dx; py += dy;
+        const nx = px | 0, ny = py | 0;
+        if (nx < lo || ny < lo || nx > hi || ny > hi) break;
+        const ox2 = px - nx, oy2 = py - ny;
+        const j00 = ny * N + nx;
+        const hNew = H[j00] * (1 - ox2) * (1 - oy2) + H[j00 + 1] * ox2 * (1 - oy2) +
+                     H[j00 + N] * (1 - ox2) * oy2 + H[j00 + N + 1] * ox2 * oy2;
+
+        const deltaH = hNew - hOld;
+        const drop = -deltaH;
+        acc[i00] += water;
+
+        const capacity = Math.max(drop * speed * water * capF, 0.015);
+
+        if (sed > capacity || deltaH > 0) {
+          let dep = deltaH > 0 ? Math.min(deltaH, sed) : (sed - capacity) * kD;
+          dep = Math.max(0, Math.min(dep, sed));
+          sed -= dep;
+          H[i00] += dep * (1 - fx) * (1 - fy);
+          H[i00 + 1] += dep * fx * (1 - fy);
+          H[i00 + N] += dep * (1 - fx) * fy;
+          H[i00 + N + 1] += dep * fx * fy;
+          S[i00] += dep;
+        } else {
+          const er = Math.max(0, Math.min((capacity - sed) * kE, drop));
+          if (er > 0) {
+            for (let b = 0; b < nB; b++) H[i00 + bOff[b]] -= er * bW[b];
+            sed += er;
           }
+        }
+
+        const slopeDim = drop / cellM;
+        speed = Math.min(4.0, Math.sqrt(Math.max(0.0001, speed * speed + slopeDim * gravity * 0.06)));
+        water *= 1 - evap;
+        if (water < 0.02) break;
+      }
+      if (sed > 0.0001) {
+        const ix = px | 0, iy = py | 0;
+        if (ix >= lo && iy >= lo && ix <= hi && iy <= hi) {
+          H[iy * N + ix] += sed;
+          S[iy * N + ix] += sed;
         }
       }
     }
@@ -1096,10 +1086,8 @@ export class TerrainStudioEngine {
     for (let i = 0; i < acc.length; i++) if (acc[i] > maxAcc) maxAcc = acc[i];
     const F = this.cpuFlow;
     const lnMax = Math.log1p(maxAcc);
-    for (let i = 0; i < acc.length; i++) {
-      F[i] = Math.pow(Math.log1p(acc[i]) / lnMax, 0.9);
-    }
-    this.timings.erosionCycles += passes;
+    for (let i = 0; i < acc.length; i++) F[i] = Math.pow(Math.log1p(acc[i]) / lnMax, 0.9);
+    this.timings.erosionCycles += 1;
   }
 
   //==========================================================================================================================================
