@@ -27,6 +27,7 @@ import {
   buildReposeAngleSVG,
   buildSunOrbitSVG,
 } from "./diagrams.js";
+import { installGpuPath } from "./gpu.js";
 import {
   exportHeightmap16Bit,
   exportAlbedoPNG,
@@ -2399,11 +2400,20 @@ function renderAllUI() {
   updateTelemetryUI();
 }
 
+installGpuPath(TerrainStudioEngine);
+
 async function boot() {
   const gpuCanvas = $("#GpuCanvas");
   const mapCanvas = $("#MapCanvas");
 
   engine = new TerrainStudioEngine(gpuCanvas, mapCanvas);
+  const urlRes = parseInt(new URLSearchParams(location.search).get("res") || "", 10);
+  if ([1024, 2048, 4096].includes(urlRes)) engine.gridSize = urlRes;
+  // When the GPU mirror readback lands, refresh the 2D map, telemetry and inspector diagrams
+  engine.onMirrorReady = () => {
+    updateTelemetryUI();
+    refreshLiveInspectorDiagrams();
+  };
   const backend = await engine.init();
 
   const gpuPill = $("#GpuStatusPill");

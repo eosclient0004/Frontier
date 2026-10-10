@@ -134,7 +134,7 @@ export function mat4Invert(m) {
 }
 
 // Build mesh vertices (u, v, isSkirt, skirtSide) and triangle indices for terrain + 4 pedestal walls
-function buildTerrainMeshGeometry(meshRes) {
+export function buildTerrainMeshGeometry(meshRes) {
   const M = meshRes;
   const gridVerts = M * M;
   const skirtVerts = M * 8; // 4 sides, top + bottom edge per side
@@ -315,7 +315,7 @@ export class TerrainStudioEngine {
     this.context = null;
     this.format = "bgra8unorm";
 
-    this.gridSize = 512; // GPU heightfield resolution (512, 1024)
+    this.gridSize = 4096; // GPU heightfield resolution: 1024 / 2048 / 4096 (4K default, auto-fallback)
     this.cpuSize = 256;  // Mirror grid for 2D map, histogram, cross-section & export
     this.meshRes = 256;  // 3D viewport vertex grid resolution
 
