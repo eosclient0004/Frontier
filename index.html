@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101112" />
+    <title>Strata — Terrain Authoring</title>
+  </head>
+  <body>
+    <main class="app-shell" aria-label="Strata terrain authoring workspace">
+      <header class="topbar">
+        <div class="brand-lockup" aria-label="Strata by Frontier">
+          <div class="brand-mark" aria-hidden="true">
+            <i></i><i></i><i></i>
+          </div>
+          <div class="brand-name">strata<span>.</span></div>
+          <div class="product-label">TERRAIN AUTHORING</div>
+        </div>
+
+        <div class="project-strip">
+          <span class="project-dot"></span>
+          <button class="project-name" id="project-name" title="Rename project">Crownfall Basin</button>
+          <span class="project-divider"></span>
+          <span class="project-meta">v0.3</span>
+          <span class="project-saved" id="save-status">All changes saved</span>
+        </div>
+
+        <div class="top-actions">
+          <button class="toolbar-button quiet" id="undo-button" title="Undo last setting change" disabled>
+            <span class="icon icon-undo"></span><span>Undo</span>
+          </button>
+          <button class="toolbar-button quiet" id="redo-button" title="Redo last setting change" disabled>
+            <span class="icon icon-redo"></span><span>Redo</span>
+          </button>
+          <span class="top-separator"></span>
+          <button class="toolbar-button" id="snapshot-button" title="Save a local snapshot">
+            <span class="icon icon-snapshot"></span><span>Snapshot</span>
+          </button>
+          <button class="generate-button" id="generate-button" title="Generate a new deterministic terrain from the active stack">
+            <span class="icon icon-spark"></span>
+            <span>Generate</span>
+            <kbd>G</kbd>
+          </button>
+        </div>
+      </header>
+
+      <section class="workbench">
+        <aside class="left-rail" aria-label="Terrain workspace controls">
+          <div class="workspace-head">
+            <div class="eyebrow">WORKSPACE <span class="live-dot"></span></div>
+            <div class="workspace-name">Highland study<span>.strata</span></div>
+          </div>
+
+          <nav class="mode-nav" aria-label="Authoring modes">
+            <button class="mode-entry active" data-mode="terrain">
+              <span class="mode-icon terrain-glyph"></span>
+              <span><b>Terrain</b><small>Shape & erosion</small></span>
+              <i></i>
+            </button>
+            <button class="mode-entry" data-mode="surface">
+              <span class="mode-icon surface-glyph"></span>
+              <span><b>Surface</b><small>Material response</small></span>
+            </button>
+            <button class="mode-entry" data-mode="biome">
+              <span class="mode-icon biome-glyph"></span>
+              <span><b>Biome</b><small>Coverage masks</small></span>
+            </button>
+          </nav>
+
+          <div class="rail-section preset-section">
+            <div class="section-title-row">
+              <span>STARTING POINT</span>
+              <button class="subtle-icon-button" id="preset-cycle" title="Next terrain preset">↻</button>
+            </div>
+            <button class="preset-card" id="preset-card">
+              <span class="preset-art" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="preset-copy"><b id="preset-title">Alpine watershed</b><small id="preset-description">Glacial ridges · high runoff</small></span>
+              <span class="chevron">⌄</span>
+            </button>
+          </div>
+
+          <div class="rail-section viewport-section">
+            <div class="section-title-row"><span>VIEWPORT</span></div>
+            <div class="view-mode-row" role="group" aria-label="Viewport display mode">
+              <button class="view-mode active" data-view="rendered">Rendered</button>
+              <button class="view-mode" data-view="height">Height</button>
+              <button class="view-mode" data-view="mask">Masks</button>
+            </div>
+            <label class="toggle-line">
+              <span><b>Atmosphere</b><small>Volumetric aerial depth</small></span>
+              <input id="atmosphere-toggle" type="checkbox" checked />
+              <i class="toggle"><em></em></i>
+            </label>
+            <label class="toggle-line">
+              <span><b>Adaptive detail</b><small>Prioritize near-field tessellation</small></span>
+              <input id="detail-toggle" type="checkbox" checked />
+              <i class="toggle"><em></em></i>
+            </label>
+          </div>
+
+          <div class="rail-bottom">
+            <div class="gpu-card">
+              <span class="gpu-icon"><i></i><i></i><i></i><i></i></span>
+              <span><b id="gpu-label">Initializing renderer</b><small id="gpu-detail">Checking WebGPU device</small></span>
+              <span class="gpu-status" id="gpu-status"></span>
+            </div>
+            <button class="help-line" id="shortcuts-button"><span>⌘</span> Shortcuts <b>?</b></button>
+          </div>
+        </aside>
+
+        <section class="viewport-shell" aria-label="3D terrain viewport">
+          <div class="viewport-topbar">
+            <div class="viewport-group">
+              <button class="viewport-tool active" title="Orbit camera"><span class="icon icon-orbit"></span></button>
+              <button class="viewport-tool" title="Frame terrain" id="frame-button"><span class="icon icon-frame"></span></button>
+              <span class="tool-divider"></span>
+              <button class="viewport-select" id="projection-button">Perspective <span>48°</span><i>⌄</i></button>
+            </div>
+            <div class="viewport-group">
+              <button class="viewport-chip" id="quality-button"><span class="quality-dot"></span><span id="quality-label">Ultra</span></button>
+              <button class="viewport-tool" id="grid-button" title="Toggle world grid"><span class="icon icon-grid"></span></button>
+              <button class="viewport-tool" id="fullscreen-button" title="Fullscreen viewport"><span class="icon icon-expand"></span></button>
+            </div>
+          </div>
+
+          <div class="canvas-stage" id="canvas-stage">
+            <canvas id="terrain-canvas" aria-label="Generated three dimensional terrain. Drag to orbit, scroll to zoom."></canvas>
+            <div class="canvas-vignette"></div>
+            <div class="compass" aria-label="Camera orientation"><span class="north">N</span><i></i><b></b></div>
+            <div class="elevation-readout">
+              <span class="readout-label">PEAK ELEVATION</span>
+              <strong id="peak-readout">1,846 m</strong>
+              <small>MSL · procedural</small>
+            </div>
+            <div class="viewport-instruction" id="viewport-instruction">
+              <span class="gesture-icon"></span>
+              <span><b>Orbit the terrain</b><small>Drag to inspect · scroll to dolly</small></span>
+            </div>
+            <div class="render-badge" id="render-badge"><span></span><b>WebGPU</b><small>real-time material preview</small></div>
+            <div class="generation-flash" id="generation-flash"><span class="icon icon-spark"></span><span>Rebuilding terrain field</span><i></i></div>
+          </div>
+
+          <footer class="viewport-footer">
+            <div class="metric-item"><span>WORLD EXTENT</span><b id="extent-readout">6.4 × 6.4 km</b></div>
+            <span class="footer-line"></span>
+            <div class="metric-item"><span>ACTIVE BUILD</span><b id="build-readout">4 terrain layers</b></div>
+            <span class="footer-line"></span>
+            <div class="metric-item"><span>RESOLUTION</span><b id="resolution-readout">4,096²</b></div>
+            <div class="footer-spacer"></div>
+            <div class="render-status"><span></span><b id="render-status-text">Converged preview</b><small id="frame-readout">— ms</small></div>
+          </footer>
+        </section>
+
+        <aside class="right-dock" aria-label="Layer stack and inspector">
+          <section class="stack-panel">
+            <div class="dock-panel-head">
+              <div><span class="eyebrow">LAYER STACK</span><strong id="stack-title">Terrain build</strong></div>
+              <button class="more-button" id="stack-menu" title="Stack actions">•••</button>
+            </div>
+            <div class="stack-tabs" role="tablist" aria-label="Layer stack type">
+              <button class="stack-tab active" role="tab" data-domain="terrain">Terrain <span id="terrain-count">04</span></button>
+              <button class="stack-tab" role="tab" data-domain="surface">Surface <span id="surface-count">05</span></button>
+            </div>
+            <div class="stack-list" id="stack-list" aria-live="polite"></div>
+            <button class="add-layer-button" id="add-layer-button"><span>+</span> Add <b id="add-layer-label">terrain layer</b></button>
+          </section>
+
+          <section class="inspector-panel">
+            <div class="inspector-head">
+              <div><span class="eyebrow">INSPECTOR</span><strong id="inspector-name">Alpine ridges</strong></div>
+              <button class="inspector-toggle" id="selected-visibility" title="Toggle selected layer visibility"><span class="icon icon-eye"></span></button>
+            </div>
+            <div class="selection-summary" id="selection-summary"></div>
+            <div class="inspector-content" id="inspector-content"></div>
+            <div class="inspector-foot">
+              <button id="reset-layer-button"><span class="icon icon-reset"></span> Reset layer</button>
+              <span id="layer-impact">Affects terrain form</span>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <div class="popover preset-popover" id="preset-popover" hidden>
+        <div class="popover-title">Terrain presets <button data-close-popover="preset-popover">×</button></div>
+        <div class="preset-options" id="preset-options"></div>
+      </div>
+      <div class="popover add-popover" id="add-popover" hidden>
+        <div class="popover-title">Add layer <button data-close-popover="add-popover">×</button></div>
+        <div id="add-options"></div>
+      </div>
+      <div class="popover menu-popover" id="menu-popover" hidden>
+        <button id="duplicate-stack">Duplicate active stack</button>
+        <button id="toggle-all-layers">Disable active stack</button>
+        <span></span>
+        <button class="danger" id="reset-stack">Reset to preset defaults</button>
+      </div>
+      <div class="popover shortcuts-popover" id="shortcuts-popover" hidden>
+        <div class="popover-title">Shortcuts <button data-close-popover="shortcuts-popover">×</button></div>
+        <div class="shortcut-row"><span>Generate</span><kbd>G</kbd></div>
+        <div class="shortcut-row"><span>Frame terrain</span><kbd>F</kbd></div>
+        <div class="shortcut-row"><span>Orbit / dolly</span><kbd>Drag / Scroll</kbd></div>
+        <div class="shortcut-row"><span>Toggle surface stack</span><kbd>2</kbd></div>
+      </div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
