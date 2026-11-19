@@ -4,17 +4,20 @@ Duplicated from `Experimental/ProjectZeroEditor/` (which remains untouched as th
 
 ## Synchronized Capabilities
 
-- **Exact 17-Entry Cornell-Studio Gallery Outliner**:
+- **23-entry Cornell-Studio Gallery Outliner**:
   - `Showcase` (`10` OpenPBR specimens: `Gallery Floor`, `Gallery Back Wall`, `Crimson Left Wall`, `Emerald Right Wall`, `Clearcoat Roof Baffle`, `Anisotropic Gold Pedestal`, `Mirror Chrome Sphere`, `Plaster Specimen West`, `Plaster Specimen East`, `Abbe Crown Glass Orb`)
-  - `Cameras` (`Editor Camera` at `(0.00, -3.55, 0.42)` targeting `(0.00, 0.55, 0.15)`, `43.0°` vertical FOV)
-  - `World` (`Sun` directional solar emitter at `normalize(0.42, -0.55, 0.72)`)
+  - `Cameras` (`Editor Camera` at `(0.00, -3.55, 0.42)` targeting `(0.00, 0.55, 0.15)`, `43.0°` vertical FOV, with its child `Settings` component)
+  - `World` (`Sun`, atmosphere, volumetric clouds, moon, and stars)
   - `Lighting` (`Ceiling Softbox` clipped-horizon LTC polygonal area quad at `(0.55, 0.35, 1.82)`, `1.70 × 1.30 m`)
 - **Calibrated WebGL2 Tier 1 GTX World Renderer (`GtxWorldViewport.jsx`)**:
   - OpenPBR surface scattering (Fujii Oren-Nayar, Anisotropic GGX, Adobe F82 conductor tint, Turquin energy compensation, Dielectric Clearcoat)
-  - Solar directional shadow with GTX Contact-Clip + SDF Cone Penumbra (zero VSM)
+  - Solar directional shadows with Contact + PCSS, PCSS, SMRT, PCF, or BVH ray tracing (no SDF shadow shortcut)
   - Clipped-horizon Polygonal Quad LTC area light integration
   - 2-scale GTX Ambient & 2.2 m Chassis Occlusion + 6-Cone SDF Diffuse Global Illumination with live Crimson & Emerald wall multi-bounce color bleed
   - Single-bounce gallery specular reflections + 2-layer Abbe (`Abbe = 26`, `IOR = 1.52`) dispersive crown glass peel + ACES filmic tonemap
+- **Signed-distance volume and path-trace routing**:
+  - Editor Camera → Settings bakes the live analytical scene into a signed Float32 `32³`, `48³`, or `64³` field, uses it in the WebGL2 SDF cone-GI visibility path, and exports an `FSDF` file.
+  - Settings can open the bundled `../DeterministicPathTracer/pathtrace.html` with deterministic Preview or Final profile settings. The path tracer remains a standalone ControlVehicle workspace until scene export parity is implemented.
 - **Interactive `EditorCamera` + Outliner/Inspector Sync**:
   - Orbit (`Drag`), Pan (`Shift+Drag` / `Middle-Drag`), Free-Look (`Right-Drag`), Dolly (`Wheel`), Fly (`Right+WASD`/`QE`), Frame Selected (`Focus` button), Click-to-Pick 3D viewport selection, and bidirectional `Position` / `Target` / `Focal Length` editing in the Inspector.
 
