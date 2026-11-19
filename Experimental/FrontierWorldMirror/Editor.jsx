@@ -335,9 +335,9 @@ const DebugViews = [
   "ForceField · Vorticity |∇×F|",
   "ForceField · Divergence ∇·F",
 ];
-// v7 intentionally starts the sparse vehicle world instead of restoring the
-// Cornell gallery/cache from earlier World Mirror releases.
-const StorageKey = "Frontier.WorldMirrorGtx.v7.OpenVehicleWorld";
+// v8 also invalidates the first open-world cache: that version let the long
+// receiver into its own directional shadow map, causing the broken dark wedge.
+const StorageKey = "Frontier.WorldMirrorGtx.v8.OpenVehicleWorld";
 function Restore() {
   try {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v1");
@@ -346,6 +346,7 @@ function Restore() {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v4");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v5");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v6");
+    localStorage.removeItem("Frontier.WorldMirrorGtx.v7.OpenVehicleWorld");
     return JSON.parse(localStorage.getItem(StorageKey)) || {};
   } catch {
     return {};

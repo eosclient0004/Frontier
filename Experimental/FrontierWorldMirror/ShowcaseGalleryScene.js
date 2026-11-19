@@ -837,10 +837,14 @@ export const ShowcaseInitialValues = {
     Position: [0, 0, -0.08],
     Rotation: [0, 0, 0],
     Scale: [2000, 2000, 0.16],
-    "Cast shadows": true,
+    // This is a receiver, not a sun occluder. Letting a 2 km, 16 cm-thick
+    // box enter the directional depth map produces its own giant z-fighting
+    // shadow and wastes all useful texel precision around the vehicle.
+    "Cast shadows": false,
+    ShadowReceiverOnly: true,
     GI: true,
     SdfExclude: true,
-    Notes: "2 km practical ground plane. Excluded from the local SDF bake so the field remains concentrated around the ControlVehicle.",
+    Notes: "2 km practical ground receiver. It receives ControlVehicle shadows but is excluded from both the sun-caster map and local SDF bake, keeping shadows stable and the field concentrated around the vehicle.",
     ...BuildMaterialRecord({
       Type: "Standard",
       BaseLinear: [0.18, 0.20, 0.22],
@@ -875,7 +879,12 @@ export const ShowcaseInitialValues = {
   },
   "render-settings": {
     ...CanonicalRenderSettings,
-    Notes: "Camera Render Settings for the open vehicle world.",
+    // A new world has no baked local SDF yet. Start with the actual two-bounce
+    // BVH transport path so sky, vehicle, and authored emissives contribute
+    // immediately; SDF remains an explicit post-bake quality option.
+    GiAlgorithm: "bvh",
+    GiSamples: 10,
+    Notes: "Camera Render Settings for the open vehicle world. Starts on two-bounce BVH GI; use SDF only after baking a local volume.",
   },
   sun: {
     Intensity: 2.5,
@@ -1380,7 +1389,10 @@ export function CompileLiveGtxScene(
         Math.max(0.015, Math.abs(Number(Scale[1]) || 0.8) * 0.5 + Displacement),
         Math.max(0.015, Math.abs(Number(Scale[2]) || 0.8) * 0.5 + Displacement),
       ],
-      CastShadows: (Rec["Cast shadows"] ?? !IsTransparentShell) ? 1 : 0,
+      // Receiver-only surfaces remain fully rasterized and lit, but never
+      // enter the sun depth map. This is essential for kilometre-scale ground.
+      CastShadows: Rec.ShadowReceiverOnly === true ? 0 : (Rec["Cast shadows"] ?? !IsTransparentShell) ? 1 : 0,
+      ShadowReceiverOnly: Rec.ShadowReceiverOnly === true,
       GiContributor: (Rec.GI ?? !IsTransparentShell) ? 1 : 0,
       // Keep huge authored ground receivers in raster/BVH rendering while
       // excluding them from the local signed-distance volume bounds.

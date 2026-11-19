@@ -781,7 +781,7 @@ export function CreateGtxBandKernel(
         if (I === SelfIdx) continue;
         const P = Prims[I];
         if (SkipPickCode >= 0 && P.PickCode === SkipPickCode) continue;
-        if (!P.CastShadows || P.GlassShell) continue;
+        if (!P.CastShadows || P.ShadowReceiverOnly || P.GlassShell) continue;
         const T = this.IntersectPrimT(P, Ox, Oy, Oz, DirX, DirY, DirZ, MaxDist, false);
         if (T < MaxDist) return true;
       }

@@ -120,7 +120,7 @@ export function BuildSunShadowMatrix(ActiveScene) {
   let MaxX = 3.8, MaxY = 3.2, MaxZ = 2.6;
   const Prims = ActiveScene?.Primitives || [];
   for (const P of Prims) {
-    if (!P.CastShadows) continue;
+    if (!P.CastShadows || P.ShadowReceiverOnly) continue;
     const MaxH = Math.max(P.HalfExtents[0], P.HalfExtents[1], P.HalfExtents[2]);
     if (MaxH > 12.0) continue;
     MinX = Math.min(MinX, P.Center[0] - P.HalfExtents[0]);

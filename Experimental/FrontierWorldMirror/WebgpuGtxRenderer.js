@@ -3418,7 +3418,7 @@ export async function CreateWebgpuGtxRenderer(OnDeviceLost) {
           const Items = [];
           for (let I = 0; I < PrimCount && DrawSlot < SHADOW_MAX_DRAWS; ++I) {
             const P = ActiveScene.Primitives[I];
-            if (!P.CastShadows || P.GlassShell) continue;
+            if (!P.CastShadows || P.ShadowReceiverOnly || P.GlassShell) continue;
             const Caster = UnitVertexBuffers[P.Shape] || UnitVertexBuffers[0];
             const Base = DrawSlot * 64;
             ShadowDrawScratch.set(VpMat, Base);

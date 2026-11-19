@@ -1737,15 +1737,24 @@ assert.ok(
   assert.equal(OpenWorld.Primitives.length, 1, "Only the long ground receiver is analytical scene geometry");
   assert.equal(OpenWorld.Primitives[0].Id, "ground-plane", "Ground plane is the only analytical primitive");
   assert.equal(OpenWorld.Primitives[0].SdfExclude, true, "Long ground receiver is excluded from local vehicle SDF bounds");
+  assert.equal(OpenWorld.Primitives[0].ShadowReceiverOnly, true, "Long ground is explicitly a shadow receiver, not a self-occluding shadow caster");
+  assert.equal(OpenWorld.Primitives[0].CastShadows, 0, "Long ground stays out of the directional shadow depth pass while receiving vehicle shadows");
   assert.equal(OpenWorld.Vehicles.length, 1, "ControlVehicle is the only placed mesh actor");
   assert.equal(OpenWorld.Vehicles[0].Id, "control-vehicle", "ControlVehicle is present at startup");
   assert.equal(OpenWorld.AreaLights.length, 0, "Open world has no studio lights");
+  assert.equal(OpenWorld.RenderSettings.GiAlgorithm, "bvh", "Fresh open world enables two-bounce BVH GI rather than selecting unbaked SDF transport");
+  assert.ok(OpenWorld.RenderSettings.GiSamples >= 10, "Fresh open world has a usable BVH GI sample budget");
   assert.equal(OpenWorld.Clouds.enabled, false, "Open world never enables an implicit cloud layer");
   assert.equal(OpenWorld.Moon.visible, false, "Open world never enables an implicit moon");
   assert.equal(OpenWorld.Stars.enabled, false, "Open world never enables an implicit star field");
   const SunCore = EvaluateSolarCoronaRadiance(OpenWorld.SunDir, OpenWorld.SunDir, OpenWorld.SolarCorona);
   const SunOffAxis = EvaluateSolarCoronaRadiance([0, 0, 1], OpenWorld.SunDir, OpenWorld.SolarCorona);
   assert.ok(SunCore.every((Value) => Value > 0) && SunCore[0] > SunOffAxis[0] * 100, "C++ solar disc/corona is analytically layered over the SkyView LUT");
+  const EmissiveRows = [...ShowcaseInitialRows, { Id: "validation-emitter", Name: "Validation Emitter", Panel: "geometry", Icon: "editor-cube", Parent: "showcase", Preview: true, PrimitiveShape: "box" }];
+  const EmissiveValues = { ...ShowcaseInitialValues, "validation-emitter": { Position: [0, 0, 2.2], Rotation: [0, 0, 0], Scale: [0.4, 0.4, 0.1], Albedo: "#fff4d8", Emission: 12, "Cast shadows": false, GI: true } };
+  const EmissiveScene = CompileLiveGtxScene(EmissiveRows, EmissiveValues, {}, "PERSP");
+  assert.equal(EmissiveScene.Primitives.find((Primitive) => Primitive.Id === "validation-emitter")?.Emission, 12, "Authored emissive material is compiled into live direct and BVH-GI transport");
+  assert.ok(GTX_WGSL_SCENE_SHADER.includes("Direct shadowed lighting from emissive primitives") && GTX_WGSL_SCENE_SHADER.includes("true multi-bounce emissive GI"), "WebGPU renderer includes direct emissive transport and emissive indirect bounce paths");
   const CppSkyLut = BuildSkyViewLut(OpenWorld.SunDir, OpenWorld.Atmosphere);
   assert.equal(SKY_VIEW_WIDTH, 256, "C++ SkyView LUT width is mirrored exactly");
   assert.equal(SKY_VIEW_HEIGHT, 128, "C++ SkyView LUT height is mirrored exactly");
@@ -1754,6 +1763,7 @@ assert.ok(
   const EditorSource = fs.readFileSync(path.join(Folder, "Editor.jsx"), "utf8");
   assert.ok(ComponentSource.includes("Dockable in-editor component browser") && !ComponentSource.includes('data-left="content"'), "Integrated Component Viewer has no obsolete Content tab");
   assert.ok(EditorSource.includes("Open Component Viewer") && EditorSource.includes('Tab === "Component Viewer"'), "Outliner context menu opens Component Viewer as a dockable editor tab");
+  assert.ok(ViewportSrc.includes("P.ShadowReceiverOnly") && GTX_WGSL_SCENE_SHADER.includes("evalSolarCorona"), "WebGL/WebGPU retain receiver-only shadow handling and C++ solar parity");
 }
 
 console.log(

@@ -2890,7 +2890,7 @@ function ComputeNonCameraSceneSignature(Scene) {
   Parts += `RS:${JSON.stringify(Scene.RenderSettings || {})}|`;
   for (let I = 0; I < Scene.Primitives.length; ++I) {
     const P = Scene.Primitives[I];
-    Parts += `${P.Id}:${P.PickCode || 0}:${P.Shape}:${P.Center.join(",")}:${P.HalfExtents.join(",")}:${P.RotationRad.join(",")}:${P.BaseColor.join(",")}:${P.Metallic}:${P.Roughness}:${P.Ior}:${P.Coat}:${P.Transmission}:${P.Opacity}:${P.Emission}:${P.CastShadows ? 1 : 0}:${P.GiContributor ? 1 : 0}:${P.GlassShell ? 1 : 0}:${P.FaceAtlas ? JSON.stringify(P.FaceColors) : ""}:${P.TextureUrls?.BaseColor || ""}:${P.TextureUrls?.Roughness || ""}:${P.TextureUrls?.Normal || ""}|`;
+    Parts += `${P.Id}:${P.PickCode || 0}:${P.Shape}:${P.Center.join(",")}:${P.HalfExtents.join(",")}:${P.RotationRad.join(",")}:${P.BaseColor.join(",")}:${P.Metallic}:${P.Roughness}:${P.Ior}:${P.Coat}:${P.Transmission}:${P.Opacity}:${P.Emission}:${P.CastShadows ? 1 : 0}:${P.ShadowReceiverOnly ? 1 : 0}:${P.GiContributor ? 1 : 0}:${P.GlassShell ? 1 : 0}:${P.FaceAtlas ? JSON.stringify(P.FaceColors) : ""}:${P.TextureUrls?.BaseColor || ""}:${P.TextureUrls?.Roughness || ""}:${P.TextureUrls?.Normal || ""}|`;
   }
   for (let Vi = 0; Vi < (Scene.Vehicles?.length || 0); ++Vi) {
     const V = Scene.Vehicles[Vi];
@@ -4489,7 +4489,7 @@ export default function GtxWorldViewport({
 
             for (let I = 0; I < PCount; ++I) {
               const P = ActiveScene.Primitives[I];
-              if (!P.CastShadows || P.GlassShell) continue;
+              if (!P.CastShadows || P.ShadowReceiverOnly || P.GlassShell) continue;
               const Caster = CurState.UnitCasters[P.Shape] || CurState.UnitCasters[0];
               Gl.uniformMatrix4fv(CurState.ShadowUniforms.uModelMat, false, BuildPrimModelMatrix(P));
               Gl.bindVertexArray(Caster.Vao);
