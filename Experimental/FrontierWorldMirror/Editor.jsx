@@ -335,9 +335,9 @@ const DebugViews = [
   "ForceField · Vorticity |∇×F|",
   "ForceField · Divergence ∇·F",
 ];
-// v8 also invalidates the first open-world cache: that version let the long
-// receiver into its own directional shadow map, causing the broken dark wedge.
-const StorageKey = "Frontier.WorldMirrorGtx.v8.OpenVehicleWorld";
+// v9 is a hard baseline migration. It avoids reopening an old Cornell or
+// pre-receiver-only project cache before the Open Vehicle World has rendered.
+const StorageKey = "Frontier.WorldMirrorGtx.v9.OpenVehicleWorld";
 function Restore() {
   try {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v1");
@@ -347,6 +347,7 @@ function Restore() {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v5");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v6");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v7.OpenVehicleWorld");
+    localStorage.removeItem("Frontier.WorldMirrorGtx.v8.OpenVehicleWorld");
     return JSON.parse(localStorage.getItem(StorageKey)) || {};
   } catch {
     return {};
@@ -2886,8 +2887,6 @@ function App() {
       ShaderBody(true)
     ) : Tab === "Component Viewer" ? (
       <ComponentViewer
-        Rows={Rows}
-        Values={Values}
         Selected={Selected}
         Select={(Id) => {
           SelectRow(Id);

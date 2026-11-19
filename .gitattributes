@@ -1,0 +1,4 @@
+# Vendored/imported upstream files intentionally retain their source formatting.
+Experimental/Shared/Studio/Vendor/three.esm.min.js -whitespace
+Experimental/ComponentViewer/StudioGeometryEditor.js -whitespace
+Experimental/GeometryCompiler/GeometryEditor.js -whitespace

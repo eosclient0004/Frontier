@@ -17,7 +17,7 @@ import {
   BuildTrafficConeMaterial,
 } from "./WorldDragDrop.js";
 
-export const LEVEL_STORAGE_KEY = "Frontier.WorldMirrorLevels.v8.OpenVehicleWorld";
+export const LEVEL_STORAGE_KEY = "Frontier.WorldMirrorLevels.v9.OpenVehicleWorld";
 
 const Clone = (Value) => JSON.parse(JSON.stringify(Value));
 
@@ -733,6 +733,7 @@ export function LoadSavedLevelsState() {
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v5");
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v6");
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v7.OpenVehicleWorld");
+    window.localStorage.removeItem("Frontier.WorldMirrorLevels.v8.OpenVehicleWorld");
     const Raw = window.localStorage.getItem(LEVEL_STORAGE_KEY);
     if (!Raw) return { ActiveLevelId: Defaults[0].Id, Levels: Defaults };
     const Parsed = JSON.parse(Raw);
@@ -761,6 +762,7 @@ export function ResetSavedLevelsState() {
       window.localStorage.removeItem("Frontier.WorldMirrorLevels.v5");
       window.localStorage.removeItem("Frontier.WorldMirrorLevels.v6");
       window.localStorage.removeItem("Frontier.WorldMirrorLevels.v7.OpenVehicleWorld");
+      window.localStorage.removeItem("Frontier.WorldMirrorLevels.v8.OpenVehicleWorld");
       window.localStorage.removeItem(LEVEL_STORAGE_KEY);
     } catch {}
   }

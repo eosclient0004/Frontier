@@ -1718,6 +1718,8 @@ assert.ok(
   assert.ok(InspectorSource.includes("Editor Camera / Component") && InspectorSource.includes("Open pathtrace.html"), "Settings is reachable beneath Editor Camera and exposes pathtrace.html");
   assert.ok(InspectorSource.includes("Bake Scene SDF") && InspectorSource.includes("Export FSDF"), "Settings exposes bake and export controls");
   assert.ok(GlslSource.includes("sampler3D uSdfVolume") && GlslSource.includes("evaluateBakedSdfConeGi"), "WebGL2 SDF cone GI samples the baked 3D volume");
+  assert.ok(GlslSource.includes("precision highp sampler3D;"), "WebGL2 fragment shader declares mandatory highp sampler3D precision before the SDF volume uniform");
+  assert.ok(!GlslSource.includes("fetch(`/__diag?"), "Standalone viewport diagnostics use a local event rather than generating static-host 404 requests");
   assert.ok(fs.existsSync(PathtraceHtml), "pathtrace.html is included with the browser prototype");
   assert.ok(fs.readFileSync(PathtraceSource, "utf8").includes("PathTraceProfiles"), "pathtrace profiles are wired into the deterministic tracer");
 }
@@ -1762,8 +1764,11 @@ assert.ok(
   assert.equal(SKY_VIEW_HEIGHT, 128, "C++ SkyView LUT height is mirrored exactly");
   assert.equal(CppSkyLut.length, 256 * 128 * 4, "Open world uses the native C++ 256x128 RGBA SkyView LUT");
   const ComponentSource = fs.readFileSync(path.join(Folder, "ComponentViewer.jsx"), "utf8");
+  const OriginalComponentShell = fs.readFileSync(path.join(Folder, "../ComponentViewer/index.html"), "utf8");
+  const OriginalComponentRuntime = fs.readFileSync(path.join(Folder, "../ComponentViewer/ComponentViewer.js"), "utf8");
   const EditorSource = fs.readFileSync(path.join(Folder, "Editor.jsx"), "utf8");
-  assert.ok(ComponentSource.includes("Dockable in-editor component browser") && !ComponentSource.includes('data-left="content"'), "Integrated Component Viewer has no obsolete Content tab");
+  assert.ok(ComponentSource.includes("COMPONENT_VIEWER_URL") && ComponentSource.includes("component-viewer-frame"), "World Mirror docks the original Component Viewer document rather than substituting a custom inspector");
+  assert.ok(!OriginalComponentShell.includes('data-left="content"') && !OriginalComponentShell.includes('id="LeftContent"') && !OriginalComponentRuntime.includes("function renderContent"), "Ported original Component Viewer has no obsolete Content tab or content implementation");
   assert.ok(EditorSource.includes("Open Component Viewer") && EditorSource.includes('Tab === "Component Viewer"'), "Outliner context menu opens Component Viewer as a dockable editor tab");
   assert.ok(ViewportSrc.includes("P.ShadowReceiverOnly") && GTX_WGSL_SCENE_SHADER.includes("evalSolarCorona"), "WebGL/WebGPU retain receiver-only shadow handling and C++ solar parity");
 }

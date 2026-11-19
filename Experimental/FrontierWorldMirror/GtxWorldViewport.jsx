@@ -141,6 +141,12 @@ void main() {}
 //==========================================================================================================================================
 export const GTX_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
+precision highp int;
+// GLSL ES requires an explicit default sampler precision in fragment shaders.
+// Chromium/ANGLE rejects the SDF volume declaration without this line, which
+// previously meant a baked-SDF session lost the entire WebGL fallback pipeline.
+precision highp sampler2D;
+precision highp sampler3D;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -2971,13 +2977,14 @@ function ComputeNonCameraSceneSignature(Scene) {
 }
 
 function SendViewportDiag(Fields) {
-  if (typeof fetch !== "function" || typeof URLSearchParams === "undefined") return;
+  // This is a standalone HTML application too.  The former GET to /__diag
+  // produced a spurious 404 on every static host, which obscured genuine GPU
+  // diagnostics in DevTools.  Hosts that want telemetry can subscribe to this
+  // local event without requiring a private server endpoint.
   try {
-    const Params = new URLSearchParams();
-    for (const [K, V] of Object.entries(Fields)) {
-      if (V !== undefined && V !== null) Params.set(K, String(V));
-    }
-    fetch(`/__diag?${Params.toString()}`, { method: "GET", keepalive: true }).catch(() => {});
+    window.dispatchEvent(
+      new CustomEvent("frontier:viewport-diagnostic", { detail: { ...Fields } }),
+    );
   } catch {}
 }
 
@@ -3142,7 +3149,6 @@ export default function GtxWorldViewport({
   RenderBackendRef.current = RenderBackend;
 
   const [CanvasInstance, SetCanvasInstance] = useState(0);
-  const [ShaderError, SetShaderError] = useState(null);
   const [GlEpoch, SetGlEpoch] = useState(0);
   const [WgpuEpoch, SetWgpuEpoch] = useState(0);
   const [HoveredHandle, SetHoveredHandle] = useState(GizmoHandle.None);
@@ -3541,7 +3547,6 @@ export default function GtxWorldViewport({
     const OnVisibility = () => {
       if (document.visibilityState === "visible" && PendingGpuRestoreRef.current && !SessionWebGlBlocked) {
         PendingGpuRestoreRef.current = false;
-        SetShaderError(null);
         SetCanvasInstance((K) => K + 1);
         SetRenderBackend("webgl2");
       }
@@ -3631,7 +3636,6 @@ export default function GtxWorldViewport({
       SceneDataDirtyRef.current = true;
       SceneDirtyRef.current = true;
       WebgpuRef.current = Res;
-      SetShaderError(null);
       SendViewportDiag({ backend: "webgpu", format: Res.SwapFormat });
       SetWgpuEpoch((N) => N + 1);
     });
@@ -4116,7 +4120,6 @@ export default function GtxWorldViewport({
     const SwitchToCpuGtx = (BlockSession, Reason) => {
       if (BlockSession) SessionWebGlBlocked = true;
       GlStateRef.current = null;
-      SetShaderError(null);
       SendViewportDiag({ backend: "cpu-gtx", reason: Reason, blocked: BlockSession ? 1 : 0 });
       SetRenderBackend("cpu-gtx");
     };
@@ -4159,7 +4162,6 @@ export default function GtxWorldViewport({
       const Built = InitGlResources(Canvas);
       if (Built) {
         GlStateRef.current = Built;
-        SetShaderError(null);
         SetGlEpoch((N) => N + 1);
       }
     } catch (InitErr) {
@@ -4349,8 +4351,14 @@ export default function GtxWorldViewport({
             });
           } catch (Err) {
             const Msg = String(Err?.message || Err);
-            console.error("[Frontier GTX] WebGL2 shader link error:", Err);
-            SetShaderError(Msg);
+            // Keep the viewport live on constrained adapters. CpuGtxRenderer is
+            // the complete analytical/BVH GTX implementation, not a flat
+            // placeholder, so a hardware compile limit must never cover its
+            // rendered frame with a fatal error card.
+            console.info(
+              "[Frontier GTX] WebGL2 adapter limit; using full CPU GTX fallback:",
+              Msg.replace(/\s+/g, " ").slice(0, 220),
+            );
             SendViewportDiag({ backend: "cpu-gtx", reason: `link-err:${Msg.slice(0, 120)}` });
             GlStateRef.current = null;
             SetRenderBackend("cpu-gtx");
@@ -5586,7 +5594,6 @@ export default function GtxWorldViewport({
     PendingGpuRestoreRef.current = false;
     FastCrashCountRef.current = 0;
     EvictionCountRef.current = 0;
-    SetShaderError(null);
     SetCanvasInstance((K) => K + 1);
     SetRenderBackend(typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "webgl2");
   };
@@ -5815,11 +5822,6 @@ export default function GtxWorldViewport({
           )}
         </div>
       )}
-      {ShaderError && (
-        <div className="gtx-shader-error" role="alert">
-          GTX Shader Error: {ShaderError}
-        </div>
-      )}
       {ForceHudTelemetry && (
         <div
           className="vf-viewport-hud-bar"
@@ -5952,7 +5954,7 @@ export default function GtxWorldViewport({
           title="WebGL2 was blocked or evicted in this tab — click to retry hardware WebGL2 GPU"
           onClick={HandleRetryWebGlGpu}
         >
-          CPU Fallback · Retry WebGL2 GPU
+          Full GTX CPU · Retry WebGL2 GPU
         </button>
       )}
       <button
