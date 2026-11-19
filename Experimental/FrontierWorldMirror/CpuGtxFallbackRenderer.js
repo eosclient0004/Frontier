@@ -28,8 +28,8 @@ export function CreateGtxBandKernel(
   AtlasCols,
   AtlasTileSize,
   TilesPerPrim,
-  SkyLutW = 96,
-  SkyLutH = 48,
+  SkyLutW = 256,
+  SkyLutH = 128,
 ) {
   const PI = Math.PI;
 
@@ -1103,6 +1103,8 @@ export function CreateGtxBandKernel(
       OutRgb[0] = R; OutRgb[1] = G; OutRgb[2] = B;
     }
 
+    // AtmosphericSkySequence::SampleSkyViewDirection: smooth horizontal blend
+    // followed by vertical Catmull-Rom reconstruction of the 256x128 LUT.
     SampleSkyViewInto(Rdx, Rdy, Rdz, SkyLut, OutRgb) {
       const Az = Math.atan2(Rdy, Rdx);
       const El = Math.asin(Clamp(Rdz, -1.0, 1.0));
@@ -1110,21 +1112,22 @@ export function CreateGtxBandKernel(
       U = U - Math.floor(U);
       const V = Clamp(0.5 - 0.5 * (El < 0 ? -1 : 1) * Math.sqrt(Math.abs(El) / (PI * 0.5)), 0.0, 1.0);
       const Fx = U * SkyLutW - 0.5;
-      const Fy = V * (SkyLutH - 1);
+      const Fy = V * SkyLutH - 0.5;
       const X0 = ((Math.floor(Fx) % SkyLutW) + SkyLutW) % SkyLutW;
       const X1 = (X0 + 1) % SkyLutW;
-      const Y0 = Math.max(0, Math.min(SkyLutH - 1, Math.floor(Fy)));
-      const Y1 = Math.max(0, Math.min(SkyLutH - 1, Y0 + 1));
+      const Y1 = Math.max(0, Math.min(SkyLutH - 1, Math.floor(Fy)));
+      const Y0 = Math.max(0, Y1 - 1), Y2 = Math.min(SkyLutH - 1, Y1 + 1), Y3 = Math.min(SkyLutH - 1, Y1 + 2);
       const Tx = Fx - Math.floor(Fx);
-      const Ty = Fy - Y0;
-      const I00 = (Y0 * SkyLutW + X0) * 4;
-      const I10 = (Y0 * SkyLutW + X1) * 4;
-      const I01 = (Y1 * SkyLutW + X0) * 4;
-      const I11 = (Y1 * SkyLutW + X1) * 4;
-      const W00 = (1 - Tx) * (1 - Ty), W10 = Tx * (1 - Ty), W01 = (1 - Tx) * Ty, W11 = Tx * Ty;
-      OutRgb[0] = SkyLut[I00] * W00 + SkyLut[I10] * W10 + SkyLut[I01] * W01 + SkyLut[I11] * W11;
-      OutRgb[1] = SkyLut[I00 + 1] * W00 + SkyLut[I10 + 1] * W10 + SkyLut[I01 + 1] * W01 + SkyLut[I11 + 1] * W11;
-      OutRgb[2] = SkyLut[I00 + 2] * W00 + SkyLut[I10 + 2] * W10 + SkyLut[I01 + 2] * W01 + SkyLut[I11 + 2] * W11;
+      const Sx = Tx * Tx * (3.0 - 2.0 * Tx);
+      const Ty = Clamp(Fy - Math.floor(Fy), 0.0, 1.0);
+      const Fetch = (X, Y, C) => SkyLut[(Y * SkyLutW + X) * 4 + C];
+      const Row = (Y, C) => Mix(Fetch(X0, Y, C), Fetch(X1, Y, C), Sx);
+      const CatmullRom = (P0, P1, P2, P3) => {
+        const T2 = Ty * Ty, T3 = T2 * Ty;
+        return 0.5 * ((2.0 * P1) + (-P0 + P2) * Ty + (2.0 * P0 - 5.0 * P1 + 4.0 * P2 - P3) * T2 + (-P0 + 3.0 * P1 - 3.0 * P2 + P3) * T3);
+      };
+      for (let C = 0; C < 3; ++C)
+        OutRgb[C] = Math.max(0.0, CatmullRom(Row(Y0, C), Row(Y1, C), Row(Y2, C), Row(Y3, C)));
     }
 
     _Hash31(X, Y, Z) {
@@ -1167,24 +1170,38 @@ export function CreateGtxBandKernel(
       return Math.max(0, (NNorm - (1 - ShapeCov)) / Math.max(0.18, ShapeCov)) * Prof * DensMul;
     }
 
+    // Exact atmospheric solar disc/corona curve from
+    // AtmosphericSkySequence::EvaluateSolarCoronaRadiance.
+    EvalSolarCorona(Rdx, Rdy, Rdz, SunDir, SolarCfg, OutRgb) {
+      const Cfg = SolarCfg || {};
+      if (!Cfg.enabled || Rdz < -0.04) { OutRgb[0] = OutRgb[1] = OutRgb[2] = 0; return; }
+      const CosA = Clamp(Rdx * SunDir[0] + Rdy * SunDir[1] + Rdz * SunDir[2], -1, 1);
+      const HalfR = Math.max(0.0008, ((Cfg.angularDiameterDegrees ?? 0.533) * 0.5 * PI) / 180);
+      const Angle = Math.acos(CosA), RNorm = Angle / HalfR;
+      const Disc = 1 - Smoothstep(0.92, 1.14, RNorm);
+      const Mu = Math.sqrt(Math.max(0, 1 - Math.min(1, RNorm * RNorm)));
+      const Limb = 0.42 + 0.58 * Math.pow(Mu, 0.45);
+      const Env = 1 - Smoothstep(HalfR * 18, HalfR * 45, Angle);
+      const Inner = Math.exp(-Math.max(0, Angle - HalfR * 0.70) / Math.max(0.003, HalfR * 2.4)) * 0.80;
+      const Mid = Math.exp(-Angle / Math.max(0.012, HalfR * 9)) * 0.20 * Env;
+      const Outer = Math.exp(-Angle / Math.max(0.045, HalfR * 24)) * 0.025 * Env;
+      const LimbFade = Clamp((Rdz + 0.02) * 18, 0, 1);
+      const Scale = Math.max(0, Cfg.solarIntensityScale ?? 22) * 0.35 * LimbFade;
+      const Rad = (Disc * Limb * 28 + Inner + Mid + Outer) * Scale;
+      const Trans = Cfg.solarTransmittance || [1, 1, 1], Tint = Cfg.effectiveSolarTint || [1, 1, 1];
+      OutRgb[0] = Math.max(0, Tint[0] * Trans[0] * Rad);
+      OutRgb[1] = Math.max(0, Tint[1] * Trans[1] * Rad);
+      OutRgb[2] = Math.max(0, Tint[2] * Trans[2] * Rad);
+    }
+
     EvalSkyPrimary(Rdx, Rdy, Rdz, CompiledScene, SkyLut, MoonAtlas, TimeSec, Px, Py, OutRgb) {
-      const { SkyRadiance, SunDir, SunIrradiance, SunAngularRadiusRad } = CompiledScene;
+      const { SkyRadiance, SunDir, SunIrradiance } = CompiledScene;
       this.EvalSky(Rdx, Rdy, Rdz, SkyRadiance, SunDir, SunIrradiance, OutRgb, SkyLut);
       let R = OutRgb[0], G = OutRgb[1], B = OutRgb[2];
 
-      // Sun disc + limb darkening
-      const SunAng = Math.max(0.002, SunAngularRadiusRad || 0.01);
-      const CosS = Rdx * SunDir[0] + Rdy * SunDir[1] + Rdz * SunDir[2];
-      if (Rdz > -0.02 && CosS > 0.7) {
-        const Edge = Smoothstep(Math.cos(SunAng * 1.25), Math.cos(SunAng * 0.65), CosS);
-        const Mu = Clamp((CosS - Math.cos(SunAng)) / Math.max(1e-5, 1.0 - Math.cos(SunAng)), 0, 1);
-        const Limb = 0.65 + 0.35 * Math.pow(Mu, 0.45);
-        const Aur = Math.pow(Math.max(0, CosS), 160.0) * 0.25;
-        const F = Edge * Limb * 4.2 + Aur;
-        R += SunIrradiance[0] * F;
-        G += SunIrradiance[1] * F;
-        B += SunIrradiance[2] * F;
-      }
+      const Solar = [0, 0, 0];
+      this.EvalSolarCorona(Rdx, Rdy, Rdz, SunDir, CompiledScene.SolarCorona, Solar);
+      R += Solar[0]; G += Solar[1]; B += Solar[2];
 
       // Moon disc + glow
       const Mn = CompiledScene.Moon;

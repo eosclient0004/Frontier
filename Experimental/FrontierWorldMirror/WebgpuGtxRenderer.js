@@ -72,7 +72,7 @@ struct SceneUniforms {
   uSunShadowVP     : mat4x4f,
   uAreaShadowVP    : mat4x4f,
   uAtmoCfg0        : vec4f, // x=skyBrightness, y=mieG, z=horizonGlow, w=timeSec
-  uAtmoCfg1        : vec4f, // xyz=skyTint, w=sunDiscScale
+  uAtmoCfg1        : vec4f, // xyz=solar tint × transmittance, w=solar intensity
   uCloudCfg0       : vec4f, // x=enabled, y=coverage, z=density, w=featureScale
   uCloudCfg1       : vec4f, // x=baseM, y=thicknessM, z=anvil, w=anisotropy
   uCloudCfg2       : vec4f, // x=cloudType, y=shadowEnabled, z=windX, w=windY
@@ -1137,13 +1137,12 @@ fn evalMoonAndStars(dir : vec3f) -> vec3f {
         let lDir = normalize(vec3f(sin(phAng), 0.18, cos(phAng)));
         let ndl = max(0.0, dot(vec3f(px, py, pz), lDir));
         var albedo = vec3f(0.68 + 0.32 * noise3D(vec3f(px * 3.8 + 4.1, py * 3.8 - 2.3, pz * 3.8)));
-        if (U.uAtmoCfg1.w > 0.5) {
-          let uMoon = atan2(px, pz) * (0.5 / PI) + 0.5;
-          let vMoon = 0.5 - asin(clamp(py, -1.0, 1.0)) / PI;
-          let tileV = (clamp(U.uMoonTint.w, 0.0, 5.0) + clamp(vMoon, 0.015, 0.985)) / 6.0;
-          let texSample = textureSampleLevel(uMoonAtlasTex, uAtlasSampler, vec2f(uMoon, tileV), 0.0).rgb;
-          albedo = pow(max(vec3f(0.0), texSample), vec3f(2.2)) * 1.45;
-        }
+        // The six-tile atlas is resident with the World Mirror bundle.
+        let uMoon = atan2(px, pz) * (0.5 / PI) + 0.5;
+        let vMoon = 0.5 - asin(clamp(py, -1.0, 1.0)) / PI;
+        let tileV = (clamp(U.uMoonTint.w, 0.0, 5.0) + clamp(vMoon, 0.015, 0.985)) / 6.0;
+        let texSample = textureSampleLevel(uMoonAtlasTex, uAtlasSampler, vec2f(uMoon, tileV), 0.0).rgb;
+        albedo = pow(max(vec3f(0.0), texSample), vec3f(2.2)) * 1.45;
         let edgeAA = clamp((1.0 - sqrt(r2)) * 14.0, 0.0, 1.0);
         let lum = (0.014 + ndl * 1.55) * mBright * edgeAA;
         out = out + mTint * albedo * lum;
@@ -1197,26 +1196,65 @@ fn evalMoonIrradiance() -> vec3f {
   return U.uMoonTint.xyz * max(0.0, U.uMoonCfg1.y) * 0.085 * mPhaseGain * mFade;
 }
 
+// AtmosphericSkySequence::SampleSkyViewDirection: smooth horizontal blend
+// followed by Catmull-Rom filtering across SkyView elevation.
+fn sampleSkyViewCubic(dir : vec3f) -> vec3f {
+  let uv = projectSkyViewUV(dir);
+  let dims = textureDimensions(uSkyViewTex);
+  let width = i32(dims.x);
+  let height = i32(dims.y);
+  let fx = fract(uv.x) * f32(width) - 0.5;
+  let fy = clamp(uv.y, 0.0, 1.0) * f32(height) - 0.5;
+  let ixFloor = i32(floor(fx));
+  let x0 = ((ixFloor % width) + width) % width;
+  let x1 = (x0 + 1) % width;
+  let y1 = clamp(i32(floor(fy)), 0, height - 1);
+  let y0 = clamp(y1 - 1, 0, height - 1);
+  let y2 = clamp(y1 + 1, 0, height - 1);
+  let y3 = clamp(y1 + 2, 0, height - 1);
+  let tx = fract(fx);
+  let sx = tx * tx * (3.0 - 2.0 * tx);
+  let ty = clamp(fract(fy), 0.0, 1.0);
+  let r0 = mix(textureLoad(uSkyViewTex, vec2i(x0, y0), 0).rgb, textureLoad(uSkyViewTex, vec2i(x1, y0), 0).rgb, sx);
+  let r1 = mix(textureLoad(uSkyViewTex, vec2i(x0, y1), 0).rgb, textureLoad(uSkyViewTex, vec2i(x1, y1), 0).rgb, sx);
+  let r2 = mix(textureLoad(uSkyViewTex, vec2i(x0, y2), 0).rgb, textureLoad(uSkyViewTex, vec2i(x1, y2), 0).rgb, sx);
+  let r3 = mix(textureLoad(uSkyViewTex, vec2i(x0, y3), 0).rgb, textureLoad(uSkyViewTex, vec2i(x1, y3), 0).rgb, sx);
+  let t2 = ty * ty;
+  let t3 = t2 * ty;
+  return max(vec3f(0.0), 0.5 * ((2.0 * r1) + (-r0 + r2) * ty + (2.0 * r0 - 5.0 * r1 + 4.0 * r2 - r3) * t2 + (-r0 + 3.0 * r1 - 3.0 * r2 + r3) * t3));
+}
+
+// Direct WGSL port of AtmosphericSkySequence::EvaluateSolarCoronaRadiance.
+// uAtmoCfg1.xyz is effective solar tint times transmittance; .w is intensity.
+fn evalSolarCorona(dir : vec3f) -> vec3f {
+  if (dir.z < -0.04 || U.uAtmoCfg1.w <= 0.0) { return vec3f(0.0); }
+  let cosAngle = clamp(dot(dir, U.uSunDir.xyz), -1.0, 1.0);
+  let halfRad = max(0.0008, U.uCamForward.w);
+  let angle = acos(cosAngle);
+  let rNorm = angle / halfRad;
+  let discMask = 1.0 - smoothstep(0.92, 1.14, rNorm);
+  let muSun = sqrt(max(0.0, 1.0 - min(1.0, rNorm * rNorm)));
+  let limbDark = 0.42 + 0.58 * pow(muSun, 0.45);
+  let envFade = 1.0 - smoothstep(halfRad * 18.0, halfRad * 45.0, angle);
+  let innerCorona = exp(-max(0.0, angle - halfRad * 0.70) / max(0.003, halfRad * 2.4)) * 0.80;
+  let midAureole = exp(-angle / max(0.012, halfRad * 9.0)) * 0.20 * envFade;
+  let outerGlare = exp(-angle / max(0.045, halfRad * 24.0)) * 0.025 * envFade;
+  let limbFade = clamp((dir.z + 0.02) * 18.0, 0.0, 1.0);
+  let discRadiance = discMask * limbDark * 28.0 + innerCorona + midAureole + outerGlare;
+  return U.uAtmoCfg1.xyz * discRadiance * max(0.0, U.uAtmoCfg1.w) * 0.35 * limbFade;
+}
+
 fn evalSky(dir : vec3f) -> vec3f {
-  let skyCol = textureSampleLevel(uSkyViewTex, uSkySampler, projectSkyViewUV(dir), 0.0).rgb;
+  let skyCol = sampleSkyViewCubic(dir);
   let cel = evalMoonAndStars(dir);
   let cl = evalVolumetricClouds(dir, skyCol, 0.5, 5);
   return (skyCol + cel) * cl.w + cl.rgb;
 }
 
 fn evalSkyPrimary(dir : vec3f, fragPx : vec2f) -> vec3f {
-  let skyCol = textureSampleLevel(uSkyViewTex, uSkySampler, projectSkyViewUV(dir), 0.0).rgb;
+  let skyCol = sampleSkyViewCubic(dir);
   let cel = evalMoonAndStars(dir);
-  let sunDir = U.uSunDir.xyz;
-  let sunIrr = U.uSunIrradiance.xyz;
-  let sunAng = max(0.002, U.uCamForward.w);
-  let cosSun = dot(dir, sunDir);
-  let sunEdge = smoothstep(cos(sunAng * 1.25), cos(sunAng * 0.65), cosSun);
-  let muDisc = clamp((cosSun - cos(sunAng)) / max(1e-5, 1.0 - cos(sunAng)), 0.0, 1.0);
-  let limb = 0.65 + 0.35 * pow(muDisc, 0.45);
-  let sunAureole = pow(max(0.0, cosSun), 160.0) * 0.25;
-  let sunVisual = sunIrr * (sunEdge * limb * 4.2 + sunAureole) * select(0.0, 1.0, dir.z > -0.02);
-
+  let sunVisual = evalSolarCorona(dir);
   let jitter = hash12(fragPx * 0.73 + vec2f(U.uAtmoCfg0.w * 11.3));
   let cl = evalVolumetricClouds(dir, skyCol, jitter, 18);
   return (skyCol + cel + sunVisual) * cl.w + cl.rgb;
@@ -3533,6 +3571,9 @@ export async function CreateWebgpuGtxRenderer(OnDeviceLost) {
         }
 
         // uAtmoCfg0 (floats 88..91), uAtmoCfg1 (92..95)
+        const SolarCorona = ActiveScene.SolarCorona || {};
+        const SolarTint = SolarCorona.effectiveSolarTint || [1, 1, 1];
+        const SolarTrans = SolarCorona.solarTransmittance || [1, 1, 1];
         const MoonSnap = GetMoonAtlasSnapshot();
         if (MoonSnap.version !== SyncedMoonVersion) {
           SyncedMoonVersion = MoonSnap.version;
@@ -3547,10 +3588,10 @@ export async function CreateWebgpuGtxRenderer(OnDeviceLost) {
         SceneUniformF32[89] = Atmo.mieG ?? 0.78;
         SceneUniformF32[90] = Atmo.horizonGlow ?? 1.0;
         SceneUniformF32[91] = TimeSec;
-        SceneUniformF32[92] = (Atmo.skyTint || [1, 1, 1])[0];
-        SceneUniformF32[93] = (Atmo.skyTint || [1, 1, 1])[1];
-        SceneUniformF32[94] = (Atmo.skyTint || [1, 1, 1])[2];
-        SceneUniformF32[95] = MoonSnap.ready ? 1.0 : 0.0;
+        SceneUniformF32[92] = SolarTint[0] * SolarTrans[0];
+        SceneUniformF32[93] = SolarTint[1] * SolarTrans[1];
+        SceneUniformF32[94] = SolarTint[2] * SolarTrans[2];
+        SceneUniformF32[95] = SolarCorona.enabled ? SolarCorona.solarIntensityScale ?? 22.0 : 0.0;
 
         // uCloudCfg0 (96..99), uCloudCfg1 (100..103), uCloudCfg2 (104..107)
         SceneUniformF32[96] = Cl.enabled ? 1.0 : 0.0;

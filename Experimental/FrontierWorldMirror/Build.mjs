@@ -349,7 +349,7 @@ const Script = Output.outputFiles.find((File) =>
   Style = Output.outputFiles.find((File) => File.path.endsWith(".css")).text;
 fs.writeFileSync(
   path.join(Folder, "index.html"),
-  `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Frontier World Mirror — Calibrated Tier 1 GTX WebGL2 mirror of the native C++20 Cornell-Studio Gallery scene, EditorCamera, Outliner, and Inspector."><title>Frontier World Mirror — Tier 1 GTX (C++ ↔ HTML)</title><style>${Fonts}\n${Style}</style></head><body><div id="Editor"></div><script>window.NativeAssets=${JSON.stringify(Assets).replaceAll("<", "\\u003c")};</script><script>${Script.replaceAll("</script", "<\\/script")}</script></body></html>\n`,
+  `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Frontier World Mirror — C++-aligned open ControlVehicle world with physical sun, atmosphere, Editor Camera settings, and dockable Component Viewer."><title>Frontier World Mirror — Open Vehicle World (C++ ↔ HTML)</title><style>${Fonts}\n${Style}</style></head><body><div id="Editor"></div><script>window.NativeAssets=${JSON.stringify(Assets).replaceAll("<", "\\u003c")};</script><script>${Script.replaceAll("</script", "<\\/script")}</script></body></html>\n`,
 );
 console.log(
   `Built standalone index.html (${(fs.statSync(path.join(Folder, "index.html")).size / 1024 / 1024).toFixed(2)} MiB), ${Object.keys(Assets.Icons).length} shipped icons, ${Object.keys(Assets.Glyphs).length} native vector glyphs, six moon textures, and the repository shader-ball mesh.`,

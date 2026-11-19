@@ -598,9 +598,10 @@ export function Inspector({
       const Solved = Solar(Params);
       const El = (Solved.Elevation * Math.PI) / 180;
       const Az = (Solved.Azimuth * Math.PI) / 180;
+      // CelestialEphemerisSolver convention: +X north, -Y east, +Z up.
       Change("Direction", [
-        Number((Math.cos(El) * Math.sin(Az)).toFixed(4)),
         Number((Math.cos(El) * Math.cos(Az)).toFixed(4)),
+        Number((-Math.cos(El) * Math.sin(Az)).toFixed(4)),
         Number(Math.sin(El).toFixed(4)),
       ]);
     }
@@ -630,9 +631,10 @@ export function Inspector({
       });
       const El = (Solved.Elevation * Math.PI) / 180;
       const Az = (Solved.Azimuth * Math.PI) / 180;
+      // CelestialEphemerisSolver convention: +X north, -Y east, +Z up.
       Change("Direction", [
-        Number((Math.cos(El) * Math.sin(Az)).toFixed(4)),
         Number((Math.cos(El) * Math.cos(Az)).toFixed(4)),
+        Number((-Math.cos(El) * Math.sin(Az)).toFixed(4)),
         Number(Math.sin(El).toFixed(4)),
       ]);
       Before = Now;

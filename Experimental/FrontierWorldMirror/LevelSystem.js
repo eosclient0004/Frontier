@@ -17,7 +17,7 @@ import {
   BuildTrafficConeMaterial,
 } from "./WorldDragDrop.js";
 
-export const LEVEL_STORAGE_KEY = "Frontier.WorldMirrorLevels.v6";
+export const LEVEL_STORAGE_KEY = "Frontier.WorldMirrorLevels.v7.OpenVehicleWorld";
 
 const Clone = (Value) => JSON.parse(JSON.stringify(Value));
 
@@ -55,7 +55,9 @@ export function EnsureRenderSettingsInLevel(Lvl) {
       }
     }
   }
-  for (const EnvId of ["atmosphere", "clouds", "moon", "stars"]) {
+  // The open vehicle world is deliberately cloud/moon/star-free.  Imported
+  // levels retain those authored rows, but new levels only ensure atmosphere.
+  for (const EnvId of ["atmosphere"]) {
     if (!Rows.some((R) => R.Panel === EnvId)) {
       const EnvRow = ShowcaseInitialRows.find((R) => R.Id === EnvId);
       if (EnvRow) {
@@ -349,14 +351,14 @@ function BuildEmptyProvingGroundLevel(Id = "level-proving-ground", Name = "Empty
 export function BuildDefaultLevels() {
   return [
     EnsureRenderSettingsInLevel({
-      Id: "level-showcase-gallery",
-      Name: "Cornell-Studio Gallery",
-      Notes: "Canonical C++ <-> HTML Architectural Cornell-Studio Gallery with ControlVehicle.",
+      Id: "level-open-vehicle-world",
+      Name: "Open Vehicle World",
+      Notes: "C++-aligned blank ControlVehicle world with a long ground receiver, physical sun, and atmosphere.",
       Rows: Clone(ShowcaseInitialRows),
       Values: Clone(ShowcaseInitialValues),
       Hidden: {},
       Collapsed: {},
-      Selected: "chrome-sphere",
+      Selected: "control-vehicle",
     }),
     EnsureRenderSettingsInLevel(BuildLookDevStudioLevel()),
     EnsureRenderSettingsInLevel(BuildEmptyProvingGroundLevel()),
@@ -577,11 +579,11 @@ function BuildAutomotiveConeSlalomLevel(
 export const LEVEL_TEMPLATES = Object.freeze([
   {
     Id: "gallery",
-    Category: "Architectural",
-    Badge: "GI SHOWCASE",
-    Spec: "17 entities · Softbox + Abbe Glass",
-    Title: "Cornell-Studio Gallery",
-    Subtitle: "Canonical colour-bleed enclosure with chrome, gold plinth & crown glass",
+    Category: "Open World",
+    Badge: "VEHICLE BASELINE",
+    Spec: "9 entities · Ground + Sun + Atmosphere",
+    Title: "Open Vehicle World",
+    Subtitle: "ControlVehicle on a long blank ground receiver with C++ physical sun and atmosphere",
   },
   {
     Id: "force-lab",
@@ -589,7 +591,7 @@ export const LEVEL_TEMPLATES = Object.freeze([
     Badge: "VECTORFIELD LAB",
     Spec: "3 forces · Wind + Vortex + Curl",
     Title: "Wind & Vortex ForceField Lab",
-    Subtitle: "Cornell-Studio stage pre-wired with Linear Wind, Cyclonic Vortex & Curl Turbulence",
+    Subtitle: "Open vehicle world pre-wired with Linear Wind, Cyclonic Vortex & Curl Turbulence",
   },
   {
     Id: "slalom",
@@ -689,12 +691,12 @@ export function CreateNewLevelRecord({ Name, TemplateId, Notes = "", CurrentLeve
     return EnsureRenderSettingsInLevel({
       Id: NewId,
       Name: CleanName,
-      Notes: Notes || "Cornell-Studio Gallery level instance.",
+      Notes: Notes || "Open ControlVehicle world level instance.",
       Rows: Clone(ShowcaseInitialRows),
       Values: Clone(ShowcaseInitialValues),
       Hidden: {},
       Collapsed: {},
-      Selected: "chrome-sphere",
+      Selected: "control-vehicle",
     });
   }
 
@@ -728,6 +730,8 @@ export function LoadSavedLevelsState() {
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v2");
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v3");
     window.localStorage.removeItem("Frontier.WorldMirrorLevels.v4");
+    window.localStorage.removeItem("Frontier.WorldMirrorLevels.v5");
+    window.localStorage.removeItem("Frontier.WorldMirrorLevels.v6");
     const Raw = window.localStorage.getItem(LEVEL_STORAGE_KEY);
     if (!Raw) return { ActiveLevelId: Defaults[0].Id, Levels: Defaults };
     const Parsed = JSON.parse(Raw);
@@ -751,6 +755,10 @@ export function ResetSavedLevelsState() {
     try {
       window.localStorage.removeItem("Frontier.WorldMirrorLevels.v1");
       window.localStorage.removeItem("Frontier.WorldMirrorLevels.v2");
+      window.localStorage.removeItem("Frontier.WorldMirrorLevels.v3");
+      window.localStorage.removeItem("Frontier.WorldMirrorLevels.v4");
+      window.localStorage.removeItem("Frontier.WorldMirrorLevels.v5");
+      window.localStorage.removeItem("Frontier.WorldMirrorLevels.v6");
       window.localStorage.removeItem(LEVEL_STORAGE_KEY);
     } catch {}
   }

@@ -21,6 +21,8 @@ import {
   PickSceneEntityAtUv,
   RaycastWorldPlacementAtUv,
   ResolveRenderSettings,
+  CornellStudioReferenceRows,
+  CornellStudioReferenceValues,
   ShowcaseInitialRows,
   ShowcaseInitialValues,
 } from "./ShowcaseGalleryScene.js";
@@ -37,6 +39,7 @@ import {
 } from "./ShadowPipeline.js";
 import {
   BuildSkyViewLut,
+  EvaluateSolarCoronaRadiance,
   EvalMoonAndStarsCpu,
   EvalVolumetricCloudsCpu,
   PackSkyViewRgba16f,
@@ -114,19 +117,19 @@ const Folder = path.dirname(fileURLToPath(import.meta.url));
 
 // 1. Verify exact 23-entry Cornell-Studio Gallery Outliner matching C++ ShowcaseGalleryScene (+ RenderSettings + ControlVehicle + Physical Environment)
 assert.equal(
-  ShowcaseInitialRows.length,
+  CornellStudioReferenceRows.length,
   23,
   "Expected 23 Outliner entries (4 folders + 10 geometry + ControlVehicle + Editor Camera + Render Settings + Sun + Atmosphere + Clouds + Moon + Starfield + Ceiling Softbox)",
 );
-const ShowcaseChildren = ShowcaseInitialRows.filter(
+const ShowcaseChildren = CornellStudioReferenceRows.filter(
   (Row) => Row.Parent === "showcase",
 );
 assert.equal(ShowcaseChildren.length, 11, "Expected 10 geometry specimens + ControlVehicle under Showcase");
 
 // 2. Verify compiled Tier 1 GTX scene & EditorCamera 43.0 deg vertical FOV parity
 const Compiled = CompileLiveGtxScene(
-  ShowcaseInitialRows,
-  ShowcaseInitialValues,
+  CornellStudioReferenceRows,
+  CornellStudioReferenceValues,
   {},
   "PERSP",
 );
@@ -274,6 +277,8 @@ assert.equal(SnappedMove.Position[0], 0.25, "Ctrl-snap quantizes TranslateX to 0
 // 6. Verify Multi-Level System & Create Level templates
 const DefaultLevels = BuildDefaultLevels();
 assert.equal(DefaultLevels.length, 3, "3 built-in Frontier levels shipped");
+assert.equal(DefaultLevels[0].Name, "Open Vehicle World", "Default level launches the sparse open ControlVehicle world rather than the archived studio");
+assert.equal(DefaultLevels[0].Selected, "control-vehicle", "Default level selects ControlVehicle");
 const CreatedLookDev = CreateNewLevelRecord({
   Name: "Custom Courtyard",
   TemplateId: "lookdev",
@@ -289,7 +294,7 @@ const Duplicated = CreateNewLevelRecord({
   TemplateId: "duplicate",
   CurrentLevel: DefaultLevels[0],
 });
-assert.equal(Duplicated.Rows.length, 23, "Duplicate Current Level clones all 23 Showcase rows");
+assert.equal(Duplicated.Rows.length, ShowcaseInitialRows.length, "Duplicate Current Level clones the sparse open-world baseline");
 
 // 7. Verify standalone index.html bundle integrity & non-SDF shadow map / BVH shader presence
 const ViewportSrc = fs.readFileSync(path.join(Folder, "GtxWorldViewport.jsx"), "utf8");
@@ -469,7 +474,7 @@ const HtmlPath = path.join(Folder, "index.html");
 assert.ok(fs.existsSync(HtmlPath), "Bundled index.html exists");
 const HtmlText = fs.readFileSync(HtmlPath, "utf8");
 assert.ok(
-  HtmlText.includes("Frontier World Mirror — Tier 1 GTX") &&
+  HtmlText.includes("Frontier World Mirror — Open Vehicle World") &&
     HtmlText.includes("evalShadowMapPCSS") &&
     HtmlText.includes("KHR_parallel_shader_compile") &&
     (HtmlText.includes("RequestAtomicFrame") || HtmlText.includes("bandDone")),
@@ -708,13 +713,13 @@ assert.ok(
 
   // Ensure transient __drag_preview__ is ignored during dragover raycasts (zero self-climbing!)
   const PreviewRows = [
-    ...ShowcaseInitialRows,
+    ...CornellStudioReferenceRows,
     { ...TrafficPayload.Template, Id: "__drag_preview__", Parent: null, Preview: true },
     { ...TrafficPayload.Template, Id: "placed-traffic-cone", Parent: "showcase", Preview: true },
     { ...CylConePayload.Template, Id: "placed-cylinder-cone", Parent: "showcase", Preview: true },
   ];
   const PreviewValues = {
-    ...ShowcaseInitialValues,
+    ...CornellStudioReferenceValues,
     __drag_preview__: { ...TrafficPayload.Properties, Position: FloorDrop.Position },
     "placed-traffic-cone": { ...TrafficPayload.Properties, Position: [-0.85, -1.15, -0.21] },
     "placed-cylinder-cone": { ...CylConePayload.Properties, Position: [0.85, -1.15, -0.16] },
@@ -836,13 +841,13 @@ assert.ok(
   assert.equal(PropPayload.ActorKind, "geometry");
 
   const ExtendedRows = [
-    ...ShowcaseInitialRows,
+    ...CornellStudioReferenceRows,
     { ...CamPayload.Template, Id: "placed-cam-1" },
     { ...LightPayload.Template, Id: "placed-light-1" },
     { ...PropPayload.Template, Id: "placed-prop-1" },
   ];
   const ExtendedValues = {
-    ...ShowcaseInitialValues,
+    ...CornellStudioReferenceValues,
     "placed-cam-1": { ...CamPayload.Properties, Position: [-1.05, -1.75, -0.64 + CamPayload.HalfHeightZ] },
     "placed-light-1": { ...LightPayload.Properties, Position: [1.05, -1.75, -0.64 + LightPayload.HalfHeightZ] },
     "placed-prop-1": { ...PropPayload.Properties, Position: [0.0, -1.75, -0.64 + PropPayload.HalfHeightZ] },
@@ -1116,9 +1121,9 @@ assert.ok(
 
 // 15. RenderSettings Inspector + Non-SDF Shadow Map / BVH Pipeline + ControlVehicle FVB1 Asset Loading
 {
-  const RsRow = ShowcaseInitialRows.find((R) => R.Id === "render-settings");
+  const RsRow = CornellStudioReferenceRows.find((R) => R.Id === "render-settings");
   assert.ok(RsRow && RsRow.Parent === "camera" && RsRow.Panel === "render-settings", "Render Settings lives under Editor Camera");
-  const RsDefault = ResolveRenderSettings(ShowcaseInitialValues);
+  const RsDefault = ResolveRenderSettings(CornellStudioReferenceValues);
   assert.equal(RsDefault.ShadowAlgorithm, CanonicalRenderSettings.ShadowAlgorithm);
   assert.equal(RsDefault.ShadowMapRes, 2048);
 
@@ -1214,7 +1219,7 @@ assert.ok(
 
   // Physical Sky-View LUT + rgba16float packing
   const Lut = BuildSkyViewLut(Compiled.SunDir, Compiled.Atmosphere);
-  assert.equal(Lut.length, SKY_VIEW_WIDTH * SKY_VIEW_HEIGHT * 4, "Sky-View LUT dimensions match 96x48x4");
+  assert.equal(Lut.length, SKY_VIEW_WIDTH * SKY_VIEW_HEIGHT * 4, "Sky-View LUT dimensions match the native 256x128 RGBA layout");
   const Half = PackSkyViewRgba16f(Lut);
   assert.equal(Half.length, Lut.length, "PackSkyViewRgba16f packs all RGBA16F channels");
   const Zenith = SampleSkyViewLutCpu(Lut, 0, 0, 1);
@@ -1263,10 +1268,10 @@ assert.ok(
 
   // Compile showcase at Local Hours = 0 (midnight)
   const NightValues = {
-    ...ShowcaseInitialValues,
-    sun: { ...ShowcaseInitialValues.sun, "Local Hours": 0.0, Direction: undefined },
+    ...CornellStudioReferenceValues,
+    sun: { ...CornellStudioReferenceValues.sun, "Local Hours": 0.0, Direction: undefined },
   };
-  const NightScene = CompileLiveGtxScene(ShowcaseInitialRows, NightValues, {}, "PERSP");
+  const NightScene = CompileLiveGtxScene(CornellStudioReferenceRows, NightValues, {}, "PERSP");
   assert.ok(NightScene.SunDir[2] < -0.5, `Midnight SunDir.z is deeply below horizon (${NightScene.SunDir[2].toFixed(3)})`);
   assert.ok(
     NightScene.SkyRadiance[0] < 0.02 && NightScene.SkyRadiance[1] < 0.02 && NightScene.SkyRadiance[2] < 0.03,
@@ -1280,7 +1285,7 @@ assert.ok(
   );
 
   // Emissive/Area shadow matrix clears clearcoat-roof-baffle (Z=1.99)
-  assert.equal(ShowcaseInitialValues["ceiling-softbox"]["Cast shadows"], true, "ceiling-softbox Cast shadows defaults to true");
+  assert.equal(CornellStudioReferenceValues["ceiling-softbox"]["Cast shadows"], true, "ceiling-softbox Cast shadows defaults to true");
   const NightAreaMat = BuildAreaShadowMatrix(NightScene.AreaLights[0]);
   assert.ok(NightAreaMat && NightAreaMat.lightPos[2] < 1.85, "Area shadow lightPos clears roof baffle");
 
@@ -1325,12 +1330,12 @@ assert.ok(
 
   // Turn off all lights & emissives at night -> scene must become genuinely dark
   const NightHidden = {};
-  for (const Row of ShowcaseInitialRows) {
+  for (const Row of CornellStudioReferenceRows) {
     if (Row.Panel === "light" || Row.Id === "moon" || Row.Id.includes("emissive") || Row.Id.includes("neon")) {
       NightHidden[Row.Id] = true;
     }
   }
-  const PitchBlackScene = CompileLiveGtxScene(ShowcaseInitialRows, NightValues, NightHidden, "PERSP");
+  const PitchBlackScene = CompileLiveGtxScene(CornellStudioReferenceRows, NightValues, NightHidden, "PERSP");
   NightAtlas.InvalidateAll();
   NightAtlas.UpdatePrimitives(PitchBlackScene.Primitives);
   CpuNight.RenderFullFrame({
@@ -1352,7 +1357,7 @@ assert.ok(
 
   // Add an emissive primitive at night with an occluder between it and the floor -> verifies direct emissive GI + shadow
   const EmissiveRows = [
-    ...ShowcaseInitialRows,
+    ...CornellStudioReferenceRows,
     { Id: "night-emissive-orb", Name: "Night Emissive Orb", Panel: "geometry", PrimitiveShape: "sphere", Parent: "showcase", Preview: true },
   ];
   const EmissiveValues = {
@@ -1414,11 +1419,11 @@ assert.ok(
 // 18. Dedicated Emissive GI Bounce, Emissive Occlusion/Shadows, BVH Raytraced GI Area-Light Parity, & Emissive WorldProps
 {
   const NightBase = {
-    ...ShowcaseInitialValues,
-    sun: { ...ShowcaseInitialValues.sun, "Local Hours": 0.0, Direction: undefined },
+    ...CornellStudioReferenceValues,
+    sun: { ...CornellStudioReferenceValues.sun, "Local Hours": 0.0, Direction: undefined },
   };
   const AllLightsOffHidden = {};
-  for (const Row of ShowcaseInitialRows) {
+  for (const Row of CornellStudioReferenceRows) {
     if (Row.Panel === "light" || Row.Id === "moon" || Row.Id.includes("emissive") || Row.Id.includes("neon")) {
       AllLightsOffHidden[Row.Id] = true;
     }
@@ -1428,7 +1433,7 @@ assert.ok(
   // Place a white emissive sphere near Crimson Left Wall (-1.85, 0.25, 0.15) AND a solid wall occluder (-0.85, 0.25, 0.25)
   // blocking direct line-of-sight to plaster-east & the right floor, proving indirect GI itself bounces Crimson wall radiance!
   const GiRows = [
-    ...ShowcaseInitialRows,
+    ...CornellStudioReferenceRows,
     { Id: "gi-emissive-orb", Name: "GI Emissive Orb", Panel: "geometry", PrimitiveShape: "sphere", Parent: "showcase", Preview: true },
     { Id: "gi-blocker-wall", Name: "GI Blocker Wall", Panel: "geometry", PrimitiveShape: "box", Parent: "showcase", Preview: true },
   ];
@@ -1588,7 +1593,7 @@ assert.ok(
   );
 
   // 2. Shadow matrix metadata for linear-depth PCF/PCSS/SMRT
-  const DayScene = CompileLiveGtxScene(ShowcaseInitialRows, ShowcaseInitialValues, {}, "PERSP");
+  const DayScene = CompileLiveGtxScene(CornellStudioReferenceRows, CornellStudioReferenceValues, {}, "PERSP");
   const SunInfo = BuildSunShadowMatrix(DayScene);
   assert.ok(Array.isArray(SunInfo.eye) && SunInfo.orthoHalfSpan > 0 && SunInfo.far > SunInfo.near, "Sun shadow matrix exports linear-depth metadata");
   const AreaInfo = BuildAreaShadowMatrix(DayScene.AreaLights[0]);
@@ -1616,7 +1621,7 @@ assert.ok(
 
   // 4. Sun + Moon + Starlight illumination deltas in CPU renderer
   const NoLightsHidden = {};
-  for (const Row of ShowcaseInitialRows) {
+  for (const Row of CornellStudioReferenceRows) {
     if (Row.Panel === "light" || Row.Id.includes("emissive") || Row.Id.includes("neon")) {
       NoLightsHidden[Row.Id] = true;
     }
@@ -1626,14 +1631,14 @@ assert.ok(
     if (!MoonOn) Hid.moon = true;
     if (!StarsOn) Hid.stars = true;
     const Vals = {
-      ...ShowcaseInitialValues,
+      ...CornellStudioReferenceValues,
       sun: {
-        ...ShowcaseInitialValues.sun,
+        ...CornellStudioReferenceValues.sun,
         "Local Hours": SunHours,
         Direction: undefined,
       },
       moon: {
-        ...ShowcaseInitialValues.moon,
+        ...CornellStudioReferenceValues.moon,
         "Moon visible": MoonOn,
         Elevation: 52,
         Azimuth: 225,
@@ -1641,7 +1646,7 @@ assert.ok(
         Phase: 0.55,
       },
       stars: {
-        ...ShowcaseInitialValues.stars,
+        ...CornellStudioReferenceValues.stars,
         "Star field": StarsOn,
         Brightness: 1.5,
       },
@@ -1651,7 +1656,7 @@ assert.ok(
         GiIntensity: 1.0,
       },
     };
-    const Sc = CompileLiveGtxScene(ShowcaseInitialRows, Vals, Hid, "PERSP");
+    const Sc = CompileLiveGtxScene(CornellStudioReferenceRows, Vals, Hid, "PERSP");
     const Atl = new MaterialAtlasSynchronizer();
     Atl.UpdatePrimitives(Sc.Primitives);
     const Cpu = new CpuGtxRenderer();
@@ -1692,7 +1697,7 @@ assert.ok(
 // Suite 20: Editor Camera Settings — dense signed SDF bake + deterministic pathtrace routing
 // ============================================================================
 {
-  const Scene = CompileLiveGtxScene(ShowcaseInitialRows, ShowcaseInitialValues, {}, "PERSP");
+  const Scene = CompileLiveGtxScene(CornellStudioReferenceRows, CornellStudioReferenceValues, {}, "PERSP");
   const Settings = ResolveRenderSettings({
     "render-settings": { ...CanonicalRenderSettings, SdfResolution: 32, SdfPadding: 0.12 },
   });
@@ -1717,6 +1722,40 @@ assert.ok(
   assert.ok(fs.readFileSync(PathtraceSource, "utf8").includes("PathTraceProfiles"), "pathtrace profiles are wired into the deterministic tracer");
 }
 
+// ============================================================================
+// Suite 21: Open Vehicle World Baseline + Dockable Component Viewer
+// ============================================================================
+{
+  const InitialIds = ShowcaseInitialRows.map((Row) => Row.Id);
+  assert.deepStrictEqual(
+    InitialIds,
+    ["showcase", "ground-plane", "control-vehicle", "cameras", "camera", "render-settings", "world", "sun", "atmosphere"],
+    "New World Mirror sessions contain only the long plane, ControlVehicle, camera/settings, sun and atmosphere",
+  );
+  assert.ok(!InitialIds.includes("clouds") && !InitialIds.includes("moon") && !InitialIds.includes("stars"), "Open-world baseline seeds no clouds, moon, or stars");
+  const OpenWorld = CompileLiveGtxScene(ShowcaseInitialRows, ShowcaseInitialValues, {}, "PERSP");
+  assert.equal(OpenWorld.Primitives.length, 1, "Only the long ground receiver is analytical scene geometry");
+  assert.equal(OpenWorld.Primitives[0].Id, "ground-plane", "Ground plane is the only analytical primitive");
+  assert.equal(OpenWorld.Primitives[0].SdfExclude, true, "Long ground receiver is excluded from local vehicle SDF bounds");
+  assert.equal(OpenWorld.Vehicles.length, 1, "ControlVehicle is the only placed mesh actor");
+  assert.equal(OpenWorld.Vehicles[0].Id, "control-vehicle", "ControlVehicle is present at startup");
+  assert.equal(OpenWorld.AreaLights.length, 0, "Open world has no studio lights");
+  assert.equal(OpenWorld.Clouds.enabled, false, "Open world never enables an implicit cloud layer");
+  assert.equal(OpenWorld.Moon.visible, false, "Open world never enables an implicit moon");
+  assert.equal(OpenWorld.Stars.enabled, false, "Open world never enables an implicit star field");
+  const SunCore = EvaluateSolarCoronaRadiance(OpenWorld.SunDir, OpenWorld.SunDir, OpenWorld.SolarCorona);
+  const SunOffAxis = EvaluateSolarCoronaRadiance([0, 0, 1], OpenWorld.SunDir, OpenWorld.SolarCorona);
+  assert.ok(SunCore.every((Value) => Value > 0) && SunCore[0] > SunOffAxis[0] * 100, "C++ solar disc/corona is analytically layered over the SkyView LUT");
+  const CppSkyLut = BuildSkyViewLut(OpenWorld.SunDir, OpenWorld.Atmosphere);
+  assert.equal(SKY_VIEW_WIDTH, 256, "C++ SkyView LUT width is mirrored exactly");
+  assert.equal(SKY_VIEW_HEIGHT, 128, "C++ SkyView LUT height is mirrored exactly");
+  assert.equal(CppSkyLut.length, 256 * 128 * 4, "Open world uses the native C++ 256x128 RGBA SkyView LUT");
+  const ComponentSource = fs.readFileSync(path.join(Folder, "ComponentViewer.jsx"), "utf8");
+  const EditorSource = fs.readFileSync(path.join(Folder, "Editor.jsx"), "utf8");
+  assert.ok(ComponentSource.includes("Dockable in-editor component browser") && !ComponentSource.includes('data-left="content"'), "Integrated Component Viewer has no obsolete Content tab");
+  assert.ok(EditorSource.includes("Open Component Viewer") && EditorSource.includes('Tab === "Component Viewer"'), "Outliner context menu opens Component Viewer as a dockable editor tab");
+}
+
 console.log(
-  "[WorldMirrorValidation] ALL 20 SUITES PASSED: ShadowAlgorithmLab Parity (PCF/PCSS/SMRT/BVH, LTC Area Lights, Cone & 2-Bounce BVH GI, BVH Reflections, No SDF Shadows/Reflections), dense SDF volume baking + SDF cone GI, Camera Settings quality routing, deterministic pathtrace profiles, Sun+Moon+Starlight Illumination, Moon Atlas, Physical Sky/Clouds, RenderSettings, ControlVehicle BVH, and ProjectBrowser verified!",
+  "[WorldMirrorValidation] ALL 21 SUITES PASSED: C++ physical 256x128 SkyView atmosphere, open ControlVehicle world with long plane/no clouds, dockable Components-only viewer, ShadowAlgorithmLab parity, dense SDF volume baking + SDF cone GI, camera settings, deterministic pathtrace profiles, ControlVehicle BVH, and ProjectBrowser verified!",
 );

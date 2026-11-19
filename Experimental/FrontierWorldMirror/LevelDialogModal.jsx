@@ -125,7 +125,7 @@ function StagePreviewArtwork({ TemplateId }) {
 export default function LevelDialogModal({
   Open,
   LevelCount = 1,
-  ActiveLevelName = "Cornell-Studio Gallery",
+  ActiveLevelName = "Open Vehicle World",
   OnCancel,
   OnCreate,
 }) {

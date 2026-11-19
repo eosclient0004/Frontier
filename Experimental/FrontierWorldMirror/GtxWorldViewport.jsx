@@ -1179,13 +1179,12 @@ vec3 evalMoonAndStars(vec3 dir) {
         vec3 lDir = normalize(vec3(sin(phAng), 0.18, cos(phAng)));
         float ndl = max(0.0, dot(vec3(px, py, pz), lDir));
         vec3 albedo = vec3(0.68 + 0.32 * noise3D(vec3(px * 3.8 + 4.1, py * 3.8 - 2.3, pz * 3.8)));
-        if (uAtmoCfg1.w > 0.5) {
-          float uMoon = atan(px, pz) * (0.5 / 3.14159265359) + 0.5;
-          float vMoon = 0.5 - asin(clamp(py, -1.0, 1.0)) / 3.14159265359;
-          float tileV = (clamp(uMoonTint.w, 0.0, 5.0) + clamp(vMoon, 0.015, 0.985)) / 6.0;
-          vec3 texSample = textureLod(uMoonAtlasTex, vec2(uMoon, tileV), 0.0).rgb;
-          albedo = pow(max(vec3(0.0), texSample), vec3(2.2)) * 1.45;
-        }
+        // The six-tile atlas is resident with the World Mirror bundle.
+        float uMoon = atan(px, pz) * (0.5 / 3.14159265359) + 0.5;
+        float vMoon = 0.5 - asin(clamp(py, -1.0, 1.0)) / 3.14159265359;
+        float tileV = (clamp(uMoonTint.w, 0.0, 5.0) + clamp(vMoon, 0.015, 0.985)) / 6.0;
+        vec3 texSample = textureLod(uMoonAtlasTex, vec2(uMoon, tileV), 0.0).rgb;
+        albedo = pow(max(vec3(0.0), texSample), vec3(2.2)) * 1.45;
         float edgeAA = clamp((1.0 - sqrt(r2)) * 14.0, 0.0, 1.0);
         outC += mTint * albedo * (0.014 + ndl * 1.55) * mBright * edgeAA;
       }
@@ -1238,23 +1237,56 @@ vec3 evalMoonIrradiance() {
   return uMoonTint.xyz * max(0.0, uMoonCfg1.y) * 0.085 * mPhaseGain * mFade;
 }
 
+// AtmosphericSkySequence::SampleSkyViewDirection. Horizontal filtering is
+// smoothstep bilinear; vertical filtering is the native Catmull-Rom curve.
+vec3 sampleSkyViewCubic(vec3 dir) {
+  vec2 uv = projectSkyViewUV(dir);
+  ivec2 dims = textureSize(uSkyViewTex, 0);
+  float fx = fract(uv.x) * float(dims.x) - 0.5;
+  float fy = clamp(uv.y, 0.0, 1.0) * float(dims.y) - 0.5;
+  int x0 = int(floor(fx)); x0 = (x0 % dims.x + dims.x) % dims.x;
+  int x1 = (x0 + 1) % dims.x;
+  int y1 = clamp(int(floor(fy)), 0, dims.y - 1);
+  int y0 = clamp(y1 - 1, 0, dims.y - 1), y2 = clamp(y1 + 1, 0, dims.y - 1), y3 = clamp(y1 + 2, 0, dims.y - 1);
+  float tx = fract(fx), sx = tx * tx * (3.0 - 2.0 * tx), ty = clamp(fract(fy), 0.0, 1.0);
+  vec3 r0 = mix(texelFetch(uSkyViewTex, ivec2(x0, y0), 0).rgb, texelFetch(uSkyViewTex, ivec2(x1, y0), 0).rgb, sx);
+  vec3 r1 = mix(texelFetch(uSkyViewTex, ivec2(x0, y1), 0).rgb, texelFetch(uSkyViewTex, ivec2(x1, y1), 0).rgb, sx);
+  vec3 r2 = mix(texelFetch(uSkyViewTex, ivec2(x0, y2), 0).rgb, texelFetch(uSkyViewTex, ivec2(x1, y2), 0).rgb, sx);
+  vec3 r3 = mix(texelFetch(uSkyViewTex, ivec2(x0, y3), 0).rgb, texelFetch(uSkyViewTex, ivec2(x1, y3), 0).rgb, sx);
+  float t2 = ty * ty, t3 = t2 * ty;
+  return max(vec3(0.0), 0.5 * ((2.0 * r1) + (-r0 + r2) * ty + (2.0 * r0 - 5.0 * r1 + 4.0 * r2 - r3) * t2 + (-r0 + 3.0 * r1 - 3.0 * r2 + r3) * t3));
+}
+
+// Direct GLSL port of AtmosphericSkySequence::EvaluateSolarCoronaRadiance.
+// uAtmoCfg1.xyz is effective solar tint times transmittance; .w is intensity.
+vec3 evalSolarCorona(vec3 dir) {
+  if (dir.z < -0.04 || uAtmoCfg1.w <= 0.0) return vec3(0.0);
+  float cosAngle = clamp(dot(dir, uSunDir), -1.0, 1.0);
+  float halfRad = max(0.0008, uSunAngularRadius);
+  float angle = acos(cosAngle), rNorm = angle / halfRad;
+  float discMask = 1.0 - smoothstep(0.92, 1.14, rNorm);
+  float muSun = sqrt(max(0.0, 1.0 - min(1.0, rNorm * rNorm)));
+  float limbDark = 0.42 + 0.58 * pow(muSun, 0.45);
+  float envFade = 1.0 - smoothstep(halfRad * 18.0, halfRad * 45.0, angle);
+  float innerCorona = exp(-max(0.0, angle - halfRad * 0.70) / max(0.003, halfRad * 2.4)) * 0.80;
+  float midAureole = exp(-angle / max(0.012, halfRad * 9.0)) * 0.20 * envFade;
+  float outerGlare = exp(-angle / max(0.045, halfRad * 24.0)) * 0.025 * envFade;
+  float limbFade = clamp((dir.z + 0.02) * 18.0, 0.0, 1.0);
+  float discRadiance = discMask * limbDark * 28.0 + innerCorona + midAureole + outerGlare;
+  return uAtmoCfg1.xyz * discRadiance * max(0.0, uAtmoCfg1.w) * 0.35 * limbFade;
+}
+
 vec3 evalSky(vec3 dir) {
-  vec3 skyCol = textureLod(uSkyViewTex, projectSkyViewUV(dir), 0.0).rgb;
+  vec3 skyCol = sampleSkyViewCubic(dir);
   vec3 cel = evalMoonAndStars(dir);
   vec4 cl = evalVolumetricClouds(dir, skyCol, 0.5, 5);
   return (skyCol + cel) * cl.w + cl.rgb;
 }
 
 vec3 evalSkyPrimary(vec3 dir, vec2 fragPx) {
-  vec3 skyCol = textureLod(uSkyViewTex, projectSkyViewUV(dir), 0.0).rgb;
+  vec3 skyCol = sampleSkyViewCubic(dir);
   vec3 cel = evalMoonAndStars(dir);
-  float sunAng = max(0.002, uSunAngularRadius);
-  float cosSun = dot(dir, uSunDir);
-  float sunEdge = smoothstep(cos(sunAng * 1.25), cos(sunAng * 0.65), cosSun);
-  float muDisc = clamp((cosSun - cos(sunAng)) / max(1e-5, 1.0 - cos(sunAng)), 0.0, 1.0);
-  float limb = 0.65 + 0.35 * pow(muDisc, 0.45);
-  float sunAureole = pow(max(0.0, cosSun), 160.0) * 0.25;
-  vec3 sunVisual = uSunIrradiance * (sunEdge * limb * 4.2 + sunAureole) * (dir.z > -0.02 ? 1.0 : 0.0);
+  vec3 sunVisual = evalSolarCorona(dir);
   float jitter = fract(sin(dot(fragPx, vec2(12.9898, 78.233)) + uAtmoCfg0.w * 7.1) * 43758.5453);
   vec4 cl = evalVolumetricClouds(dir, skyCol, jitter, 18);
   return (skyCol + cel + sunVisual) * cl.w + cl.rgb;
@@ -2854,7 +2886,7 @@ function PackSceneDataBuffer(ActiveScene, PCount, LCount, Out) {
 function ComputeNonCameraSceneSignature(Scene) {
   let Parts = `${Scene.OrthoHalfHeight.toFixed(3)}|${Scene.VerticalFovRad.toFixed(3)}|${Scene.ExposureGain.toFixed(3)}|`;
   Parts += `${Scene.SunDir.map((V) => V.toFixed(3)).join(",")}|${Scene.SunIrradiance.map((V) => V.toFixed(2)).join(",")}|${(Scene.SunAngularRadiusRad || 0.018).toFixed(4)}|${Scene.SkyRadiance.map((V) => V.toFixed(3)).join(",")}|`;
-  Parts += `SKY:${JSON.stringify(Scene.Atmosphere || {})}|CL:${JSON.stringify(Scene.Clouds || {})}|MN:${JSON.stringify(Scene.Moon || {})}|ST:${JSON.stringify(Scene.Stars || {})}|`;
+  Parts += `SKY:${JSON.stringify(Scene.Atmosphere || {})}|COR:${JSON.stringify(Scene.SolarCorona || {})}|CL:${JSON.stringify(Scene.Clouds || {})}|MN:${JSON.stringify(Scene.Moon || {})}|ST:${JSON.stringify(Scene.Stars || {})}|`;
   Parts += `RS:${JSON.stringify(Scene.RenderSettings || {})}|`;
   for (let I = 0; I < Scene.Primitives.length; ++I) {
     const P = Scene.Primitives[I];
@@ -4649,9 +4681,17 @@ export default function GtxWorldViewport({
             Gl.texSubImage2D(Gl.TEXTURE_2D, 0, 0, 0, MOON_ATLAS_W, MOON_ATLAS_H, Gl.RGBA, Gl.UNSIGNED_BYTE, MoonSnap.pixels);
           }
           Gl.uniform1i(U.uMoonAtlasTex, 8);
-          const SkyTint = Atmo.skyTint || [1, 1, 1];
+          const SolarCorona = ActiveScene.SolarCorona || {};
+          const SolarTint = SolarCorona.effectiveSolarTint || [1, 1, 1];
+          const SolarTrans = SolarCorona.solarTransmittance || [1, 1, 1];
           Gl.uniform4f(U.uAtmoCfg0, Atmo.skyBrightness ?? 1.0, Atmo.mieG ?? 0.78, Atmo.horizonGlow ?? 1.0, ForceTimeRef.current);
-          Gl.uniform4f(U.uAtmoCfg1, SkyTint[0], SkyTint[1], SkyTint[2], MoonSnap.ready ? 1.0 : 0.0);
+          Gl.uniform4f(
+            U.uAtmoCfg1,
+            SolarTint[0] * SolarTrans[0],
+            SolarTint[1] * SolarTrans[1],
+            SolarTint[2] * SolarTrans[2],
+            SolarCorona.enabled ? SolarCorona.solarIntensityScale ?? 22.0 : 0.0,
+          );
           Gl.uniform4f(U.uCloudCfg0, Cl.enabled ? 1.0 : 0.0, Cl.coverage ?? 0.42, Cl.density ?? 2.2, Cl.featureScale ?? 0.4);
           Gl.uniform4f(U.uCloudCfg1, Cl.baseM ?? 1400.0, Cl.thicknessM ?? 1100.0, Cl.anvil ?? 0.5, Cl.anisotropy ?? 0.48);
           Gl.uniform4f(U.uCloudCfg2, Cl.type ?? 0, Cl.shadowEnabled !== false ? 1.0 : 0.0, Cl.windX ?? 6.0, Cl.windY ?? 2.0);

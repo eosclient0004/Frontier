@@ -1,5 +1,24 @@
-// Browser translation of the solar branch in Engine/DisplayPresentation/CelestialSolver.cpp.
-// No atmospheric refraction, identical to the native geometric horizon calculation.
+// Browser translation of Engine/GeometricRaster/Atmosphere/CelestialEphemerisSolver.cpp.
+// No atmospheric refraction: the geometric horizon and Kelvin tint match C++.
+export function KelvinToLinearRgb(Kelvin = 6500) {
+  const T = Math.max(1000, Math.min(40000, Number(Kelvin) || 6500)) * 0.01;
+  let R = 255, G = 255, B = 255;
+  if (T <= 66) {
+    R = 255;
+    G = Math.max(0, Math.min(255, 99.4708025861 * Math.log(Math.max(1, T)) - 161.1195681661));
+    B = T <= 19 ? 0 : Math.max(0, Math.min(255, 138.5177312231 * Math.log(Math.max(1, T - 10)) - 305.0447927307));
+  } else {
+    R = Math.max(0, Math.min(255, 329.698727446 * Math.pow(T - 60, -0.1332047592)));
+    G = Math.max(0, Math.min(255, 288.1221695283 * Math.pow(T - 60, -0.0755148492)));
+    B = 255;
+  }
+  const SrgbToLinear = (Channel) => {
+    const C = Math.max(0, Math.min(1, Channel / 255));
+    return C <= 0.04045 ? C / 12.92 : Math.pow((C + 0.055) / 1.055, 2.4);
+  };
+  return [SrgbToLinear(R), SrgbToLinear(G), SrgbToLinear(B)];
+}
+
 export function Solar({
   Year = 2026,
   Month = 9,

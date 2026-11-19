@@ -132,6 +132,10 @@ function SceneBounds(Scene, Padding) {
     }
   };
   for (const Primitive of Scene?.Primitives || []) {
+    // A ground receiver may deliberately be kilometres wide.  It stays in the
+    // raster/BVH scene but must not expand a local vehicle SDF into kilometre
+    // voxels, so authored SdfExclude primitives are not part of this bake.
+    if (Primitive.SdfExclude) continue;
     const H = Primitive.HalfExtents || [0.5, 0.5, 0.5];
     Include(Primitive.Center || [0, 0, 0], Math.hypot(H[0], H[1], H[2]));
   }
@@ -150,7 +154,7 @@ function SceneBounds(Scene, Padding) {
 
 export function SceneSdfSignature(Scene, Settings = {}) {
   const Relevant = {
-    primitives: (Scene?.Primitives || []).map((P) => [P.Id, P.Shape, P.Center, P.RotationRad, P.HalfExtents, P.GiContributor, P.GlassShell]),
+    primitives: (Scene?.Primitives || []).map((P) => [P.Id, P.Shape, P.Center, P.RotationRad, P.HalfExtents, P.GiContributor, P.GlassShell, P.SdfExclude]),
     vehicles: (Scene?.Vehicles || []).map((V) => [V.Id, V.Position, V.Rotation, V.Scale]),
     settings: ResolveSdfSettings(Settings),
   };
@@ -183,7 +187,7 @@ export async function BakeSceneSdf(
         ];
         let Distance = Infinity;
         for (const Primitive of Scene?.Primitives || []) {
-          if (Primitive.GlassShell) continue;
+          if (Primitive.GlassShell || Primitive.SdfExclude) continue;
           Distance = Math.min(Distance, EvaluatePrimitiveSdf(Point, Primitive));
         }
         for (const Vehicle of Scene?.Vehicles || []) {

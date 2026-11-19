@@ -41,6 +41,7 @@ import {
   GetActiveColourSlot,
 } from "./ColourCodex.js";
 import ShaderPanel from "./ShaderPanel.jsx";
+import ComponentViewer from "./ComponentViewer.jsx";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { Inspector, Icon, Glyph, Panels } from "./Inspectors.jsx";
@@ -334,7 +335,9 @@ const DebugViews = [
   "ForceField · Vorticity |∇×F|",
   "ForceField · Divergence ∇·F",
 ];
-const StorageKey = "Frontier.WorldMirrorGtx.v6";
+// v7 intentionally starts the sparse vehicle world instead of restoring the
+// Cornell gallery/cache from earlier World Mirror releases.
+const StorageKey = "Frontier.WorldMirrorGtx.v7.OpenVehicleWorld";
 function Restore() {
   try {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v1");
@@ -342,6 +345,7 @@ function Restore() {
     localStorage.removeItem("Frontier.WorldMirrorGtx.v3");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v4");
     localStorage.removeItem("Frontier.WorldMirrorGtx.v5");
+    localStorage.removeItem("Frontier.WorldMirrorGtx.v6");
     return JSON.parse(localStorage.getItem(StorageKey)) || {};
   } catch {
     return {};
@@ -591,7 +595,7 @@ function App() {
     [Selected, Select] = useState(
       new URLSearchParams(location.search).get("inspect") ||
         Saved.Selected ||
-        "chrome-sphere",
+        "control-vehicle",
     ),
     [Values, AssignValues] = useState(() => {
       const Restored = { ...ShowcaseInitialValues };
@@ -631,7 +635,7 @@ function App() {
       () =>
         new URLSearchParams(location.search).get("project") ||
         Saved.Name ||
-        "Cornell-Studio Gallery",
+        "Open Vehicle World",
     ),
     [Rename, RenameRow] = useState(null),
     [Construct, OpenConstruct] = useState(false),
@@ -1189,7 +1193,7 @@ function App() {
     Filter([]);
     Search("");
     RenameProject(First.Name);
-    Select(First.Selected || "chrome-sphere");
+    Select(First.Selected || "control-vehicle");
     ShowMenu(null);
     Toast("Cleared cached state and restarted fresh scene");
   };
@@ -2028,7 +2032,7 @@ function App() {
     <>
       <div className="outliner-heading">
         <h1>Outliner</h1>
-        <small>Showcase · {Rows.length} nodes</small>
+        <small>Open World · {Rows.length} nodes</small>
         <button
           className="outliner-reset-btn"
           aria-label="Clear cache and reset scene"
@@ -2879,6 +2883,17 @@ function App() {
       Viewport()
     ) : Tab === "ShaderEditor" ? (
       ShaderBody(true)
+    ) : Tab === "Component Viewer" ? (
+      <ComponentViewer
+        Rows={Rows}
+        Values={Values}
+        Selected={Selected}
+        Select={(Id) => {
+          SelectRow(Id);
+          Search("");
+          Filter([]);
+        }}
+      />
     ) : Tab === "Inspector" ? (
       <>
         <div className="inspector-scroll" key={Subject.Id}>
@@ -3276,7 +3291,7 @@ function App() {
                 >
                   Selected object fracture…
                 </button>
-                {["Outliner", "Viewport", "Inspector", "ShaderEditor"].map(
+                {["Outliner", "Viewport", "Inspector", "Component Viewer", "ShaderEditor"].map(
                   (Tab) => (
                     <button key={Tab} onClick={() => RestoreTab(Tab)}>
                       {Tab}
@@ -3398,6 +3413,9 @@ function App() {
                   }}
                 >
                   Inspect in workspace
+                </button>
+                <button onClick={() => RestoreTab("Component Viewer")}>
+                  Open Component Viewer
                 </button>
                 {Subject.Panel === "geometry" && (
                   <button
@@ -3547,7 +3565,7 @@ function App() {
         ActiveLevelName={
           LevelsState.Levels.find((L) => L.Id === LevelsState.ActiveLevelId)?.Name ||
           Name ||
-          "Cornell-Studio Gallery"
+          "Open Vehicle World"
         }
         OnCancel={() => SetCreateLevelOpen(false)}
         OnCreate={HandleCreateLevel}

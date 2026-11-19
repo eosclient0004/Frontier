@@ -2,7 +2,7 @@
 //                                                    SHOWCASEGALLERYSCENE.JS
 //==========================================================================================================================================
 // 1:1 HTML mirror of Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.{h,cpp}
-// Defines the canonical Architectural Cornell-Studio Gallery scene, EditorCamera, OpenPBR materials, and live Outliner/Inspector compiler.
+// Defines the retained C++ Cornell-Studio reference fixture plus the active open ControlVehicle world, EditorCamera, OpenPBR materials, and live Outliner/Inspector compiler.
 
 import { ResolveMaterial } from "./MaterialSpecification.js";
 import {
@@ -30,7 +30,7 @@ import {
   ComputeSolarTransmittance,
   MOON_PRESET_TINTS,
 } from "./AtmosphereSky.js";
-import { Solar } from "./Solar.mjs";
+import { KelvinToLinearRgb, Solar } from "./Solar.mjs";
 import { CanonicalSdfSettings, ResolveSdfSettings } from "./SdfVolumeSystem.js";
 
 export const ConstructForceTemplates = FORCE_MODELS.map((Law) => ({
@@ -239,7 +239,7 @@ export function BuildMaterialRecord({
 }
 
 // Exact 17-entry Outliner hierarchy registered in C++ ShowcaseGalleryScene::RegisterShowcaseGalleryInOutliner
-export const ShowcaseInitialRows = [
+export const CornellStudioReferenceRows = [
   {
     Id: "showcase",
     Name: "Showcase",
@@ -458,7 +458,7 @@ const PlasterMat = () =>
     DiffuseRoughness: 0.55,
   });
 
-export const ShowcaseInitialValues = {
+export const CornellStudioReferenceValues = {
   showcase: {
     Notes: "Canonical C++ <-> HTML mirror geometry collection.",
   },
@@ -745,6 +745,176 @@ export const ShowcaseInitialValues = {
   },
 };
 
+
+// The editor now opens an intentionally sparse, outdoor world.  The historical
+// Cornell-Studio scene remains exported above as a renderer/reference fixture,
+// but it is never seeded into a new editor session.
+export const ShowcaseInitialRows = [
+  {
+    Id: "showcase",
+    Name: "Open World",
+    Panel: "group",
+    Icon: "folder-scene",
+    Parent: null,
+    Description: "Blank vehicle world · long ground plane only",
+  },
+  {
+    Id: "ground-plane",
+    Name: "Infinite Ground Plane",
+    Panel: "geometry",
+    Icon: "editor-cube",
+    Parent: "showcase",
+    Preview: true,
+    PrimitiveShape: "box",
+    Description: "2 km matte ground receiver · SDF excluded so vehicle detail keeps usable voxel density",
+  },
+  {
+    Id: "control-vehicle",
+    Name: "ControlVehicle",
+    Panel: "geometry",
+    Icon: "vehicle",
+    Parent: "showcase",
+    Preview: true,
+    PrimitiveShape: "vehicle",
+    Description: "ControlVehicle BVH mesh · body, four rims, and four tyres seated on the plane",
+  },
+  {
+    Id: "cameras",
+    Name: "Cameras",
+    Panel: "group",
+    Icon: "camera",
+    Parent: null,
+    Description: "Editor navigation camera",
+  },
+  {
+    Id: "camera",
+    Name: "Editor Camera",
+    Panel: "camera",
+    Icon: "camera",
+    Parent: "cameras",
+    Description: "Permanent editor navigation camera · vehicle framing",
+  },
+  {
+    Id: "render-settings",
+    Name: "Settings",
+    Panel: "render-settings",
+    Icon: "render-settings",
+    Parent: "camera",
+    Description: "Renderer, SDF, path tracer & per-pipeline quality",
+  },
+  {
+    Id: "world",
+    Name: "World",
+    Panel: "group",
+    Icon: "folder-world",
+    Parent: null,
+    Description: "C++ physical solar atmosphere",
+  },
+  {
+    Id: "sun",
+    Name: "Sun",
+    Panel: "sun",
+    Icon: "sun",
+    Parent: "world",
+    Preview: true,
+    Description: "C++ celestial ephemeris + physical direct solar light",
+  },
+  {
+    Id: "atmosphere",
+    Name: "Atmosphere",
+    Panel: "atmosphere",
+    Icon: "atmosphere",
+    Parent: "world",
+    Description: "C++ Bruneton/Hillaire Rayleigh · Mie · ozone SkyView LUT",
+  },
+];
+
+export const ShowcaseInitialValues = {
+  showcase: {
+    Notes: "Blank open world: ControlVehicle on a long ground receiver. No clouds, moon, stars, gallery walls, or studio lights are seeded.",
+  },
+  "ground-plane": {
+    Position: [0, 0, -0.08],
+    Rotation: [0, 0, 0],
+    Scale: [2000, 2000, 0.16],
+    "Cast shadows": true,
+    GI: true,
+    SdfExclude: true,
+    Notes: "2 km practical ground plane. Excluded from the local SDF bake so the field remains concentrated around the ControlVehicle.",
+    ...BuildMaterialRecord({
+      Type: "Standard",
+      BaseLinear: [0.18, 0.20, 0.22],
+      Roughness: 0.82,
+      DiffuseRoughness: 0.72,
+    }),
+  },
+  "control-vehicle": {
+    Position: [0, 0, 0],
+    Rotation: [0, 0, 0],
+    Scale: [1, 1, 1],
+    "Cast shadows": true,
+    GI: true,
+    Notes: "ControlVehicle BVH triangle mesh seated at local tyre contact height Z = 0.",
+    ...BuildMaterialRecord({
+      Type: "Clear coat",
+      BaseLinear: [0.72, 0.08, 0.035],
+      Metallic: 0.22,
+      Roughness: 0.14,
+      Coat: 1.0,
+      CoatRoughness: 0.03,
+    }),
+  },
+  camera: {
+    Position: [7.8, -10.5, 4.7],
+    Target: [0, 0, 0.9],
+    "Focal Length": 38,
+    "Sensor Width": 36,
+    Aperture: 5.6,
+    "Subject Distance": 13.4,
+    Notes: "Open-world vehicle framing camera. It is editor-only and remains non-removable.",
+  },
+  "render-settings": {
+    ...CanonicalRenderSettings,
+    Notes: "Camera Render Settings for the open vehicle world.",
+  },
+  sun: {
+    Intensity: 2.5,
+    Direct: 2.5,
+    "Angular Diameter": 0.533,
+    Temperature: 6500,
+    "Colour source": 1,
+    "Sun Tint": "#ffffff",
+    "Local Hours": 15.5,
+    "Day of Month": 10,
+    Month: 9,
+    Year: 2026,
+    Latitude: -26.19,
+    Longitude: 28.32,
+    UtcOffset: 2,
+    Animate: false,
+    Speed: 1,
+    Notes: "C++ CelestialEphemerisSolver defaults: astronomical sun direction and Kelvin solar tint.",
+  },
+  atmosphere: {
+    Enabled: true,
+    Rayleigh: 1.0,
+    Mie: 1.0,
+    "Mie Anisotropy": 0.78,
+    Ozone: 1.2,
+    "Rayleigh Scale H": 8000,
+    "Mie Scale H": 1200,
+    Atmosphere: 60000,
+    "Planet Radius": 6360000,
+    "Observer Altitude": 100,
+    "Solar Intensity": 22,
+    "Horizon Glow": 1.0,
+    "Sky Tint": "#ffffff",
+    "Sky Brightness": 1.0,
+    "Ground Albedo": "#142033",
+    Notes: "Direct C++ AtmosphericSkySequence SkyView model: physical Rayleigh, Mie, ozone, cool lower hemisphere, and no cloud layer.",
+  },
+};
+
 export function RowEffectivelyVisible(Row, Rows, Hidden) {
   const Visited = new Set();
   let Cursor = Row;
@@ -829,7 +999,10 @@ export function CompileLiveGtxScene(
     ozone: Math.max(0, Number(AtmoRec.Ozone ?? 1.2)),
     rayleighH: Math.max(500, Number(AtmoRec["Rayleigh Scale H"] ?? 8000)),
     mieH: Math.max(200, Number(AtmoRec["Mie Scale H"] ?? 1200)),
-    atmoTop: Math.max(20000, Number(AtmoRec.Atmosphere ?? 60000)),
+    atmoTop: Math.max(10000, Number(AtmoRec.Atmosphere ?? 60000)),
+    planetRadius: Math.max(500000, Number(AtmoRec["Planet Radius"] ?? 6360000)),
+    observerAltitude: Math.max(0, Number(AtmoRec["Observer Altitude"] ?? 100)),
+    solarIntensityScale: Math.max(0, Number(AtmoRec["Solar Intensity"] ?? 22)),
     horizonGlow: Math.max(0, Number(AtmoRec["Horizon Glow"] ?? 1.0)),
     skyTint: typeof AtmoRec["Sky Tint"] === "string" ? HexToLinearRgb(AtmoRec["Sky Tint"], [1, 1, 1]) : [1, 1, 1],
     skyBrightness: Math.max(0, Number(AtmoRec["Sky Brightness"] ?? 1.0)),
@@ -838,16 +1011,19 @@ export function CompileLiveGtxScene(
       : [0.22, 0.19, 0.15],
   };
 
+  // Clouds remain supported for imported legacy levels, but a blank/open world
+  // never synthesizes an implicit cloud deck.  Absence of the row is an explicit
+  // no-cloud decision, rather than a fallback to the old gallery preset.
   const CloudRow = Rows.find((Row) => Row.Panel === "clouds");
-  const CloudRec = (CloudRow && Values?.[CloudRow.Id]) || Values?.clouds || {};
-  const CloudVisible = CloudRow ? RowEffectivelyVisible(CloudRow, Rows, Hidden) : true;
+  const CloudRec = CloudRow ? Values?.[CloudRow.Id] || {} : {};
+  const CloudVisible = CloudRow ? RowEffectivelyVisible(CloudRow, Rows, Hidden) : false;
   const WindRow = Rows.find((Row) => Row.Panel === "wind");
-  const WindRec = (WindRow && Values?.[WindRow.Id]) || Values?.wind || {};
+  const WindRec = (WindRow && Values?.[WindRow.Id]) || {};
   const WindSpeed = Number(WindRec.Speed ?? 6.5);
   const WindBearingRad = ((Number(WindRec.Bearing ?? 25) || 0) * Math.PI) / 180;
   const FollowWind = CloudRec["Follow Wind"] !== false;
   const Clouds = {
-    enabled: CloudVisible && CloudRec.Enabled !== false,
+    enabled: Boolean(CloudRow) && CloudVisible && CloudRec.Enabled !== false,
     type: Math.max(0, Math.min(3, Math.round(Number(CloudRec.Type ?? 0)))),
     coverage: Math.max(0, Math.min(1, Number(CloudRec.Coverage ?? 0.42))),
     density: Math.max(0, Number(CloudRec.Density ?? 2.2)),
@@ -870,54 +1046,52 @@ export function CompileLiveGtxScene(
   let RawSunDir = Array.isArray(SunRec.Direction) ? SunRec.Direction : null;
   if (!RawSunDir) {
     const Ephem = Solar({
-      LocalHours: Number(SunRec["Local Hours"] ?? 13.4),
-      Month: Number(SunRec.Month ?? 10),
-      Day: Number(SunRec["Day of Month"] ?? 4),
+      Year: Number(SunRec.Year ?? 2026),
+      LocalHours: Number(SunRec["Local Hours"] ?? 15.5),
+      Month: Number(SunRec.Month ?? 9),
+      Day: Number(SunRec["Day of Month"] ?? 10),
       Latitude: Number(SunRec.Latitude ?? -26.19),
       Longitude: Number(SunRec.Longitude ?? 28.32),
       UtcOffset: Number(SunRec.UtcOffset ?? 2),
     });
     const ElR = (Ephem.Elevation * Math.PI) / 180;
     const AzR = (Ephem.Azimuth * Math.PI) / 180;
+    // Exact C++ CelestialEphemerisSolver mapping: +X north, -Y east, +Z up.
     RawSunDir = [
-      Math.cos(ElR) * Math.sin(AzR),
       Math.cos(ElR) * Math.cos(AzR),
+      -Math.cos(ElR) * Math.sin(AzR),
       Math.sin(ElR),
     ];
   }
   const SunDir = NormalizeVec3(RawSunDir, [0.42, -0.55, 0.72]);
-  const SunIntensity = Math.max(0, Number(SunRec.Intensity ?? 5.4));
-  const GainScale = SunIntensity / 5.4;
-  const BaseSunIrr = Array.isArray(SunRec.SolarIrradiance)
-    ? SunRec.SolarIrradiance
-    : [5.4, 5.1, 4.65];
+  const DirectGain = Math.max(0, Number(SunRec.Direct ?? SunRec.Intensity ?? 2.5));
   const SunTintRgb =
     SunRec["Colour source"] === 1
-      ? (() => {
-          const K = Math.max(1800, Math.min(12000, Number(SunRec.Temperature ?? 6500))) / 100;
-          const r = K <= 66 ? 1 : Math.max(0, Math.min(1, 1.2929 * Math.pow(K - 60, -0.1332)));
-          const g = K <= 66
-            ? Math.max(0, Math.min(1, 0.39008 * Math.log(K) - 0.6318))
-            : Math.max(0, Math.min(1, 1.12989 * Math.pow(K - 60, -0.0755)));
-          const b = K >= 66 ? 1 : K <= 19 ? 0 : Math.max(0, Math.min(1, 0.5432 * Math.log(K - 10) - 1.1962));
-          return [Math.pow(r, 2.2), Math.pow(g, 2.2), Math.pow(b, 2.2)];
-        })()
+      ? KelvinToLinearRgb(SunRec.Temperature ?? 5778)
       : typeof SunRec["Sun Tint"] === "string"
         ? HexToLinearRgb(SunRec["Sun Tint"], [1, 1, 1])
         : [1, 1, 1];
   const SunElevDeg = (Math.asin(Math.max(-1, Math.min(1, SunDir[2]))) * 180) / Math.PI;
-  const SunHorizonFade = Math.max(0, Math.min(1, (SunElevDeg + 1.5) / 4.5));
   const SunTrans = Atmosphere.enabled ? ComputeSolarTransmittance(SunDir, Atmosphere) : [1, 1, 1];
-  const RefNoonTrans = [0.82, 0.87, 0.92];
+  // TieredWorldRenderSequence::SynchronizeWorldAtmosphere direct-light path.
+  const SunVisibility = Math.max(0, Math.min(1, (SunElevDeg + 4.0) / 10.0));
+  const IrradianceScale = Atmosphere.solarIntensityScale * DirectGain * 0.044 * SunVisibility;
   const SunIrradiance = SunVisible
     ? [
-        BaseSunIrr[0] * GainScale * SunTintRgb[0] * (SunTrans[0] / RefNoonTrans[0]) * SunHorizonFade,
-        BaseSunIrr[1] * GainScale * SunTintRgb[1] * (SunTrans[1] / RefNoonTrans[1]) * SunHorizonFade,
-        BaseSunIrr[2] * GainScale * SunTintRgb[2] * (SunTrans[2] / RefNoonTrans[2]) * SunHorizonFade,
+        SunTintRgb[0] * SunTrans[0] * IrradianceScale,
+        SunTintRgb[1] * SunTrans[1] * IrradianceScale,
+        SunTintRgb[2] * SunTrans[2] * IrradianceScale,
       ]
     : [0, 0, 0];
-  const AngularDiamDeg = Math.max(0.1, Number(SunRec["Angular Diameter"] ?? 2.06));
+  const AngularDiamDeg = Math.max(0.1, Number(SunRec["Angular Diameter"] ?? 0.533));
   const SunAngularRadiusRad = Math.max(0.002, (AngularDiamDeg * 0.5 * Math.PI) / 180);
+  const SolarCorona = {
+    enabled: SunVisible && Atmosphere.enabled,
+    angularDiameterDegrees: AngularDiamDeg,
+    solarIntensityScale: Atmosphere.solarIntensityScale,
+    solarTransmittance: SunTrans,
+    effectiveSolarTint: SunTintRgb,
+  };
   const SkyDayVis = Math.max(0, Math.min(1, (SunElevDeg + 6.0) / 14.0));
   const BaseSkyRad = Array.isArray(SunRec.SkyRadiance)
     ? SunRec.SkyRadiance
@@ -930,9 +1104,9 @@ export function CompileLiveGtxScene(
   ];
 
   const MoonRow = Rows.find((Row) => Row.Panel === "moon");
-  const MoonRec = (MoonRow && Values?.[MoonRow.Id]) || Values?.moon || {};
+  const MoonRec = MoonRow ? Values?.[MoonRow.Id] || {} : {};
   const MoonVis =
-    (MoonRow ? RowEffectivelyVisible(MoonRow, Rows, Hidden) : true) &&
+    Boolean(MoonRow) && RowEffectivelyVisible(MoonRow, Rows, Hidden) &&
     (MoonRec["moon0:Visible"] ?? MoonRec.Visible) !== false;
   const MoonFollowSky = Boolean(MoonRec["moon0:Follow Sky"] ?? MoonRec["Follow Sky"]);
   const MoonAzDeg = Number(MoonRec["moon0:Azimuth"] ?? MoonRec.Azimuth ?? 300);
@@ -963,9 +1137,9 @@ export function CompileLiveGtxScene(
   };
 
   const StarsRow = Rows.find((Row) => Row.Panel === "stars");
-  const StarsRec = (StarsRow && Values?.[StarsRow.Id]) || Values?.stars || {};
+  const StarsRec = StarsRow ? Values?.[StarsRow.Id] || {} : {};
   const StarsVis =
-    (StarsRow ? RowEffectivelyVisible(StarsRow, Rows, Hidden) : true) &&
+    Boolean(StarsRow) && RowEffectivelyVisible(StarsRow, Rows, Hidden) &&
     StarsRec["Star field"] !== false;
   const Stars = {
     enabled: StarsVis,
@@ -1208,6 +1382,9 @@ export function CompileLiveGtxScene(
       ],
       CastShadows: (Rec["Cast shadows"] ?? !IsTransparentShell) ? 1 : 0,
       GiContributor: (Rec.GI ?? !IsTransparentShell) ? 1 : 0,
+      // Keep huge authored ground receivers in raster/BVH rendering while
+      // excluding them from the local signed-distance volume bounds.
+      SdfExclude: Rec.SdfExclude === true,
       GlassShell: IsTransparentShell,
       FaceAtlas: UseFaceAtlas,
       FaceColors: UseFaceAtlas ? Rec.FaceColors : null,
@@ -1303,6 +1480,7 @@ export function CompileLiveGtxScene(
     SunDir,
     SunIrradiance,
     SunAngularRadiusRad,
+    SolarCorona,
     SkyRadiance,
     Atmosphere,
     Clouds,
