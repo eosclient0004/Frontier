@@ -2324,6 +2324,67 @@ void evaluateMultiModeGi(vec3 pos, vec3 N, int selfPrimIdx, out vec3 giIrr, out 
   giIrr *= uGiIntensity * mix(0.85, 1.0, coneGain) * (0.35 + 0.65 * uFillBoost);
 }
 
+// The benchmark vehicle carries head/tail lamps as material IDs 13 and 14.
+// Native light transport samples those triangles. The browser's compact
+// primitive-emitter table cannot enumerate BVH triangles, so use four
+// transformed, invisible direct-light proxies derived from the lamp bounds.
+// They are render helpers only and follow the authored body instance.
+const int CONTROL_VEHICLE_INSTANCE_STRIDE = 9;
+
+vec3 vehicleBodyPointWorld(int instIdx, vec3 localPos) {
+  vec4 c0 = fetchBvhInst(instIdx, 0);
+  vec4 c1 = fetchBvhInst(instIdx, 1);
+  vec4 c2 = fetchBvhInst(instIdx, 2);
+  vec4 c3 = fetchBvhInst(instIdx, 3);
+  return c0.xyz * localPos.x + c1.xyz * localPos.y + c2.xyz * localPos.z + c3.xyz;
+}
+
+vec3 vehicleBodyDirectionWorld(int instIdx, vec3 localDir) {
+  vec4 c0 = fetchBvhInst(instIdx, 0);
+  vec4 c1 = fetchBvhInst(instIdx, 1);
+  vec4 c2 = fetchBvhInst(instIdx, 2);
+  return normalize(c0.xyz * localDir.x + c1.xyz * localDir.y + c2.xyz * localDir.z);
+}
+
+vec3 evaluateControlVehicleLampDirect(HitInfo hit, vec3 N, vec3 Nc, vec3 T, vec3 B, vec3 V, SampledMaterial mat, vec3 edgeTint) {
+  vec3 lampLo = vec3(0.0);
+  for (int bodyInst = 0; bodyInst < 128; bodyInst += CONTROL_VEHICLE_INSTANCE_STRIDE) {
+    if (bodyInst >= uVehicleInstCount) break;
+    vec4 bodyMeta = fetchBvhInst(bodyInst, 8);
+    int bodyPick = int(round(bodyMeta.y));
+    // Do not let a lamp directly light another material on the same car.
+    if (hit.isVehicle && hit.vehPickCode == bodyPick) continue;
+    for (int lampIdx = 0; lampIdx < 4; ++lampIdx) {
+      bool isHeadlamp = lampIdx < 2;
+      float side = (lampIdx & 1) == 0 ? -0.88 : 0.88;
+      vec3 localPos = vec3(isHeadlamp ? 3.00 : -3.04, side, isHeadlamp ? 0.55 : 0.68);
+      vec3 localForward = isHeadlamp ? vec3(1.0, 0.0, 0.0) : vec3(-1.0, 0.0, 0.0);
+      vec3 lampPos = vehicleBodyPointWorld(bodyInst, localPos);
+      vec3 lampForward = vehicleBodyDirectionWorld(bodyInst, localForward);
+      vec3 toLamp = lampPos - hit.pos;
+      float d2 = max(0.04, dot(toLamp, toLamp));
+      float dist = sqrt(d2);
+      vec3 L = toLamp / dist;
+      float nDotL = max(0.0, dot(N, L));
+      float facing = max(0.0, dot(lampForward, -L));
+      if (nDotL <= 0.0 || facing <= 0.001) continue;
+      float radius = isHeadlamp ? 0.27 : 0.20;
+      float beam = isHeadlamp ? pow(facing, 3.0) : facing;
+      vec3 radiance = isHeadlamp ? vec3(55.0, 47.0, 32.0) : vec3(20.0, 0.55, 0.42);
+      float solidOmega = min(2.0, (radius * radius) / d2);
+      float vis = 1.0;
+      if (uEmissiveShadowed != 0) {
+        int selfIdx = hit.isVehicle ? -1 : hit.primIdx;
+        float rawVis = evalBvhRayShadow(hit.pos + N * 0.012, N, L, max(0.02, dist - 0.03), clamp(radius / max(dist, 0.35), 0.04, 0.24) * uShadowSoftness, 2, selfIdx, bodyPick);
+        vis = mix(0.03, 1.0, rawVis);
+      }
+      vec3 lampIrr = radiance * solidOmega * beam * 1.45 * vis;
+      lampLo += evaluateOpenPbrDirect(N, Nc, T, B, V, L, mat, edgeTint) * lampIrr;
+    }
+  }
+  return lampLo;
+}
+
 vec3 shadePrimaryOpaqueHit(HitInfo hit, vec3 V) {
   int idx = hit.isVehicle ? -1 : hit.primIdx;
   SampledMaterial origMat;
@@ -2374,6 +2435,12 @@ vec3 shadePrimaryOpaqueHit(HitInfo hit, vec3 V) {
       float mVis = evalBvhRayShadow(hit.pos, N, mDir, 28.0, max(0.01, uMoonCfg0.w), 2, idx, -1);
       Lo += evaluateOpenPbrDirect(N, Nc, T, B, V, mDir, mat, edgeTint) * mIrr * mix(0.04, 1.0, mVis);
     }
+  }
+
+  // ControlVehicle lamps live in BVH material IDs 13/14, not primitive rows.
+  // Add their transformed direct proxies before the analytical-emitter pass.
+  if (uViewMode == 0) {
+    Lo += evaluateControlVehicleLampDirect(hit, N, Nc, T, B, V, mat, edgeTint);
   }
 
   // 1C. Direct shadowed lighting from emissive primitives (closest-point + soft penumbra + specular GGX)

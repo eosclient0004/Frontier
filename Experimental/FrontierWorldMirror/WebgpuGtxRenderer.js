@@ -2307,6 +2307,74 @@ fn evaluateMultiModeGi(pos : vec3f, N : vec3f, selfPrimIdx : i32) -> GiAoOut {
   return baseGi;
 }
 
+// The benchmark vehicle carries head/tail lamps as material IDs 13 and 14.
+// In the native renderer those triangles are sampled by the light transport
+// sequence. The browser BVH has the same emissive surfaces, but its compact
+// direct-emitter table only contains analytical primitives. These four small
+// transformed proxies close that representation gap: their centres are taken
+// from the lamp-triangle bounds in VehicleBenchmarkAssets.bin and follow the
+// body instance exactly. They are invisible render helpers, not scene actors.
+const CONTROL_VEHICLE_INSTANCE_STRIDE : i32 = 9;
+
+fn vehicleBodyPointWorld(instIdx : i32, localPos : vec3f) -> vec3f {
+  let ib = instIdx * 10;
+  let c0 = uBvhInsts[ib];
+  let c1 = uBvhInsts[ib + 1];
+  let c2 = uBvhInsts[ib + 2];
+  let c3 = uBvhInsts[ib + 3];
+  return c0.xyz * localPos.x + c1.xyz * localPos.y + c2.xyz * localPos.z + c3.xyz;
+}
+
+fn vehicleBodyDirectionWorld(instIdx : i32, localDir : vec3f) -> vec3f {
+  let ib = instIdx * 10;
+  let c0 = uBvhInsts[ib];
+  let c1 = uBvhInsts[ib + 1];
+  let c2 = uBvhInsts[ib + 2];
+  return normalize(c0.xyz * localDir.x + c1.xyz * localDir.y + c2.xyz * localDir.z);
+}
+
+fn evaluateControlVehicleLampDirect(hit : HitInfo, N : vec3f, Nc : vec3f, T : vec3f, B : vec3f, V : vec3f, mat : SampledMaterial, edgeTint : vec3f) -> vec3f {
+  var lampLo = vec3f(0.0);
+  let instCount = U.uRenderCfg3.x;
+  for (var bodyInst : i32 = 0; bodyInst < 128; bodyInst = bodyInst + CONTROL_VEHICLE_INSTANCE_STRIDE) {
+    if (bodyInst >= instCount) { break; }
+    let bodyMeta = uBvhInsts[bodyInst * 10 + 8];
+    let bodyPick = i32(round(bodyMeta.y));
+    // Never make a lamp directly illuminate another material of the same car.
+    // Its visible emission and the BVH GI bounce still shade the vehicle itself.
+    if (hit.isVehicle && hit.vehPickCode == bodyPick) { continue; }
+    for (var lampIdx : i32 = 0; lampIdx < 4; lampIdx = lampIdx + 1) {
+      let isHeadlamp = lampIdx < 2;
+      let side = select(-0.88, 0.88, (lampIdx % 2) == 1);
+      let localPos = vec3f(select(-3.04, 3.00, isHeadlamp), side, select(0.68, 0.55, isHeadlamp));
+      let localForward = select(vec3f(-1.0, 0.0, 0.0), vec3f(1.0, 0.0, 0.0), isHeadlamp);
+      let lampPos = vehicleBodyPointWorld(bodyInst, localPos);
+      let lampForward = vehicleBodyDirectionWorld(bodyInst, localForward);
+      let toLamp = lampPos - hit.pos;
+      let d2 = max(0.04, dot(toLamp, toLamp));
+      let dist = sqrt(d2);
+      let lDir = toLamp / dist;
+      let nDotL = max(0.0, dot(N, lDir));
+      let facing = max(0.0, dot(lampForward, -lDir));
+      if (nDotL <= 0.0 || facing <= 0.001) { continue; }
+      let radius = select(0.20, 0.27, isHeadlamp);
+      let beam = select(facing, pow(facing, 3.0), isHeadlamp);
+      let radiance = select(vec3f(20.0, 0.55, 0.42), vec3f(55.0, 47.0, 32.0), isHeadlamp);
+      let solidOmega = min(2.0, (radius * radius) / d2);
+      var vis = 1.0;
+      if (U.uRenderCfg2.x != 0) {
+        // Skip this vehicle's body so the proxy sits on its authored emissive
+        // triangles instead of self-occluding them at the source epsilon.
+        let rawVis = evalWgslBvhRayShadow(hit.pos + N * 0.012, lDir, max(0.02, dist - 0.03), clamp(radius / max(dist, 0.35), 0.04, 0.24) * U.uRenderCfg1.x, 2, select(hit.primIdx, -1, hit.isVehicle), bodyPick);
+        vis = mix(0.03, 1.0, rawVis);
+      }
+      let lampIrr = radiance * solidOmega * beam * 1.45 * vis;
+      lampLo = lampLo + evaluateOpenPbrDirect(N, Nc, T, B, V, lDir, mat, edgeTint) * lampIrr;
+    }
+  }
+  return lampLo;
+}
+
 fn shadePrimaryOpaqueHit(hit : HitInfo, V : vec3f) -> vec3f {
   let idx = hit.primIdx;
   var origMat : SampledMaterial;
@@ -2359,6 +2427,13 @@ fn shadePrimaryOpaqueHit(hit : HitInfo, V : vec3f) -> vec3f {
       let mVis = evalWgslBvhRayShadow(hit.pos + N * 0.008, mDir, 28.0, max(0.01, U.uMoonCfg0.w), 2, idx, -1);
       Lo = Lo + evaluateOpenPbrDirect(N, Nc, T, B, V, mDir, mat, edgeTint) * mIrr * mix(0.04, 1.0, mVis);
     }
+  }
+
+  // Vehicle lamps are triangle emissives in the BVH rather than packed
+  // analytical primitives. Evaluate their transformed direct proxies before
+  // the regular primitive-emitter pass so their ground response is stable.
+  if (viewMode == 0) {
+    Lo = Lo + evaluateControlVehicleLampDirect(hit, N, Nc, T, B, V, mat, edgeTint);
   }
 
   // Direct shadowed lighting from emissive primitives (closest-point + soft penumbra + specular GGX)

@@ -1755,6 +1755,8 @@ assert.ok(
   const EmissiveScene = CompileLiveGtxScene(EmissiveRows, EmissiveValues, {}, "PERSP");
   assert.equal(EmissiveScene.Primitives.find((Primitive) => Primitive.Id === "validation-emitter")?.Emission, 12, "Authored emissive material is compiled into live direct and BVH-GI transport");
   assert.ok(GTX_WGSL_SCENE_SHADER.includes("Direct shadowed lighting from emissive primitives") && GTX_WGSL_SCENE_SHADER.includes("true multi-bounce emissive GI"), "WebGPU renderer includes direct emissive transport and emissive indirect bounce paths");
+  assert.ok(GTX_WGSL_SCENE_SHADER.includes("evaluateControlVehicleLampDirect") && GTX_WGSL_SCENE_SHADER.includes("CONTROL_VEHICLE_INSTANCE_STRIDE"), "WebGPU maps vehicle BVH lamp materials to transformed direct-light proxies");
+  assert.ok(ViewportSrc.includes("evaluateControlVehicleLampDirect") && ViewportSrc.includes("CONTROL_VEHICLE_INSTANCE_STRIDE"), "WebGL fallback maps the same vehicle lamp proxies");
   const CppSkyLut = BuildSkyViewLut(OpenWorld.SunDir, OpenWorld.Atmosphere);
   assert.equal(SKY_VIEW_WIDTH, 256, "C++ SkyView LUT width is mirrored exactly");
   assert.equal(SKY_VIEW_HEIGHT, 128, "C++ SkyView LUT height is mirrored exactly");
