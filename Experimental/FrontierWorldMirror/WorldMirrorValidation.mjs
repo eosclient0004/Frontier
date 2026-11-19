@@ -330,12 +330,26 @@ assert.ok(
   "Non-SDF PCSS/SMRT/PCF/BVH shadow pipeline, ControlVehicle BVH, and 2px silhouette outline present",
 );
 
-// 8. Verify Zero-WebGL CpuGtxRenderer + KHR_parallel_shader_compile Dual-Backend Self-Healing Parity
+// 8. The interactive viewport is strictly GPU-only. CpuGtxRenderer below is an
+// offline math/reference test fixture and must never be bundled or imported by it.
+const WorldBundleSrc = fs.readFileSync(path.join(Folder, "index.html"), "utf8");
 assert.ok(
   ViewportSrc.includes("KHR_parallel_shader_compile") &&
-    ViewportSrc.includes("CpuGtxRenderer") &&
-    ViewportSrc.includes("SessionWebGlBlocked"),
-  "Dual-backend KHR_parallel_shader_compile + zero-WebGL CpuGtxRenderer self-healing wired",
+    ViewportSrc.includes("GPU rendering unavailable") &&
+    ViewportSrc.includes("MarkGpuUnavailable") &&
+    !ViewportSrc.includes("CpuGtxRenderer") &&
+    !ViewportSrc.includes('"cpu-gtx"') &&
+    !WorldBundleSrc.includes("CpuGtxFallbackRenderer") &&
+    !WorldBundleSrc.includes("Full GTX CPU"),
+  "GPU-only viewport surfaces a real unavailable state and ships no CPU fallback",
+);
+assert.ok(
+  ViewportSrc.includes("RenderSettingsSignature") &&
+    ViewportSrc.includes("AaScale") &&
+    ViewportSrc.includes("render-settings-invalidated") &&
+    WebgpuSrc.includes("EncodeRenderSettingsUniforms") &&
+    ViewportSrc.includes("RsU.antiAliasing"),
+  "Render Settings invalidate and alter GPU resolution/uniform pipelines",
 );
 const CpuFallback = new CpuGtxRenderer();
 const CpuAtlas = new MaterialAtlasSynchronizer();
@@ -477,8 +491,10 @@ assert.ok(
   HtmlText.includes("Frontier World Mirror — Open Vehicle World") &&
     HtmlText.includes("evalShadowMapPCSS") &&
     HtmlText.includes("KHR_parallel_shader_compile") &&
-    (HtmlText.includes("RequestAtomicFrame") || HtmlText.includes("bandDone")),
-  "Bundled index.html embeds Multi-Worker Atomic Double-Buffered GTX pipeline",
+    HtmlText.includes("GPU rendering unavailable") &&
+    !HtmlText.includes("RequestAtomicFrame") &&
+    !HtmlText.includes("Full GTX CPU"),
+  "Bundled index.html embeds the GPU-only GTX pipeline without an atomic CPU renderer",
 );
 assert.ok(
   HtmlText.includes("Create New Level") &&
@@ -1141,6 +1157,9 @@ assert.ok(
   assert.equal(RsUniforms.shadowMapRes, 1024);
   assert.equal(RsUniforms.smrtRays, 8);
   assert.equal(RsUniforms.renderScale, 75);
+  const HalfResUniforms = EncodeRenderSettingsUniforms({ ShadowMapRes: 2048, HalfResShadows: true, AntiAliasing: false });
+  assert.equal(HalfResUniforms.shadowMapRes, 1024, "Half-resolution shadows allocate an actually smaller GPU depth target");
+  assert.equal(HalfResUniforms.antiAliasing, 0, "Edge AA setting reaches the GPU resolution path");
 
   const UnitGeoms = BuildUnitShadowGeometries();
   for (const ShapeId of [0, 1, 2, 3, 4, 5]) {
@@ -1758,7 +1777,7 @@ assert.ok(
   assert.equal(EmissiveScene.Primitives.find((Primitive) => Primitive.Id === "validation-emitter")?.Emission, 12, "Authored emissive material is compiled into live direct and BVH-GI transport");
   assert.ok(GTX_WGSL_SCENE_SHADER.includes("Direct shadowed lighting from emissive primitives") && GTX_WGSL_SCENE_SHADER.includes("true multi-bounce emissive GI"), "WebGPU renderer includes direct emissive transport and emissive indirect bounce paths");
   assert.ok(GTX_WGSL_SCENE_SHADER.includes("evaluateControlVehicleLampDirect") && GTX_WGSL_SCENE_SHADER.includes("CONTROL_VEHICLE_INSTANCE_STRIDE"), "WebGPU maps vehicle BVH lamp materials to transformed direct-light proxies");
-  assert.ok(ViewportSrc.includes("evaluateControlVehicleLampDirect") && ViewportSrc.includes("CONTROL_VEHICLE_INSTANCE_STRIDE"), "WebGL fallback maps the same vehicle lamp proxies");
+  assert.ok(ViewportSrc.includes("evaluateControlVehicleLampDirect") && ViewportSrc.includes("CONTROL_VEHICLE_INSTANCE_STRIDE"), "WebGL2 GPU path maps the same vehicle lamp proxies");
   const CppSkyLut = BuildSkyViewLut(OpenWorld.SunDir, OpenWorld.Atmosphere);
   assert.equal(SKY_VIEW_WIDTH, 256, "C++ SkyView LUT width is mirrored exactly");
   assert.equal(SKY_VIEW_HEIGHT, 128, "C++ SkyView LUT height is mirrored exactly");

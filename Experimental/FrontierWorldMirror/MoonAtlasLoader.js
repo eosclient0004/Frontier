@@ -2,7 +2,7 @@
 // FILE: MoonAtlasLoader.js
 // PURPOSE: Decodes the 6 embedded 2K-derived celestial moon textures (luna, ember, glacier, sulfur, shroud, shard) from
 //          window.NativeAssets.Moons into a single stacked RGBA8 texture atlas (6 vertical equirectangular tiles) for
-//          WebGPU, WebGL2, and CpuGtxFallbackRenderer.
+//          WebGPU/WebGL2 runtime renderers and offline reference validation.
 //==========================================================================================================================================
 
 export const MOON_TILE_W = 512;

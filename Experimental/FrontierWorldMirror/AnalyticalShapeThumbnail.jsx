@@ -1,97 +1,50 @@
-import React, { useEffect, useState } from "react";
-import { RenderAnalyticalThumbnailDataUrl } from "./ModelThumbnailRenderer.js";
+import React from "react";
 
-let SyncRenderBudget = 10;
+// Asset thumbnails are intentionally declarative glyphs. The live World Mirror
+// renderer is GPU-only and no background CPU raytracer is imported to decorate
+// the editor chrome.
+const ShapeGlyph = ({ PropId, Shape }) => {
+  const Key = `${PropId || ""} ${Shape || ""}`.toLowerCase();
+  if (Key.includes("vehicle") || Key.includes("car")) return "▱";
+  if (Key.includes("camera")) return "◉";
+  if (Key.includes("light")) return "✦";
+  if (Key.includes("cone")) return "▲";
+  if (Key.includes("sphere")) return "●";
+  if (Key.includes("cylinder")) return "▯";
+  if (Key.includes("torus")) return "⊙";
+  if (Key.includes("box") || Key.includes("cube")) return "◆";
+  return "◇";
+};
 
 export function AnalyticalShapeThumbnail({
   PropId = null,
-  Shape = "cone",
-  Scale = null,
-  Material = null,
-  FaceColors = null,
+  Shape = null,
   Size = 48,
   ClassName = "",
   Style = undefined,
 }) {
-  const RenderPx = Math.min(96, Math.max(52, Math.round(Size * 1.6)));
-  const [Src, SetSrc] = useState(() => {
-    if (SyncRenderBudget > 0) {
-      SyncRenderBudget -= 1;
-      return RenderAnalyticalThumbnailDataUrl({
-        PropId,
-        Shape,
-        Scale,
-        Material,
-        FaceColors,
-        Size: RenderPx,
-      });
-    }
-    return "";
-  });
-
-  useEffect(() => {
-    let Cancelled = false;
-    const Handle = setTimeout(() => {
-      if (Cancelled) return;
-      const Next = RenderAnalyticalThumbnailDataUrl({
-        PropId,
-        Shape,
-        Scale,
-        Material,
-        FaceColors,
-        Size: RenderPx,
-      });
-      if (!Cancelled && Next && Next !== Src) SetSrc(Next);
-    }, 0);
-    return () => {
-      Cancelled = true;
-      clearTimeout(Handle);
-    };
-  }, [PropId, Shape, RenderPx, Scale, Material, FaceColors]);
-
-  if (!Src) {
-    return (
-      <span
-        className={"analytical-thumb-fallback " + ClassName}
-        data-thumb-shape={PropId || Shape}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: Size,
-          height: Size,
-          background: "transparent",
-          color: "rgba(220,224,232,0.55)",
-          fontSize: Math.max(8, Math.round(Size * 0.28)),
-          flexShrink: 0,
-          ...Style,
-        }}
-      >
-        ◇
-      </span>
-    );
-  }
-
   return (
-    <img
-      src={Src}
-      alt=""
-      width={Size}
-      height={Size}
-      draggable={false}
-      data-thumb-shape={PropId || Shape}
-      className={"analytical-thumb-img " + ClassName}
+    <span
+      aria-hidden="true"
+      className={"analytical-thumb-glyph " + ClassName}
+      data-thumb-shape={PropId || Shape || "asset"}
       style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         width: Size,
         height: Size,
-        objectFit: "contain",
         background: "transparent",
-        display: "block",
+        color: "rgba(220,224,232,0.72)",
+        fontSize: Math.max(10, Math.round(Size * 0.48)),
+        fontWeight: 300,
+        lineHeight: 1,
         flexShrink: 0,
-        pointerEvents: "none",
         ...Style,
       }}
-    />
+    >
+      <ShapeGlyph PropId={PropId} Shape={Shape} />
+    </span>
   );
 }
 

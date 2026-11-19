@@ -411,7 +411,7 @@ export function SampleSkyViewLutCpu(lut, dx, dy, dz) {
   return [channel(0), channel(1), channel(2)];
 }
 
-// CPU 3D Value-Noise FBM for volumetric cloud parity in CpuGtxFallbackRenderer
+// Reference 3D Value-Noise FBM used by offline atmosphere validation.
 function Hash3(ix, iy, iz) {
   let n = (ix * 374761393 + iy * 668265263 + iz * 2147483647) | 0;
   n = (n ^ (n >>> 13)) * 1274126177;

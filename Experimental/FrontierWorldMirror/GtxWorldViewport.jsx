@@ -67,7 +67,6 @@ import {
   SolveGizmoDrag,
 } from "./TransformGizmo3D.js";
 import { CreateWebgpuGtxRenderer } from "./WebgpuGtxRenderer.js";
-import { CpuGtxRenderer, DrawSlateGizmo2D } from "./CpuGtxFallbackRenderer.js";
 import {
   ApplyUnrealDolly,
   ApplyUnrealMouseLook,
@@ -93,7 +92,8 @@ import {
 
 export { RowEffectivelyVisible as PreviewVisible };
 
-// Remember within this tab session if Chromium has domain-blocked WebGPU or WebGL2 so remounts never spam context loss
+// The viewport is GPU-only. A device or shader failure must remain visible rather
+// than silently changing renderer class or lighting behaviour.
 let SessionWebGpuBlocked = false;
 let SessionWebGlBlocked = false;
 
@@ -101,7 +101,7 @@ function PreferInitialBackend() {
   if (typeof navigator !== "undefined" && navigator.gpu && !SessionWebGpuBlocked) {
     return "webgpu";
   }
-  return SessionWebGlBlocked ? "cpu-gtx" : "webgl2";
+  return SessionWebGlBlocked ? "unavailable" : "webgl2";
 }
 
 const MAX_PRIMS = 384;
@@ -144,7 +144,7 @@ precision highp float;
 precision highp int;
 // GLSL ES requires an explicit default sampler precision in fragment shaders.
 // Chromium/ANGLE rejects the SDF volume declaration without this line, which
-// previously meant a baked-SDF session lost the entire WebGL fallback pipeline.
+// previously meant the GPU SDF pipeline could not link.
 precision highp sampler2D;
 precision highp sampler3D;
 
@@ -2976,6 +2976,22 @@ function ComputeNonCameraSceneSignature(Scene) {
   return Parts;
 }
 
+function FormatGpuFailure(Reason) {
+  const Raw = String(Reason || "unknown GPU failure").replace(/\0/g, "\n");
+  const RegisterLimit = Raw.match(/Too many temporary registers required to compile shader/g) || [];
+  if (RegisterLimit.length) {
+    const Header = Raw
+      .split(/\n+/)
+      .map((Line) => Line.trim())
+      .filter(Boolean)
+      .filter((Line) => !Line.includes("Too many temporary registers required"))
+      .slice(0, 8)
+      .join("\n");
+    return `${Header}\nERROR: The GPU fragment shader exceeded this adapter's temporary-register budget (${RegisterLimit.length} compiler reports).`;
+  }
+  return Raw.replace(/\s+/g, " ").trim();
+}
+
 function SendViewportDiag(Fields) {
   // This is a standalone HTML application too.  The former GET to /__diag
   // produced a spurious 404 on every static host, which obscured genuine GPU
@@ -3115,7 +3131,6 @@ export default function GtxWorldViewport({
   const CanvasRef = useRef(null);
   const WebgpuRef = useRef(null);
   const GlStateRef = useRef(null);
-  const CpuRendererRef = useRef(null);
   const DragRef = useRef(null);
   const KeysRef = useRef(new Set());
   const AtlasSyncRef = useRef(null);
@@ -3123,17 +3138,12 @@ export default function GtxWorldViewport({
   const BuiltGizmoRef = useRef(null);
   const SceneDirtyRef = useRef(true);
   const SceneDataDirtyRef = useRef(true);
-  const EvictionCountRef = useRef(0);
-  const FastCrashCountRef = useRef(0);
-  const PendingGpuRestoreRef = useRef(false);
 
   // Live Unreal camera state decoupled from 60/120Hz full-Editor React re-renders
   const LiveCamRef = useRef(null);
   const LastCommittedCamRef = useRef(null);
   const ViewportHoveredRef = useRef(false);
   const IsWasdFlyingRef = useRef(false);
-  const InteractiveUntilRef = useRef(0);
-  const SettleTimerRef = useRef(0);
   const CommitTimerRef = useRef(0);
   const SpeedHudTimerRef = useRef(0);
   const LastInspectorCommitMsRef = useRef(0);
@@ -3142,11 +3152,10 @@ export default function GtxWorldViewport({
   const RenderPropsRef = useRef(null);
   const SdfVolumeRef = useRef(null);
   SdfVolumeRef.current = SdfVolume;
-  const RenderBackendRef = useRef("webgpu");
   const FpsTrackerRef = useRef({ LastRafTs: 0, LastReportTs: 0, SmoothedMs: 8.33 });
 
   const [RenderBackend, SetRenderBackend] = useState(PreferInitialBackend);
-  RenderBackendRef.current = RenderBackend;
+  const [GpuFailure, SetGpuFailure] = useState(null);
 
   const [CanvasInstance, SetCanvasInstance] = useState(0);
   const [GlEpoch, SetGlEpoch] = useState(0);
@@ -3300,7 +3309,7 @@ export default function GtxWorldViewport({
     let RafId = 0;
     let LastMs = typeof performance !== "undefined" ? performance.now() : 0;
     let LastHudMs = LastMs;
-    const IntervalMs = RenderBackend === "cpu-gtx" ? 90 : 33;
+    const IntervalMs = 33;
     const Tick = (NowMs) => {
       if (NowMs - LastMs >= IntervalMs) {
         const Dt = Math.min(0.08, Math.max(0.001, (NowMs - LastMs) * 0.001));
@@ -3342,7 +3351,7 @@ export default function GtxWorldViewport({
   ]);
 
   useEffect(() => {
-    if (!CompiledScene.HasAnimatedSky || RenderBackend === "cpu-gtx") return undefined;
+    if (!CompiledScene.HasAnimatedSky) return undefined;
     let RafId = 0;
     let LastMs = typeof performance !== "undefined" ? performance.now() : 0;
     const Tick = (NowMs) => {
@@ -3359,7 +3368,7 @@ export default function GtxWorldViewport({
   }, [CompiledScene.HasAnimatedSky, RenderBackend]);
 
   useEffect(() => {
-    if (!CompiledScene.HasSpinningFans || RenderBackend === "cpu-gtx") return undefined;
+    if (!CompiledScene.HasSpinningFans) return undefined;
     let RafId = 0;
     let LastMs = typeof performance !== "undefined" ? performance.now() : 0;
     const Tick = (NowMs) => {
@@ -3389,6 +3398,21 @@ export default function GtxWorldViewport({
     () => ComputeNonCameraSceneSignature(CompiledScene),
     [CompiledScene],
   );
+  const RenderSettingsSignature = useMemo(
+    () => JSON.stringify(CompiledScene.RenderSettings || {}),
+    [CompiledScene],
+  );
+
+  // Emit an inspectable record for each settings change. The same settings object
+  // is consumed by the WebGPU uniform block or WebGL2 uniforms on the next draw.
+  useEffect(() => {
+    SendViewportDiag({
+      event: "render-settings-invalidated",
+      backend: RenderBackend,
+      gpuOnly: 1,
+      settings: CompiledScene.RenderSettings || {},
+    });
+  }, [RenderSettingsSignature, RenderBackend]);
 
   // Initialize or sync LiveCamRef when external Editor actions (Reset Camera, Frame Selected, Level Switch) modify Values.camera
   if (!LiveCamRef.current) {
@@ -3507,52 +3531,21 @@ export default function GtxWorldViewport({
     [CameraCallback, EffectiveProjection, Selected],
   );
 
-  const BumpInteractiveSettle = useCallback((WindowMs = 380) => {
-    // Hardware WebGL2 renders full native resolution on every single 120Hz frame — ZERO post-move settle redraw!
-    if (RenderBackendRef.current !== "cpu-gtx") return;
-    InteractiveUntilRef.current = performance.now() + WindowMs;
-    if (SettleTimerRef.current) window.clearTimeout(SettleTimerRef.current);
-    SettleTimerRef.current = window.setTimeout(() => {
-      SettleTimerRef.current = 0;
-      if (RenderBackendRef.current === "cpu-gtx") {
-        SceneDirtyRef.current = true;
-        RequestRedrawRef.current?.(true);
-      }
-    }, WindowMs + 16);
-  }, []);
-
   const ApplyLiveCameraUpdate = useCallback(
     (NextCam, CommitImmediate = false) => {
       LiveCamRef.current = NextCam;
       SceneDirtyRef.current = true;
-      BumpInteractiveSettle(380);
       RequestRedrawRef.current?.(true);
       CommitLiveCameraToEditor(CommitImmediate);
     },
-    [BumpInteractiveSettle, CommitLiveCameraToEditor],
+    [CommitLiveCameraToEditor],
   );
 
-  // Clean up timers and Web Worker pool on unmount
   useEffect(() => {
     return () => {
-      if (SettleTimerRef.current) window.clearTimeout(SettleTimerRef.current);
       if (CommitTimerRef.current) window.clearTimeout(CommitTimerRef.current);
       if (SpeedHudTimerRef.current) window.clearTimeout(SpeedHudTimerRef.current);
-      CpuRendererRef.current?.DisposeWorkers();
     };
-  }, []);
-
-  // Automatically restore hardware WebGL2 GPU when tab returns to foreground after background context eviction!
-  useEffect(() => {
-    const OnVisibility = () => {
-      if (document.visibilityState === "visible" && PendingGpuRestoreRef.current && !SessionWebGlBlocked) {
-        PendingGpuRestoreRef.current = false;
-        SetCanvasInstance((K) => K + 1);
-        SetRenderBackend("webgl2");
-      }
-    };
-    document.addEventListener("visibilitychange", OnVisibility);
-    return () => document.removeEventListener("visibilitychange", OnVisibility);
   }, []);
 
   const SelectedGizmoTarget = useMemo(
@@ -3601,6 +3594,14 @@ export default function GtxWorldViewport({
     RequestRedrawRef.current?.(false);
   }, [HoveredHandle, ActiveHandle, EffectiveGizmo, SelectedGizmoTarget, CompiledScene.ForceSignature]);
 
+  const MarkGpuUnavailable = useCallback((Backend, Reason) => {
+    const Message = FormatGpuFailure(Reason);
+    SessionWebGlBlocked = Backend === "webgl2" || SessionWebGlBlocked;
+    SendViewportDiag({ backend: "unavailable", from: Backend, reason: Message, gpuOnly: 1 });
+    SetGpuFailure({ Backend, Message });
+    SetRenderBackend("unavailable");
+  }, []);
+
   // Tier-0 Hardware WebGPU (Dawn D3D12 / Vulkan / Metal — bypasses ANGLE WebGL context blocks completely!)
   useEffect(() => {
     if (RenderBackend !== "webgpu") return;
@@ -3608,20 +3609,23 @@ export default function GtxWorldViewport({
     if (!Canvas) return;
 
     let Cancelled = false;
-    const FallbackFromWebGpu = (Reason) => {
+    const ContinueWithWebGlGpu = (Reason) => {
       if (Cancelled) return;
       SessionWebGpuBlocked = true;
       if (WebgpuRef.current) {
         WebgpuRef.current.Destroy();
         WebgpuRef.current = null;
       }
-      const NextBackend = SessionWebGlBlocked ? "cpu-gtx" : "webgl2";
-      SendViewportDiag({ backend: NextBackend, from: "webgpu", reason: Reason });
-      SetRenderBackend(NextBackend);
+      if (SessionWebGlBlocked) {
+        MarkGpuUnavailable("webgpu", Reason);
+        return;
+      }
+      SendViewportDiag({ backend: "webgl2", from: "webgpu", reason: Reason, gpuOnly: 1 });
+      SetRenderBackend("webgl2");
     };
 
     CreateWebgpuGtxRenderer((LostReason) => {
-      FallbackFromWebGpu(`device-lost:${LostReason}`);
+      ContinueWithWebGlGpu(`device-lost:${LostReason}`);
     }).then((Res) => {
       if (Cancelled) {
         if (Res.Ok) Res.Destroy();
@@ -3629,7 +3633,7 @@ export default function GtxWorldViewport({
       }
       if (!Res.Ok || !CanvasRef.current || !Res.AttachCanvas(CanvasRef.current)) {
         if (Res.Ok) Res.Destroy();
-        FallbackFromWebGpu(Res.Ok ? "attach-canvas-failed" : Res.Reason);
+        ContinueWithWebGlGpu(Res.Ok ? "attach-canvas-failed" : Res.Reason);
         return;
       }
       AtlasSyncRef.current?.InvalidateAll();
@@ -3647,7 +3651,7 @@ export default function GtxWorldViewport({
         WebgpuRef.current = null;
       }
     };
-  }, [RenderBackend, CanvasInstance]);
+  }, [RenderBackend, CanvasInstance, MarkGpuUnavailable]);
 
   // Stable WebGPU 120Hz Render Pipeline (depends ONLY on [RenderBackend, WgpuEpoch] -> zero ResizeObserver churn!)
   useEffect(() => {
@@ -3676,7 +3680,10 @@ export default function GtxWorldViewport({
 
       const Rect = Canvas.getBoundingClientRect();
       const RsScale = (ActiveScene.RenderSettings?.RenderScale || 100) / 100;
-      const Dpr = Math.min(window.devicePixelRatio || 1, 1.5) * RsScale;
+      // Edge AA is hardware supersampling: allocate a larger GPU color target,
+      // then let the browser composite it into the CSS-sized viewport.
+      const AaScale = ActiveScene.RenderSettings?.AntiAliasing !== false ? 1.15 : 1.0;
+      const Dpr = Math.min(window.devicePixelRatio || 1, 1.5) * RsScale * AaScale;
       const Width = Math.max(240, Math.min(1600, Math.round((Rect.width || 900) * Dpr)));
       const Height = Math.max(160, Math.min(1000, Math.round((Rect.height || 520) * Dpr)));
       if (Canvas.width !== Width || Canvas.height !== Height) {
@@ -3865,8 +3872,7 @@ export default function GtxWorldViewport({
     }
     if (!Gl || Gl.isContextLost()) {
       SessionWebGlBlocked = true;
-      SendViewportDiag({ backend: "cpu-gtx", reason: "getContext-null-or-lost" });
-      SetRenderBackend("cpu-gtx");
+      MarkGpuUnavailable("webgl2", "getContext-null-or-lost");
       return null;
     }
 
@@ -4106,9 +4112,9 @@ export default function GtxWorldViewport({
       GizmoUniforms: null,
       ShadowUniforms: null,
     };
-  }, []);
+  }, [MarkGpuUnavailable]);
 
-  // Initialize WebGL2 when RenderBackend === "webgl2"; recover automatically from background tab eviction!
+  // Initialize the WebGL2 GPU path. A context failure surfaces as an explicit unavailable state.
   useEffect(() => {
     if (RenderBackend !== "webgl2") return;
     const Canvas = CanvasRef.current;
@@ -4117,44 +4123,19 @@ export default function GtxWorldViewport({
     const MountedAt = performance.now();
     let RemountTimer = 0;
 
-    const SwitchToCpuGtx = (BlockSession, Reason) => {
-      if (BlockSession) SessionWebGlBlocked = true;
+    const StopForGpuFailure = (Reason) => {
+      SessionWebGlBlocked = true;
       GlStateRef.current = null;
-      SendViewportDiag({ backend: "cpu-gtx", reason: Reason, blocked: BlockSession ? 1 : 0 });
-      SetRenderBackend("cpu-gtx");
+      MarkGpuUnavailable("webgl2", Reason);
     };
 
     const HandleContextLost = (Ev) => {
       Ev.preventDefault();
       GlStateRef.current = null;
       const AliveMs = Math.round(performance.now() - MountedAt);
-
-      // Background tab / multi-iframe LRU eviction: temporarily park on CPU and auto-restore WebGL2 on visibility!
-      if (document.visibilityState !== "visible") {
-        PendingGpuRestoreRef.current = true;
-        SwitchToCpuGtx(false, `hidden-evict-${AliveMs}ms`);
-        return;
-      }
-
-      if (AliveMs < 1800) {
-        FastCrashCountRef.current += 1;
-        if (FastCrashCountRef.current >= 2) {
-          SwitchToCpuGtx(true, `fast-context-loss-${AliveMs}ms`);
-          return;
-        }
-      } else {
-        FastCrashCountRef.current = 0;
-      }
-
-      if (EvictionCountRef.current >= 2) {
-        SwitchToCpuGtx(false, `repeated-evict-${AliveMs}ms`);
-        return;
-      }
-
-      EvictionCountRef.current += 1;
-      RemountTimer = window.setTimeout(() => {
-        SetCanvasInstance((K) => K + 1);
-      }, 180);
+      // A lost graphics context means no valid GPU frame is available. Do not
+      // substitute a CPU image; the user can explicitly retry this GPU.
+      StopForGpuFailure(`context-lost-${AliveMs}ms`);
     };
 
     Canvas.addEventListener("webglcontextlost", HandleContextLost, false);
@@ -4165,7 +4146,7 @@ export default function GtxWorldViewport({
         SetGlEpoch((N) => N + 1);
       }
     } catch (InitErr) {
-      SwitchToCpuGtx(true, `init-throw:${String(InitErr?.message || InitErr).slice(0, 80)}`);
+      StopForGpuFailure(`init-throw:${String(InitErr?.message || InitErr).slice(0, 160)}`);
     }
 
     return () => {
@@ -4207,7 +4188,7 @@ export default function GtxWorldViewport({
       }
       GlStateRef.current = null;
     };
-  }, [RenderBackend, CanvasInstance, InitGlResources]);
+  }, [RenderBackend, CanvasInstance, InitGlResources, MarkGpuUnavailable]);
 
   // Stable WebGL2 120Hz Render Pipeline (depends ONLY on [RenderBackend, GlEpoch] -> zero ResizeObserver/rAF churn!)
   useEffect(() => {
@@ -4338,7 +4319,6 @@ export default function GtxWorldViewport({
               uModelMat: Gl.getUniformLocation(ShadowProg, "uModelMat"),
             };
             CurState.Linked = true;
-            FastCrashCountRef.current = 0;
             SceneDataDirtyRef.current = true;
             VehicleBvhDirtyRef.current = true;
             CurState.ShadowDirty = true;
@@ -4351,17 +4331,13 @@ export default function GtxWorldViewport({
             });
           } catch (Err) {
             const Msg = String(Err?.message || Err);
-            // Keep the viewport live on constrained adapters. CpuGtxRenderer is
-            // the complete analytical/BVH GTX implementation, not a flat
-            // placeholder, so a hardware compile limit must never cover its
-            // rendered frame with a fatal error card.
-            console.info(
-              "[Frontier GTX] WebGL2 adapter limit; using full CPU GTX fallback:",
-              Msg.replace(/\s+/g, " ").slice(0, 220),
+            console.error(
+              "[Frontier GTX] WebGL2 GPU program link failed; GPU-only viewport stopped:",
+              FormatGpuFailure(Msg),
             );
-            SendViewportDiag({ backend: "cpu-gtx", reason: `link-err:${Msg.slice(0, 120)}` });
-            GlStateRef.current = null;
-            SetRenderBackend("cpu-gtx");
+            // Keep CurState reachable until the WebGL effect cleanup releases its
+            // partially linked programs and textures.
+            MarkGpuUnavailable("webgl2", `link-err:${Msg}`);
             return;
           }
         }
@@ -4380,7 +4356,10 @@ export default function GtxWorldViewport({
         const RsU = EncodeRenderSettingsUniforms(ActiveScene.RenderSettings);
         const U = CurState.SceneUniforms;
         const Rect = CurCanvas.getBoundingClientRect();
-        const Dpr = Math.min(window.devicePixelRatio || 1, 1.25) * (RsU.renderScale / 100);
+        // Edge AA supersamples the GPU scene FBO before the canvas is composited
+        // down to its CSS dimensions. It is an actual quality/performance switch.
+        const AaScale = RsU.antiAliasing ? 1.15 : 1.0;
+        const Dpr = Math.min(window.devicePixelRatio || 1, 1.25) * (RsU.renderScale / 100) * AaScale;
         const RawW = Math.max(240, Math.round((Rect.width || 900) * Dpr));
         const RawH = Math.max(160, Math.round((Rect.height || 520) * Dpr));
         const ScaleCap = Math.min(1, 1440 / RawW, 900 / RawH);
@@ -4983,216 +4962,9 @@ export default function GtxWorldViewport({
       if (RafId) cancelAnimationFrame(RafId);
       ResizeObs.disconnect();
     };
-  }, [RenderBackend, GlEpoch, SampleViewportFps]);
+  }, [RenderBackend, GlEpoch, SampleViewportFps, MarkGpuUnavailable]);
 
-  // Multi-Worker Atomic Double-Buffered Tier 1 GTX Fallback (depends ONLY on [RenderBackend] -> zero ResizeObserver churn!)
-  useEffect(() => {
-    if (RenderBackend !== "cpu-gtx") return;
-    const Canvas = CanvasRef.current;
-    if (!Canvas) return;
-    const Ctx2d = Canvas.getContext("2d", { alpha: false });
-    if (!Ctx2d) return;
-
-    if (!CpuRendererRef.current) {
-      CpuRendererRef.current = new CpuGtxRenderer();
-    }
-    const Cpu = CpuRendererRef.current;
-
-    let Disposed = false;
-    let RafId = 0;
-    let LastObsW = 0;
-    let LastObsH = 0;
-
-    const CompositePresent = () => {
-      if (Disposed || !CanvasRef.current || RenderBackendRef.current !== "cpu-gtx") return;
-      const Props = RenderPropsRef.current;
-      const BaseScene = CompiledSceneRef.current;
-      const ActiveScene =
-        Props.EffectiveProjection === "PERSP" && LiveCamRef.current
-          ? {
-              ...BaseScene,
-              CameraOrigin: LiveCamRef.current.Position,
-              CameraTarget: LiveCamRef.current.Target,
-            }
-          : BaseScene;
-
-      const Rect = Canvas.getBoundingClientRect();
-      const Dpr = Math.min(window.devicePixelRatio || 1, 1.25);
-      const Width = Math.max(320, Math.min(1120, Math.round((Rect.width || 900) * Dpr)));
-      const Height = Math.max(200, Math.min(680, Math.round((Rect.height || 520) * Dpr)));
-      if (Canvas.width !== Width || Canvas.height !== Height) {
-        Canvas.width = Width;
-        Canvas.height = Height;
-        SceneDirtyRef.current = true;
-      }
-      const Aspect = Width / Math.max(1, Height);
-
-      const AtlasSync = AtlasSyncRef.current;
-      if (AtlasSync.UpdatePrimitives(ActiveScene.Primitives)) {
-        AtlasSync.Dirty = false;
-        AtlasVersionRef.current += 1;
-        SceneDirtyRef.current = true;
-      }
-
-      const PCount = Math.min(MAX_PRIMS, ActiveScene.Primitives.length);
-      let SelectedCode = 0;
-      const PrimIdx = ActiveScene.Primitives
-        .slice(0, PCount)
-        .findIndex((P) => (P.OwnerId || P.Id) === Props.Selected);
-      if (PrimIdx >= 0) {
-        SelectedCode = ActiveScene.Primitives[PrimIdx].PickCode || 1 + PrimIdx;
-      } else {
-        const VehIdx = (ActiveScene.Vehicles || []).findIndex(
-          (V) => (V.OwnerId || V.Id) === Props.Selected,
-        );
-        if (VehIdx >= 0) {
-          SelectedCode = ActiveScene.Vehicles[VehIdx].PickCode || 500 + VehIdx;
-        } else {
-          const LightIdx = ActiveScene.AreaLights
-            .slice(0, MAX_LIGHTS)
-            .findIndex((L) => L.Id === Props.Selected);
-          if (LightIdx >= 0) {
-            SelectedCode = ActiveScene.AreaLights[LightIdx].PickCode || 112 + LightIdx;
-          }
-        }
-      }
-
-      const EffectiveViewMode =
-        Props.Debug > 0 && Props.Debug <= 15
-          ? 10 + Props.Debug
-          : VIEW_MODE_CODES[Props.ViewMode] ?? 0;
-
-      const IsInteractive =
-        DragRef.current !== null ||
-        IsWasdFlyingRef.current ||
-        performance.now() < InteractiveUntilRef.current;
-      const HwThreads =
-        (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 8;
-      const TargetRayW = IsInteractive
-        ? HwThreads >= 8
-          ? 304
-          : 216
-        : Math.min(480, Math.max(340, Math.round((Rect.width || 800) * 0.56)));
-      const TargetRayH = Math.max(122, Math.round(TargetRayW / Math.max(0.5, Aspect)));
-
-      if (
-        SceneDirtyRef.current ||
-        !Cpu.HasFrontFrame ||
-        (!IsInteractive && (Cpu.BufW !== TargetRayW || Cpu.BufH !== TargetRayH))
-      ) {
-        SceneDirtyRef.current = false;
-        Cpu.RequestAtomicFrame(
-          {
-            CompiledScene: ActiveScene,
-            AtlasPixels: AtlasSync.Pixels,
-            AtlasVersion: AtlasVersionRef.current,
-            MoonAtlas: GetMoonAtlasSnapshot(),
-            VehicleBvhAssets: VehicleBvhRef.current,
-            Width: TargetRayW,
-            Height: TargetRayH,
-            ViewModeCode: EffectiveViewMode,
-            ShowGrid: Props.EffectiveGrid ? 1 : 0,
-            TimeSec: ForceTimeRef.current,
-          },
-          () => {
-            if (!Disposed) StepDraw(false);
-          },
-        );
-      }
-
-      let BuiltGizmo = null;
-      let ViewProj = null;
-      const Highlighted =
-        Props.ActiveHandle !== GizmoHandle.None ? Props.ActiveHandle : Props.HoveredHandle;
-
-      const { CameraOrigin, CameraTarget, WorldUp } = ActiveScene;
-      const Fwd = NormalizeVec3([
-        CameraTarget[0] - CameraOrigin[0],
-        CameraTarget[1] - CameraOrigin[1],
-        CameraTarget[2] - CameraOrigin[2],
-      ]);
-      const Cross = (A, B) => [
-        A[1] * B[2] - A[2] * B[1],
-        A[2] * B[0] - A[0] * B[2],
-        A[0] * B[1] - A[1] * B[0],
-      ];
-      const Right = NormalizeVec3(Cross(Fwd, WorldUp), [1, 0, 0]);
-      const Up = NormalizeVec3(Cross(Right, Fwd), [0, 0, 1]);
-      const CamState = {
-        Projection: ActiveScene.OrthoHalfHeight > 0 ? "Orthographic" : "Perspective",
-        Position: CameraOrigin,
-        FovDegrees: (ActiveScene.VerticalFovRad * 180) / Math.PI,
-        OrthoHalfHeight: ActiveScene.OrthoHalfHeight,
-      };
-      ViewProj = BuildColumnMajorViewProj(
-        { Right, Up, Forward: Fwd },
-        CamState,
-        Aspect,
-      );
-
-      if (Props.EffectiveGizmo && Props.SelectedGizmoTarget) {
-        const WorldRadius =
-          DragRef.current?.Kind === "gizmo" && DragRef.current.GizmoDrag?.ActiveWorldRadius
-            ? DragRef.current.GizmoDrag.ActiveWorldRadius
-            : ComputeGizmoWorldRadius(Props.SelectedGizmoTarget.Position, CamState, Aspect);
-        BuiltGizmo = BuildSlateGizmoGeometry(
-          Props.SelectedGizmoTarget.Position,
-          Fwd,
-          WorldRadius,
-        );
-        BuiltGizmoRef.current = BuiltGizmo;
-      } else {
-        BuiltGizmoRef.current = null;
-      }
-
-      Cpu.CompositeToCanvas(
-        Ctx2d,
-        Width,
-        Height,
-        SelectedCode,
-        null,
-        null,
-        0,
-      );
-
-      if (ActiveScene.ForceOverlay && ViewProj) {
-        DrawSlateGizmo2D(Ctx2d, Width, Height, ActiveScene.ForceOverlay, ViewProj, 0);
-      }
-      if (BuiltGizmo && ViewProj) {
-        DrawSlateGizmo2D(Ctx2d, Width, Height, BuiltGizmo, ViewProj, Highlighted);
-      }
-
-      SampleViewportFps();
-    };
-
-    const StepDraw = (ForceInvalidate = false) => {
-      if (ForceInvalidate) SceneDirtyRef.current = true;
-      if (RafId) return;
-      RafId = requestAnimationFrame(() => {
-        RafId = 0;
-        CompositePresent();
-      });
-    };
-
-    RequestRedrawRef.current = StepDraw;
-    StepDraw(false);
-    const ResizeObs = new ResizeObserver((Entries) => {
-      const Cr = Entries?.[0]?.contentRect;
-      const W = Math.round(Cr?.width || 0);
-      const H = Math.round(Cr?.height || 0);
-      if (W === LastObsW && H === LastObsH) return;
-      LastObsW = W;
-      LastObsH = H;
-      StepDraw(true);
-    });
-    ResizeObs.observe(Canvas);
-    return () => {
-      Disposed = true;
-      if (RequestRedrawRef.current === StepDraw) RequestRedrawRef.current = null;
-      if (RafId) cancelAnimationFrame(RafId);
-      ResizeObs.disconnect();
-    };
-  }, [RenderBackend, SampleViewportFps]);
+  // The viewport intentionally has no software-rendering execution path.
 
   // Authentic Unreal Engine 5 WASDQE + Sprint + F-Focus 60Hz Camera Loop
   useEffect(() => {
@@ -5470,7 +5242,6 @@ export default function GtxWorldViewport({
     if (Drag.Kind === "gizmo") {
       const Ray = ComputePointerRay(Event);
       if (!Ray) return;
-      BumpInteractiveSettle(170);
       const Solved = SolveGizmoDrag(
         Drag.GizmoDrag,
         Ray.RayOrigin,
@@ -5518,12 +5289,10 @@ export default function GtxWorldViewport({
     if (Drag?.Kind === "gizmo") {
       SetActiveHandle(GizmoHandle.None);
       SetGizmoReadout("");
-      BumpInteractiveSettle(80);
       return;
     }
     if (Drag && Drag.Moved) {
       CommitLiveCameraToEditor(true);
-      BumpInteractiveSettle(80);
       return;
     }
     if (Drag && !Drag.Moved && Event.button === 0 && CanvasRef.current) {
@@ -5588,12 +5357,10 @@ export default function GtxWorldViewport({
     return () => Canvas.removeEventListener("wheel", Handler);
   }, [RenderBackend, CanvasInstance]);
 
-  const HandleRetryWebGlGpu = () => {
+  const HandleRetryGpu = () => {
     SessionWebGpuBlocked = false;
     SessionWebGlBlocked = false;
-    PendingGpuRestoreRef.current = false;
-    FastCrashCountRef.current = 0;
-    EvictionCountRef.current = 0;
+    SetGpuFailure(null);
     SetCanvasInstance((K) => K + 1);
     SetRenderBackend(typeof navigator !== "undefined" && navigator.gpu ? "webgpu" : "webgl2");
   };
@@ -5933,29 +5700,25 @@ export default function GtxWorldViewport({
       {RenderBackend === "webgpu" || RenderBackend === "webgl2" ? (
         <span
           className="gtx-camera-home"
+          data-renderer={RenderBackend}
           style={{
             right: 122,
             pointerEvents: "none",
             borderColor: "rgba(74, 222, 128, 0.35)",
             color: "#86efac",
           }}
+          title="Hardware GPU frame. Render Settings are uploaded to this pipeline on every scene invalidation."
         >
-          {RenderBackend === "webgpu" ? "GPU · WebGPU" : "GPU · WebGL2"}
+          {RenderBackend === "webgpu" ? "GPU · WebGPU · Settings Live" : "GPU · WebGL2 · Settings Live"}
         </span>
-      ) : (
-        <button
-          type="button"
-          className="gtx-camera-home"
-          style={{
-            right: 122,
-            borderColor: "rgba(251, 191, 36, 0.55)",
-            color: "#fcd34d",
-          }}
-          title="WebGL2 was blocked or evicted in this tab — click to retry hardware WebGL2 GPU"
-          onClick={HandleRetryWebGlGpu}
-        >
-          Full GTX CPU · Retry WebGL2 GPU
-        </button>
+      ) : null}
+      {RenderBackend === "unavailable" && (
+        <div className="gtx-gpu-unavailable" role="alert" aria-live="assertive">
+          <strong>GPU rendering unavailable</strong>
+          <p>The viewport did not produce a substitute CPU frame.</p>
+          <code>{GpuFailure?.Backend || "GPU"}: {GpuFailure?.Message || "No compatible GPU context."}</code>
+          <button type="button" onClick={HandleRetryGpu}>Retry GPU</button>
+        </div>
       )}
       <button
         type="button"

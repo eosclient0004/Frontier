@@ -539,7 +539,7 @@ function IntersectTriMoller(ro, rd, v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z)
   return t > 1e-4 ? t : -1;
 }
 
-// Fast CPU ray-BVH trace used by viewport picking & CpuGtxFallbackRenderer
+// Fast CPU ray-BVH trace used only for editor picking and offline reference validation.
 export function TraceVehicleBvhCpu(ro, rd, maxT, vehicles, assets) {
   if (!assets || !vehicles || vehicles.length === 0) return null;
   const { instances } = BuildVehicleTlasAndInstances(vehicles, assets);

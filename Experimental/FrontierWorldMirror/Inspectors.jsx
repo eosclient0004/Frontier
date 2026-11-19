@@ -1444,7 +1444,7 @@ export function Inspector({
               ],
               Rs.RenderMode,
               (Id) => Change("RenderMode", Id),
-              "Realtime keeps the editable World Mirror viewport. Path Trace opens the deterministic WebGPU path tracer with this camera-quality profile.",
+              "Realtime runs only on the active hardware GPU (WebGPU or WebGL2); a GPU failure stops the viewport rather than substituting a CPU renderer. Path Trace opens the deterministic WebGPU path tracer with this camera-quality profile.",
             )}
             {Rs.RenderMode !== "realtime" && (
               <button
@@ -1457,6 +1457,10 @@ export function Inspector({
             )}
           </div>
         </Card>
+
+        <p className="rs-desc-banner">
+          GPU-only pipeline: every setting below invalidates the live GPU frame and is uploaded to the selected GPU backend. The green viewport badge reads <b>Settings Live</b> only while a hardware frame is active.
+        </p>
 
         <div className="rs-summary-bar">
           <div className="rs-summary-chips">

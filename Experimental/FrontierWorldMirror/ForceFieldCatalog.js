@@ -1173,7 +1173,7 @@ export function SampleFieldColormap(RampMode = "Engineering", Share01 = 0.0, Dom
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                      GPU FORCEOVERLAY 12-FLOAT VERTEX BUILDER (WebGPU + WebGL2 + CpuGtx)
+//                      GPU FORCEOVERLAY 12-FLOAT VERTEX BUILDER (WebGPU + WebGL2)
 //------------------------------------------------------------------------------------------------------------------------
 
 function PushTri12(Buf, A, B, C, Normal, Rgba, ShadingWeight = 0.0) {

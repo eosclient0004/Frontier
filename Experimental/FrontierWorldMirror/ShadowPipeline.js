@@ -23,11 +23,14 @@ export function EncodeRenderSettingsUniforms(Rs = {}) {
     bvh: 1,
     env: 2,
   };
+  const RequestedShadowMapRes = Number(Rs.ShadowMapRes) === 1024 ? 1024 : 2048;
+  const HalfResShadows = Rs.HalfResShadows === true;
   return {
     shadowAlg: ShadowMap[Rs.ShadowAlgorithm] ?? 0,
     giAlg: GiMap[Rs.GiAlgorithm] ?? 0,
     reflAlg: ReflMap[Rs.ReflectionAlgorithm] ?? 1,
-    shadowMapRes: Number(Rs.ShadowMapRes) === 1024 ? 1024 : 2048,
+    // This controls the actual allocated GPU depth targets, not just a UI label.
+    shadowMapRes: HalfResShadows ? RequestedShadowMapRes / 2 : RequestedShadowMapRes,
     pcssTaps: Math.max(8, Math.min(48, Math.round(Number(Rs.PcssTaps) || 16))),
     smrtRays: Math.max(2, Math.min(12, Math.round(Number(Rs.SmrtRays) || 4))),
     shadowRays: Math.max(1, Math.min(16, Math.round(Number(Rs.ShadowRays) || 2))),
