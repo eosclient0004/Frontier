@@ -56,7 +56,7 @@ void LedStripInspector::UpdateRibbonSurface(const LedStripData& Instance)
             for (uint32_t X = 0u; X < W; ++X)
             {
                 const float FX = static_cast<float>(X) + 0.5f;
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.017f, G = 0.018f, B = 0.021f;
 
                 const bool AlongRun = (FX >= LeftEnd && FX <= RightEnd);
 
@@ -132,33 +132,46 @@ float LedStripInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateRibbonSurface(Instance);
-        char CapBuf[64]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f m run · %.0f V DC · %s",
-                      Instance.LengthMeters, Instance.SupplyVolts, Instance.OpalDiffuser ? "Opal diffuser" : "Exposed SMD");
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Ribbon light", Instance.OpalDiffuser ? "Diffused" : "SMD Strip");
-        RibbonPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Linear LED strip");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
 
-        char LmBuf[20]{}, WBuf[20]{}, LedBuf[20]{}, AmpBuf[20]{};
-        std::snprintf(LmBuf,  sizeof(LmBuf),  "%.0f", TotalLumens);
-        std::snprintf(WBuf,   sizeof(WBuf),   "%.1f", TotalWatts);
-        std::snprintf(LedBuf, sizeof(LedBuf), "%.0f", TotalLeds);
-        std::snprintf(AmpBuf, sizeof(AmpBuf), "%.2f", LoadAmps);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { LmBuf,  "lm",   "TOTAL FLUX"   },
-            { WBuf,   "W",    "LOAD POWER"   },
-            { LedBuf, "LEDs", "EMITTERS"     },
-            { AmpBuf, "A",    "LOAD CURRENT" },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
+        const long WholeLm = static_cast<long>(std::floor(TotalLumens));
+        const int  FracLm  = static_cast<int>(std::lround((TotalLumens - static_cast<float>(WholeLm)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Estimated ribbon flux");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[72]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f m run / %.0f V DC / %s",
+            Instance.LengthMeters, Instance.SupplyVolts, Instance.OpalDiffuser ? "Opal diffuser" : "Exposed SMD");
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        RibbonPreview.Present(Surface, Stage, 10.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u },
+            Instance.OpalDiffuser ? "OPAL DIFFUSER" : "SMD RIBBON");
+        char DensTag[28]{};
+        std::snprintf(DensTag, sizeof(DensTag), "%.0f LED/M", Instance.DiodesPerMetre);
+        const float DTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, DensTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - DTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, DensTag);
+
+        char RunFoot[48]{};
+        std::snprintf(RunFoot, sizeof(RunFoot), "%.1f M · %.0f LEDS · %.1f W", Instance.LengthMeters, TotalLeds, TotalWatts);
+        const float RFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, RunFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - RFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, RunFoot);
+        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        (void)LoadAmps;
 
         const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Enabled",       InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled, false },
-            { "Opal diffuser", InspectorSwitchSymbol::Orbit,     Instance.OpalDiffuser,   false },
-            { "Show ribbon",   InspectorSwitchSymbol::Cube,      Instance.ShowFixture,    false },
+            { "Visible",       InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Opal diffuser", InspectorSwitchSymbol::Orbit,   Instance.OpalDiffuser,   false },
+            { "Show ribbon",   InspectorSwitchSymbol::Cube,    Instance.ShowFixture,    false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
@@ -166,7 +179,7 @@ float LedStripInspector::Construct(
         else if (Clicked == 1) { Instance.OpalDiffuser = !Instance.OpalDiffuser; OutMutated = true; }
         else if (Clicked == 2) { Instance.ShowFixture = !Instance.ShowFixture; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "led-strip" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
@@ -203,7 +216,7 @@ float LedStripInspector::Construct(
     }
     else
     {
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Draw emitter", Instance.ShowFixture, Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
     }
 
     return CursorY;

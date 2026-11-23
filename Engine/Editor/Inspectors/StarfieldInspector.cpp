@@ -122,7 +122,15 @@ float StarfieldInspector::Construct(
 
         const Rectangle2D Chart { LeftX + PadX, Y + 4.0f, BodyW, 104.0f };
         Surface.FillRectangle(Chart, ColorRgba{ 16u, 17u, 22u, 255u }, 12.0f);
+        Surface.StrokeRectangle(Chart, ColorRgba{ 255u, 255u, 255u, 14u }, 12.0f, 1.0f);
         Surface.PushClip(Chart);
+        // Subtle equatorial RA/Dec grid lines
+        for (int G = 1; G <= 3; ++G)
+        {
+            const float GX = Chart.X + Chart.Width * (static_cast<float>(G) * 0.25f);
+            Surface.StrokeLine({ GX, Chart.Y }, { GX, Chart.Bottom() }, ColorRgba{ 255u, 255u, 255u, 10u }, 1.0f);
+        }
+        Surface.StrokeLine({ Chart.X, Chart.Center().Y }, { Chart.Right(), Chart.Center().Y }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
         for (int32_t Index = 0; Index < 300; ++Index)
         {
             if (!Entry.VisibilityEnabled || static_cast<float>(Index % 8) > Stars.LimitingMagnitude) continue;

@@ -5,6 +5,8 @@
 
 #include "Engine/Editor/Inspectors/CameraInspector.h"
 
+#include "Engine/Components/Panes/WorkspaceAppearance.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -194,10 +196,95 @@ float CameraInspector::Construct(
 
     if (ActivePage == 0u)
     {
-        UpdateLensSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 224.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Optical preview", Instance.TripodMounted ? "Tripod" : "Floating");
-        LensPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 142.0f }, 12.0f);
+        // 1:1 HTML Overview: Lens + field of view purple optical schematic + Focal length slider
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 316.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Lens + field of view", Instance.TripodMounted ? "Tripod" : "Floating");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const float SensorW = std::max(10.0f, Instance.SensorWidthMm);
+        const float FocalMm = std::max(8.0f,  Instance.FocalLengthMm);
+        const float HfovDeg = 2.0f * std::atan(SensorW / (2.0f * FocalMm)) * (180.0f / 3.14159265f);
+        const long WholeFl = static_cast<long>(std::floor(FocalMm));
+        const int  FracFl  = static_cast<int>(std::lround((FocalMm - static_cast<float>(WholeFl)) * 10.0f)) % 10;
+        char WholeBuf[16]{}, FracBuf[8]{}, SubBuf[64]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeFl);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracFl);
+        std::snprintf(SubBuf, sizeof(SubBuf), "Horizontal FOV %.1f\xC2\xB0 · f/%.1f · %.0f mm gate", HfovDeg, Instance.ApertureFStop, SensorW);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "mm", SubBuf);
+        Y += 6.0f;
+
+        // Purple optical schematic: sensor plane -> biconvex lens & iris -> FOV ray cone -> focus plane
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 128.0f };
+        Surface.FillRectangle(Stage, ColorRgba{ 21u, 22u, 24u, 255u }, 10.0f);
+        Surface.PushClip(Stage);
+
+        const float AxisY   = Stage.Center().Y;
+        const float SensorX = Stage.X + 26.0f;
+        const float LensX   = Stage.X + 76.0f;
+        const float ConeR   = Stage.Right() - 16.0f;
+        const float HalfSensorH = std::clamp(SensorW * 0.56f, 12.0f, 24.0f);
+        const float HalfConeEnd = std::clamp(std::tan(HfovDeg * 3.14159265f / 360.0f) * (ConeR - LensX) * 0.62f, 14.0f, Stage.Height * 0.44f);
+        const float ApertureGap = std::clamp(30.0f / std::max(1.2f, Instance.ApertureFStop), 4.0f, 22.0f);
+
+        // Optical axis dashed centreline
+        for (float DX = SensorX; DX < ConeR; DX += 8.0f)
+        {
+            Surface.StrokeLine({ DX, AxisY }, { std::min(ConeR, DX + 4.0f), AxisY }, ColorRgba{ 168u, 134u, 248u, 55u }, 1.0f);
+        }
+
+        // Translucent purple FOV cone polygon (lens -> right boundary)
+        const std::array<Point2D, 4u> ConePoly = {{
+            { LensX, AxisY - ApertureGap },
+            { ConeR, AxisY - HalfConeEnd },
+            { ConeR, AxisY + HalfConeEnd },
+            { LensX, AxisY + ApertureGap },
+        }};
+        Surface.FillPolygon(ConePoly, ColorRgba{ 156u, 118u, 246u, 34u });
+        Surface.StrokeLine({ LensX, AxisY - ApertureGap }, { ConeR, AxisY - HalfConeEnd }, ColorRgba{ 182u, 146u, 255u, 215u }, 1.3f);
+        Surface.StrokeLine({ LensX, AxisY + ApertureGap }, { ConeR, AxisY + HalfConeEnd }, ColorRgba{ 182u, 146u, 255u, 215u }, 1.3f);
+
+        // Converging sensor-to-lens optical chamber
+        const std::array<Point2D, 4u> BackPoly = {{
+            { SensorX, AxisY - HalfSensorH },
+            { LensX,   AxisY - ApertureGap },
+            { LensX,   AxisY + ApertureGap },
+            { SensorX, AxisY + HalfSensorH },
+        }};
+        Surface.FillPolygon(BackPoly, ColorRgba{ 156u, 118u, 246u, 24u });
+        Surface.StrokeLine({ SensorX, AxisY - HalfSensorH }, { LensX, AxisY - ApertureGap }, ColorRgba{ 168u, 134u, 248u, 150u }, 1.1f);
+        Surface.StrokeLine({ SensorX, AxisY + HalfSensorH }, { LensX, AxisY + ApertureGap }, ColorRgba{ 168u, 134u, 248u, 150u }, 1.1f);
+
+        // Sensor bar + lens element + iris blades
+        Surface.StrokeLine({ SensorX, AxisY - HalfSensorH - 4.0f }, { SensorX, AxisY + HalfSensorH + 4.0f }, ColorRgba{ 216u, 198u, 255u, 240u }, 2.6f);
+        Surface.FillRectangle({ LensX - 3.0f, AxisY - 30.0f, 6.0f, 60.0f }, ColorRgba{ 138u, 108u, 224u, 64u }, 3.0f);
+        Surface.StrokeRectangle({ LensX - 3.0f, AxisY - 30.0f, 6.0f, 60.0f }, ColorRgba{ 196u, 172u, 255u, 180u }, 3.0f, 1.1f);
+        // Iris blade stop bars
+        Surface.StrokeLine({ LensX + 5.0f, AxisY - 28.0f }, { LensX + 5.0f, AxisY - ApertureGap }, ColorRgba{ 222u, 206u, 255u, 220u }, 2.0f);
+        Surface.StrokeLine({ LensX + 5.0f, AxisY + ApertureGap }, { LensX + 5.0f, AxisY + 28.0f }, ColorRgba{ 222u, 206u, 255u, 220u }, 2.0f);
+
+        // Focus distance vertical dashed plane
+        const float FocusU = std::clamp(std::log2(1.0f + Instance.FocusDistanceMeters) / std::log2(121.0f), 0.14f, 0.90f);
+        const float FocusX = LensX + 18.0f + FocusU * (ConeR - LensX - 24.0f);
+        for (float DY = Stage.Y + 14.0f; DY < Stage.Bottom() - 18.0f; DY += 6.0f)
+        {
+            Surface.StrokeLine({ FocusX, DY }, { FocusX, std::min(Stage.Bottom() - 18.0f, DY + 3.0f) }, ColorRgba{ 216u, 194u, 255u, 165u }, 1.0f);
+        }
+        Surface.FillCircle({ FocusX, AxisY }, 3.2f, ColorRgba{ 216u, 194u, 255u, 255u });
+
+        // Schematic captions
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 7.0f }, 8.0f, ColorRgba{ 176u, 154u, 224u, 220u }, "SENSOR");
+        char FovTag[28]{};
+        std::snprintf(FovTag, sizeof(FovTag), "FOV %.1f\xC2\xB0", HfovDeg);
+        const float FTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, FovTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - FTW, Stage.Y + 7.0f }, 8.4f, ColorRgba{ 204u, 182u, 255u, 240u }, FovTag);
+        char FocTag[28]{};
+        std::snprintf(FocTag, sizeof(FocTag), "Focus %.1f m", Instance.FocusDistanceMeters);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { std::min(Stage.Right() - 62.0f, FocusX - 18.0f), Stage.Bottom() - 14.0f }, 8.2f, ColorRgba{ 182u, 164u, 226u, 220u }, FocTag);
+        Surface.PopClip();
+        Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+
+        Y = Stage.Bottom() + 12.0f;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7001u, "Focal length", "mm", "%.0f", 14.0f, 200.0f, Instance.FocalLengthMm, ActiveDragId, Input, OutMutated);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
         const bool ReflOn = DisplaySettings ? DisplaySettings->ReflectionsEnabled : true;

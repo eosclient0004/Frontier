@@ -403,6 +403,40 @@ struct GeometrySurfaceBinding
     const PaneInputReading& Input,
     bool&                   OutMutated) noexcept;
 
+// 1:1 HTML split-precision KPI metric (bright white integer part + dimmed fractional digits + unit + caption)
+[[nodiscard]] float ConstructSplitMetricReadout(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    const char* WholePart,
+    const char* FractionalPart,
+    const char* UnitText,
+    const char* CaptionText) noexcept;
+
+// 1:1 HTML dark rounded stat tile (#121316 fill, 12px radius, uppercase caption + bright reading)
+void ConstructStatTile(
+    PixelSpace& Surface,
+    Rectangle2D Bounds,
+    const char* TopCaption,
+    const char* PrimaryReading,
+    const char* UnitSuffix = "",
+    bool        CaptionBelow = false) noexcept;
+
+// 1:1 HTML side-by-side 2-column summary boxes (e.g. Checks passed / Warnings or Visible / Hidden)
+[[nodiscard]] float ConstructDualStatusBoxes(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    const char* LeftLabel,
+    const char* LeftCount,
+    ColorRgba   LeftAccent,
+    bool        LeftCheckMark,
+    const char* RightLabel,
+    const char* RightCount,
+    ColorRgba   RightAccent,
+    bool        RightExclaimMark) noexcept;
+
 // Compact labelled key-value metadata row inside a section
 [[nodiscard]] float ConstructMetadataRow(
     PixelSpace& Surface,

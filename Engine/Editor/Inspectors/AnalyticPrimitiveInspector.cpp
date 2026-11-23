@@ -187,17 +187,74 @@ float AnalyticPrimitiveInspector::Construct(
 
     if (ActivePage == 0u)
     {
+        // 1:1 HTML Geometry Overview: Dual status boxes + Footprint (m³ + W/H/D) + Components rows + Icon capture + Quick controls + Tags + Notes
+        const uint32_t WarnCount = Instance.Watertight ? 0u : 1u;
+        char PassBuf[12]{}, WarnBuf[12]{};
+        std::snprintf(PassBuf, sizeof(PassBuf), "%u", Instance.Watertight ? 2u : 1u);
+        std::snprintf(WarnBuf, sizeof(WarnBuf), "%u", WarnCount);
+        CursorY = InspectorPrimitives::ConstructDualStatusBoxes(
+            Surface, LeftX, CursorY, InnerWidth,
+            "Checks passed", PassBuf, ColorRgba{ 112u, 212u, 142u, 255u }, true,
+            "Warnings",      WarnBuf, WarnCount > 0u ? ColorRgba{ 236u, 178u, 86u, 255u } : InspectorMetrics::MutedInk, true);
+
+        // Footprint section: World size + m³ + 3-col WIDTH / HEIGHT / DEPTH
+        const float DimX = std::max(0.01f, Instance.RadiusMeters * 2.0f * std::fabs(Entry.ScaleX));
+        const float DimY = std::max(0.01f, Instance.HeightMeters        * std::fabs(Entry.ScaleY));
+        const float DimZ = std::max(0.01f, Instance.RadiusMeters * 2.0f * std::fabs(Entry.ScaleZ));
+        const float VolM3 = DimX * DimY * DimZ;
+        const Rectangle2D FootSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, FootSec, "Footprint", ActiveFormLabel);
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const long WholeV = static_cast<long>(std::floor(VolM3));
+        const int  FracV  = static_cast<int>(std::lround((VolM3 - static_cast<float>(WholeV)) * 100.0f)) % 100;
+        char VWhole[20]{}, VFrac[8]{};
+        std::snprintf(VWhole, sizeof(VWhole), "%ld", WholeV);
+        std::snprintf(VFrac,  sizeof(VFrac),  ".%02d", FracV);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, VWhole, VFrac, "m\xC2\xB3", "World bounding volume");
+        Y += 6.0f;
+        const float Gap = 6.0f;
+        const float TileW = (BodyW - Gap * 2.0f) / 3.0f;
+        char WBuf[16]{}, HBuf[16]{}, DBuf[16]{};
+        std::snprintf(WBuf, sizeof(WBuf), "%.2f m", DimX);
+        std::snprintf(HBuf, sizeof(HBuf), "%.2f m", DimY);
+        std::snprintf(DBuf, sizeof(DBuf), "%.2f m", DimZ);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,                      Y, TileW, 46.0f }, "WIDTH",  WBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap,        Y, TileW, 46.0f }, "HEIGHT", HBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "DEPTH",  DBuf);
+        CursorY = FootSec.Bottom() + InspectorMetrics::SectionGap;
+
+        // Components navigation rows
+        const Rectangle2D CompSec { LeftX, CursorY, InnerWidth, 174.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, CompSec, "Components", "3");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char ShapeMeta[32]{};
+        std::snprintf(ShapeMeta, sizeof(ShapeMeta), "%s · %u seg", ActiveFormLabel, Instance.RadialSegments);
+        bool HitShape = false, HitMat = false, HitPhys = false;
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Geometry shape", ShapeMeta, true, Input, HitShape);
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "OpenPBR surface", Instance.Surface.Metallic > 0.5f ? "Metallic" : "Dielectric", true, Input, HitMat);
+        (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Rigid body & collision", Entry.DynamicMotion ? "Dynamic" : "Static", false, Input, HitPhys);
+        if (HitShape) { ActivePage = 1u; OutPageSwitched = true; }
+        else if (HitMat) { ActivePage = 3u; OutPageSwitched = true; }
+        else if (HitPhys) { ActivePage = 4u; OutPageSwitched = true; }
+        CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
+
+        // Icon capture section with compact thumbnail + action button
         UpdatePrimitiveSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 236.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Analytical primitive", ActiveFormLabel);
-        PrimitivePreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 148.0f }, 12.0f);
-        char DimBuf[72]{};
-        std::snprintf(DimBuf, sizeof(DimBuf), "R %.2f m  ·  H %.2f m  ·  %u seg", Instance.RadiusMeters, Instance.HeightMeters, Instance.RadialSegments);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 24.0f }, BodyW, 10.0f, InspectorMetrics::MutedInk, DimBuf);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        const Rectangle2D IconSec { LeftX, CursorY, InnerWidth, 102.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, IconSec, "Icon capture");
+        const float IconY = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        PrimitivePreview.Present(Surface, { LeftX + PadX, IconY, 54.0f, 44.0f }, 8.0f);
+        const Rectangle2D CapBtn { LeftX + PadX + 64.0f, IconY + 6.0f, BodyW - 64.0f, 32.0f };
+        const bool CapHov = CapBtn.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y });
+        Surface.FillRectangle(CapBtn, CapHov ? ColorRgba{ 46u, 48u, 54u, 255u } : ColorRgba{ 32u, 33u, 37u, 255u }, 10.0f);
+        Surface.StrokeRectangle(CapBtn, ColorRgba{ 255u, 255u, 255u, 20u }, 10.0f, 1.0f);
+        const char* CapLabel = "Capture viewport icon";
+        const float CLW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 10.5f, CapLabel);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CapBtn.Center().X - CLW * 0.5f, CapBtn.Y + 9.0f }, 10.5f, WorkspaceSurfaceColors::PrimaryInk, CapLabel);
+        CursorY = IconSec.Bottom() + InspectorMetrics::SectionGap;
 
         const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
-            { "Visible",        InspectorSwitchSymbol::Eye,     Entry.VisibilityEnabled, false },
+            { "Visible",        InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
             { "Cast shadows",   InspectorSwitchSymbol::Shadow,  Entry.CastShadows,       false },
             { "Watertight",     InspectorSwitchSymbol::Cube,    Instance.Watertight,     false },
             { "Dynamic motion", InspectorSwitchSymbol::Physics, Entry.DynamicMotion,     false },

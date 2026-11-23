@@ -131,30 +131,65 @@ float ProceduralGeometryInspector::Construct(
 
     if (ActivePage == 0u)
     {
-        UpdateProceduralSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 236.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Procedural geometry", GenLabel);
-        ProceduralPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 148.0f }, 12.0f);
-        char CapBuf[72]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "Seed %u  ·  Subdiv %u  ·  Rev %u", Instance.RandomSeed, Instance.SubdivisionLevel, Instance.BuildRevision);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 24.0f }, BodyW, 10.0f, InspectorMetrics::MutedInk, CapBuf);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        CursorY = InspectorPrimitives::ConstructDualStatusBoxes(
+            Surface, LeftX, CursorY, InnerWidth,
+            "Checks passed", "2", ColorRgba{ 112u, 212u, 142u, 255u }, true,
+            "Warnings",      "0", InspectorMetrics::MutedInk, true);
 
-        char SeedTxt[16]{}, SubTxt[16]{}, SclTxt[16]{}, RevTxt[16]{};
-        std::snprintf(SeedTxt, sizeof(SeedTxt), "%u",   Instance.RandomSeed);
-        std::snprintf(SubTxt,  sizeof(SubTxt),  "%u",   Instance.SubdivisionLevel);
-        std::snprintf(SclTxt,  sizeof(SclTxt),  "%.1f", Instance.FeatureScaleMeters);
-        std::snprintf(RevTxt,  sizeof(RevTxt),  "%u",   Instance.BuildRevision);
-        const std::array<InspectorKpiMetricSpec, 4u> Kpis = {{
-            { SeedTxt, "",  "SEED"     },
-            { SubTxt,  "",  "SUBDIV"   },
-            { SclTxt,  "m", "SCALE"    },
-            { RevTxt,  "",  "REVISION" },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Kpis);
+        const float DimX = std::max(0.01f, Instance.FeatureScaleMeters * 2.0f * std::fabs(Entry.ScaleX));
+        const float DimY = std::max(0.01f, Instance.AmplitudeMeters    * 2.0f * std::fabs(Entry.ScaleY));
+        const float DimZ = std::max(0.01f, Instance.FeatureScaleMeters * 2.0f * std::fabs(Entry.ScaleZ));
+        const float VolM3 = DimX * DimY * DimZ;
+        const Rectangle2D FootSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, FootSec, "Footprint", GenLabel);
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const long WholeV = static_cast<long>(std::floor(VolM3));
+        const int  FracV  = static_cast<int>(std::lround((VolM3 - static_cast<float>(WholeV)) * 100.0f)) % 100;
+        char VWhole[20]{}, VFrac[8]{};
+        std::snprintf(VWhole, sizeof(VWhole), "%ld", WholeV);
+        std::snprintf(VFrac,  sizeof(VFrac),  ".%02d", FracV);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, VWhole, VFrac, "m\xC2\xB3", "Generated world bounding volume");
+        Y += 6.0f;
+        const float Gap = 6.0f;
+        const float TileW = (BodyW - Gap * 2.0f) / 3.0f;
+        char WBuf[16]{}, HBuf[16]{}, DBuf[16]{};
+        std::snprintf(WBuf, sizeof(WBuf), "%.2f m", DimX);
+        std::snprintf(HBuf, sizeof(HBuf), "%.2f m", DimY);
+        std::snprintf(DBuf, sizeof(DBuf), "%.2f m", DimZ);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,                      Y, TileW, 46.0f }, "WIDTH",  WBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap,        Y, TileW, 46.0f }, "HEIGHT", HBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "DEPTH",  DBuf);
+        CursorY = FootSec.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D CompSec { LeftX, CursorY, InnerWidth, 174.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, CompSec, "Components", "3");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char GenMeta[40]{};
+        std::snprintf(GenMeta, sizeof(GenMeta), "Seed %u · subdiv %u", Instance.RandomSeed, Instance.SubdivisionLevel);
+        bool HitGen = false, HitMat = false, HitPhys = false;
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Procedural generator", GenMeta, true, Input, HitGen);
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "OpenPBR surface", Instance.Surface.Metallic > 0.5f ? "Metallic" : "Dielectric", true, Input, HitMat);
+        (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Rigid body & collision", Entry.DynamicMotion ? "Dynamic" : "Static", false, Input, HitPhys);
+        if (HitGen) { ActivePage = 1u; OutPageSwitched = true; }
+        else if (HitMat) { ActivePage = 3u; OutPageSwitched = true; }
+        else if (HitPhys) { ActivePage = 4u; OutPageSwitched = true; }
+        CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
+
+        UpdateProceduralSurface(Instance);
+        const Rectangle2D IconSec { LeftX, CursorY, InnerWidth, 102.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, IconSec, "Icon capture");
+        const float IconY = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        ProceduralPreview.Present(Surface, { LeftX + PadX, IconY, 54.0f, 44.0f }, 8.0f);
+        const Rectangle2D CapBtn { LeftX + PadX + 64.0f, IconY + 6.0f, BodyW - 64.0f, 32.0f };
+        Surface.FillRectangle(CapBtn, ColorRgba{ 32u, 33u, 37u, 255u }, 10.0f);
+        Surface.StrokeRectangle(CapBtn, ColorRgba{ 255u, 255u, 255u, 20u }, 10.0f, 1.0f);
+        const char* CapLabel = "Capture viewport icon";
+        const float CLW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 10.5f, CapLabel);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CapBtn.Center().X - CLW * 0.5f, CapBtn.Y + 9.0f }, 10.5f, WorkspaceSurfaceColors::PrimaryInk, CapLabel);
+        CursorY = IconSec.Bottom() + InspectorMetrics::SectionGap;
 
         const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
-            { "Visible",        InspectorSwitchSymbol::Eye,     Entry.VisibilityEnabled, false },
+            { "Visible",        InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
             { "Cast shadows",   InspectorSwitchSymbol::Shadow,  Entry.CastShadows,       false },
             { "Auto rebuild",   InspectorSwitchSymbol::Cycle,   Instance.AutoRebuild,    false },
             { "Dynamic motion", InspectorSwitchSymbol::Physics, Entry.DynamicMotion,     false },

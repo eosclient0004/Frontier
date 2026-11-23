@@ -61,7 +61,7 @@ void LedLightInspector::UpdatePackageSurface(const LedLightData& Instance)
                 const float DX = static_cast<float>(X) + 0.5f - CX;
                 const float AX = std::fabs(DX), AY = std::fabs(DY);
                 const float D  = std::sqrt(DX * DX + DY * DY);
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.017f, G = 0.018f, B = 0.021f;
 
                 // Soft phosphor bloom glow
                 const float Bloom = std::exp(-D * 0.028f) * 0.26f * Dim;
@@ -129,38 +129,51 @@ float LedLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdatePackageSurface(Instance);
-        char CapBuf[56]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.0f mm package · %.0f K · %.0f deg optic", Instance.PackageDiameterMm, Instance.KelvinTemperature, Instance.OpticAngleDeg);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "LED emitter", "COB Array");
-        PackagePreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "LED emitter");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const long WholeLm = static_cast<long>(std::floor(EstLumens));
+        const int  FracLm  = static_cast<int>(std::lround((EstLumens - static_cast<float>(WholeLm)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Estimated luminous flux");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[72]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%.0f mm package / %.0f K / %.0f\xC2\xB0 optic",
+            Instance.PackageDiameterMm, Instance.KelvinTemperature, Instance.OpticAngleDeg);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        PackagePreview.Present(Surface, Stage, 10.0f);
+        char OptTag[28]{};
+        std::snprintf(OptTag, sizeof(OptTag), "%.0f\xC2\xB0 OPTIC", Instance.OpticAngleDeg);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, OptTag);
+        const char* CobTag = "COB ARRAY";
+        const float CTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, CobTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - CTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, CobTag);
+
+        char PkgFoot[36]{};
+        std::snprintf(PkgFoot, sizeof(PkgFoot), "%.0f MM PACKAGE · %.1f W", Instance.PackageDiameterMm, Instance.DriverWatts);
+        const float PFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, PkgFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - PFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, PkgFoot);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        char LmBuf[20]{}, WBuf[20]{}, EffBuf[20]{}, DimBuf[20]{};
-        std::snprintf(LmBuf,  sizeof(LmBuf),  "%.0f", EstLumens);
-        std::snprintf(WBuf,   sizeof(WBuf),   "%.1f", Instance.DriverWatts);
-        std::snprintf(EffBuf, sizeof(EffBuf), "%.0f", Instance.EfficacyLmPerW);
-        std::snprintf(DimBuf, sizeof(DimBuf), "%.0f", Instance.Dimmer * 100.0f);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { LmBuf,  "lm",   "EST. FLUX"    },
-            { WBuf,   "W",    "DRIVER POWER" },
-            { EffBuf, "lm/W", "EFFICACY"     },
-            { DimBuf, "%",    "DIMMER"       },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
-
         const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Enabled",      InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled, false },
-            { "Show emitter", InspectorSwitchSymbol::Cube,      Instance.ShowFixture,    false },
+            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Show emitter", InspectorSwitchSymbol::Cube,    Instance.ShowFixture,    false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
         if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
         else if (Clicked == 1) { Instance.ShowFixture = !Instance.ShowFixture; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "led-cob" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
@@ -195,7 +208,7 @@ float LedLightInspector::Construct(
     }
     else
     {
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Draw emitter", Instance.ShowFixture, Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
     }
 
     return CursorY;

@@ -55,7 +55,7 @@ void TubeLightInspector::UpdateTubeSurface(const TubeLightData& Instance)
             {
                 const float FX = static_cast<float>(X) + 0.5f;
                 const float DX = FX - CX;
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.017f, G = 0.018f, B = 0.021f;
 
                 // Capsule SDF for cylindrical glass tube
                 const float ClampedX = std::clamp(DX, -(HalfLen - TubeR), (HalfLen - TubeR));
@@ -133,38 +133,50 @@ float TubeLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateTubeSurface(Instance);
-        char CapBuf[56]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f m linear emitter · %.0f mm tube", Instance.LengthMeters, Instance.TubeRadiusMeters * 1000.0f);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Linear radiance", "Tube");
-        TubePreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Linear radiance");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const long WholeLm = static_cast<long>(std::floor(Instance.LuminousFlux));
+        const int  FracLm  = static_cast<int>(std::lround((Instance.LuminousFlux - static_cast<float>(WholeLm)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Authored luminous flux");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[72]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f m linear emitter / %.0f mm tube / %.0f lm/m",
+            Instance.LengthMeters, Instance.TubeRadiusMeters * 1000.0f, LinearLmPerM);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        TubePreview.Present(Surface, Stage, 10.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, "CYLINDRICAL");
+        char RadTag[28]{};
+        std::snprintf(RadTag, sizeof(RadTag), "RADIUS %.0f MM", Instance.TubeRadiusMeters * 1000.0f);
+        const float RTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, RadTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - RTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, RadTag);
+
+        char LenFoot[32]{};
+        std::snprintf(LenFoot, sizeof(LenFoot), "%.1f M LENGTH", Instance.LengthMeters);
+        const float LFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, LenFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - LFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, LenFoot);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        char LmBuf[20]{}, LinBuf[20]{}, RadBuf[20]{}, LenBuf[20]{};
-        std::snprintf(LmBuf,  sizeof(LmBuf),  "%.0f", Instance.LuminousFlux);
-        std::snprintf(LinBuf, sizeof(LinBuf), "%.0f", LinearLmPerM);
-        std::snprintf(RadBuf, sizeof(RadBuf), "%.0f", Instance.TubeRadiusMeters * 1000.0f);
-        std::snprintf(LenBuf, sizeof(LenBuf), "%.1f", Instance.LengthMeters);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { LmBuf,  "lm",   "TOTAL FLUX"    },
-            { LinBuf, "lm/m", "LINEAR OUTPUT" },
-            { RadBuf, "mm",   "TUBE RADIUS"   },
-            { LenBuf, "m",    "LENGTH"        },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
-
         const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Enabled",      InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled, false },
-            { "Show emitter", InspectorSwitchSymbol::Cube,      Instance.ShowFixture,    false },
+            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Show emitter", InspectorSwitchSymbol::Cube,    Instance.ShowFixture,    false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
         if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
         else if (Clicked == 1) { Instance.ShowFixture = !Instance.ShowFixture; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "tube" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
@@ -198,7 +210,7 @@ float TubeLightInspector::Construct(
     }
     else
     {
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Draw emitter", Instance.ShowFixture, Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
     }
 
     return CursorY;

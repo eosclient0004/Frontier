@@ -57,13 +57,16 @@ void SpotLightInspector::UpdateEnvelopeSurface(const SpotLightData& Instance)
             {
                 const float DX = static_cast<float>(X) + 0.5f - CX;
                 const float AX = std::fabs(DX);
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.017f, G = 0.018f, B = 0.021f;
 
-                // Fixture housing head at top
-                if (FY >= 14.0f && FY <= 30.0f && AX <= 14.0f)
+                // Subtle apex glow / fixture head at top
+                const float ApexDist = std::sqrt(DX * DX + (FY - ApexY) * (FY - ApexY));
+                if (ApexDist < 10.0f)
                 {
-                    R = 0.18f; G = 0.19f; B = 0.21f;
-                    if (FY < 15.2f || FY > 28.8f || AX > 12.8f) { R = 0.42f; G = 0.44f; B = 0.48f; }
+                    const float Glow = std::exp(-ApexDist * ApexDist / 26.0f);
+                    R += TR * Glow * 0.85f + Glow * 0.25f;
+                    G += TG * Glow * 0.85f + Glow * 0.25f;
+                    B += TB * Glow * 0.85f + Glow * 0.25f;
                 }
 
                 // Beam envelope cone
@@ -80,36 +83,43 @@ void SpotLightInspector::UpdateEnvelopeSurface(const SpotLightData& Instance)
                             const float U = (AX - InnerW) / (OuterW - InnerW);
                             Soft = (1.0f - U) * (1.0f - U);
                         }
-                        const float DepthFade = (0.28f + 0.52f * T) * Gain * 0.55f;
+                        const float DepthFade = (0.14f + 0.50f * (1.0f - 0.55f * T)) * Gain * 0.42f;
                         R += TR * DepthFade * Soft;
                         G += TG * DepthFade * Soft;
                         B += TB * DepthFade * Soft;
 
                         // Outer solid cone edge
-                        if (std::fabs(AX - OuterW) < 1.05f)
+                        if (std::fabs(AX - OuterW) < 1.0f)
                         {
-                            R += TR * 0.45f; G += TG * 0.45f; B += TB * 0.45f;
+                            R += TR * 0.28f; G += TG * 0.28f; B += TB * 0.28f;
                         }
                         // Inner dashed penumbra edge
                         const bool Dash = (static_cast<int>(FY) % 7) < 4;
-                        if (Dash && std::fabs(AX - InnerW) < 1.0f && Instance.Penumbra > 0.02f)
+                        if (Dash && std::fabs(AX - InnerW) < 0.95f && Instance.Penumbra > 0.02f)
                         {
-                            R += TR * 0.55f; G += TG * 0.55f; B += TB * 0.55f;
-                        }
-                        // Depth cross-section guide bars at 1/3, 2/3, 3/3
-                        for (int Step = 1; Step <= 3; ++Step)
-                        {
-                            const float GuideY = ApexY + ConeH * (static_cast<float>(Step) / 3.0f);
-                            if (std::fabs(FY - GuideY) < 0.7f && (static_cast<int>(X) % 6) < 3)
-                            {
-                                R += 0.12f; G += 0.12f; B += 0.13f;
-                            }
+                            R += TR * 0.42f; G += TG * 0.42f; B += TB * 0.42f;
                         }
                     }
                     // Center optical axis dashed line
-                    if (AX < 0.7f && (static_cast<int>(FY) % 8) < 4)
+                    if (AX < 0.65f && (static_cast<int>(FY) % 8) < 4)
                     {
-                        R += 0.15f; G += 0.15f; B += 0.16f;
+                        R += 0.09f; G += 0.09f; B += 0.10f;
+                    }
+                }
+
+                // Illuminated floor pool ellipse at bottom of cone
+                const float Ey = (FY - (ApexY + ConeH)) / 7.5f;
+                const float Ex = DX / std::max(10.0f, HalfBottom);
+                const float Er2 = Ex * Ex + Ey * Ey;
+                if (Er2 < 1.25f)
+                {
+                    const float Pool = std::exp(-Er2 * 2.2f) * 0.16f * Gain;
+                    R += TR * Pool; G += TG * Pool; B += TB * Pool;
+                    const float Ring = std::fabs(std::sqrt(Er2) - 1.0f);
+                    if (Ring < 0.055f)
+                    {
+                        const float Edge = (1.0f - Ring / 0.055f) * 0.22f;
+                        R += TR * Edge; G += TG * Edge; B += TB * Edge;
                     }
                 }
 
@@ -130,36 +140,59 @@ float SpotLightInspector::Construct(
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
     const float BeamDiam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * PiF / 360.0f);
+    (void)BeamDiam5m;
 
     if (ActivePage == 0u)
     {
         UpdateEnvelopeSurface(Instance);
-        char CapBuf[64]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.0f deg cone · %.0f%% soft edge", Instance.FullConeDegrees, Instance.Penumbra * 100.0f);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Beam envelope", "Spot");
-        EnvelopePreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Beam envelope");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const long WholeCd = static_cast<long>(std::floor(Instance.IntensityCandela));
+        const int  FracCd  = static_cast<int>(std::lround((Instance.IntensityCandela - static_cast<float>(WholeCd)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeCd);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracCd);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "cd", "Authored luminous intensity");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[72]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f\xC2\xB0 cone / penumbra %.0f%% / reach %.0f m",
+            Instance.FullConeDegrees, Instance.Penumbra * 100.0f, Instance.ReachMeters);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        EnvelopePreview.Present(Surface, Stage, 10.0f);
+        char PenTag[28]{}, DecTag[24]{};
+        std::snprintf(PenTag, sizeof(PenTag), "PENUMBRA %.0f%%", Instance.Penumbra * 100.0f);
+        std::snprintf(DecTag, sizeof(DecTag), "REACH %.0f M", Instance.ReachMeters);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, PenTag);
+        const float DTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, DecTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - DTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, DecTag);
+
+        // Bottom full-cone bracket caliper
+        const float HalfSpan = std::clamp(std::tan(Instance.FullConeDegrees * PiF / 360.0f) * 108.0f * 1.45f, 18.0f, BodyW * 0.38f);
+        const float CalY = Stage.Bottom() - 12.0f;
+        const float MidX = Stage.Center().X;
+        const ColorRgba CalStroke { 142u, 146u, 154u, 170u };
+        Surface.StrokeLine({ MidX - HalfSpan, CalY - 3.0f }, { MidX - HalfSpan, CalY + 3.0f }, CalStroke, 1.0f);
+        Surface.StrokeLine({ MidX + HalfSpan, CalY - 3.0f }, { MidX + HalfSpan, CalY + 3.0f }, CalStroke, 1.0f);
+        Surface.StrokeLine({ MidX - HalfSpan, CalY }, { MidX - 44.0f, CalY }, CalStroke, 1.0f);
+        Surface.StrokeLine({ MidX + 44.0f, CalY }, { MidX + HalfSpan, CalY }, CalStroke, 1.0f);
+        char ConeFoot[32]{};
+        std::snprintf(ConeFoot, sizeof(ConeFoot), "%.1f\xC2\xB0 FULL CONE", Instance.FullConeDegrees);
+        const float CFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, ConeFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { MidX - CFW * 0.5f, CalY - 5.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, ConeFoot);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        char CdBuf[20]{}, ConeBuf[20]{}, PenBuf[20]{}, DiamBuf[20]{};
-        std::snprintf(CdBuf,   sizeof(CdBuf),   "%.1f", Instance.IntensityCandela);
-        std::snprintf(ConeBuf, sizeof(ConeBuf), "%.1f", Instance.FullConeDegrees);
-        std::snprintf(PenBuf,  sizeof(PenBuf),  "%.0f", Instance.Penumbra * 100.0f);
-        std::snprintf(DiamBuf, sizeof(DiamBuf), "%.2f", BeamDiam5m);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { CdBuf,   "cd",  "INTENSITY" },
-            { ConeBuf, "deg", "FULL CONE" },
-            { PenBuf,  "%",   "SOFT EDGE" },
-            { DiamBuf, "m",   "AT 5 M"    },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
-
         const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Enabled",      InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled, false },
-            { "Cast shadows", InspectorSwitchSymbol::Shadow,    Entry.CastShadows,       false },
-            { "Draw cone",    InspectorSwitchSymbol::Sun,       Instance.ShowCone,       false },
+            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Cast shadows", InspectorSwitchSymbol::Shadow,  Entry.CastShadows,       false },
+            { "Show cone",    InspectorSwitchSymbol::Sun,     Instance.ShowCone,       false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
@@ -167,7 +200,7 @@ float SpotLightInspector::Construct(
         else if (Clicked == 1) { Entry.CastShadows = !Entry.CastShadows; OutMutated = true; }
         else if (Clicked == 2) { Instance.ShowCone = !Instance.ShowCone; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "spot" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }

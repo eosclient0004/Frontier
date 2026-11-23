@@ -1556,6 +1556,127 @@ bool ConstructSectionActionButton(
     return Hov && Input.PrimaryPointer.Pressed;
 }
 
+float ConstructSplitMetricReadout(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    const char* WholePart,
+    const char* FractionalPart,
+    const char* UnitText,
+    const char* CaptionText) noexcept
+{
+    const float BigPx = 30.0f;
+    float X = LeftX;
+    if (WholePart != nullptr && WholePart[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { X, TopY }, BigPx, ColorRgba{ 244u, 246u, 250u, 255u }, WholePart);
+        X += WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, BigPx, WholePart);
+    }
+    if (FractionalPart != nullptr && FractionalPart[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { X, TopY }, BigPx, ColorRgba{ 118u, 122u, 130u, 255u }, FractionalPart);
+        X += WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, BigPx, FractionalPart);
+    }
+    if (UnitText != nullptr && UnitText[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { X + 5.0f, TopY + 13.0f }, 12.0f, ColorRgba{ 166u, 170u, 178u, 255u }, UnitText);
+    }
+    float NextY = TopY + 36.0f;
+    if (CaptionText != nullptr && CaptionText[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX, NextY }, 272.0f, 10.2f, InspectorMetrics::DimInk, CaptionText);
+        NextY += 19.0f;
+    }
+    return NextY;
+}
+
+void ConstructStatTile(
+    PixelSpace& Surface,
+    Rectangle2D Bounds,
+    const char* TopCaption,
+    const char* PrimaryReading,
+    const char* UnitSuffix,
+    bool        CaptionBelow) noexcept
+{
+    Surface.FillRectangle(Bounds, ColorRgba{ 18u, 19u, 22u, 255u }, 11.0f);
+    Surface.StrokeRectangle(Bounds, ColorRgba{ 255u, 255u, 255u, 12u }, 11.0f, 1.0f);
+
+    const float PadX = 11.0f;
+    if (CaptionBelow)
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Bounds.X + PadX, Bounds.Y + 10.0f }, 14.0f, ColorRgba{ 240u, 242u, 246u, 255u }, PrimaryReading);
+        if (UnitSuffix != nullptr && UnitSuffix[0] != '\0')
+        {
+            const float PW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 14.0f, PrimaryReading);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Bounds.X + PadX + PW + 3.0f, Bounds.Y + 14.0f }, 9.8f, ColorRgba{ 142u, 146u, 154u, 255u }, UnitSuffix);
+        }
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Medium, { Bounds.X + PadX, Bounds.Bottom() - 18.0f }, Bounds.Width - PadX * 2.0f, 8.8f, ColorRgba{ 122u, 126u, 134u, 255u }, TopCaption);
+    }
+    else
+    {
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Medium, { Bounds.X + PadX, Bounds.Y + 9.0f }, Bounds.Width - PadX * 2.0f, 8.6f, ColorRgba{ 122u, 126u, 134u, 255u }, TopCaption);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Bounds.X + PadX, Bounds.Y + 25.0f }, 13.0f, ColorRgba{ 240u, 242u, 246u, 255u }, PrimaryReading);
+        if (UnitSuffix != nullptr && UnitSuffix[0] != '\0')
+        {
+            const float PW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.0f, PrimaryReading);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Bounds.X + PadX + PW + 3.0f, Bounds.Y + 28.0f }, 9.6f, ColorRgba{ 142u, 146u, 154u, 255u }, UnitSuffix);
+        }
+    }
+}
+
+float ConstructDualStatusBoxes(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    const char* LeftLabel,
+    const char* LeftCount,
+    ColorRgba   LeftAccent,
+    bool        LeftCheckMark,
+    const char* RightLabel,
+    const char* RightCount,
+    ColorRgba   RightAccent,
+    bool        RightExclaimMark) noexcept
+{
+    const float Gap  = 10.0f;
+    const float BoxW = std::floor((InnerWidth - Gap) * 0.5f);
+    const float BoxH = 88.0f;
+
+    auto PaintBox = [&](Rectangle2D B, const char* Lab, const char* Num, ColorRgba Accent, bool CheckIcon, bool ExclaimIcon)
+    {
+        Surface.FillRectangle(B, InspectorMetrics::SectionFill, 16.0f);
+        Surface.StrokeRectangle(B, InspectorMetrics::SectionBorder, 16.0f, 1.0f);
+        float TextX = B.X + 14.0f;
+        if (CheckIcon)
+        {
+            const Point2D C { B.X + 21.0f, B.Y + 21.0f };
+            Surface.FillCircle(C, 8.0f, Accent);
+            Surface.StrokeLine({ C.X - 3.2f, C.Y + 0.2f }, { C.X - 0.8f, C.Y + 2.8f }, ColorRgba{ 14u, 24u, 18u, 255u }, 1.6f);
+            Surface.StrokeLine({ C.X - 0.8f, C.Y + 2.8f }, { C.X + 3.6f, C.Y - 2.4f }, ColorRgba{ 14u, 24u, 18u, 255u }, 1.6f);
+            TextX = B.X + 36.0f;
+        }
+        else if (ExclaimIcon)
+        {
+            const Rectangle2D R { B.X + 14.0f, B.Y + 13.0f, 16.0f, 16.0f };
+            Surface.FillRectangle(R, Accent, 4.5f);
+            Surface.StrokeLine({ R.Center().X, R.Y + 3.5f }, { R.Center().X, R.Y + 9.2f }, ColorRgba{ 24u, 14u, 14u, 255u }, 1.7f);
+            Surface.FillCircle({ R.Center().X, R.Y + 12.2f }, 1.0f, ColorRgba{ 24u, 14u, 14u, 255u });
+            TextX = B.X + 36.0f;
+        }
+        else
+        {
+            Surface.FillCircle({ B.X + 18.0f, B.Y + 21.0f }, 3.5f, Accent);
+            TextX = B.X + 28.0f;
+        }
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { TextX, B.Y + 15.0f }, B.Right() - TextX - 8.0f, 10.6f, ColorRgba{ 208u, 212u, 218u, 255u }, Lab);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.X + 14.0f, B.Y + 42.0f }, 28.0f, ColorRgba{ 244u, 246u, 250u, 255u }, Num);
+    };
+
+    PaintBox({ LeftX, TopY, BoxW, BoxH }, LeftLabel, LeftCount, LeftAccent, LeftCheckMark, false);
+    PaintBox({ LeftX + BoxW + Gap, TopY, BoxW, BoxH }, RightLabel, RightCount, RightAccent, false, RightExclaimMark);
+    return TopY + BoxH + InspectorMetrics::SectionGap;
+}
+
 float ConstructSegmentTrack(
     PixelSpace&                  Surface,
     float                        LeftX,

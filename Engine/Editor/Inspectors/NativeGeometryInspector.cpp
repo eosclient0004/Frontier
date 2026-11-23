@@ -129,28 +129,69 @@ float NativeGeometryInspector::Construct(
 
     if (ActivePage == 0u)
     {
-        UpdateSpecimenSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 236.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Native geometry", ".GeometrySpace");
-        SpecimenPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 148.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 24.0f }, BodyW, 10.0f, InspectorMetrics::MutedInk, Instance.PackageReference);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        const uint32_t WarnCount = Instance.LocalSdfEnabled ? 0u : 1u;
+        char PassBuf[12]{}, WarnBuf[12]{};
+        std::snprintf(PassBuf, sizeof(PassBuf), "%u", Instance.LocalSdfEnabled ? 2u : 1u);
+        std::snprintf(WarnBuf, sizeof(WarnBuf), "%u", WarnCount);
+        CursorY = InspectorPrimitives::ConstructDualStatusBoxes(
+            Surface, LeftX, CursorY, InnerWidth,
+            "Checks passed", PassBuf, ColorRgba{ 112u, 212u, 142u, 255u }, true,
+            "Warnings",      WarnBuf, WarnCount > 0u ? ColorRgba{ 236u, 178u, 86u, 255u } : InspectorMetrics::MutedInk, true);
 
-        char TriTxt[16]{}, CluTxt[16]{}, LodTxt[16]{}, SltTxt[16]{};
-        std::snprintf(TriTxt, sizeof(TriTxt), "%.1f", static_cast<float>(Instance.TriangleCount) * 0.001f);
-        std::snprintf(CluTxt, sizeof(CluTxt), "%u", Instance.ClusterCount);
-        std::snprintf(LodTxt, sizeof(LodTxt), "%u", Instance.LodTierCount);
-        std::snprintf(SltTxt, sizeof(SltTxt), "%u", static_cast<unsigned>(Instance.Surface.MaterialSlotOrdinal));
-        const std::array<InspectorKpiMetricSpec, 4u> Kpis = {{
-            { TriTxt, "k",  "TRIANGLES" },
-            { CluTxt, "",   "CLUSTERS"  },
-            { LodTxt, "",   "LOD TIERS" },
-            { SltTxt, "",   "MAT SLOT"  },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Kpis);
+        const float DimX = std::max(0.01f, 2.0f * std::fabs(Entry.ScaleX));
+        const float DimY = std::max(0.01f, 1.4f * std::fabs(Entry.ScaleY));
+        const float DimZ = std::max(0.01f, 2.0f * std::fabs(Entry.ScaleZ));
+        const float VolM3 = DimX * DimY * DimZ;
+        const Rectangle2D FootSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, FootSec, "Footprint", ".GeometrySpace");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const long WholeV = static_cast<long>(std::floor(VolM3));
+        const int  FracV  = static_cast<int>(std::lround((VolM3 - static_cast<float>(WholeV)) * 100.0f)) % 100;
+        char VWhole[20]{}, VFrac[8]{};
+        std::snprintf(VWhole, sizeof(VWhole), "%ld", WholeV);
+        std::snprintf(VFrac,  sizeof(VFrac),  ".%02d", FracV);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, VWhole, VFrac, "m\xC2\xB3", "World bounding volume");
+        Y += 6.0f;
+        const float Gap = 6.0f;
+        const float TileW = (BodyW - Gap * 2.0f) / 3.0f;
+        char WBuf[16]{}, HBuf[16]{}, DBuf[16]{};
+        std::snprintf(WBuf, sizeof(WBuf), "%.2f m", DimX);
+        std::snprintf(HBuf, sizeof(HBuf), "%.2f m", DimY);
+        std::snprintf(DBuf, sizeof(DBuf), "%.2f m", DimZ);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,                      Y, TileW, 46.0f }, "WIDTH",  WBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap,        Y, TileW, 46.0f }, "HEIGHT", HBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "DEPTH",  DBuf);
+        CursorY = FootSec.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D CompSec { LeftX, CursorY, InnerWidth, 174.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, CompSec, "Components", "3");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char GeoMeta[40]{};
+        std::snprintf(GeoMeta, sizeof(GeoMeta), "%.1fk tris · %u clusters", static_cast<float>(Instance.TriangleCount) * 0.001f, Instance.ClusterCount);
+        bool HitGeo = false, HitMat = false, HitPhys = false;
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Cluster mesh & LOD", GeoMeta, true, Input, HitGeo);
+        Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "OpenPBR surface", Instance.Surface.Metallic > 0.5f ? "Metallic" : "Dielectric", true, Input, HitMat);
+        (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Rigid body & collision", Entry.DynamicMotion ? "Dynamic" : "Static", false, Input, HitPhys);
+        if (HitGeo) { ActivePage = 1u; OutPageSwitched = true; }
+        else if (HitMat) { ActivePage = 3u; OutPageSwitched = true; }
+        else if (HitPhys) { ActivePage = 4u; OutPageSwitched = true; }
+        CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
+
+        UpdateSpecimenSurface(Instance);
+        const Rectangle2D IconSec { LeftX, CursorY, InnerWidth, 102.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, IconSec, "Icon capture");
+        const float IconY = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        SpecimenPreview.Present(Surface, { LeftX + PadX, IconY, 54.0f, 44.0f }, 8.0f);
+        const Rectangle2D CapBtn { LeftX + PadX + 64.0f, IconY + 6.0f, BodyW - 64.0f, 32.0f };
+        Surface.FillRectangle(CapBtn, ColorRgba{ 32u, 33u, 37u, 255u }, 10.0f);
+        Surface.StrokeRectangle(CapBtn, ColorRgba{ 255u, 255u, 255u, 20u }, 10.0f, 1.0f);
+        const char* CapLabel = "Capture viewport icon";
+        const float CLW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 10.5f, CapLabel);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CapBtn.Center().X - CLW * 0.5f, CapBtn.Y + 9.0f }, 10.5f, WorkspaceSurfaceColors::PrimaryInk, CapLabel);
+        CursorY = IconSec.Bottom() + InspectorMetrics::SectionGap;
 
         const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
-            { "Visible",        InspectorSwitchSymbol::Eye,     Entry.VisibilityEnabled, false },
+            { "Visible",        InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
             { "Cast shadows",   InspectorSwitchSymbol::Shadow,  Entry.CastShadows,       false },
             { "Local SDF",      InspectorSwitchSymbol::Cube,    Instance.LocalSdfEnabled,false },
             { "Dynamic motion", InspectorSwitchSymbol::Physics, Entry.DynamicMotion,     false },

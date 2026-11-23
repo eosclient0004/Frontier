@@ -84,14 +84,14 @@ void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
             {
                 const float DX = static_cast<float>(X) + 0.5f - CX;
                 const float D  = std::sqrt(DX * DX + DY * DY);
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.017f, G = 0.018f, B = 0.021f;
 
                 // Polar concentric rings & 8 radial spokes
                 for (int Ring = 1; Ring <= 4; ++Ring)
                 {
-                    if (std::fabs(D - MaxR * (static_cast<float>(Ring) * 0.25f)) < 0.7f)
+                    if (std::fabs(D - MaxR * (static_cast<float>(Ring) * 0.25f)) < 0.65f)
                     {
-                        R += 0.07f; G += 0.075f; B += 0.082f;
+                        R += 0.036f; G += 0.040f; B += 0.046f;
                     }
                 }
                 if (D < MaxR && D > 3.0f)
@@ -99,9 +99,9 @@ void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
                     const float Ang = std::atan2(DX, DY);
                     const float Mod = std::fmod(std::fabs(Ang), PiF * 0.25f);
                     const float SpokeDist = std::min(Mod, PiF * 0.25f - Mod) * D;
-                    if (SpokeDist < 0.65f && (static_cast<int>(D) % 6) < 3)
+                    if (SpokeDist < 0.60f && (static_cast<int>(D) % 6) < 3)
                     {
-                        R += 0.045f; G += 0.050f; B += 0.055f;
+                        R += 0.026f; G += 0.030f; B += 0.034f;
                     }
 
                     // C0 (solid warm-tinted) & C90 (dashed mint-tinted) polar lobes
@@ -111,25 +111,25 @@ void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
 
                     if (D <= R9)
                     {
-                        R += 0.035f; G += 0.055f; B += 0.052f;
+                        R += 0.028f; G += 0.052f; B += 0.050f;
                     }
                     if (D <= R0)
                     {
-                        const float Fill = 0.16f + 0.14f * Gain;
+                        const float Fill = 0.14f + 0.12f * Gain;
                         R += TR * Fill; G += TG * Fill; B += TB * Fill;
                     }
                     if (std::fabs(D - R9) < 1.15f && (static_cast<int>(X + Y) % 7) < 4)
                     {
-                        R += 0.34f; G += 0.52f; B += 0.48f;
+                        R += 0.30f; G += 0.56f; B += 0.52f;
                     }
                     if (std::fabs(D - R0) < 1.25f)
                     {
-                        R += TR * 0.85f; G += TG * 0.85f; B += TB * 0.85f;
+                        R += TR * 0.90f; G += TG * 0.90f; B += TB * 0.90f;
                     }
                 }
-                if (D < 3.0f)
+                if (D < 2.8f)
                 {
-                    R += TR * 0.9f; G += TG * 0.9f; B += TB * 0.9f;
+                    R += TR * 0.95f; G += TG * 0.95f; B += TB * 0.95f;
                 }
 
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
@@ -157,32 +157,42 @@ float IesLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdatePolarSurface(Instance);
-        char CapBuf[64]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%s · C0 solid / C90 dashed", PresetName);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Photometric distribution", PresetName);
-        PolarPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Photometric distribution");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const long WholeLm = static_cast<long>(std::floor(ScaledLumens));
+        const int  FracLm  = static_cast<int>(std::lround((ScaledLumens - static_cast<float>(WholeLm)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Scaled photometric flux");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[72]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%s / C0 solid / C90 dashed", PresetName);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        PolarPreview.Present(Surface, Stage, 10.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 226u, 184u, 108u, 255u }, "C0 PLANE");
+        const char* C90Tag = "C90 PLANE";
+        const float C90W = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, C90Tag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - C90W, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 114u, 198u, 188u, 255u }, C90Tag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.X + 10.0f, Stage.Center().Y - 5.0f }, 8.2f, ColorRgba{ 130u, 134u, 142u, 255u }, "90\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Right() - 24.0f, Stage.Center().Y - 5.0f }, 8.2f, ColorRgba{ 130u, 134u, 142u, 255u }, "90\xC2\xB0");
+        const char* ZeroFoot = "0\xC2\xB0 · Polar candela";
+        const float ZFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, ZeroFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Center().X - ZFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 138u, 142u, 150u, 255u }, ZeroFoot);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        char LmBuf[20]{}, FieldBuf[20]{}, MultBuf[20]{}, RangeBuf[20]{};
-        std::snprintf(LmBuf,    sizeof(LmBuf),    "%.0f", ScaledLumens);
-        std::snprintf(FieldBuf, sizeof(FieldBuf), "%.0f", Instance.FieldAngleDegrees);
-        std::snprintf(MultBuf,  sizeof(MultBuf),  "%.2f", Instance.ProfileMultiplier);
-        std::snprintf(RangeBuf, sizeof(RangeBuf), "%.0f", Instance.RangeMeters);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { LmBuf,    "lm",  "SCALED FLUX" },
-            { FieldBuf, "deg", "FIELD ANGLE" },
-            { MultBuf,  "x",   "MULTIPLIER"  },
-            { RangeBuf, "m",   "RANGE"       },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
-
         const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Enabled",      InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled,     false },
-            { "Cast shadows", InspectorSwitchSymbol::Shadow,    Entry.CastShadows,           false },
-            { "Distribution", InspectorSwitchSymbol::Orbit,     Instance.ShowDistribution,   false },
+            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled,   false },
+            { "Cast shadows", InspectorSwitchSymbol::Shadow,  Entry.CastShadows,         false },
+            { "Distribution", InspectorSwitchSymbol::Orbit,   Instance.ShowDistribution, false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
@@ -190,7 +200,7 @@ float IesLightInspector::Construct(
         else if (Clicked == 1) { Entry.CastShadows = !Entry.CastShadows; OutMutated = true; }
         else if (Clicked == 2) { Instance.ShowDistribution = !Instance.ShowDistribution; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "ies-lm63" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }

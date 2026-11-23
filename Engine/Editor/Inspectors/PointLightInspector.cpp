@@ -56,43 +56,36 @@ void PointLightInspector::UpdateFalloffSurface(const PointLightData& Instance)
             {
                 const float DX = static_cast<float>(X) + 0.5f - CX;
                 const float D  = std::sqrt(DX * DX + DY * DY);
-                float R = 0.024f, G = 0.026f, B = 0.030f;
+                float R = 0.012f, G = 0.013f, B = 0.015f;
 
                 // Omnidirectional inverse-power falloff glow
                 const float NormD = D / MaxR;
-                const float Falloff = std::pow(1.0f / (1.0f + NormD * 2.4f), Dec * 0.85f) * Gain * 0.85f;
-                R += TR * Falloff; G += TG * Falloff; B += TB * Falloff;
+                const float Falloff = std::pow(1.0f / (1.0f + NormD * 2.8f), Dec * 0.95f) * Gain * 0.36f;
+                R += TR * Falloff * 0.55f; G += TG * Falloff * 0.62f; B += TB * Falloff * 0.95f;
 
-                // 4 concentric reach rings
+                // 4 concentric hairline reach rings
                 for (int Ring = 1; Ring <= 4; ++Ring)
                 {
                     const float RR = MaxR * (static_cast<float>(Ring) * 0.25f);
-                    if (std::fabs(D - RR) < 0.75f)
+                    if (std::fabs(D - RR) < 0.65f)
                     {
-                        R += 0.075f; G += 0.080f; B += 0.088f;
+                        R += 0.055f; G += 0.060f; B += 0.072f;
                     }
                 }
 
-                // 12 dashed radial rays
-                if (D > 16.0f && D < MaxR)
+                // Subtle 4-axis dotted crosshair
+                if ((std::fabs(DX) < 0.6f || std::fabs(DY) < 0.6f) && D > 10.0f && D < MaxR && (static_cast<int>(D) % 6) < 2)
                 {
-                    const float Ang = std::atan2(DY, DX);
-                    const float Sector = std::fmod(Ang + PiF, PiF / 6.0f);
-                    const float AngDist = std::min(Sector, (PiF / 6.0f) - Sector) * D;
-                    const bool  DashOn  = (static_cast<int>(D) % 8) < 4;
-                    if (AngDist < 0.7f && DashOn)
-                    {
-                        R += TR * 0.18f; G += TG * 0.18f; B += TB * 0.18f;
-                    }
+                    R += 0.035f; G += 0.038f; B += 0.044f;
                 }
 
-                // Central luminous bulb core
-                if (D < 6.5f)
+                // Crisp central luminous bulb dot (matching HTML indigo/tint core)
+                if (D < 5.5f)
                 {
-                    const float Core = 1.0f - D / 6.5f;
-                    R += TR * (1.2f + Core * 3.0f);
-                    G += TG * (1.2f + Core * 3.0f);
-                    B += TB * (1.2f + Core * 3.0f);
+                    const float Core = 1.0f - D / 5.5f;
+                    R += 0.42f + TR * Core * 0.65f;
+                    G += 0.46f + TG * Core * 0.68f;
+                    B += 0.92f + TB * Core * 0.95f;
                 }
 
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
@@ -112,42 +105,58 @@ float PointLightInspector::Construct(
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
     const float Lux5m = Instance.IntensityCandela / std::pow(5.0f, std::max(0.01f, Instance.DecayExponent));
+    (void)Lux5m;
 
     if (ActivePage == 0u)
     {
         UpdateFalloffSurface(Instance);
-        char CapBuf[56]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "Omnidirectional · decay %.1f", Instance.DecayExponent);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Radial falloff", "Point");
-        FalloffPreview.Present(Surface, { LeftX + PadX, CursorY + InspectorMetrics::SectionPadTop + 28.0f, BodyW, 152.0f }, 12.0f);
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, PrevSec.Bottom() - 28.0f }, BodyW, 10.5f, InspectorMetrics::MutedInk, CapBuf);
+        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Radial falloff");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        const long WholeCd = static_cast<long>(std::floor(Instance.IntensityCandela));
+        const int  FracCd  = static_cast<int>(std::lround((Instance.IntensityCandela - static_cast<float>(WholeCd)) * 10.0f)) % 10;
+        char WholeBuf[24]{}, FracBuf[8]{};
+        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeCd);
+        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracCd);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "cd", "Authored luminous intensity");
+
+        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+        Y += 14.0f;
+
+        char CapBuf[64]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "Omnidirectional / decay %.1f", Instance.DecayExponent);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
+        Y += 20.0f;
+
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
+        FalloffPreview.Present(Surface, Stage, 10.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, "OMNIDIRECTIONAL");
+        char DecTag[24]{};
+        std::snprintf(DecTag, sizeof(DecTag), "DECAY %.1f", Instance.DecayExponent);
+        const float DTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, DecTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - DTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, DecTag);
+
+        // Reach guide labels along right radius (8 m, 15 m, 23 m, 30 m)
+        char ReachLine[48]{};
+        std::snprintf(ReachLine, sizeof(ReachLine), "%.0f m  %.0f m  %.0f m",
+            Instance.ReachMeters * 0.25f, Instance.ReachMeters * 0.55f, Instance.ReachMeters);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Center().X + 16.0f, Stage.Center().Y - 5.0f }, 8.2f, ColorRgba{ 140u, 144u, 152u, 255u }, ReachLine);
+        const char* GuideFoot = "Reach guides · free space";
+        const float GFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.6f, GuideFoot);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Center().X - GFW * 0.5f, Stage.Bottom() - 14.0f }, 8.6f, ColorRgba{ 126u, 130u, 138u, 255u }, GuideFoot);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        char CdBuf[20]{}, LuxBuf[20]{}, ReachBuf[20]{}, RadBuf[20]{};
-        std::snprintf(CdBuf,    sizeof(CdBuf),    "%.1f", Instance.IntensityCandela);
-        std::snprintf(LuxBuf,   sizeof(LuxBuf),   "%.2f", Lux5m);
-        std::snprintf(ReachBuf, sizeof(ReachBuf), "%.0f", Instance.ReachMeters);
-        std::snprintf(RadBuf,   sizeof(RadBuf),   "%.0f", Instance.SourceRadiusMeters * 1000.0f);
-        const std::array<InspectorKpiMetricSpec, 4u> Tiles = {{
-            { CdBuf,    "cd", "INTENSITY" },
-            { LuxBuf,   "lx", "AT 5 M"    },
-            { ReachBuf, "m",  "REACH"     },
-            { RadBuf,   "mm", "BULB RAD"  },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Tiles);
-
         const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Enabled",      InspectorSwitchSymbol::LightBulb, Entry.VisibilityEnabled, false },
-            { "Show glow",    InspectorSwitchSymbol::Sun,       Instance.ShowGlow,       false },
+            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Show glow",    InspectorSwitchSymbol::Sun,     Instance.ShowGlow,       false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
         if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
         else if (Clicked == 1) { Instance.ShowGlow = !Instance.ShowGlow; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "lighting", "point" }};
+        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }

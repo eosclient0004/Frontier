@@ -28,22 +28,74 @@ float FolderInspector::Construct(
 
     if (ActivePage == 0u)
     {
-        char DirBuf[16]{}, TotBuf[16]{}, SubBuf[16]{}, VisBuf[16]{};
+        // Count visible vs hidden direct entries & composition categories
+        uint32_t VisCount = 0u, HidCount = 0u;
+        uint32_t GeoCount = 0u, LightCount = 0u, WorldCount = 0u, SubFolderCount = 0u;
+        for (const auto& Entry : Outliner.QueryEntries())
+        {
+            if (Entry.EnclosingToken != FolderEntry.Token) continue;
+            if (Entry.VisibilityEnabled) ++VisCount; else ++HidCount;
+            if (Entry.Category == ConstructSlotCategory::Folder) ++SubFolderCount;
+            else if (Entry.Category == ConstructSlotCategory::PointLuminaire) ++LightCount;
+            else if (Entry.Category == ConstructSlotCategory::GeometryVolume) ++GeoCount;
+            else ++WorldCount;
+        }
+
+        // 1:1 HTML Collection contents hero section (entries count + 3-col tiles)
+        const Rectangle2D CollSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, CollSec, "Collection contents");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char TotBuf[16]{}; std::snprintf(TotBuf, sizeof(TotBuf), "%u", TotalCount);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, TotBuf, "", TotalCount == 1u ? "entry" : "entries", "Direct children and nested hierarchy");
+        Y += 6.0f;
+        const float Gap = 6.0f;
+        const float TileW = (BodyW - Gap * 2.0f) / 3.0f;
+        char DirBuf[16]{}, FldBuf[16]{}, LvlBuf[16]{};
         std::snprintf(DirBuf, sizeof(DirBuf), "%u", DirectCount);
-        std::snprintf(TotBuf, sizeof(TotBuf), "%u", TotalCount);
-        std::snprintf(SubBuf, sizeof(SubBuf), "%u", FolderCount);
-        std::snprintf(VisBuf, sizeof(VisBuf), "%s", FolderEntry.VisibilityEnabled ? "ON" : "OFF");
-        const std::array<InspectorKpiMetricSpec, 4u> Kpis = {{
-            { DirBuf, "", "DIRECT" },
-            { TotBuf, "", "TOTAL" },
-            { SubBuf, "", "FOLDERS" },
-            { VisBuf, "", "VISIBILITY" },
-        }};
-        CursorY = InspectorPrimitives::ConstructKpiMetricGrid(Surface, LeftX, CursorY, InnerWidth, Kpis);
+        std::snprintf(FldBuf, sizeof(FldBuf), "%u", FolderCount);
+        std::snprintf(LvlBuf, sizeof(LvlBuf), "%u", FolderCount > 0u ? 2u : (DirectCount > 0u ? 1u : 0u));
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,                      Y, TileW, 46.0f }, "DIRECT",  DirBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap,        Y, TileW, 46.0f }, "FOLDERS", FldBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "LEVELS",  LvlBuf);
+        CursorY = CollSec.Bottom() + InspectorMetrics::SectionGap;
+
+        // Dual status boxes: Visible | Hidden
+        char VisStr[16]{}, HidStr[16]{};
+        std::snprintf(VisStr, sizeof(VisStr), "%u", VisCount);
+        std::snprintf(HidStr, sizeof(HidStr), "%u", HidCount);
+        CursorY = InspectorPrimitives::ConstructDualStatusBoxes(
+            Surface, LeftX, CursorY, InnerWidth,
+            "Visible", VisStr, ColorRgba{ 112u, 212u, 142u, 255u }, true,
+            "Hidden",  HidStr, HidCount > 0u ? ColorRgba{ 236u, 178u, 86u, 255u } : InspectorMetrics::MutedInk, false);
+
+        // Composition proportional bar section
+        const Rectangle2D CompSec { LeftX, CursorY, InnerWidth, 98.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, CompSec, "Composition");
+        const float BarY = CursorY + InspectorMetrics::SectionPadTop + 30.0f;
+        const Rectangle2D BarBg { LeftX + PadX, BarY, BodyW, 10.0f };
+        Surface.FillRectangle(BarBg, ColorRgba{ 24u, 25u, 29u, 255u }, 5.0f);
+        const float SumCat = static_cast<float>(std::max(1u, GeoCount + LightCount + WorldCount + SubFolderCount));
+        float SegX = BarBg.X;
+        auto AddSegment = [&](uint32_t Cnt, ColorRgba Col)
+        {
+            if (Cnt == 0u) return;
+            const float SegW = std::max(4.0f, BarBg.Width * (static_cast<float>(Cnt) / SumCat));
+            Surface.FillRectangle({ SegX, BarBg.Y, std::min(SegW, BarBg.Right() - SegX), BarBg.Height }, Col, 4.0f);
+            SegX += SegW;
+        };
+        AddSegment(GeoCount,       ColorRgba{ 126u, 186u, 242u, 255u });
+        AddSegment(LightCount,     ColorRgba{ 242u, 196u, 112u, 255u });
+        AddSegment(WorldCount,     ColorRgba{ 156u, 142u, 238u, 255u });
+        AddSegment(SubFolderCount, ColorRgba{ 128u, 206u, 154u, 255u });
+
+        char LegBuf[72]{};
+        std::snprintf(LegBuf, sizeof(LegBuf), "Geo %u · Lights %u · World %u · Folders %u", GeoCount, LightCount, WorldCount, SubFolderCount);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, BarBg.Bottom() + 10.0f }, BodyW, 9.8f, InspectorMetrics::MutedInk, LegBuf);
+        CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
 
         const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Visible",  InspectorSwitchSymbol::Eye,  FolderEntry.VisibilityEnabled, false },
-            { "Expanded", InspectorSwitchSymbol::Cube, FolderEntry.Expanded,          false },
+            { "Visible",  InspectorSwitchSymbol::Eye, FolderEntry.VisibilityEnabled, false },
+            { "Expanded", InspectorSwitchSymbol::Cube,    FolderEntry.Expanded,          false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
