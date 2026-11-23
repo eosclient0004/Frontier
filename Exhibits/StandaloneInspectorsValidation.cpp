@@ -789,6 +789,162 @@ title = "Overview"
                 Names[PageIdx]);
         }
         Inspectors.QueryHeightFog().SetActivePage(0u);
+
+        // Card #2: Atmospheric Fog (defaults: Enabled=false, Density=1, Start=50m, MieBlend=0.4)
+        const OutlinerSlotToken ParityAf = AppendEntry(Outliner, "Atmospheric Fog", "Atmospheric Fog", "env:aerial-fog", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* AfRec = Outliner.AccessEntry(ParityAf))
+        {
+            AfRec->VisibilityEnabled = false;
+        }
+        auto& AfInst = Reg.AccessAtmosphericFog(ParityAf, Bundle.Scene);
+        AfInst.AerialFog.Enabled             = false;
+        AfInst.AerialFog.DensityMultiplier   = 1.0f;
+        AfInst.AerialFog.StartDistanceMeters = 50.0f;
+        AfInst.AerialFog.MieBlend            = 0.4f;
+
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{
+                "AtmosphericFog-01-Overview.png",
+                "AtmosphericFog-02-Spectrum.png",
+            }};
+            Inspectors.QueryAtmosphericFog().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityAf, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryAtmosphericFog().SetActivePage(0u);
+
+        // Card #3: Local Fog (defaults: Enabled=true, Density=1, Coverage=0.55, FeatureScale=100m, Anisotropy=0.6, Box 200x200x200m)
+        const OutlinerSlotToken ParityLf = AppendEntry(Outliner, "Local Fog", "Local Fog", "env:local-fog", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* LfRec = Outliner.AccessEntry(ParityLf))
+        {
+            LfRec->VisibilityEnabled = true;
+        }
+        auto& LfInst = Reg.AccessLocalFog(ParityLf, Bundle.Scene);
+        LfInst.LocalFog.Enabled            = true;
+        LfInst.LocalFog.Density            = 1.0f;
+        LfInst.LocalFog.Coverage           = 0.55f;
+        LfInst.LocalFog.FeatureScaleMeters = 100.0f;
+        LfInst.LocalFog.AnisotropyG        = 0.6f;
+        LfInst.LocalFog.Shape              = GeometricRaster::AtmosphericVolumeShape::Box;
+        LfInst.LocalFog.HalfExtentMeters   = { 100.0f, 100.0f, 100.0f };
+
+        for (uint32_t PageIdx = 0u; PageIdx < 3u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 3u> Names = {{
+                "LocalFog-01-Overview.png",
+                "LocalFog-02-Medium.png",
+                "LocalFog-03-Shape.png",
+            }};
+            Inspectors.QueryLocalFog().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityLf, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryLocalFog().SetActivePage(0u);
+
+        // Card #4: Wind (defaults matching wind__0/1: Enabled=true, AirShear=false, Speed=4.2, Bearing=214, Shear=0.35, Veer=12, Turb=0.3, Steadiness=1)
+        const OutlinerSlotToken ParityWind = AppendEntry(Outliner, "Wind", "Wind", "env:wind", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* WRec = Outliner.AccessEntry(ParityWind))
+        {
+            WRec->VisibilityEnabled = true;
+        }
+        auto& WInst = Reg.AccessWind(ParityWind, Bundle.Scene);
+        WInst.Wind.Enabled              = true;
+        WInst.Wind.AirShearAdvection    = false;
+        WInst.Wind.SpeedMetersPerSecond = 4.2f;
+        WInst.Wind.BearingDegrees       = 214.0f;
+        WInst.Wind.GustStrength         = 0.34f;
+        WInst.Wind.ShearPerKilometer    = 0.35f;
+        WInst.Wind.VeerDegreesPerKm     = 12.0f;
+        WInst.Wind.Turbulence           = 0.3f;
+        WInst.Wind.Steadiness           = 1.0f;
+
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{
+                "Wind-01-Overview.png",
+                "Wind-02-Air.png",
+            }};
+            Inspectors.QueryWind().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityWind, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryWind().SetActivePage(0u);
+
+        // Card #5: Clouds (6 tabs)
+        const OutlinerSlotToken ParityCl = AppendEntry(Outliner, "Clouds", "Clouds", "env:clouds", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* ClRec = Outliner.AccessEntry(ParityCl))
+        {
+            ClRec->VisibilityEnabled = true;
+        }
+        auto& ClInst = Reg.AccessCloud(ParityCl, Bundle.Scene);
+        ClInst.Clouds.CloudsEnabled            = true;
+        ClInst.Clouds.Category                 = GeometricRaster::CloudCategoryType::Stratus;
+        ClInst.Clouds.CloudFraction            = 0.34f;
+        ClInst.Clouds.ExtinctionMultiplier     = 2.4f;
+        ClInst.Clouds.FeatureScaleMultiplier   = 0.35f;
+        ClInst.Clouds.ForwardScatterAnisotropy = 0.45f;
+        ClInst.Clouds.AnvilTopSpread           = 0.5f;
+        ClInst.Clouds.DeckCeilingMeters        = 14000.0f;
+        ClInst.Clouds.CloudFloorMeters         = 1400.0f;
+        ClInst.Clouds.LayerThicknessMeters     = 1100.0f;
+        ClInst.Clouds.WindSpeedMetersPerSecond = 8.0f;
+        ClInst.Clouds.WindBearingDegrees       = 270.0f;
+        ClInst.Clouds.WindShearPerKilometer    = 2.0f;
+        ClInst.Clouds.WindVeerDegreesPerKm     = 0.0f;
+        ClInst.Clouds.WindTurbulence           = 0.3f;
+        ClInst.Clouds.CloudMarchSteps          = 64u;
+        ClInst.Clouds.CloudRenderScale         = 0.5f;
+
+        for (uint32_t PageIdx = 0u; PageIdx < 6u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 6u> Names = {{
+                "Cloud-01-Overview.png",
+                "Cloud-02-Coverage.png",
+                "Cloud-03-Layer.png",
+                "Cloud-04-Body.png",
+                "Cloud-05-Wind.png",
+                "Cloud-06-Quality.png",
+            }};
+            Inspectors.QueryCloud().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCl, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryCloud().SetActivePage(0u);
+
+        // Card #6: Local Cloud (4 tabs)
+        const OutlinerSlotToken ParityLc = AppendEntry(Outliner, "Local Cloud", "Local Cloud", "env:local-cloud", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* LcRec = Outliner.AccessEntry(ParityLc))
+        {
+            LcRec->VisibilityEnabled = false;
+        }
+        auto& LcInst = Reg.AccessLocalCloud(ParityLc, Bundle.Scene);
+        LcInst.Volume.LocalEnabled             = false;
+        LcInst.Volume.CloudFraction            = 0.80f;
+        LcInst.Volume.ExtinctionMultiplier     = 2.5f;
+        LcInst.Volume.FeatureScaleMeters       = 40.0f;
+        LcInst.Volume.ForwardScatterAnisotropy = 0.45f;
+        LcInst.Volume.VolumeCenterMeters       = { -100.0f, 260.0f, 130.0f };
+        LcInst.Volume.HalfExtentMeters         = { 100.0f, 100.0f, 50.0f };
+
+        for (uint32_t PageIdx = 0u; PageIdx < 4u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 4u> Names = {{
+                "LocalCloud-01-Overview.png",
+                "LocalCloud-02-Coverage.png",
+                "LocalCloud-03-Layer.png",
+                "LocalCloud-04-Body.png",
+            }};
+            Inspectors.QueryLocalCloud().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityLc, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryLocalCloud().SetActivePage(0u);
     }
 
     TypographyRepository::AssignCurrent(nullptr);

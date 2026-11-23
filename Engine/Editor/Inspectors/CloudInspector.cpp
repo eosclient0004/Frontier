@@ -1,378 +1,591 @@
 /*============================================================================================================================================
-                                                            CLOUDINSPECTOR.CPP
+                                                           CLOUDINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance CloudInspector (KPI metrics, Coverage, CloudDeck cross-section, Body, Wind, Quality)
+// 🧩 Brand-new 1:1 HTML parity port of Global Clouds Inspector (6 tabs: Overview, Coverage, Layer, Body, Wind, Quality)
 
 #include "Engine/Editor/Inspectors/CloudInspector.h"
-
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
-#include "Engine/GeometricRaster/Atmosphere/VolumetricCloudSequence.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 namespace Frontier
 {
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
 
-inline void PutPixel(std::vector<uint8_t>& Buf, uint32_t W, uint32_t X, uint32_t Y, uint8_t R, uint8_t G, uint8_t B) noexcept
+[[nodiscard]] uint8_t ClampByteCl(float V) noexcept
 {
-    const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-    Buf[Off + 0u] = R; Buf[Off + 1u] = G; Buf[Off + 2u] = B; Buf[Off + 3u] = 255u;
-}
-inline float Hash2D(int X, int Y) noexcept
-{
-    uint32_t N = static_cast<uint32_t>(X) * 374761393u + static_cast<uint32_t>(Y) * 668265263u;
-    N = (N ^ (N >> 13u)) * 1274126177u;
-    return static_cast<float>((N ^ (N >> 16u)) & 0xFFFFu) / 65535.0f;
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 
-inline float SmoothLatticeNoise(float X, float Y) noexcept
+[[nodiscard]] float Hash2D(float X, float Y) noexcept
 {
-    const int IX = static_cast<int>(std::floor(X));
-    const int IY = static_cast<int>(std::floor(Y));
-    const float FX = X - static_cast<float>(IX);
-    const float FY = Y - static_cast<float>(IY);
+    const float D = std::sin(X * 127.1f + Y * 311.7f) * 43758.5453f;
+    return D - std::floor(D);
+}
+
+[[nodiscard]] float ValueNoise2D(float X, float Y) noexcept
+{
+    const float IX = std::floor(X), IY = std::floor(Y);
+    const float FX = X - IX,        FY = Y - IY;
     const float UX = FX * FX * (3.0f - 2.0f * FX);
     const float UY = FY * FY * (3.0f - 2.0f * FY);
-    const float A = Hash2D(IX, IY);
-    const float B = Hash2D(IX + 1, IY);
-    const float C = Hash2D(IX, IY + 1);
-    const float D = Hash2D(IX + 1, IY + 1);
-    return (A + (B - A) * UX) + ((C - A) + (A - B - C + D) * UX) * UY;
+    const float A  = Hash2D(IX,        IY);
+    const float B  = Hash2D(IX + 1.0f, IY);
+    const float C  = Hash2D(IX,        IY + 1.0f);
+    const float D  = Hash2D(IX + 1.0f, IY + 1.0f);
+    return (A * (1.0f - UX) + B * UX) * (1.0f - UY) + (C * (1.0f - UX) + D * UX) * UY;
 }
 
-inline float CloudFbm(float X, float Y) noexcept
+[[nodiscard]] float FbmCloud(float X, float Y) noexcept
 {
-    float Sum = 0.0f, Amp = 0.52f, Freq = 1.0f;
+    float Acc = 0.0f, Amp = 0.55f, Freq = 1.0f;
     for (int Oct = 0; Oct < 4; ++Oct)
     {
-        Sum += SmoothLatticeNoise(X * Freq, Y * Freq) * Amp;
-        Freq *= 2.07f;
+        Acc  += Amp * ValueNoise2D(X * Freq, Y * Freq);
+        Freq *= 2.03f;
         Amp  *= 0.50f;
     }
-    return Sum;
+    return Acc;
 }
+
+[[nodiscard]] const char* SkyCoverWord(int Oktas) noexcept
+{
+    if (Oktas <= 0) return "Clear";
+    if (Oktas <= 2) return "Few";
+    if (Oktas <= 4) return "Scattered";
+    if (Oktas <= 6) return "Overcast";
+    return "Overcast";
+}
+
+[[nodiscard]] const char* SkyFractionPhrase(float Coverage01) noexcept
+{
+    if (Coverage01 < 0.12f) return "clear sky";
+    if (Coverage01 < 0.30f) return "few clouds";
+    if (Coverage01 < 0.55f) return "scattered cloud";
+    if (Coverage01 < 0.78f) return "broken cloud";
+    return "overcast cloud";
+}
+
+[[nodiscard]] const char* CloudCategoryLabel(GeometricRaster::CloudCategoryType Cat) noexcept
+{
+    switch (Cat)
+    {
+        case GeometricRaster::CloudCategoryType::Stratus:         return "Stratus";
+        case GeometricRaster::CloudCategoryType::Stratocumulus:   return "Stratocumulus";
+        case GeometricRaster::CloudCategoryType::Cumulus:         return "Cumulus";
+        case GeometricRaster::CloudCategoryType::Cumulonimbus:    return "Cumulonimbus";
+        case GeometricRaster::CloudCategoryType::Altostratus:     return "Altostratus";
+        case GeometricRaster::CloudCategoryType::Cirrus:          return "Cirrus";
+        case GeometricRaster::CloudCategoryType::Lenticular:      return "Lenticular";
+        case GeometricRaster::CloudCategoryType::Mammatus:        return "Mammatus";
+        case GeometricRaster::CloudCategoryType::KelvinHelmholtz: return "Kelvin-Helmholtz";
+        case GeometricRaster::CloudCategoryType::Asperitas:       return "Asperitas";
+        case GeometricRaster::CloudCategoryType::Nacreous:        return "Nacreous";
+        default:                                                  return "Stratus";
+    }
+}
+
+void ConstructCloudKpiTile(
+    PixelSpace& Surface, Rectangle2D Box,
+    const char* ValueText, const char* UnitText, const char* LabelText) noexcept
+{
+    Surface.FillRectangle(Box, ColorRgba{ 26u, 26u, 26u, 255u }, 16.0f);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Box.X + 14.0f, Box.Y + 11.0f }, 20.5f, ColorRgba{ 234u, 234u, 234u, 255u }, ValueText);
+    const float VW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 20.5f, ValueText);
+    if (UnitText != nullptr && UnitText[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Box.X + 18.0f + VW, Box.Y + 18.5f }, 10.5f, InspectorMetrics::MutedInk, UnitText);
+    }
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Box.X + 14.0f, Box.Bottom() - 17.0f }, 9.2f, InspectorMetrics::DimInk, LabelText);
+}
+
 } // namespace
 
-void CloudInspector::UpdateCloudRadarSurface(const GeometricRaster::CloudDeckConfiguration& Clouds)
+namespace CloudVisualPrimitives
 {
-    uint64_t Sig = 0xC100A4A1ull;
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.CloudFraction);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.ExtinctionMultiplier);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.WindBearingDegrees);
 
-    const uint32_t W = 240u, H = 178u;
-    CloudRadarPreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+void UpdateSwathPreview(
+    InspectorPreviewSurface& Preview,
+    float Coverage01, float Extinction, bool IsLocal)
+{
+    uint64_t Key = IsLocal ? 0xC10D10CAull : 0xC10D610Bull;
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Coverage01);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Extinction);
+
+    const uint32_t W = 272u, H = 172u;
+    Preview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const float Cov   = std::clamp(Clouds.CloudFraction, 0.0f, 1.0f);
-        const float Dens  = std::clamp(Clouds.ExtinctionMultiplier * 0.45f, 0.15f, 1.15f);
-        const float Bear  = Clouds.WindBearingDegrees * (PiF / 180.0f);
-        const float Ca = std::cos(Bear * 0.35f), Sa = std::sin(Bear * 0.35f);
-        const float CX = static_cast<float>(W) * 0.5f, CY = static_cast<float>(H) * 0.5f;
-
+        const float Cov       = std::clamp(Coverage01, 0.0f, 1.0f);
+        const float Threshold = 1.0f - Cov;
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
             const float V = static_cast<float>(Y) / static_cast<float>(H);
+            // Subtle dark navy sky gradient + bottom scrim for text readability
+            const float Scrim = std::clamp((V - 0.62f) / 0.38f, 0.0f, 1.0f);
             for (uint32_t X = 0u; X < W; ++X)
             {
                 const float U = static_cast<float>(X) / static_cast<float>(W);
-                // Deep blueprint radar backdrop
-                float R = 0.055f + (1.0f - V) * 0.022f;
-                float G = 0.082f + (1.0f - V) * 0.032f;
-                float B = 0.125f + (1.0f - V) * 0.048f;
+                // Quantized cell grid (matches HTML satellite swath pixel cells)
+                const float CellX = std::floor(U * 68.0f) / 68.0f;
+                const float CellY = std::floor(V * 43.0f) / 43.0f;
+                const float N     = FbmCloud(CellX * 4.5f + (IsLocal ? 2.1f : 0.7f), CellY * 3.6f + (IsLocal ? 1.4f : 0.3f));
+                const float Cloud = std::clamp((N - (Threshold * 0.72f + 0.14f)) / 0.36f, 0.0f, 1.0f);
 
-                // Subtle blueprint coordinate grid + range rings
-                const bool GridV = (X > 4u && X < W - 4u && (X % 40u) == 0u);
-                const bool GridH = (Y > 4u && Y < H - 4u && (Y % 44u) == 0u);
-                if (GridV || GridH) { R += 0.028f; G += 0.042f; B += 0.058f; }
-                const float DistC = std::sqrt((static_cast<float>(X) - CX) * (static_cast<float>(X) - CX) +
-                                              (static_cast<float>(Y) - CY) * (static_cast<float>(Y) - CY));
-                if (std::fabs(DistC - 54.0f) < 0.7f || std::fabs(DistC - 27.0f) < 0.7f)
+                float R = 13.0f + Cloud * 68.0f;
+                float G = 18.0f + Cloud * 74.0f;
+                float B = 24.0f + Cloud * 80.0f;
+
+                // Subtle 9 x 6 latitude/longitude grid lines matching HTML swath
+                if ((X % 30u) == 0u || (Y % 28u) == 0u)
                 {
-                    R += 0.036f; G += 0.054f; B += 0.075f;
+                    R += 7.0f; G += 9.0f; B += 12.0f;
                 }
+                // Bottom scrim darken
+                const float Keep = 1.0f - Scrim * 0.55f;
+                R *= Keep; G *= Keep; B *= Keep;
 
-                // Multi-octave fBM volumetric cloud field with sun-lit billow highlight & soft shadow
-                const float RX = (U - 0.5f) * Ca - (V - 0.5f) * Sa;
-                const float RY = (U - 0.5f) * Sa + (V - 0.5f) * Ca;
-                const float N  = CloudFbm(RX * 5.6f + 4.3f, RY * 4.4f + 2.7f);
-                const float N2 = CloudFbm(RX * 5.6f + 4.18f, RY * 4.4f + 2.58f);
-                const float Thresh = 0.76f - Cov * 0.52f;
-                const float Cloud = std::clamp((N - Thresh) / 0.24f, 0.0f, 1.0f);
-                if (Cloud > 0.005f)
-                {
-                    const float Smooth = Cloud * Cloud * (3.0f - 2.0f * Cloud);
-                    const float Lit    = std::clamp(0.55f + (N - N2) * 3.8f, 0.25f, 1.0f);
-                    const float Opac   = std::clamp(Smooth * (0.48f + 0.44f * Dens), 0.0f, 0.94f);
-                    const float CR = 0.66f + 0.30f * Lit;
-                    const float CG = 0.74f + 0.23f * Lit;
-                    const float CB = 0.84f + 0.14f * Lit;
-                    R = R * (1.0f - Opac) + CR * Opac;
-                    G = G * (1.0f - Opac) + CG * Opac;
-                    B = B * (1.0f - Opac) + CB * Opac;
-                }
-
-                // Bottom scrim so white typography stays ultra-legible
-                if (V > 0.68f)
-                {
-                    const float Scrim = ((V - 0.68f) / 0.32f) * 0.55f;
-                    R *= (1.0f - Scrim); G *= (1.0f - Scrim); B *= (1.0f - Scrim);
-                }
-
-                PutPixel(Pixels, W, X, Y,
-                    static_cast<uint8_t>(std::clamp(std::lround(R * 255.0f), 0l, 255l)),
-                    static_cast<uint8_t>(std::clamp(std::lround(G * 255.0f), 0l, 255l)),
-                    static_cast<uint8_t>(std::clamp(std::lround(B * 255.0f), 0l, 255l)));
+                const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
+                Pixels[Off + 0u] = ClampByteCl(R);
+                Pixels[Off + 1u] = ClampByteCl(G);
+                Pixels[Off + 2u] = ClampByteCl(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
 }
 
-void CloudInspector::UpdateCloudDeckSurface(const GeometricRaster::CloudDeckConfiguration& Clouds)
+void UpdateDeckSectionPreview(
+    InspectorPreviewSurface& Preview,
+    float BaseMeters, float ThicknessMeters, float CeilingMeters, float Coverage01)
 {
-    uint64_t Sig = 0xC1007007ull;
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.CloudFloorMeters);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.LayerThicknessMeters);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.ExtinctionMultiplier);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.CloudFraction);
+    uint64_t Key = 0xDEC45EC1ull;
+    Key = InspectorPrimitives::MixRevisionFloat(Key, BaseMeters);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, ThicknessMeters);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, CeilingMeters);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Coverage01);
 
-    const uint32_t W = 224u, H = 176u;
-    CloudDeckPreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    const uint32_t W = 222u, H = 178u;
+    Preview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const float SpanAlt = std::max(400.0f, std::ceil(((Clouds.CloudFloorMeters + Clouds.LayerThicknessMeters) * 1.25f) / 500.0f) * 500.0f);
-        auto AltToY = [&](float Alt) noexcept -> float
-        {
-            return static_cast<float>(H) - 18.0f - (Alt / SpanAlt) * (static_cast<float>(H) - 44.0f);
-        };
-        const float DatumY  = AltToY(Clouds.CloudFloorMeters);
-        const float DepthPx = (Clouds.LayerThicknessMeters / SpanAlt) * (static_cast<float>(H) - 44.0f);
-        const float Dens01  = std::clamp(Clouds.ExtinctionMultiplier / 4.0f, 0.12f, 1.0f);
+        const float MaxAlt = std::max(500.0f, CeilingMeters);
+        const float TopPad = 32.0f, BotPad = 18.0f;
+        const float SpanPx = static_cast<float>(H) - TopPad - BotPad;
+        const float BaseY  = TopPad + (1.0f - std::clamp(BaseMeters / MaxAlt, 0.0f, 1.0f)) * SpanPx;
 
-        for (uint32_t Y = 0u; Y < H; ++Y)
+        for (uint32_t X = 0u; X < W; ++X)
         {
-            const float FY = static_cast<float>(Y);
-            for (uint32_t X = 0u; X < W; ++X)
+            const float U = static_cast<float>(X) / static_cast<float>(W);
+            const float Tower = 0.25f + 0.75f * std::clamp(
+                0.45f + 0.30f * std::sin(U * 19.0f + 0.4f) + 0.20f * std::sin(U * 41.0f + 1.9f) + 0.12f * std::sin(U * 83.0f),
+                0.0f, 1.0f);
+            const float ColTopM = BaseMeters + ThicknessMeters * (0.28f + 0.52f * Tower);
+            const float TopY    = TopPad + (1.0f - std::clamp(ColTopM / MaxAlt, 0.0f, 1.0f)) * SpanPx;
+
+            for (uint32_t Y = 0u; Y < H; ++Y)
             {
-                const float FX   = static_cast<float>(X);
-                const float TopY = DatumY - DepthPx * (0.65f + 0.28f * std::sin(FX * 0.08f) + 0.12f * std::sin(FX * 0.31f));
-                float R = 6.0f / 255.0f, G = 7.0f / 255.0f, B = 9.0f / 255.0f;
-                if (FY >= TopY && FY <= DatumY + 4.0f)
+                const float Yf = static_cast<float>(Y);
+                float R = 14.0f, G = 15.0f, B = 16.0f;
+                if (Yf <= BaseY && Yf >= TopY)
                 {
-                    const float T = std::clamp((FY - TopY) / std::max(1.0f, (DatumY + 4.0f) - TopY), 0.0f, 1.0f);
-                    const float A = (T < 0.35f) ? (0.08f + (T / 0.35f) * 0.68f * Dens01) : (0.74f * Dens01);
-                    R = R * (1.0f - A) + ((1.0f - T) * 0.93f + T * 0.36f) * A;
-                    G = G * (1.0f - A) + ((1.0f - T) * 0.95f + T * 0.42f) * A;
-                    B = B * (1.0f - A) + ((1.0f - T) * 0.97f + T * 0.50f) * A;
+                    const float Frac = (BaseY - Yf) / std::max(1.0f, BaseY - TopY);
+                    const float Dens = std::sin(std::clamp(Frac, 0.0f, 1.0f) * 3.14159265f) * (0.38f + 0.50f * Tower);
+                    const float Lit  = 0.30f + 0.55f * Frac;
+                    const float A    = std::clamp(Dens * 0.56f, 0.0f, 0.72f);
+                    R = R * (1.0f - A) + (116.0f + 48.0f * Lit) * A;
+                    G = G * (1.0f - A) + (124.0f + 46.0f * Lit) * A;
+                    B = B * (1.0f - A) + (132.0f + 44.0f * Lit) * A;
                 }
-                for (int32_t Line = 0; Line <= 4; ++Line)
-                {
-                    if (std::fabs(FY - AltToY(SpanAlt * static_cast<float>(Line) * 0.25f)) < 0.6f)
-                    {
-                        R += 0.06f; G += 0.06f; B += 0.07f;
-                    }
-                }
-                if (std::fabs(FY - DatumY) < 0.8f && ((X / 4u) % 2u == 0u)) { R = 0.82f; G = 0.84f; B = 0.88f; }
-                PutPixel(Pixels, W, X, Y,
-                    static_cast<uint8_t>(std::clamp(std::lround(R * 255.0f), 0l, 255l)),
-                    static_cast<uint8_t>(std::clamp(std::lround(G * 255.0f), 0l, 255l)),
-                    static_cast<uint8_t>(std::clamp(std::lround(B * 255.0f), 0l, 255l)));
+                const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
+                Pixels[Off + 0u] = ClampByteCl(R);
+                Pixels[Off + 1u] = ClampByteCl(G);
+                Pixels[Off + 2u] = ClampByteCl(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
 }
+
+void ConstructOverviewInstruments(
+    PixelSpace& Surface, float LeftX, float& InOutCursorY, float InnerWidth,
+    InspectorPreviewSurface& SwathPreview,
+    float Coverage01, float Extinction, float BaseMeters, float DriftScale,
+    bool IsLocal) noexcept
+{
+    const float Cov      = std::clamp(Coverage01, 0.0f, 1.0f);
+    const int   CovPct   = static_cast<int>(std::lround(Cov * 100.0f));
+    const int   Oktas    = std::clamp(static_cast<int>(std::lround(Cov * 8.0f)), 0, 8);
+    const float Optical  = std::max(0.0f, Extinction * 3.0f);
+    const int   SunDatum = std::clamp(static_cast<int>(std::lround(100.0f * std::exp(-Cov * 1.35f))), 5, 100);
+
+    // 1. Satellite Swath / Local Volume Schematic hero (x=34, y=188, w=272, h=168, r=18)
+    const Rectangle2D Hero { LeftX, InOutCursorY, InnerWidth, 168.0f };
+    SwathPreview.Present(Surface, Hero, 18.0f);
+    Surface.StrokeRectangle(Hero, ColorRgba{ 255u, 255u, 255u, 16u }, 18.0f, 1.0f);
+
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 10.0f, Hero.Y + 8.0f }, 9.2f, ColorRgba{ 138u, 152u, 164u, 210u }, "N");
+    const char* TopTag = IsLocal ? "LOCAL VOLUME \xC2\xB7 SCHEMATIC" : "12 km SWATH";
+    const float TagW   = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.0f, TopTag);
+    if (IsLocal)
+    {
+        Surface.FillRectangle({ Hero.Right() - TagW - 14.0f, Hero.Y + 5.0f, TagW + 8.0f, 15.0f }, ColorRgba{ 10u, 12u, 15u, 175u }, 4.0f);
+    }
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.Right() - TagW - 10.0f, Hero.Y + 8.0f }, 9.0f, ColorRgba{ 168u, 180u, 190u, 220u }, TopTag);
+
+    // Bottom-left cloud cover word + oktas & optical depth
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Hero.X + 14.0f, Hero.Bottom() - 40.0f }, 17.5f, ColorRgba{ 238u, 240u, 242u, 255u }, SkyCoverWord(Oktas));
+    char SubBuf[64]{};
+    std::snprintf(SubBuf, sizeof(SubBuf), "%d / 8 oktas \xC2\xB7 optical depth %.1f", Oktas, Optical);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 14.0f, Hero.Bottom() - 18.0f }, 9.6f, ColorRgba{ 152u, 160u, 168u, 220u }, SubBuf);
+
+    // Bottom-right wind needle + BASE #### M
+    const Point2D Pin { Hero.Right() - 28.0f, Hero.Bottom() - 23.0f };
+    Surface.StrokeLine(Pin, { Pin.X + 9.0f, Pin.Y - 14.0f }, ColorRgba{ 196u, 206u, 214u, 210u }, 1.2f);
+    Surface.FillCircle(Pin, 2.2f, ColorRgba{ 216u, 224u, 232u, 230u });
+    char BaseCap[32]{};
+    std::snprintf(BaseCap, sizeof(BaseCap), "BASE %.0f M", std::round(BaseMeters));
+    const float BW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.2f, BaseCap);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.Right() - 10.0f - BW, Hero.Bottom() - 18.0f }, 9.2f, ColorRgba{ 176u, 184u, 192u, 220u }, BaseCap);
+
+    InOutCursorY = Hero.Bottom() + 12.0f;
+
+    // 2. 2x2 KPI tiles (COVERAGE, OPTICAL, BASE, DRIFT)
+    const float Gap   = 10.0f;
+    const float TileW = std::floor((InnerWidth - Gap) * 0.5f);
+    const float TileH = 62.0f;
+    char CovStr[16]{}, OptStr[16]{}, BaseStr[16]{}, DriftStr[16]{};
+    std::snprintf(CovStr,   sizeof(CovStr),   "%d",   CovPct);
+    std::snprintf(OptStr,   sizeof(OptStr),   "%.1f", Optical);
+    std::snprintf(BaseStr,  sizeof(BaseStr),  "%.0f", std::round(BaseMeters));
+    std::snprintf(DriftStr, sizeof(DriftStr), "%.1f", DriftScale);
+
+    ConstructCloudKpiTile(Surface, { LeftX,                InOutCursorY,                TileW, TileH }, CovStr,   "%",        "COVERAGE");
+    ConstructCloudKpiTile(Surface, { LeftX + TileW + Gap,  InOutCursorY,                TileW, TileH }, OptStr,   "",         "OPTICAL");
+    InOutCursorY += TileH + 8.0f;
+    ConstructCloudKpiTile(Surface, { LeftX,                InOutCursorY,                TileW, TileH }, BaseStr,  "m",        "BASE");
+    ConstructCloudKpiTile(Surface, { LeftX + TileW + Gap,  InOutCursorY,                TileW, TileH }, DriftStr, "\xC3\x97", "DRIFT");
+    InOutCursorY += TileH + 8.0f;
+
+    // 3. 2 bottom metric tiles ("Sun reaching datum" + "Sky cover")
+    const float StatH = 82.0f;
+    const Rectangle2D LeftCard  { LeftX,               InOutCursorY, TileW, StatH };
+    const Rectangle2D RightCard { LeftX + TileW + Gap, InOutCursorY, TileW, StatH };
+    Surface.FillRectangle(LeftCard,  ColorRgba{ 26u, 26u, 26u, 255u }, 16.0f);
+    Surface.FillRectangle(RightCard, ColorRgba{ 26u, 26u, 26u, 255u }, 16.0f);
+
+    // Sun badge + label + value
+    Surface.FillRectangle({ LeftCard.X + 12.0f, LeftCard.Y + 12.0f, 18.0f, 18.0f }, ColorRgba{ 42u, 48u, 36u, 255u }, 5.0f);
+    Surface.FillCircle({ LeftCard.X + 21.0f, LeftCard.Y + 21.0f }, 4.0f, ColorRgba{ 222u, 204u, 114u, 255u });
+    (void)InspectorPrimitives::ConstructWrappedParagraph(Surface, LeftCard.X + 12.0f, LeftCard.Y + 38.0f, 56.0f, 10.2f, 13.0f, InspectorMetrics::MutedInk, "Sun reaching datum");
+    char SunStr[16]{};
+    std::snprintf(SunStr, sizeof(SunStr), "%d", SunDatum);
+    const float SunW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 23.0f, SunStr);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { LeftCard.Right() - 22.0f - SunW, LeftCard.Bottom() - 32.0f }, 23.0f, ColorRgba{ 238u, 238u, 238u, 255u }, SunStr);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftCard.Right() - 20.0f, LeftCard.Bottom() - 22.0f }, 10.5f, InspectorMetrics::MutedInk, "%");
+
+    // Cloud badge + label + value
+    Surface.FillRectangle({ RightCard.X + 12.0f, RightCard.Y + 12.0f, 18.0f, 18.0f }, ColorRgba{ 36u, 44u, 42u, 255u }, 5.0f);
+    Surface.FillCircle({ RightCard.X + 21.0f, RightCard.Y + 22.0f }, 3.8f, ColorRgba{ 166u, 182u, 178u, 255u });
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { RightCard.X + 12.0f, RightCard.Bottom() - 20.0f }, 10.2f, InspectorMetrics::MutedInk, "Sky cover");
+    char OktaStr[16]{};
+    std::snprintf(OktaStr, sizeof(OktaStr), "%d", Oktas);
+    const float OkW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 23.0f, OktaStr);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { RightCard.Right() - 24.0f - OkW, RightCard.Bottom() - 32.0f }, 23.0f, ColorRgba{ 238u, 238u, 238u, 255u }, OktaStr);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { RightCard.Right() - 23.0f, RightCard.Bottom() - 22.0f }, 10.5f, InspectorMetrics::MutedInk, "/8");
+
+    InOutCursorY = LeftCard.Bottom() + 12.0f;
+}
+
+void ConstructCoverageHistogramCard(
+    PixelSpace& Surface, float LeftX, float& InOutCursorY, float InnerWidth,
+    float Coverage01) noexcept
+{
+    const float Cov = std::clamp(Coverage01, 0.0f, 1.0f);
+    const Rectangle2D S { LeftX, InOutCursorY, InnerWidth, 246.0f };
+    Surface.FillRectangle(S, ColorRgba{ 27u, 27u, 27u, 255u }, 20.0f);
+    Surface.StrokeRectangle(S, InspectorMetrics::SectionBorder, 20.0f, 1.0f);
+
+    const float AX = LeftX + 16.0f;
+    const float AW = InnerWidth - 32.0f;
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { AX, S.Y + 13.0f }, 17.5f, ColorRgba{ 230u, 230u, 228u, 255u }, "Coverage");
+    (void)InspectorPrimitives::ConstructWrappedParagraph(Surface, AX, S.Y + 34.0f, AW, 9.5f, 12.0f, InspectorMetrics::DimInk, "CONDENSATE THRESHOLD \xC2\xB7 CELL POPULATION");
+
+    char PctBuf[24]{};
+    std::snprintf(PctBuf, sizeof(PctBuf), "%.1f", Cov * 100.0f);
+    (void)InspectorPrimitives::ConstructMetricReadout(Surface, AX, S.Y + 60.0f, PctBuf, "%", nullptr, 46.0f);
+
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AX, S.Y + 114.0f }, 9.8f, InspectorMetrics::DimInk, "SKY FRACTION");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AX + 86.0f, S.Y + 113.0f }, 11.8f, InspectorMetrics::MutedInk, SkyFractionPhrase(Cov));
+
+    // 18-bar Gaussian histogram matching clouds__1 & local-cloud__1
+    static constexpr std::array<float, 18u> Bins = {{
+        0.02f, 0.04f, 0.11f, 0.22f, 0.42f, 0.56f, 0.84f, 0.80f, 0.96f,
+        1.00f, 0.91f, 0.74f, 0.51f, 0.29f, 0.10f, 0.06f, 0.02f, 0.01f
+    }};
+    const float HistY  = S.Y + 134.0f;
+    const float HistH  = 86.0f;
+    const float BarGap = 3.0f;
+    const float BarW   = (AW - BarGap * 17.0f) / 18.0f;
+    // Gaussian quantile-matched threshold (34% -> 0.72, 80% -> 0.37)
+    const float ThreshFrac = std::clamp(0.88f - Cov * 0.58f, 0.12f, 0.92f);
+    const float ThreshX    = AX + ThreshFrac * AW;
+
+    for (std::size_t I = 0u; I < Bins.size(); ++I)
+    {
+        const float BX   = AX + static_cast<float>(I) * (BarW + BarGap);
+        const float BH   = std::max(2.0f, Bins[I] * HistH);
+        const bool  Cond = (BX + BarW * 0.5f >= ThreshX);
+        const ColorRgba Ink = Cond ? ColorRgba{ 184u, 188u, 192u, 255u } : ColorRgba{ 58u, 59u, 61u, 255u };
+        Surface.FillRectangle({ BX, HistY + HistH - BH, BarW, BH }, Ink, 2.0f);
+    }
+
+    InspectorPrimitives::ConstructDashedSegment(Surface, { ThreshX, HistY - 2.0f }, { ThreshX, HistY + HistH }, ColorRgba{ 236u, 238u, 240u, 225u }, 3.0f, 3.0f, 1.3f);
+
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AX, S.Bottom() - 18.0f }, 9.2f, InspectorMetrics::DimInk, "CLEAR AIR");
+    const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.2f, "CONDENSED");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AX + AW - CW, S.Bottom() - 18.0f }, 9.2f, InspectorMetrics::DimInk, "CONDENSED");
+
+    InOutCursorY = S.Bottom() + 8.0f;
+}
+
+void ConstructDeckSectionOverlay(
+    PixelSpace& Surface, Rectangle2D Box,
+    InspectorPreviewSurface& DeckPreview,
+    float BaseMeters, float MaxAltitudeMeters) noexcept
+{
+    DeckPreview.Present(Surface, Box, 12.0f);
+    Surface.StrokeRectangle(Box, ColorRgba{ 255u, 255u, 255u, 16u }, 12.0f, 1.0f);
+
+    const float TopPad = 32.0f, BotPad = 18.0f;
+    const float SpanPx = Box.Height - TopPad - BotPad;
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Box.X + 8.0f, Box.Y + 6.0f }, 8.8f, ColorRgba{ 148u, 152u, 158u, 220u }, "CLOUD DECK \xC2\xB7 VERTICAL SECTION");
+
+    for (int Tick = 0; Tick <= 4; ++Tick)
+    {
+        const float Frac = static_cast<float>(Tick) * 0.25f;
+        const float Y    = Box.Y + TopPad + Frac * SpanPx;
+        Surface.StrokeLine({ Box.X, Y }, { Box.Right(), Y }, ColorRgba{ 255u, 255u, 255u, 18u }, 1.0f);
+        char AltBuf[24]{};
+        if (Tick == 4) std::snprintf(AltBuf, sizeof(AltBuf), "DATUM");
+        else           std::snprintf(AltBuf, sizeof(AltBuf), "%.0f m", std::round(MaxAltitudeMeters * (1.0f - Frac)));
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Box.X + 8.0f, Y - 11.0f }, 8.6f, ColorRgba{ 148u, 152u, 158u, 215u }, AltBuf);
+    }
+
+    const float BaseY = Box.Y + TopPad + (1.0f - std::clamp(BaseMeters / std::max(1.0f, MaxAltitudeMeters), 0.0f, 1.0f)) * SpanPx;
+    InspectorPrimitives::ConstructDashedSegment(Surface, { Box.X, BaseY }, { Box.Right(), BaseY }, ColorRgba{ 228u, 234u, 240u, 210u }, 3.0f, 3.0f, 1.3f);
+}
+
+} // namespace CloudVisualPrimitives
 
 float CloudInspector::Construct(
-    PixelSpace&             Surface,
-    float                   LeftX,
-    float                   TopY,
-    float                   InnerWidth,
-    OutlinerRecordEntry&    Entry,
-    CloudInstanceData&      Instance,
-    const PaneInputReading& Input,
-    bool&                   OutMutated,
-    bool&                   OutPageSwitched)
+    PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,
+    OutlinerRecordEntry& Entry, CloudInstanceData& Instance,
+    const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 6u> Pages = {{
-        "Overview", "Coverage", "Layer", "Body", "Wind", "Quality",
-    }};
+    static constexpr std::array<const char*, 6u> Pages = {{ "Overview", "Coverage", "Layer", "Body", "Wind", "Quality" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-
-    auto& Clouds = Instance.Clouds;
-    const float PadX  = InspectorMetrics::SectionPadX;
+    auto& Cl = Instance.Clouds;
+    const float PadX  = 25.0f;
+    const float BodyX = LeftX + PadX;
     const float BodyW = InnerWidth - PadX * 2.0f;
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
     if (ActivePage == 0u)
     {
-        UpdateCloudRadarSurface(Clouds);
-        // 1:1 HTML Blueprint volumetric fBM radar swath hero section + integrated 2x2 stat tiles
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 336.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud deck", "12 KM SWATH");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
-
-        const Rectangle2D Swath { LeftX + PadX, Y, BodyW, 178.0f };
-        CloudRadarPreview.Present(Surface, Swath, 12.0f);
-        Surface.PushClip(Swath);
-
-        // Top-left north compass indicator & drift vector arrow
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::SemiBold, { Swath.X + 10.0f, Swath.Y + 8.0f }, 9.0f, ColorRgba{ 162u, 206u, 248u, 235u }, "N");
-        const float DriftRad = Clouds.WindBearingDegrees * (PiF / 180.0f);
-        const Point2D ArrowOrg { Swath.Right() - 28.0f, Swath.Y + 24.0f };
-        const Point2D ArrowTip { ArrowOrg.X + std::sin(DriftRad) * 13.0f, ArrowOrg.Y - std::cos(DriftRad) * 13.0f };
-        Surface.StrokeCircle(ArrowOrg, 14.0f, ColorRgba{ 132u, 182u, 232u, 44u }, 1.0f);
-        Surface.StrokeLine(ArrowOrg, ArrowTip, ColorRgba{ 194u, 224u, 252u, 235u }, 1.5f);
-        Surface.FillCircle(ArrowTip, 2.2f, ColorRgba{ 222u, 240u, 255u, 255u });
-
-        // Bottom overlay strip: sky state + oktas + optical depth + base altitude tag
-        const int Oktas = static_cast<int>(std::clamp(std::lround(Clouds.CloudFraction * 8.0f), 0l, 8l));
-        const char* SkyClass = (Oktas == 0) ? "Clear" : (Oktas <= 2) ? "Few" : (Oktas <= 4) ? "Scattered" : (Oktas <= 6) ? "Broken" : "Overcast";
-        char OktaBuf[40]{}, BaseBuf[24]{};
-        std::snprintf(OktaBuf, sizeof(OktaBuf), "%d/8 oktas · tau %.1f", Oktas, Clouds.ExtinctionMultiplier * 3.0f);
-        std::snprintf(BaseBuf, sizeof(BaseBuf), "BASE %.0f M", Clouds.CloudFloorMeters);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::SemiBold, { Swath.X + 12.0f, Swath.Bottom() - 34.0f }, 13.0f, ColorRgba{ 238u, 244u, 252u, 255u }, SkyClass);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,  { Swath.X + 12.0f, Swath.Bottom() - 18.0f }, 9.2f, ColorRgba{ 156u, 186u, 216u, 235u }, OktaBuf);
-        const float BaseW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.6f, BaseBuf);
-        const Rectangle2D BaseTag { Swath.Right() - 12.0f - BaseW - 12.0f, Swath.Bottom() - 24.0f, BaseW + 12.0f, 16.0f };
-        Surface.FillRectangle(BaseTag, ColorRgba{ 26u, 42u, 62u, 215u }, 8.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { BaseTag.X + 6.0f, BaseTag.Y + 3.0f }, 8.6f, ColorRgba{ 196u, 224u, 252u, 255u }, BaseBuf);
-        Surface.PopClip();
-        Surface.StrokeRectangle(Swath, ColorRgba{ 138u, 184u, 232u, 36u }, 12.0f, 1.0f);
-
-        // 2x2 stat tiles integrated inside the hero section
-        Y = Swath.Bottom() + 10.0f;
-        const float Gap = 6.0f;
-        const float TileW = (BodyW - Gap) * 0.5f;
-        const float TileH = 44.0f;
-        char Cov[16]{}, Opt[16]{}, Flr[16]{}, Drf[16]{};
-        std::snprintf(Cov, sizeof(Cov), "%.0f%%", Clouds.CloudFraction * 100.0f);
-        std::snprintf(Opt, sizeof(Opt), "%.1f",   Clouds.ExtinctionMultiplier * 3.0f);
-        std::snprintf(Flr, sizeof(Flr), "%.0f m", Clouds.CloudFloorMeters);
-        std::snprintf(Drf, sizeof(Drf), "%.1f m/s", Clouds.WindSpeedMetersPerSecond);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,               Y,               TileW, TileH }, "COVERAGE", Cov);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap, Y,               TileW, TileH }, "OPTICAL",  Opt);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX,               Y + TileH + Gap, TileW, TileH }, "BASE",     Flr);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap, Y + TileH + Gap, TileW, TileH }, "DRIFT",    Drf);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        CloudVisualPrimitives::UpdateSwathPreview(SwathPreview, Cl.CloudFraction, Cl.ExtinctionMultiplier, false);
+        CloudVisualPrimitives::ConstructOverviewInstruments(
+            Surface, LeftX, CursorY, InnerWidth, SwathPreview,
+            Cl.CloudFraction, Cl.ExtinctionMultiplier, Cl.CloudFloorMeters, 1.0f, false);
 
         const std::array<InspectorQuickSwitchSpec, 1u> Quick = {{
-            { "Visible", InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
+            { "Enabled", InspectorSwitchSymbol::Cloud, Entry.VisibilityEnabled, false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
+        if (Clicked == 0)
+        {
+            Entry.VisibilityEnabled = !Entry.VisibilityEnabled;
+            Cl.CloudsEnabled        = Entry.VisibilityEnabled;
+            OutMutated              = true;
+        }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "clouds", "weather" }};
+        static constexpr std::array<const char*, 2u> Tags = {{ "environment", "clouds" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
     else if (ActivePage == 1u)
     {
-        UpdateCloudRadarSurface(Clouds);
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud coverage");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char Pct[16]{}; std::snprintf(Pct, sizeof(Pct), "%.0f", Clouds.CloudFraction * 100.0f);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, Pct, "%", "Horizontal sky cloud fraction");
-        const Rectangle2D PreviewBox { LeftX + PadX, Y + 4.0f, BodyW, 128.0f };
-        CloudRadarPreview.Present(Surface, PreviewBox, 10.0f);
-        Surface.StrokeRectangle(PreviewBox, ColorRgba{ 138u, 184u, 232u, 32u }, 10.0f, 1.0f);
-        Y = PreviewBox.Bottom() + 12.0f;
-        float PctVal = Clouds.CloudFraction * 100.0f;
-        bool Changed = false;
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3101u, "Coverage", "%", "%.0f", 0.0f, 100.0f, PctVal, ActiveDragId, Input, Changed);
-        if (Changed) { Clouds.CloudFraction = PctVal * 0.01f; OutMutated = true; }
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        CloudVisualPrimitives::ConstructCoverageHistogramCard(Surface, LeftX, CursorY, InnerWidth, Cl.CloudFraction);
+
+        const Rectangle2D SliderCard { LeftX, CursorY, InnerWidth, 70.0f };
+        Surface.FillRectangle(SliderCard, ColorRgba{ 27u, 27u, 27u, 255u }, 18.0f);
+        float Pct = Cl.CloudFraction * 100.0f;
+        bool PctChanged = false;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + 16.0f, SliderCard.Y + 10.0f, InnerWidth - 32.0f, 6501u, "Coverage", "%", "%.0f", 0.0f, 100.0f, Pct, ActiveDragId, Input, PctChanged);
+        if (PctChanged)
+        {
+            Cl.CloudFraction = std::clamp(Pct * 0.01f, 0.0f, 1.0f);
+            OutMutated       = true;
+        }
+        CursorY = SliderCard.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (ActivePage == 2u)
     {
-        UpdateCloudDeckSurface(Clouds);
-        {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 390.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud altitude");
-            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            char Km[16]{}; std::snprintf(Km, sizeof(Km), "%.2f", Clouds.CloudFloorMeters * 0.001f);
-            Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, Km, "km", "World Z altitude  ·  vertical section");
-            const Rectangle2D DeckBox { LeftX + PadX, Y + 4.0f, BodyW, 176.0f };
-            CloudDeckPreview.Present(Surface, DeckBox, 8.0f);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { DeckBox.X + 8.0f, DeckBox.Y + 6.0f }, 8.5f, InspectorMetrics::MutedInk, "CLOUD DECK  ·  VERTICAL SECTION");
-            Y = DeckBox.Bottom() + 14.0f;
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3201u, "Floor altitude", "m", "%.0f", 100.0f, 12000.0f, Clouds.CloudFloorMeters, ActiveDragId, Input, OutMutated);
-            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-        }
-        {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 276.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Layer thickness");
-            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            char Km[16]{}; std::snprintf(Km, sizeof(Km), "%.2f", Clouds.LayerThicknessMeters * 0.001f);
-            Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, Km, "km", "Vertical development  ·  density profile");
-            std::array<float, 24u> Profile{};
-            for (std::size_t I = 0u; I < Profile.size(); ++I)
+        const float MaxVisAlt = std::max(3500.0f, Cl.CloudFloorMeters + Cl.LayerThicknessMeters + 1000.0f);
+        CloudVisualPrimitives::UpdateDeckSectionPreview(DeckPreview, Cl.CloudFloorMeters, Cl.LayerThicknessMeters, MaxVisAlt, Cl.CloudFraction);
+
+        // Card 1: Cloud base (h = 438)
+        const Rectangle2D BaseCard { LeftX, CursorY, InnerWidth, 438.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, BaseCard, "Cloud base");
+
+        char BaseKm[16]{};
+        std::snprintf(BaseKm, sizeof(BaseKm), "%.2f", Cl.CloudFloorMeters / 1000.0f);
+        (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, BaseCard.Y + 65.0f, BaseKm, "km", nullptr, 36.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, BaseCard.Y + 118.0f }, 12.0f, InspectorMetrics::MutedInk, "World Z altitude \xC2\xB7 drag the base line");
+
+        const Rectangle2D DeckBox { BodyX, BaseCard.Y + 148.0f, BodyW, 178.0f };
+        CloudVisualPrimitives::ConstructDeckSectionOverlay(Surface, DeckBox, DeckPreview, Cl.CloudFloorMeters, MaxVisAlt);
+
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, BaseCard.Y + 345.0f, BodyW, 6502u, "Base", "m", "%.0f", 100.0f, 15000.0f, Cl.CloudFloorMeters, ActiveDragId, Input, OutMutated);
+
+        CursorY = BaseCard.Bottom() + InspectorMetrics::SectionGap;
+
+        // Card 2: Layer thickness (h = 584)
+        const Rectangle2D ThickCard { LeftX, CursorY, InnerWidth, 584.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, ThickCard, "Layer thickness");
+
+        char ThickKm[16]{};
+        std::snprintf(ThickKm, sizeof(ThickKm), "%.2f", Cl.LayerThicknessMeters / 1000.0f);
+        (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, ThickCard.Y + 65.0f, ThickKm, "km", nullptr, 36.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, ThickCard.Y + 118.0f }, 12.0f, InspectorMetrics::MutedInk, "Vertical development \xC2\xB7 density profile");
+
+        const float FloorM = Cl.CloudFloorMeters;
+        const float ThickM = std::max(100.0f, Cl.LayerThicknessMeters);
+        const float Ext    = Cl.ExtinctionMultiplier;
+        const std::array<InspectorPrimitives::InspectorLivePlotSeries, 1u> Series = {{
             {
-                const float H = static_cast<float>(I) / 23.0f;
-                Profile[I] = std::clamp(std::sin(H * PiF) * (1.0f - 0.35f * H) + Clouds.AnvilTopSpread * std::pow(H, 4.0f) * 0.55f, 0.0f, 1.0f);
-            }
-            InspectorPrimitives::ConstructCurvePlot(Surface, { LeftX + PadX, Y, BodyW, 74.0f }, Profile, ColorRgba{ 222u, 232u, 246u, 255u }, ColorRgba{ 196u, 212u, 232u, 42u }, "Floor", "Top");
-            Y += 86.0f;
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3202u, "Thickness", "m", "%.0f", 100.0f, 6500.0f, Clouds.LayerThicknessMeters, ActiveDragId, Input, OutMutated);
-            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-        }
+                "Density study",
+                ColorRgba{ 168u, 196u, 212u, 255u },
+                [FloorM, ThickM, Ext](float AltM) noexcept -> float
+                {
+                    if (AltM < FloorM || AltM > FloorM + ThickM) return 0.0f;
+                    const float U = (AltM - FloorM) / ThickM;
+                    return Ext * std::sin(U * 3.14159265f);
+                },
+            },
+        }};
+        (void)InspectorPrimitives::ConstructLivePlot(
+            Surface, BodyX, ThickCard.Y + 150.0f, BodyW, 6503u,
+            0.0f, MaxVisAlt, 0.0f, 4.0f, Series, DensityProbeAltitudeM,
+            "m Z", "\xC3\x97", "", ActiveDragId, Input, OutMutated);
+
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, ThickCard.Y + 492.0f, BodyW, 6504u, "Thickness", "m", "%.0f", 100.0f, 6500.0f, Cl.LayerThicknessMeters, ActiveDragId, Input, OutMutated);
+        CursorY = ThickCard.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (ActivePage == 3u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 444.0f };
+        // TAB 4: BODY — Cloud body (h = 525)
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 525.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud body");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3301u, "Density", "x", "%.2f", 0.0f, 4.0f, Clouds.ExtinctionMultiplier, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3302u, "Feature Scale", "x", "%.2f", 0.2f, 3.0f, Clouds.FeatureScaleMultiplier, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3303u, "Anisotropy", "g", "%.2f", -0.9f, 0.9f, Clouds.ForwardScatterAnisotropy, ActiveDragId, Input, OutMutated);
-        static constexpr std::array<const char*, 6u> Types = {{ "Cumulus", "Stratus", "Stratocumulus", "Cumulonimbus", "Cirrus", "Altostratus" }};
-        static constexpr std::array<GeometricRaster::CloudCategoryType, 6u> TypeEnums = {{
-            GeometricRaster::CloudCategoryType::Cumulus,
-            GeometricRaster::CloudCategoryType::Stratus,
-            GeometricRaster::CloudCategoryType::Stratocumulus,
-            GeometricRaster::CloudCategoryType::Cumulonimbus,
-            GeometricRaster::CloudCategoryType::Cirrus,
-            GeometricRaster::CloudCategoryType::Altostratus,
-        }};
-        uint32_t ActiveType = 0u;
-        for (uint32_t I = 0u; I < TypeEnums.size(); ++I) if (Clouds.Category == TypeEnums[I]) { ActiveType = I; break; }
-        int32_t Chosen = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Preset", Types, ActiveType, 2u, Input, Chosen);
-        if (Chosen >= 0 && Chosen < 6) { GeometricRaster::VolumetricCloudSequence::ApplyCloudCategoryPreset(Clouds, TypeEnums[static_cast<std::size_t>(Chosen)]); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3304u, "Anvil", "", "%.2f", 0.0f, 1.0f, Clouds.AnvilTopSpread, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3305u, "Ceiling", "m", "%.0f", 4000.0f, 22000.0f, Clouds.DeckCeilingMeters, ActiveDragId, Input, OutMutated);
+
+        float FY = S.Y + 70.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6510u, "Density",       "\xC3\x97", "%.2g", 0.0f,   4.0f, Cl.ExtinctionMultiplier,     ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6511u, "Feature Scale", "\xC3\x97", "%.2g", 0.2f,   3.0f, Cl.FeatureScaleMultiplier,   ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6512u, "Anisotropy",    "",         "%.2g", -0.8f,  0.9f, Cl.ForwardScatterAnisotropy, ActiveDragId, Input, OutMutated);
+
+        // Type dropdown pill at FY
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FY }, 11.0f, InspectorMetrics::MutedInk, "Type");
+        const Rectangle2D DropRect { BodyX, FY + 20.0f, BodyW, 34.0f };
+        Surface.FillRectangle(DropRect, ColorRgba{ 2u, 2u, 2u, 255u }, 17.0f);
+        Surface.StrokeRectangle(DropRect, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { DropRect.X + 16.0f, DropRect.Y + 10.5f }, 12.2f, ColorRgba{ 230u, 232u, 232u, 255u }, CloudCategoryLabel(Cl.Category));
+        const float Cx = DropRect.Right() - 16.0f, Cy = DropRect.Center().Y;
+        Surface.StrokeLine({ Cx - 4.0f, Cy - 2.0f }, { Cx, Cy + 2.5f }, ColorRgba{ 216u, 218u, 218u, 255u }, 1.6f);
+        Surface.StrokeLine({ Cx, Cy + 2.5f }, { Cx + 4.0f, Cy - 2.0f }, ColorRgba{ 216u, 218u, 218u, 255u }, 1.6f);
+        if (DropRect.Contains(Cursor) && Input.PrimaryPointer.Pressed)
+        {
+            Cl.Category = static_cast<GeometricRaster::CloudCategoryType>((static_cast<uint32_t>(Cl.Category) + 1u) % 6u);
+            OutMutated  = true;
+        }
+        FY += 74.0f;
+
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6513u, "Anvil",   "",  "%.2g",    0.0f,     1.0f, Cl.AnvilTopSpread,   ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6514u, "Ceiling", "m", "%.0f", 4000.0f, 22000.0f, Cl.DeckCeilingMeters, ActiveDragId, Input, OutMutated);
+
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (ActivePage == 4u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 306.0f };
+        // TAB 5: WIND — Cloud wind (h = 451)
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 451.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud wind");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Follow wind", Clouds.FollowWindEnabled, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3401u, "Wind speed", "m/s", "%.1f", 0.0f, 40.0f, Clouds.WindSpeedMetersPerSecond, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3402u, "Wind bearing", "deg", "%.0f", 0.0f, 360.0f, Clouds.WindBearingDegrees, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3403u, "Wind shear", "/km", "%.2f", 0.0f, 2.0f, Clouds.WindShearPerKilometer, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3404u, "Turbulence", "", "%.2f", 0.0f, 1.0f, Clouds.WindTurbulence, ActiveDragId, Input, OutMutated);
+
+        float FY = S.Y + 70.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6520u, "Wind speed",   "m/s",    "%.0f",   0.0f,  40.0f, Cl.WindSpeedMetersPerSecond, ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6521u, "Wind bearing", "deg",    "%.0f",   0.0f, 360.0f, Cl.WindBearingDegrees,       ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6522u, "Wind shear",   "/km",    "%.2g",   0.0f,  15.0f, Cl.WindShearPerKilometer,    ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6523u, "Wind veer",    "deg/km", "%.0f", -60.0f,  60.0f, Cl.WindVeerDegreesPerKm,     ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6524u, "Turbulence",   "",       "%.2g",   0.0f,   1.0f, Cl.WindTurbulence,           ActiveDragId, Input, OutMutated);
+
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 272.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Quality & cloud shadows");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        float Steps = static_cast<float>(Clouds.CloudMarchSteps);
+        // TAB 6: QUALITY — Quality (h = 235) + collapsible GPU cloud shadows details card (h = 78 collapsed)
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 235.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Quality");
+
+        float StepsF = static_cast<float>(Cl.CloudMarchSteps);
         bool StepsChanged = false;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3501u, "March steps", "", "%.0f", 16.0f, 128.0f, Steps, ActiveDragId, Input, StepsChanged);
-        if (StepsChanged) { Clouds.CloudMarchSteps = static_cast<uint32_t>(std::lround(Steps)); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Cloud shadows", Clouds.CloudShadow.ShadowEnabled, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3502u, "Shadow density", "x", "%.2f", 0.0f, 3.0f, Clouds.CloudShadow.ShadowDensityMultiplier, ActiveDragId, Input, OutMutated, !Clouds.CloudShadow.ShadowEnabled);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3503u, "Shadow fraction", "", "%.2f", 0.0f, 1.0f, Clouds.CloudShadow.ShadowFraction, ActiveDragId, Input, OutMutated, !Clouds.CloudShadow.ShadowEnabled);
+        float FY = S.Y + 70.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6530u, "March steps",  "",         "%.0f", 16.0f, 128.0f, StepsF, ActiveDragId, Input, StepsChanged);
+        if (StepsChanged)
+        {
+            Cl.CloudMarchSteps = static_cast<uint32_t>(std::clamp(std::lround(StepsF), 16l, 128l));
+            OutMutated         = true;
+        }
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6531u, "Render scale", "\xC3\x97", "%.2g", 0.25f, 1.0f, Cl.CloudRenderScale, ActiveDragId, Input, OutMutated);
+
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+
+        // Collapsible <details> card: "▶ GPU cloud shadows · separate field"
+        const float DetH = ShadowsExpanded ? 220.0f : 78.0f;
+        const Rectangle2D Det { LeftX, CursorY, InnerWidth, DetH };
+        Surface.FillRectangle(Det, InspectorMetrics::SectionFill, InspectorMetrics::SectionRadius);
+        Surface.StrokeRectangle(Det, InspectorMetrics::SectionBorder, InspectorMetrics::SectionRadius, 1.0f);
+
+        const Rectangle2D HeaderHit { Det.X, Det.Y, Det.Width, 78.0f };
+        if (HeaderHit.Contains(Cursor) && Input.PrimaryPointer.Pressed) ShadowsExpanded = !ShadowsExpanded;
+
+        // Triangle disclosure arrow + summary label
+        const float TriX = BodyX + 2.0f, TriY = Det.Y + 38.0f;
+        if (ShadowsExpanded)
+        {
+            const std::array<Point2D, 3u> Tri = {{ { TriX, TriY - 3.0f }, { TriX + 8.0f, TriY - 3.0f }, { TriX + 4.0f, TriY + 3.0f } }};
+            Surface.FillPolygon(Tri, ColorRgba{ 225u, 225u, 222u, 255u });
+        }
+        else
+        {
+            const std::array<Point2D, 3u> Tri = {{ { TriX, TriY - 4.0f }, { TriX + 6.0f, TriY }, { TriX, TriY + 4.0f } }};
+            Surface.FillPolygon(Tri, ColorRgba{ 225u, 225u, 222u, 255u });
+        }
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { BodyX + 14.0f, Det.Y + 31.5f }, 12.8f, ColorRgba{ 225u, 225u, 222u, 255u },
+            "GPU cloud shadows \xC2\xB7 separate field");
+
+        if (ShadowsExpanded)
+        {
+            float ShY = Det.Y + 74.0f;
+            ShY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, ShY, BodyW, 6532u, "Shadow fraction", "", "%.2f", 0.0f, 1.0f, Cl.CloudShadow.ShadowFraction,          ActiveDragId, Input, OutMutated);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, ShY, BodyW, 6533u, "Shadow density",  "\xC3\x97", "%.2f", 0.0f, 4.0f, Cl.CloudShadow.ShadowDensityMultiplier, ActiveDragId, Input, OutMutated);
+        }
+
+        CursorY = Det.Bottom() + InspectorMetrics::SectionGap;
     }
 
     return CursorY;

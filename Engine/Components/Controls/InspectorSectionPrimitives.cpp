@@ -739,13 +739,13 @@ float ConstructScalarFieldRow(
     char NumBuf[32]{};
     std::snprintf(NumBuf, sizeof(NumBuf), FormatSpec, InOutReading);
 
-    // Exact HTML .field geometry: 26px tall readout capsule (92px wide) + 10px gap + 120x26px slider
+    // Exact HTML .field geometry: 26px tall readout capsule (92px wide = 56px dark value + 36px unit bay) + 10px gap + 120x26px slider
     const float RowY    = TopY + 20.0f;
     const float CapW    = 92.0f;
     const float CapH    = 26.0f;
     const float CapR    = CapH * 0.5f;
     const bool  HasUnit = (UnitText != nullptr && UnitText[0] != '\0');
-    const float UnitW   = HasUnit ? 32.0f : 0.0f;
+    const float UnitW   = 36.0f;
     const float NumW    = CapW - UnitW;
 
     const Rectangle2D Whole { LeftX, RowY, CapW, CapH };
@@ -754,7 +754,7 @@ float ConstructScalarFieldRow(
 
     Surface.FillRectangle(Whole, ColorRgba{ 38u, 38u, 38u, 255u }.ScaledAlpha(Opacity), CapR);
     Surface.FillRectangle(NumCell, ColorRgba{ 4u, 4u, 4u, 255u }.ScaledAlpha(Opacity), CapR);
-    if (HasUnit && NumW > CapR)
+    if (NumW > CapR)
     {
         Surface.FillRectangle({ LeftX + CapR, RowY, NumW - CapR, CapH }, ColorRgba{ 4u, 4u, 4u, 255u }.ScaledAlpha(Opacity), 0.0f);
     }
@@ -2056,6 +2056,247 @@ float ConstructLodWorkspaceSection(
     Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Meshlet clusters", ClsBuf);
     (void)ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "LOD transition", "Screen-space error");
     return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
+void ConstructDashedSegment(
+    PixelSpace& Surface,
+    Point2D     Start,
+    Point2D     End,
+    ColorRgba   Ink,
+    float       DashLength,
+    float       GapLength,
+    float       StrokeWidth) noexcept
+{
+    const float DX  = End.X - Start.X;
+    const float DY  = End.Y - Start.Y;
+    const float Len = std::sqrt(DX * DX + DY * DY);
+    if (Len < 0.5f) return;
+    const float UX = DX / Len;
+    const float UY = DY / Len;
+    float Pos = 0.0f;
+    while (Pos < Len)
+    {
+        const float SegEnd = std::min(Len, Pos + DashLength);
+        Surface.StrokeLine(
+            { Start.X + UX * Pos, Start.Y + UY * Pos },
+            { Start.X + UX * SegEnd, Start.Y + UY * SegEnd },
+            Ink, StrokeWidth);
+        Pos += DashLength + GapLength;
+    }
+}
+
+float ConstructWrappedParagraph(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       MaxWidth,
+    float       FontSize,
+    float       LineStep,
+    ColorRgba   Ink,
+    const char* Text) noexcept
+{
+    if (Text == nullptr || Text[0] == '\0') return TopY;
+    std::string_view Rem(Text);
+    std::string Line;
+    float Y = TopY;
+    while (!Rem.empty())
+    {
+        while (!Rem.empty() && Rem.front() == ' ') Rem.remove_prefix(1u);
+        if (Rem.empty()) break;
+        const std::size_t Sp = Rem.find(' ');
+        const std::string_view Word = (Sp == std::string_view::npos) ? Rem : Rem.substr(0u, Sp);
+        Rem = (Sp == std::string_view::npos) ? std::string_view{} : Rem.substr(Sp + 1u);
+
+        std::string Candidate = Line.empty() ? std::string(Word) : (Line + " " + std::string(Word));
+        if (!Line.empty() && WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, FontSize, Candidate) > MaxWidth)
+        {
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX, Y }, FontSize, Ink, Line);
+            Y += LineStep;
+            Line.assign(Word);
+        }
+        else
+        {
+            Line = std::move(Candidate);
+        }
+    }
+    if (!Line.empty())
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX, Y }, FontSize, Ink, Line);
+        Y += LineStep;
+    }
+    return Y;
+}
+
+float ConstructLivePlot(
+    PixelSpace&                                Surface,
+    float                                      LeftX,
+    float                                      TopY,
+    float                                      InnerWidth,
+    uint32_t                                   ControlId,
+    float                                      DomainMin,
+    float                                      DomainMax,
+    float                                      RangeMin,
+    float                                      RangeMax,
+    std::span<const InspectorLivePlotSeries>   Series,
+    float&                                     InOutProbeX,
+    const char*                                UnitX,
+    const char*                                UnitY,
+    const char*                                NoteText,
+    uint32_t&                                  InOutActiveDragId,
+    const PaneInputReading&                    Input,
+    bool&                                      OutChanged) noexcept
+{
+    auto FormatCompact = [](float Num, char* Buf, std::size_t Cap)
+    {
+        const float AbsN = std::fabs(Num);
+        if (AbsN > 0.0f && AbsN < 0.001f)
+        {
+            std::snprintf(Buf, Cap, "%.2e", Num);
+            return;
+        }
+        std::snprintf(Buf, Cap, "%.3f", Num);
+        // Strip trailing zeros & decimal point to match JS toLocaleString({maximumFractionDigits:3})
+        char* Dot = std::strchr(Buf, '.');
+        if (Dot != nullptr)
+        {
+            char* End = Buf + std::strlen(Buf) - 1;
+            while (End > Dot && *End == '0') *End-- = '\0';
+            if (End == Dot) *End = '\0';
+        }
+    };
+
+    const float DSpan = std::max(1.0e-6f, DomainMax - DomainMin);
+    const float RSpan = std::max(1.0e-6f, RangeMax - RangeMin);
+    const float ProbeX = std::clamp(InOutProbeX, DomainMin, DomainMax);
+
+    // 1. Live plot header readout (left: ProbeX UnitX at 22px Light; right: baseline-aligned colored series readouts)
+    char ProbeBuf[32]{};
+    FormatCompact(ProbeX, ProbeBuf, sizeof(ProbeBuf));
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { LeftX, TopY + 2.0f }, 22.0f, ColorRgba{ 238u, 238u, 238u, 255u }, ProbeBuf);
+    const float PW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 22.0f, ProbeBuf);
+    if (UnitX != nullptr && UnitX[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + PW + 5.0f, TopY + 11.5f }, 11.2f, ColorRgba{ 138u, 140u, 134u, 255u }, UnitX);
+    }
+
+    float SeriesY = TopY + 11.5f;
+    for (const auto& Line : Series)
+    {
+        if (!Line.Sample) continue;
+        char ValBuf[32]{}, FullBuf[96]{};
+        FormatCompact(Line.Sample(ProbeX), ValBuf, sizeof(ValBuf));
+        if (UnitY != nullptr && UnitY[0] != '\0')
+            std::snprintf(FullBuf, sizeof(FullBuf), "%s %s %s", Line.Name, ValBuf, UnitY);
+        else
+            std::snprintf(FullBuf, sizeof(FullBuf), "%s %s", Line.Name, ValBuf);
+        const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, FullBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + InnerWidth - RW, SeriesY }, 11.2f, Line.Ink, FullBuf);
+        SeriesY += 15.0f;
+    }
+
+    // 2. Exact LiveGraph.jsx SVG area (width = InnerWidth, height = 215px -> SVG top at TopY + 28px)
+    const float SvgY = TopY + 28.0f;
+    const Rectangle2D SvgRect { LeftX, SvgY, InnerWidth, 215.0f };
+    const float LeftPad  = 42.0f;
+    const float RightPad = 18.0f;
+    const float PlotW    = std::max(40.0f, InnerWidth - LeftPad - RightPad);
+    auto PX = [&](float V) noexcept -> float { return LeftX + LeftPad + ((V - DomainMin) / DSpan) * PlotW; };
+    auto PY = [&](float V) noexcept -> float { return SvgY + 174.0f - ((std::clamp(V, RangeMin, RangeMax) - RangeMin) / RSpan) * 146.0f; };
+
+    // Pointer scrubbing across plot domain
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    if (SvgRect.Contains(Cursor) && Input.PrimaryPointer.Pressed) InOutActiveDragId = ControlId;
+    if (InOutActiveDragId == ControlId && Input.PrimaryPointer.Down)
+    {
+        const float Frac = std::clamp((Cursor.X - (LeftX + LeftPad)) / PlotW, 0.0f, 1.0f);
+        const float Next = DomainMin + Frac * DSpan;
+        if (std::fabs(Next - InOutProbeX) > 1.0e-5f)
+        {
+            InOutProbeX = Next;
+            OutChanged  = true;
+        }
+    }
+    else if (InOutActiveDragId == ControlId && !Input.PrimaryPointer.Down)
+    {
+        InOutActiveDragId = 0u;
+    }
+
+    // 5 horizontal dashed grid lines & Y-axis labels
+    const ColorRgba AxisInk { 142u, 145u, 139u, 255u };
+    for (int Tick = 0; Tick <= 4; ++Tick)
+    {
+        const float T = static_cast<float>(Tick) * 0.25f;
+        const float Y = SvgY + 28.0f + 146.0f * T;
+        ConstructDashedSegment(Surface, { LeftX + LeftPad, Y }, { LeftX + InnerWidth - RightPad, Y }, ColorRgba{ 255u, 255u, 255u, 22u }, 4.0f, 7.0f, 1.0f);
+        char YBuf[24]{};
+        FormatCompact(RangeMax - RSpan * T, YBuf, sizeof(YBuf));
+        const float YW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, YBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + 35.0f - YW, Y - 5.0f }, 10.5f, AxisInk, YBuf);
+    }
+
+    // Curves + subtle shaded area under series 0
+    constexpr std::size_t Steps = 81u;
+    std::array<Point2D, Steps> CurvePts{};
+    const float BaseY = SvgY + 174.0f;
+    for (std::size_t SIdx = 0u; SIdx < Series.size(); ++SIdx)
+    {
+        const auto& Line = Series[SIdx];
+        if (!Line.Sample) continue;
+        for (std::size_t I = 0u; I < Steps; ++I)
+        {
+            const float Xv = DomainMin + DSpan * (static_cast<float>(I) / static_cast<float>(Steps - 1u));
+            CurvePts[I] = { PX(Xv), PY(Line.Sample(Xv)) };
+        }
+        if (SIdx == 0u)
+        {
+            // Smooth 24-band vertical gradient fill (0.28 -> 0.02 matching LiveGraph.jsx linearGradient)
+            for (std::size_t I = 0u; I + 1u < Steps; ++I)
+            {
+                const Point2D P0 = CurvePts[I];
+                const Point2D P1 = CurvePts[I + 1u];
+                constexpr int GradBands = 24;
+                for (int B = 0; B < GradBands; ++B)
+                {
+                    const float F0 = static_cast<float>(B) / static_cast<float>(GradBands);
+                    const float F1 = static_cast<float>(B + 1) / static_cast<float>(GradBands);
+                    const float Y0L = P0.Y + (BaseY - P0.Y) * F0;
+                    const float Y1L = P0.Y + (BaseY - P0.Y) * F1;
+                    const float Y0R = P1.Y + (BaseY - P1.Y) * F0;
+                    const float Y1R = P1.Y + (BaseY - P1.Y) * F1;
+                    const float AlphaF = (1.0f - 0.5f * (F0 + F1));
+                    const uint8_t A = static_cast<uint8_t>(std::clamp(30.0f * AlphaF + 2.0f, 1.0f, 36.0f));
+                    const std::array<Point2D, 4u> Quad = {{ { P0.X, Y0L }, { P1.X, Y0R }, { P1.X, Y1R }, { P0.X, Y1L } }};
+                    Surface.FillPolygon(Quad, Line.Ink.WithAlpha(A));
+                }
+            }
+        }
+        Surface.StrokePolyline(CurvePts, Line.Ink, 1.6f, false);
+        Surface.FillCircle({ PX(ProbeX), PY(Line.Sample(ProbeX)) }, 4.0f, Line.Ink);
+    }
+
+    // Vertical dashed probe line
+    ConstructDashedSegment(Surface, { PX(ProbeX), SvgY + 28.0f }, { PX(ProbeX), SvgY + 174.0f }, ColorRgba{ 229u, 215u, 189u, 119u }, 3.0f, 5.0f, 1.0f);
+
+    // 3 X-axis labels at y = SvgY + 190
+    for (int Tick = 0; Tick <= 2; ++Tick)
+    {
+        const float T = static_cast<float>(Tick) * 0.5f;
+        char XBuf[32]{}, XLbl[48]{};
+        FormatCompact(DomainMin + DSpan * T, XBuf, sizeof(XBuf));
+        if (UnitX != nullptr && UnitX[0] != '\0') std::snprintf(XLbl, sizeof(XLbl), "%s %s", XBuf, UnitX);
+        else                                       std::snprintf(XLbl, sizeof(XLbl), "%s", XBuf);
+        const float XW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, XLbl);
+        const float Cx = LeftX + LeftPad + PlotW * T;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Cx - XW * 0.5f, SvgY + 191.0f }, 10.5f, AxisInk, XLbl);
+    }
+
+    float NextY = SvgRect.Bottom() + 12.0f;
+    if (NoteText != nullptr && NoteText[0] != '\0')
+    {
+        NextY = ConstructWrappedParagraph(Surface, LeftX, NextY, InnerWidth, 12.4f, 16.4f, ColorRgba{ 136u, 141u, 135u, 255u }, NoteText);
+        NextY += 8.0f;
+    }
+    return NextY;
 }
 
 void ConstructInspectorFooter(

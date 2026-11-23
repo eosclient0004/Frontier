@@ -529,7 +529,56 @@ void ConstructStatTile(
     uint32_t    TriangleCount,
     uint32_t    ClusterCount) noexcept;
 
-// Bottom 28px inspector footer bar
+// Exact HTML LiveGraph.jsx <Plot> series descriptor (supports up to 4 curves per interactive plot)
+struct InspectorLivePlotSeries
+{
+    const char*                  Name    = "";
+    ColorRgba                    Ink     { 158u, 184u, 208u, 255u };
+    std::function<float(float)>  Sample  {};
+};
+
+// Word-wrapped body paragraph matching HTML .graph-note / .property-card > p
+[[nodiscard]] float ConstructWrappedParagraph(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       MaxWidth,
+    float       FontSize,
+    float       LineStep,
+    ColorRgba   Ink,
+    const char* Text) noexcept;
+
+// Dashed line stroke helper
+void ConstructDashedSegment(
+    PixelSpace& Surface,
+    Point2D     Start,
+    Point2D     End,
+    ColorRgba   Ink,
+    float       DashLength,
+    float       GapLength,
+    float       StrokeWidth = 1.0f) noexcept;
+
+// Exact HTML LiveGraph.jsx <Plot> interactive curve plot (header readout + 215px SVG grid/fill/curve/probe + wrapped note)
+[[nodiscard]] float ConstructLivePlot(
+    PixelSpace&                                Surface,
+    float                                      LeftX,
+    float                                      TopY,
+    float                                      InnerWidth,
+    uint32_t                                   ControlId,
+    float                                      DomainMin,
+    float                                      DomainMax,
+    float                                      RangeMin,
+    float                                      RangeMax,
+    std::span<const InspectorLivePlotSeries>   Series,
+    float&                                     InOutProbeX,
+    const char*                                UnitX,
+    const char*                                UnitY,
+    const char*                                NoteText,
+    uint32_t&                                  InOutActiveDragId,
+    const PaneInputReading&                    Input,
+    bool&                                      OutChanged) noexcept;
+
+// Bottom 45px inspector footer bar
 void ConstructInspectorFooter(
     PixelSpace& Surface,
     Rectangle2D FooterBounds,
