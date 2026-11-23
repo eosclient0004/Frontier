@@ -1,16 +1,14 @@
 /*============================================================================================================================================
-                                                           RAINBOWINSPECTOR.CPP
+                                                          RAINBOWINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance RainbowInspector
+// 🧩 Brand-new 1:1 HTML parity port of Rainbow Inspector (3 tabs: Overview, Bow, Baking)
 
 #include "Engine/Editor/Inspectors/RainbowInspector.h"
-
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdio>
 
 namespace Frontier
 {
@@ -18,105 +16,71 @@ namespace Frontier
 namespace
 {
 
-void SpectralRgb(float T, float& OutR, float& OutG, float& OutB) noexcept
+[[nodiscard]] uint8_t ClampByteRb(float V) noexcept
 {
-    const float U = std::clamp(T, 0.0f, 1.0f); // 0 = violet, 1 = red
-    OutR = std::clamp(std::exp(-std::pow((U - 0.85f) * 3.4f, 2.0f)) + 0.35f * std::exp(-std::pow((U - 0.05f) * 5.0f, 2.0f)), 0.0f, 1.0f);
-    OutG = std::clamp(std::exp(-std::pow((U - 0.50f) * 3.8f, 2.0f)), 0.0f, 1.0f);
-    OutB = std::clamp(std::exp(-std::pow((U - 0.16f) * 4.2f, 2.0f)), 0.0f, 1.0f);
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 
 } // namespace
 
-void RainbowInspector::UpdateRainbowSurfaces(const RainbowInstanceData& Instance)
+void RainbowInspector::UpdateRainbowSurface(const RainbowInstanceData& Instance)
 {
-    uint64_t Key = 0x5A1AB001ull;
+    uint64_t Key = 0x5A1AB0E1ull;
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.PrimaryIntensity);
-    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SecondaryIntensity);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SupernumeraryWidth);
-    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.DropletRadiusUm);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SecondaryIntensity);
+    Key ^= AlexanderBandEnabled ? 0x1111ull : 0x2222ull;
 
-    const uint32_t W1 = 240u, H1 = 136u;
-    ArcPreview.EnsureUpdated(Key, W1, H1, [&](std::vector<uint8_t>& Pixels)
+    // Exact rainbow__0 square optical preview (222 x 208 -> render 2x crisp 444 x 416)
+    const uint32_t W = 444u, H = 416u;
+    RainbowPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const uint32_t W = W1, H = H1;
-        const float CX = static_cast<float>(W) * 0.50f;
-        const float CY = static_cast<float>(H) * 1.12f;
-        const float R1 = static_cast<float>(H) * 0.78f;
-        const float R2 = static_cast<float>(H) * 1.02f;
-        const float BandW = static_cast<float>(H) * 0.12f;
+        const float Gain  = std::clamp(Instance.PrimaryIntensity, 0.0f, 2.5f);
+        const float Width = std::clamp(Instance.SupernumeraryWidth, 0.25f, 3.0f);
+        const float Cx    = static_cast<float>(W) * 0.50f;
+        const float Cy    = static_cast<float>(H) * 0.90f;
+        const float R0    = static_cast<float>(W) * 0.72f;
+        const float BandW = static_cast<float>(W) * 0.062f * std::max(0.5f, Width);
+
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float FY = static_cast<float>(Y) / static_cast<float>(H);
+            const float V = static_cast<float>(Y) / static_cast<float>(H);
+            // Exact muted blue-grey to pale mist vertical sky gradient matching rainbow__0
+            const float SkyR = 72.0f + (130.0f - 72.0f) * V;
+            const float SkyG = 93.0f + (146.0f - 93.0f) * V;
+            const float SkyB = 112.0f + (152.0f - 112.0f) * V;
+
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float DX = static_cast<float>(X) - CX;
-                const float DY = static_cast<float>(Y) - CY;
-                const float Dist = std::sqrt(DX * DX + DY * DY);
-                // Deep twilight rain-sky backdrop + subtle Alexander dark band between R1 and R2
-                float R = 0.055f + FY * 0.045f;
-                float G = 0.072f + FY * 0.060f;
-                float B = 0.115f + FY * 0.075f;
-                if (Dist > R1 + BandW * 0.45f && Dist < R2 - BandW * 0.45f)
-                {
-                    R *= 0.72f; G *= 0.72f; B *= 0.76f;
-                }
-                else if (Dist < R1 - BandW * 0.45f)
-                {
-                    R += 0.035f; G += 0.042f; B += 0.055f;
-                }
-                // Primary 42° arc (violet inside -> red outside)
-                const float U1 = (Dist - (R1 - BandW * 0.5f)) / BandW;
-                if (U1 >= 0.0f && U1 <= 1.0f)
-                {
-                    float SR, SG, SB;
-                    SpectralRgb(U1, SR, SG, SB);
-                    const float Env = std::sin(U1 * 3.14159265f) * std::clamp(Instance.PrimaryIntensity * 0.85f, 0.0f, 1.1f);
-                    R += SR * Env; G += SG * Env; B += SB * Env;
-                }
-                // Secondary 51° arc (reversed: red inside -> violet outside)
-                const float U2 = (Dist - (R2 - BandW * 0.55f)) / (BandW * 1.1f);
-                if (U2 >= 0.0f && U2 <= 1.0f)
-                {
-                    float SR, SG, SB;
-                    SpectralRgb(1.0f - U2, SR, SG, SB);
-                    const float Env = std::sin(U2 * 3.14159265f) * std::clamp(Instance.SecondaryIntensity * 0.55f, 0.0f, 0.75f);
-                    R += SR * Env; G += SG * Env; B += SB * Env;
-                }
-                const auto To8 = [](float V) noexcept -> uint8_t { return static_cast<uint8_t>(std::clamp(V * 255.0f, 0.0f, 255.0f)); };
-                const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = To8(R); Pixels[Off + 1u] = To8(G); Pixels[Off + 2u] = To8(B); Pixels[Off + 3u] = 255u;
-            }
-        }
-    });
+                const float DX = static_cast<float>(X) - Cx;
+                const float DY = static_cast<float>(Y) - Cy;
+                const float D  = std::sqrt(DX * DX + DY * DY);
+                const float U  = (D - R0) / BandW; // -1 inner violet .. +1 outer red
 
-    const uint32_t W2 = 256u, H2 = 32u;
-    DispersionLut.EnsureUpdated(Key, W2, H2, [&](std::vector<uint8_t>& Pixels)
-    {
-        const uint32_t W = W2, H = H2;
-        for (uint32_t X = 0u; X < W; ++X)
-        {
-            const float U = static_cast<float>(X) / static_cast<float>(W - 1u);
-            float R = 0.05f, G = 0.06f, B = 0.09f;
-            if (U > 0.12f && U < 0.44f)
-            {
-                const float T = (U - 0.12f) / 0.32f;
-                float SR, SG, SB; SpectralRgb(T, SR, SG, SB);
-                const float E = std::sin(T * 3.14159265f) * std::clamp(Instance.PrimaryIntensity * 0.9f, 0.0f, 1.0f);
-                R += SR * E; G += SG * E; B += SB * E;
-            }
-            else if (U > 0.62f && U < 0.88f)
-            {
-                const float T = 1.0f - (U - 0.62f) / 0.26f;
-                float SR, SG, SB; SpectralRgb(T, SR, SG, SB);
-                const float E = std::sin(T * 3.14159265f) * std::clamp(Instance.SecondaryIntensity * 0.6f, 0.0f, 0.8f);
-                R += SR * E; G += SG * E; B += SB * E;
-            }
-            const auto To8 = [](float V) noexcept -> uint8_t { return static_cast<uint8_t>(std::clamp(V * 255.0f, 0.0f, 255.0f)); };
-            for (uint32_t Y = 0u; Y < H; ++Y)
-            {
+                float R = SkyR, G = SkyG, B = SkyB;
+                // Alexander's dark band outside primary bow
+                if (AlexanderBandEnabled && U > 0.8f && U < 3.5f)
+                {
+                    const float Dark = 0.08f * std::sin(std::clamp((U - 0.8f) / 2.7f, 0.0f, 1.0f) * 3.14159f);
+                    R *= (1.0f - Dark); G *= (1.0f - Dark); B *= (1.0f - Dark);
+                }
+                // Primary 42-deg spectral rainbow arc (violet inner -> blue -> green -> yellow -> red outer)
+                if (std::fabs(U) < 1.35f)
+                {
+                    const float Env = std::exp(-U * U * 2.2f) * 0.28f * Gain;
+                    const float Red = std::exp(-std::pow((U - 0.48f) * 2.6f, 2.0f));
+                    const float Grn = std::exp(-std::pow((U - 0.05f) * 2.6f, 2.0f));
+                    const float Blu = std::exp(-std::pow((U + 0.42f) * 2.6f, 2.0f));
+                    R += (Red * 180.0f + Grn * 70.0f + Blu * 45.0f) * Env;
+                    G += (Red * 55.0f  + Grn * 165.0f + Blu * 55.0f) * Env;
+                    B += (Blu * 190.0f + Grn * 45.0f) * Env;
+                }
+
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = To8(R); Pixels[Off + 1u] = To8(G); Pixels[Off + 2u] = To8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteRb(R);
+                Pixels[Off + 1u] = ClampByteRb(G);
+                Pixels[Off + 2u] = ClampByteRb(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -129,56 +93,60 @@ float RainbowInspector::Construct(
 {
     static constexpr std::array<const char*, 3u> Pages = {{ "Overview", "Bow", "Baking" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const float PadX  = 25.0f;
+    const float BodyX = LeftX + PadX;
+    const float BodyW = InnerWidth - PadX * 2.0f;
 
     if (ActivePage == 0u)
     {
-        UpdateRainbowSurfaces(Instance);
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 272.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Optical preview");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
-        char Buf[16]{}; std::snprintf(Buf, sizeof(Buf), "%.0f", Instance.DropletRadiusUm);
-        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, Buf, "", "um", "Primary 42\xC2\xB0 & secondary 51\xC2\xB0 caustic");
-        Y += 6.0f;
+        // TAB 1: OVERVIEW — Optical preview (h = 362), Quick controls (Enabled, Alexander's Band), Tags, Notes
+        UpdateRainbowSurface(Instance);
+        const Rectangle2D PrevCard { LeftX, CursorY, InnerWidth, 362.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PrevCard, "Optical preview");
 
-        const Rectangle2D ArcWell { LeftX + PadX, Y, BodyW, 134.0f };
-        ArcPreview.Present(Surface, ArcWell, 10.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { ArcWell.X + 8.0f, ArcWell.Bottom() - 14.0f }, 8.0f, ColorRgba{ 196u, 206u, 224u, 210u }, "42\xC2\xB0 PRIMARY · 51\xC2\xB0 SECONDARY");
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        const Rectangle2D Box { BodyX, PrevCard.Y + 66.0f, BodyW, 208.0f };
+        RainbowPreview.Present(Surface, Box, 14.0f);
+
+        (void)InspectorPrimitives::ConstructWrappedParagraph(
+            Surface, BodyX, PrevCard.Y + 292.0f, BodyW, 11.8f, 16.5f, InspectorMetrics::MutedInk,
+            "Liquid-water optics \xC2\xB7 illustrative HTML preview, not the spectral kernel.");
+
+        CursorY = PrevCard.Bottom() + InspectorMetrics::SectionGap;
 
         const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Enabled",          InspectorSwitchSymbol::Sun,   Entry.VisibilityEnabled,          false },
-            { "Alexander's band", InspectorSwitchSymbol::Orbit, Instance.SecondaryIntensity > 0.05f, false },
+            { "Enabled",          InspectorSwitchSymbol::PostFx, Entry.VisibilityEnabled, false },
+            { "Alexander's Band", InspectorSwitchSymbol::PostFx, AlexanderBandEnabled,    false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; Instance.Enabled = Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Instance.SecondaryIntensity = (Instance.SecondaryIntensity > 0.05f) ? 0.0f : 0.42f; OutMutated = true; }
+        if (Clicked == 0)      { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; Instance.Enabled = Entry.VisibilityEnabled; OutMutated = true; }
+        else if (Clicked == 1) { AlexanderBandEnabled = !AlexanderBandEnabled; OutMutated = true; }
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "rainbow", "optics" }};
+        static constexpr std::array<const char*, 2u> Tags = {{ "environment", "optics" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
     else if (ActivePage == 1u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 290.0f };
+        // TAB 2: BOW — Bow response (h = 379: Intensity, Width, Secondary, Minimum Path)
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 379.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Bow response");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6601u, "Primary bow", "x", "%.2f", 0.0f, 2.0f, Instance.PrimaryIntensity, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6602u, "Secondary bow", "x", "%.2f", 0.0f, 1.0f, Instance.SecondaryIntensity, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6603u, "Supernumerary", "", "%.2f", 0.0f, 1.0f, Instance.SupernumeraryWidth, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6604u, "Droplet radius", "um", "%.0f", 50.0f, 1500.0f, Instance.DropletRadiusUm, ActiveDragId, Input, OutMutated);
+        float FY = S.Y + 70.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6901u, "Intensity",    "\xC3\x97", "%.2g",  0.0f,    2.5f, Instance.PrimaryIntensity,   ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6902u, "Width",        "\xC3\x97", "%.2g",  0.25f,   3.0f, Instance.SupernumeraryWidth, ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6903u, "Secondary",    "",         "%.2g",  0.0f,    1.0f, Instance.SecondaryIntensity, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 6904u, "Minimum Path", "m",        "%.0f", 20.0f, 1500.0f, MinimumPathMeters,           ActiveDragId, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        UpdateRainbowSurfaces(Instance);
-        CursorY = InspectorPrimitives::ConstructBakedLutSection(
-            Surface, LeftX, CursorY, InnerWidth,
-            "Dispersion LUT", "40-54 deg", "256x32",
-            "Angular spectral dispersion · primary 42 deg and reversed 51 deg secondary.",
-            DispersionLut, 64.0f);
+        // TAB 3: BAKING — Bake / image (h = 240.5)
+        bool BakeClicked = false, LoadClicked = false;
+        CursorY = InspectorPrimitives::ConstructBakeImageCard(
+            Surface, LeftX, CursorY, InnerWidth, false, "UNAVAILABLE",
+            "No image source connected.",
+            "Renderer / imported-image binding unavailable",
+            Input, BakeClicked, LoadClicked);
     }
 
     return CursorY;

@@ -1427,7 +1427,10 @@ float ConstructTagsSection(
         ChipX += W + 6.0f;
     }
 
-    const float BoxH = (ChipY + ChipH + InspectorMetrics::SectionPadBottom) - TopY;
+    // Add-tag input row below tag chips (matches HTML .tags-card h=138.0)
+    const float AddY  = ChipY + ChipH + 8.0f;
+    const float AddH  = 26.0f;
+    const float BoxH  = (AddY + AddH + InspectorMetrics::SectionPadBottom) - TopY;
     const Rectangle2D Section { LeftX, TopY, InnerWidth, BoxH };
     ConstructSectionSurface(Surface, Section, "Tags", CountBuf, InspectorMetrics::MutedInk);
 
@@ -1448,6 +1451,10 @@ float ConstructTagsSection(
         ChipX += W + 6.0f;
     }
 
+    const Rectangle2D AddPill { LeftX + PadX, AddY, 92.0f, AddH };
+    Surface.StrokeRectangle(AddPill, ColorRgba{ 255u, 255u, 255u, 28u }, AddH * 0.5f, 1.0f);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AddPill.X + 12.0f, AddPill.Y + 6.5f }, 10.6f, InspectorMetrics::DimInk, "Add tag");
+
     return Section.Bottom() + InspectorMetrics::SectionGap;
 }
 
@@ -1459,7 +1466,7 @@ float ConstructNotesSection(
     std::string& NotesText) noexcept
 {
     const float PadX = InspectorMetrics::SectionPadX;
-    const float AreaH = 86.0f;
+    const float AreaH = 93.0f;
     const float BoxH  = InspectorMetrics::SectionPadTop + 28.0f + AreaH + InspectorMetrics::SectionPadBottom;
     const Rectangle2D Section { LeftX, TopY, InnerWidth, BoxH };
     ConstructSectionSurface(Surface, Section, "Notes");
@@ -2297,6 +2304,80 @@ float ConstructLivePlot(
         NextY += 8.0f;
     }
     return NextY;
+}
+
+float ConstructBakeImageCard(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   TopY,
+    float                   InnerWidth,
+    bool                    UseBakedImage,
+    const char*             StatusCaption,
+    const char*             RightCaption,
+    const char*             FooterNote,
+    const PaneInputReading& Input,
+    bool&                   OutBakeClicked,
+    bool&                   OutLoadClicked) noexcept
+{
+    OutBakeClicked = false;
+    OutLoadClicked = false;
+    const Rectangle2D S { LeftX, TopY, InnerWidth, 240.5f };
+    ConstructSectionSurface(Surface, S, "Bake / image");
+
+    const float BodyX = LeftX + 25.0f;
+    const float BodyW = InnerWidth - 50.0f;
+    const float Gap   = 12.0f;
+    const float HalfW = std::floor((BodyW - Gap) * 0.5f);
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+
+    // Left tall tile: "Use baked image" + UNAVAILABLE/READY badge
+    const Rectangle2D Tile { BodyX, S.Y + 64.0f, HalfW, 114.0f };
+    Surface.FillRectangle(Tile, ColorRgba{ 30u, 30u, 30u, 255u }, 14.0f);
+    Surface.StrokeRectangle(Tile, ColorRgba{ 255u, 255u, 255u, 16u }, 14.0f, 1.0f);
+
+    // Download/tray icon badge centered at top of tile
+    const Rectangle2D Badge { Tile.Center().X - 18.0f, Tile.Y + 14.0f, 36.0f, 36.0f };
+    Surface.FillRectangle(Badge, UseBakedImage ? ColorRgba{ 34u, 72u, 48u, 255u } : ColorRgba{ 46u, 46u, 46u, 255u }, 9.0f);
+    const Point2D Bc = Badge.Center();
+    const ColorRgba IconInk = UseBakedImage ? ColorRgba{ 98u, 220u, 134u, 255u } : ColorRgba{ 165u, 165u, 165u, 255u };
+    Surface.StrokeLine({ Bc.X, Bc.Y - 7.0f }, { Bc.X, Bc.Y + 3.0f }, IconInk, 1.8f);
+    Surface.StrokeLine({ Bc.X - 4.0f, Bc.Y - 1.0f }, { Bc.X, Bc.Y + 3.5f }, IconInk, 1.8f);
+    Surface.StrokeLine({ Bc.X + 4.0f, Bc.Y - 1.0f }, { Bc.X, Bc.Y + 3.5f }, IconInk, 1.8f);
+    Surface.StrokeLine({ Bc.X - 6.0f, Bc.Y + 6.5f }, { Bc.X + 6.0f, Bc.Y + 6.5f }, IconInk, 1.8f);
+
+    const float L1W = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, "Use baked");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Tile.Center().X - L1W * 0.5f, Tile.Y + 58.0f }, 11.2f, ColorRgba{ 196u, 196u, 194u, 255u }, "Use baked");
+    const float L2W = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, "image");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Tile.Center().X - L2W * 0.5f, Tile.Y + 72.0f }, 11.2f, ColorRgba{ 196u, 196u, 194u, 255u }, "image");
+    const char* StatusStr = (StatusCaption != nullptr && StatusCaption[0] != '\0') ? StatusCaption : "UNAVAILABLE";
+    const float StW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.6f, StatusStr);
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Tile.Center().X - StW * 0.5f, Tile.Bottom() - 16.0f }, 8.6f, InspectorMetrics::DimInk, StatusStr);
+
+    // Right column: Bake button + Load image button + caption
+    const float RightX = BodyX + HalfW + Gap;
+    const Rectangle2D BakeBtn { RightX, S.Y + 64.0f, HalfW, 33.0f };
+    Surface.FillRectangle(BakeBtn, ColorRgba{ 36u, 36u, 36u, 255u }, 9.0f);
+    Surface.StrokeRectangle(BakeBtn, ColorRgba{ 255u, 255u, 255u, 22u }, 9.0f, 1.0f);
+    const float BakeW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, "Bake");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BakeBtn.Center().X - BakeW * 0.5f + 6.0f, BakeBtn.Y + 10.5f }, 11.2f, ColorRgba{ 165u, 165u, 165u, 255u }, "Bake");
+    if (BakeBtn.Contains(Cursor) && Input.PrimaryPointer.Pressed) OutBakeClicked = true;
+
+    const Rectangle2D LoadBtn { RightX, S.Y + 105.0f, HalfW, 33.0f };
+    Surface.FillRectangle(LoadBtn, ColorRgba{ 36u, 36u, 36u, 255u }, 9.0f);
+    Surface.StrokeRectangle(LoadBtn, ColorRgba{ 255u, 255u, 255u, 22u }, 9.0f, 1.0f);
+    const float LoadW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, "Load image");
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LoadBtn.Center().X - LoadW * 0.5f + 4.0f, LoadBtn.Y + 10.5f }, 11.2f, ColorRgba{ 165u, 165u, 165u, 255u }, "Load image");
+    if (LoadBtn.Contains(Cursor) && Input.PrimaryPointer.Pressed) OutLoadClicked = true;
+
+    const char* RightText = (RightCaption != nullptr && RightCaption[0] != '\0') ? RightCaption : "No image source connected.";
+    (void)ConstructWrappedParagraph(Surface, RightX, S.Y + 148.0f, HalfW, 10.2f, 14.0f, InspectorMetrics::DimInk, RightText);
+
+    // Bottom hairline divider + card footer note
+    Surface.StrokeLine({ BodyX, S.Y + 194.0f }, { BodyX + BodyW, S.Y + 194.0f }, ColorRgba{ 255u, 255u, 255u, 16u }, 1.0f);
+    const char* Foot = (FooterNote != nullptr && FooterNote[0] != '\0') ? FooterNote : "Renderer / imported-image binding unavailable";
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, S.Y + 206.0f }, 9.8f, InspectorMetrics::MutedInk, Foot);
+
+    return S.Bottom() + InspectorMetrics::SectionGap;
 }
 
 void ConstructInspectorFooter(

@@ -103,19 +103,22 @@ async function main() {
     await page.locator(".outliner-row").first().waitFor({ timeout: 15000 });
     await page.waitForTimeout(250);
 
-    // Disable CSS transitions so tab switches settle instantaneously with zero slide animation lag!
-    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }" });
+    // Disable CSS transitions and hide leaving pages immediately so tab switches settle cleanly with zero ghost overlap!
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } .pc-leaving, [hidden] { display: none !important; visibility: hidden !important; opacity: 0 !important; }" });
 
-    // Expand all folders
-    await page.evaluate(() => {
-      for (let pass = 0; pass < 4; pass++) {
-        document.querySelectorAll(".outliner-row").forEach((r) => {
-          const b = r.querySelector("button, .chev, .toggle");
-          if (b && b.getAttribute("aria-expanded") === "false") b.click();
+    // Expand all nested Outliner folders/parents across React render ticks
+    for (let pass = 0; pass < 5; pass++) {
+      const clickedAny = await page.evaluate(() => {
+        let count = 0;
+        document.querySelectorAll(".outliner-row[aria-expanded='false']").forEach((row) => {
+          const btn = row.querySelector("button");
+          if (btn) { btn.click(); count++; }
         });
-      }
-    });
-    await page.waitForTimeout(150);
+        return count;
+      });
+      if (!clickedAny) break;
+      await page.waitForTimeout(100);
+    }
 
     const cdp = await page.context().newCDPSession(page);
 

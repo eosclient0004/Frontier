@@ -43,6 +43,39 @@ PARITY_CASES = [
     ("LocalCloud", "2-Coverage", "local-cloud__1-local-cloud_coverage.png", "LocalCloud-02-Coverage.png", "LocalCloud-02-Coverage-Proof.png", 0.84, 0.72),
     ("LocalCloud", "3-Layer",    "local-cloud__2-local-cloud_layer.png",    "LocalCloud-03-Layer.png",    "LocalCloud-03-Layer-Proof.png",    0.85, 0.75),
     ("LocalCloud", "4-Body",     "local-cloud__3-local-cloud_body.png",     "LocalCloud-04-Body.png",     "LocalCloud-04-Body-Proof.png",     0.85, 0.75),
+    # Card 7: God Rays
+    ("GodRays", "1-Overview", "god-rays__0-god-rays_overview.png", "GodRays-01-Overview.png", "GodRays-01-Overview-Proof.png", 0.85, 0.75),
+    ("GodRays", "2-Settings", "god-rays__1-god-rays_settings.png", "GodRays-02-Settings.png", "GodRays-02-Settings-Proof.png", 0.85, 0.75),
+    # Card 8: Precipitation
+    ("Precipitation", "1-Overview",   "precipitation__0-precipitation_overview.png",   "Precipitation-01-Overview.png",   "Precipitation-01-Overview-Proof.png",   0.85, 0.75),
+    ("Precipitation", "2-Particles",  "precipitation__1-precipitation_particles.png",  "Precipitation-02-Particles.png",  "Precipitation-02-Particles-Proof.png",  0.85, 0.75),
+    ("Precipitation", "3-Simulation", "precipitation__2-precipitation_simulation.png", "Precipitation-03-Simulation.png", "Precipitation-03-Simulation-Proof.png", 0.85, 0.75),
+    # Card 9: Rainbow
+    ("Rainbow", "1-Overview", "rainbow__0-rainbow_overview.png", "Rainbow-01-Overview.png", "Rainbow-01-Overview-Proof.png", 0.85, 0.75),
+    ("Rainbow", "2-Bow",      "rainbow__1-rainbow_bow.png",      "Rainbow-02-Bow.png",      "Rainbow-02-Bow-Proof.png",      0.85, 0.75),
+    ("Rainbow", "3-Baking",   "rainbow__2-rainbow_baking.png",   "Rainbow-03-Baking.png",   "Rainbow-03-Baking-Proof.png",   0.85, 0.75),
+    # Card 10: Atmosphere
+    ("Atmosphere", "1-Overview",   "atmosphere__0-atmosphere_overview.png",   "Atmosphere-01-Overview.png",   "Atmosphere-01-Overview-Proof.png",   0.85, 0.75),
+    ("Atmosphere", "2-Scattering", "atmosphere__1-atmosphere_scattering.png", "Atmosphere-02-Scattering.png", "Atmosphere-02-Scattering-Proof.png", 0.85, 0.75),
+    ("Atmosphere", "3-Density",    "atmosphere__2-atmosphere_density.png",    "Atmosphere-03-Density.png",    "Atmosphere-03-Density-Proof.png",    0.85, 0.75),
+    ("Atmosphere", "4-Colour",     "atmosphere__3-atmosphere_colour.png",     "Atmosphere-04-Colour.png",     "Atmosphere-04-Colour-Proof.png",     0.85, 0.75),
+    ("Atmosphere", "5-View",       "atmosphere__4-atmosphere_view.png",       "Atmosphere-05-View.png",       "Atmosphere-05-View-Proof.png",       0.85, 0.75),
+    ("Atmosphere", "6-Baking",     "atmosphere__5-atmosphere_baking.png",     "Atmosphere-06-Baking.png",     "Atmosphere-06-Baking-Proof.png",     0.85, 0.75),
+    # Card 11: Solar / Sun
+    ("Solar", "1-Overview",    "sun__0-sun_overview.png",    "Solar-01-Overview.png",    "Solar-01-Overview-Proof.png",    0.85, 0.75),
+    ("Solar", "2-Temperature", "sun__1-sun_temperature.png", "Solar-02-Temperature.png", "Solar-02-Temperature-Proof.png", 0.85, 0.75),
+    ("Solar", "3-Disc",        "sun__2-sun_disc.png",        "Solar-03-Disc.png",        "Solar-03-Disc-Proof.png",        0.85, 0.75),
+    ("Solar", "4-Dynamic",     "sun__3-sun_dynamic.png",     "Solar-04-Dynamic.png",     "Solar-04-Dynamic-Proof.png",     0.85, 0.75),
+    ("Solar", "5-Baking",      "sun__4-sun_baking.png",      "Solar-05-Baking.png",      "Solar-05-Baking-Proof.png",      0.85, 0.75),
+    # Card 12: Lunar / Moon
+    ("Lunar", "1-Overview",   "moon__0-moon_overview.png",   "Lunar-01-Overview.png",   "Lunar-01-Overview-Proof.png",   0.85, 0.75),
+    ("Lunar", "2-Appearance", "moon__1-moon_appearance.png", "Lunar-02-Appearance.png", "Lunar-02-Appearance-Proof.png", 0.85, 0.75),
+    ("Lunar", "3-Position",   "moon__2-moon_position.png",   "Lunar-03-Position.png",   "Lunar-03-Position-Proof.png",   0.85, 0.75),
+    # Card 13: Starfield / Stars
+    ("Starfield", "1-Overview", "stars__0-stars_overview.png", "Starfield-01-Overview.png", "Starfield-01-Overview-Proof.png", 0.85, 0.75),
+    ("Starfield", "2-Motion",   "stars__1-stars_motion.png",   "Starfield-02-Motion.png",   "Starfield-02-Motion-Proof.png",   0.85, 0.75),
+    ("Starfield", "3-Renderer", "stars__2-stars_renderer.png", "Starfield-03-Renderer.png", "Starfield-03-Renderer-Proof.png", 0.85, 0.75),
+    ("Starfield", "4-Baking",   "stars__3-stars_baking.png",   "Starfield-04-Baking.png",   "Starfield-04-Baking-Proof.png",   0.85, 0.75),
 ]
 
 

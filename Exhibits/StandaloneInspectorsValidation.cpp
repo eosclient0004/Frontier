@@ -945,6 +945,160 @@ title = "Overview"
                 Names[PageIdx]);
         }
         Inspectors.QueryLocalCloud().SetActivePage(0u);
+
+        // Card #7: God Rays (2 tabs)
+        const OutlinerSlotToken ParityGr = AppendEntry(Outliner, "God Rays", "God Rays", "env:god-rays", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* GrRec = Outliner.AccessEntry(ParityGr)) GrRec->VisibilityEnabled = true;
+        auto& GrInst = Reg.AccessGodRays(ParityGr, Bundle.Scene);
+        GrInst.GodRays.Enabled            = true;
+        GrInst.GodRays.InteractWithClouds = true;
+        GrInst.GodRays.InteractWithFog    = true;
+        GrInst.GodRays.Intensity          = 1.0f;
+        GrInst.GodRays.AnisotropyG        = 0.76f;
+        GrInst.GodRays.Decay              = 0.95f;
+        GrInst.GodRays.Density            = 1.0f;
+        GrInst.GodRays.MaxDistanceMeters  = 400.0f;
+        GrInst.GodRays.SampleSteps        = 24u;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "GodRays-01-Overview.png", "GodRays-02-Settings.png" }};
+            Inspectors.QueryGodRays().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityGr, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryGodRays().SetActivePage(0u);
+
+        // Card #8: Precipitation (3 tabs)
+        const OutlinerSlotToken ParityPr = AppendEntry(Outliner, "Precipitation", "Precipitation", "env:precipitation", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* PrRec = Outliner.AccessEntry(ParityPr)) PrRec->VisibilityEnabled = false;
+        auto& PrInst = Reg.AccessPrecipitation(ParityPr);
+        PrInst.Enabled   = false;
+        PrInst.ModeIndex = 0u;
+        for (uint32_t PageIdx = 0u; PageIdx < 3u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 3u> Names = {{ "Precipitation-01-Overview.png", "Precipitation-02-Particles.png", "Precipitation-03-Simulation.png" }};
+            Inspectors.QueryPrecipitation().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityPr, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryPrecipitation().SetActivePage(0u);
+
+        // Card #9: Rainbow (3 tabs)
+        const OutlinerSlotToken ParityRb = AppendEntry(Outliner, "Rainbow", "Rainbow", "env:rainbow", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* RbRec = Outliner.AccessEntry(ParityRb)) RbRec->VisibilityEnabled = true;
+        auto& RbInst = Reg.AccessRainbow(ParityRb);
+        RbInst.Enabled            = true;
+        RbInst.PrimaryIntensity   = 1.0f;
+        RbInst.SupernumeraryWidth = 1.0f;
+        RbInst.SecondaryIntensity = 1.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 3u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 3u> Names = {{ "Rainbow-01-Overview.png", "Rainbow-02-Bow.png", "Rainbow-03-Baking.png" }};
+            Inspectors.QueryRainbow().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityRb, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryRainbow().SetActivePage(0u);
+
+        // Card #10: Atmosphere (6 tabs)
+        const OutlinerSlotToken ParityAtmo = AppendEntry(Outliner, "Atmosphere", "Atmosphere", "env:atmosphere", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityAtmo)) Rec->VisibilityEnabled = true;
+        auto& AtmoInst = Reg.AccessAtmosphere(ParityAtmo, Bundle.Scene);
+        AtmoInst.Medium.AtmosphereEnabled         = true;
+        AtmoInst.Medium.RayleighStrength          = 1.0f;
+        AtmoInst.Medium.MieStrength               = 1.0f;
+        AtmoInst.Medium.OzoneStrength             = 1.2f;
+        AtmoInst.Medium.RayleighScaleHeightMeters = 8000.0f;
+        AtmoInst.Medium.MieScaleHeightMeters      = 1200.0f;
+        AtmoInst.Medium.AtmosphereThicknessMeters = 60000.0f;
+        AtmoInst.Medium.SkyBrightnessMultiplier   = 1.0f;
+        AtmoInst.Medium.LimbGlowIntensity         = 1.0f;
+        AtmoInst.Medium.SkyTint                   = { 1.0f, 1.0f, 1.0f };
+        AtmoInst.Medium.GroundAlbedo              = { 0.475f, 0.431f, 0.376f };
+        AtmoInst.Medium.OrbitalViewEnabled        = false;
+        AtmoInst.SunAtLimbDeg                     = 6.0f;
+        AtmoInst.LineAtCivilOnly                  = true;
+        for (uint32_t PageIdx = 0u; PageIdx < 6u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 6u> Names = {{
+                "Atmosphere-01-Overview.png", "Atmosphere-02-Scattering.png", "Atmosphere-03-Density.png",
+                "Atmosphere-04-Colour.png",   "Atmosphere-05-View.png",       "Atmosphere-06-Baking.png"
+            }};
+            Inspectors.QueryAtmosphere().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityAtmo, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryAtmosphere().SetActivePage(0u);
+
+        // Card #11: Sun / Solar (5 tabs)
+        const OutlinerSlotToken ParitySun = AppendEntry(Outliner, "Sun", "Sun", "env:sun", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParitySun)) Rec->VisibilityEnabled = true;
+        auto& SunInst = Reg.AccessSolar(ParitySun, Bundle.Scene);
+        SunInst.Solar.SolarEnabled            = true;
+        SunInst.Solar.LocalHours              = 15.5f;
+        SunInst.Solar.TintSource              = GeometricRaster::SolarTintSource::RgbTint;
+        SunInst.Solar.ColorTemperatureKelvin  = 6500.0f;
+        SunInst.Solar.AngularDiameterDegrees  = 0.53f;
+        SunInst.Solar.AppearanceMode          = GeometricRaster::SolarAppearanceMode::Muted;
+        SunInst.Solar.SunGlareStrength        = 1.0f;
+        SunInst.Solar.CycleAnimationEnabled   = false;
+        SunInst.Solar.ManualDirectionOverride = false;
+        SunInst.DesignIndex                   = 0u;
+        SunInst.RealTime                      = false;
+        for (uint32_t PageIdx = 0u; PageIdx < 5u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 5u> Names = {{
+                "Solar-01-Overview.png", "Solar-02-Temperature.png", "Solar-03-Disc.png",
+                "Solar-04-Dynamic.png",  "Solar-05-Baking.png"
+            }};
+            Inspectors.QuerySolar().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParitySun, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QuerySolar().SetActivePage(0u);
+
+        // Card #12: Moon / Lunar (3 tabs)
+        const OutlinerSlotToken ParityMoon = AppendEntry(Outliner, "Moon", "Moon", "env:moon", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityMoon)) Rec->VisibilityEnabled = true;
+        auto& MoonInst = Reg.AccessLunar(ParityMoon, Bundle.Scene);
+        MoonInst.Moon.Visible                = true;
+        MoonInst.Moon.SurfacePreset          = GeometricRaster::LunarSurfacePreset::Luna;
+        MoonInst.Moon.SynodicPhaseFraction   = 0.62f;
+        MoonInst.Moon.BrightnessMultiplier   = 1.60f;
+        MoonInst.Moon.HaloGlowMultiplier     = 0.80f;
+        MoonInst.Moon.AngularDiameterDegrees = 0.52f;
+        MoonInst.Moon.AzimuthDegrees         = 300.0f;
+        MoonInst.Moon.ElevationDegrees       = 28.0f;
+        MoonInst.Moon.HasAtmosphere          = false;
+        for (uint32_t PageIdx = 0u; PageIdx < 3u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 3u> Names = {{
+                "Lunar-01-Overview.png", "Lunar-02-Appearance.png", "Lunar-03-Position.png"
+            }};
+            Inspectors.QueryLunar().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityMoon, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryLunar().SetActivePage(0u);
+
+        // Card #13: Stars / Starfield (4 tabs)
+        const OutlinerSlotToken ParityStars = AppendEntry(Outliner, "Stars", "Stars", "env:stars", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityStars)) Rec->VisibilityEnabled = true;
+        auto& StarsInst = Reg.AccessStarfield(ParityStars, Bundle.Scene);
+        StarsInst.Stars.StarfieldEnabled          = true;
+        StarsInst.Stars.ScintillationEnabled      = true;
+        StarsInst.Stars.LimitingMagnitude         = 5.5f;
+        StarsInst.Stars.ScintillationDepthPercent = 30.0f;
+        StarsInst.Stars.ScintillationRateHertz    = 1.2f;
+        StarsInst.Stars.CelestialRotationDegrees  = 0.0f;
+        StarsInst.Stars.BrightnessMultiplier      = 1.0f;
+        StarsInst.Stars.PointSizeScale            = 1.0f;
+        StarsInst.Stars.ZodiacalLightEnabled      = true;
+        StarsInst.Stars.ZodiacalRadianceScale     = 1.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 4u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 4u> Names = {{
+                "Starfield-01-Overview.png", "Starfield-02-Motion.png",
+                "Starfield-03-Renderer.png", "Starfield-04-Baking.png"
+            }};
+            Inspectors.QueryStarfield().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityStars, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryStarfield().SetActivePage(0u);
     }
 
     TypographyRepository::AssignCurrent(nullptr);

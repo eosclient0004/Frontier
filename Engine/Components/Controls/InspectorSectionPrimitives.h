@@ -578,6 +578,20 @@ void ConstructDashedSegment(
     const PaneInputReading&                    Input,
     bool&                                      OutChanged) noexcept;
 
+// Exact HTML "Bake / image" card (rainbow__2, atmosphere, stars, lens-flare): left status tile + Bake/Load buttons + footer note
+[[nodiscard]] float ConstructBakeImageCard(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   TopY,
+    float                   InnerWidth,
+    bool                    UseBakedImage,
+    const char*             StatusCaption,
+    const char*             RightCaption,
+    const char*             FooterNote,
+    const PaneInputReading& Input,
+    bool&                   OutBakeClicked,
+    bool&                   OutLoadClicked) noexcept;
+
 // Bottom 45px inspector footer bar
 void ConstructInspectorFooter(
     PixelSpace& Surface,
