@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                        CAMERASETTINGSINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance CameraSettingsInspector (F77/F78: Render type hero, per-renderer carousel, Quality budget, Output)
+// 🧩 Standalone multi-instance CameraSettingsInspector wired end-to-end to ViewportDisplaySettings -> WorldRenderConfiguration -> .slang shaders
 
 #include "Engine/Editor/Inspectors/CameraSettingsInspector.h"
 
@@ -26,21 +26,61 @@ inline uint8_t ToneSrgb8(float Hdr) noexcept
 [[nodiscard]] float ComputeSampleBudget(const CameraSettingsData& S) noexcept
 {
     const float ScaleMul = (S.RenderScalePercent / 100.0f) * (S.RenderScalePercent / 100.0f);
+    const float GtaoWork = S.XeGtaoEnabled ? (S.XeGtaoSliceCount * S.XeGtaoStepsPerSide * 0.125f) : 0.0f;
     float CoreSamples = 1.0f;
     switch (S.RendererIndex)
     {
-        case 0u: CoreSamples = (S.PbrShadowIndex == 2u ? 6.0f : (S.PbrShadowIndex == 1u ? 4.0f : 2.0f)) + (S.PbrAoEnabled ? 2.0f : 0.0f); break;
-        case 1u: CoreSamples = (S.SdfConeGiEnabled ? S.SdfConeCount : 1.0f) + (S.SdfAoEnabled ? 2.0f : 0.0f) + 2.0f; break;
-        case 2u: CoreSamples = (S.RayGiEnabled ? S.RayGiSamples : 0.0f) + S.RayShadowRays + (S.RayReflectionsEnabled ? S.RayReflectionBounces * 2.0f : 0.0f) + 1.0f; break;
-        default: CoreSamples = 1.0f + (S.MatcapShadowIndex > 0u ? 1.0f : 0.0f); break;
+        case 0u:
+            CoreSamples = (S.PbrShadowIndex == 2u ? (S.SmrtShadowRays * 0.5f) : 2.0f) + GtaoWork;
+            break;
+        case 1u:
+            CoreSamples = (S.SdfConeSteps * 0.8f) + GtaoWork + 2.0f;
+            break;
+        case 2u:
+            CoreSamples = (S.RayTracerIndex >= 1u)
+                ? (S.PathTraceBatchSpp * S.PathTraceMaxBounces)
+                : (S.SmrtShadowRays + S.PathTraceMaxBounces + GtaoWork + 2.0f);
+            break;
+        default:
+            CoreSamples = 1.0f + (S.MatcapShadowIndex > 0u ? 1.0f : 0.0f);
+            break;
     }
     return std::max(1.0f, CoreSamples * ScaleMul);
+}
+
+void ConstructXeGtaoSection(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float&                  CursorY,
+    float                   InnerWidth,
+    CameraSettingsData&     Instance,
+    uint32_t&               ActiveDragId,
+    const PaneInputReading& Input,
+    bool&                   OutMutated) noexcept
+{
+    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
+    InspectorPrimitives::ConstructSectionSurface(Surface, S, "XeGTAO screen-space AO");
+    InspectorPrimitives::ConstructTooltipTrigger(
+        Surface, { LeftX + InnerWidth - PadX - 8.0f, CursorY + InspectorMetrics::SectionPadTop + 8.0f },
+        "XeGTAO (.slang)",
+        "Horizon-based cosine visibility integral in WorldViewportRadiometricCompute.slang. Controls slice count, horizon steps per side, world radius, and strength.",
+        Input);
+
+    float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+    Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable XeGTAO", Instance.XeGtaoEnabled, Input, OutMutated);
+    const bool Disabled = !Instance.XeGtaoEnabled;
+    Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8860u, "AO strength", "x", "%.2f", 0.0f, 2.0f, Instance.XeGtaoStrength, ActiveDragId, Input, OutMutated, Disabled);
+    Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8861u, "AO slices", "", "%.0f", 2.0f, 8.0f, Instance.XeGtaoSliceCount, ActiveDragId, Input, OutMutated, Disabled);
+    Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8862u, "AO steps / side", "", "%.0f", 2.0f, 8.0f, Instance.XeGtaoStepsPerSide, ActiveDragId, Input, OutMutated, Disabled);
+    (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8863u, "Search radius", "m", "%.2f", 0.25f, 3.0f, Instance.XeGtaoSearchRadiusM, ActiveDragId, Input, OutMutated, Disabled);
+    CursorY = S.Bottom() + InspectorMetrics::SectionGap;
 }
 } // namespace
 
 void CameraSettingsInspector::UpdateRendererHeroSurface(const CameraSettingsData& Instance)
 {
-    uint64_t Sig = 0xC5010001ull;
+    uint64_t Sig = 0xC5010002ull;
     Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.RendererIndex);
     Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.MatcapChannelIndex);
     Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.MatcapLightAngleDeg);
@@ -58,13 +98,11 @@ void CameraSettingsInspector::UpdateRendererHeroSurface(const CameraSettingsData
                 const float FX = static_cast<float>(X) + 0.5f;
                 float R = 0.028f, G = 0.030f, B = 0.035f;
 
-                // Subtle horizon baseline
                 if (std::fabs(FY - FloorY) < 0.7f && FX > 16.0f && FX < 224.0f)
                 {
                     R += 0.09f; G += 0.10f; B += 0.11f;
                 }
 
-                // Renderer-specific ground signature (PBR shadow oval / SDF contour rings / Ray bounce rays / MatCap contact)
                 if (Instance.RendererIndex == 0u)
                 {
                     const float EX = (FX - (CX + 18.0f)) / 42.0f, EY = (FY - FloorY) / 8.0f;
@@ -82,7 +120,6 @@ void CameraSettingsInspector::UpdateRendererHeroSurface(const CameraSettingsData
                 }
                 else if (Instance.RendererIndex == 2u)
                 {
-                    // Dashed traced bounce rays across upper studio
                     const float D1 = std::fabs((FY - 22.0f) - 0.55f * (FX - 36.0f));
                     const float D2 = std::fabs((FY - 58.0f) + 0.62f * (FX - 102.0f));
                     if ((D1 < 1.0f && FX > 36.0f && FX < 104.0f && (static_cast<int>(X) % 7) < 4) ||
@@ -98,34 +135,33 @@ void CameraSettingsInspector::UpdateRendererHeroSurface(const CameraSettingsData
                     if (E2 < 1.0f) { const float A = (1.0f - E2) * 0.45f; R *= (1.0f - A); G *= (1.0f - A); B *= (1.0f - A); }
                 }
 
-                // Shaded central sphere matching F78 TypeThumb palette (Blue PBR / Mint SDF / Violet Ray / Clay MatCap)
                 const float NX = (FX - CX) / SphereR, NY = (CY - FY) / SphereR;
                 const float S2 = NX * NX + NY * NY;
                 if (S2 <= 1.0f)
                 {
                     const float NZ = std::sqrt(std::max(0.0f, 1.0f - S2));
-                    const float Key = std::max(0.0f, -0.45f * NX + 0.58f * NY + 0.68f * NZ);
+                    const float Key  = std::max(0.0f, -0.45f * NX + 0.58f * NY + 0.68f * NZ);
                     const float Spec = std::pow(std::max(0.0f, -0.30f * NX + 0.46f * NY + 0.83f * NZ), 26.0f);
                     const float Rim  = std::pow(1.0f - NZ, 3.0f);
-                    if (Instance.RendererIndex == 0u) // PBR cool blue-white
+                    if (Instance.RendererIndex == 0u)
                     {
                         R = 0.08f + Key * 0.56f + Spec * 0.95f;
                         G = 0.14f + Key * 0.72f + Spec * 0.98f;
                         B = 0.24f + Key * 0.96f + Spec * 1.00f;
                     }
-                    else if (Instance.RendererIndex == 1u) // SDF emerald mint
+                    else if (Instance.RendererIndex == 1u)
                     {
                         R = 0.08f + Key * 0.46f + Spec * 0.85f + Rim * 0.12f;
                         G = 0.22f + Key * 0.86f + Spec * 0.95f + Rim * 0.34f;
                         B = 0.16f + Key * 0.64f + Spec * 0.90f + Rim * 0.22f;
                     }
-                    else if (Instance.RendererIndex == 2u) // Ray traced amethyst
+                    else if (Instance.RendererIndex == 2u)
                     {
                         R = 0.16f + Key * 0.66f + Spec * 1.05f + Rim * 0.30f;
                         G = 0.12f + Key * 0.54f + Spec * 0.95f + Rim * 0.20f;
                         B = 0.26f + Key * 0.94f + Spec * 1.15f + Rim * 0.48f;
                     }
-                    else // MatCap warm clay
+                    else
                     {
                         R = 0.22f + Key * 0.64f + Rim * 0.28f;
                         G = 0.20f + Key * 0.59f + Rim * 0.26f;
@@ -147,16 +183,18 @@ float CameraSettingsInspector::Construct(
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
     static constexpr std::array<const char*, 4u> RendererLabels = {{ "A · PBR", "B · SDF", "C · Ray", "D · MatCap" }};
-    static constexpr std::array<const char*, 4u> RendererNames  = {{ "PBR Raster", "SDF Tracing", "Ray Traced", "MatCap Studio" }};
+    static constexpr std::array<const char*, 4u> RendererNames  = {{ "OpenPBR Direct", "SDF Cone GI", "Ray / Path Tracer", "MatCap Clay" }};
     static constexpr std::array<const char*, 4u> RendererLines  = {{
-        "Raster with shadow maps · sky fill",
-        "Distance-field shadows · real-time cone GI",
-        "BVH / path-traced light, shadows & bounce",
-        "Clay studio shading to read shape",
+        "OpenPBR direct + LTC + shadow lab · XeGTAO",
+        "Global distance field + voxel cone GI + SDF shadows",
+        "WideTree BVH4 GI & deterministic path tracer",
+        "MatCap normal/roughness shading for surface form",
     }};
-    static constexpr std::array<const char*, 4u> QualityLabels = {{ "Low", "Medium", "High", "Ultra" }};
+    static constexpr std::array<const char*, 5u> QualityLabels  = {{ "Low", "Med", "Std", "High", "Ultra" }};
+    static constexpr std::array<const char*, 5u> ShadowAlgs     = {{ "Contact", "Plane PCSS", "SMRT", "PCF", "RayQuery" }};
+    static constexpr std::array<const char*, 2u> ReflSources    = {{ "BVH4 Raytrace", "Sky Env" }};
+    static constexpr std::array<const char*, 3u> TraceResLabels = {{ "Full", "1/2 Trace", "1/4 Trace" }};
 
-    // Per-renderer dynamic page carousel (F77/F78)
     std::vector<const char*> DynamicPages {};
     switch (Instance.RendererIndex)
     {
@@ -170,13 +208,12 @@ float CameraSettingsInspector::Construct(
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, DynamicPages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
-    const uint32_t RIdx = std::min<uint32_t>(Instance.RendererIndex, 3u);
-    const float    BudgetSpp = ComputeSampleBudget(Instance);
+    const uint32_t RIdx          = std::min<uint32_t>(Instance.RendererIndex, 3u);
+    const float    BudgetSpp     = ComputeSampleBudget(Instance);
     const uint32_t OutputPageIdx = static_cast<uint32_t>(DynamicPages.size() - 1u);
 
     if (ActivePage == 0u)
     {
-        // Render type Hero Card (F78: large preview sphere + A/B/C/D switcher + one-line description)
         UpdateRendererHeroSurface(Instance);
         const Rectangle2D HeroSec { LeftX, CursorY, InnerWidth, 326.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, HeroSec, "Render type", RendererNames[RIdx]);
@@ -184,7 +221,7 @@ float CameraSettingsInspector::Construct(
         RendererHeroPreview.Present(Surface, { LeftX + PadX, Y, BodyW, 148.0f }, 12.0f);
         Y += 156.0f;
         int32_t PickRen = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Active render pipeline", RendererLabels, Instance.RendererIndex, 2u, Input, PickRen);
+        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Active render engine", RendererLabels, Instance.RendererIndex, 2u, Input, PickRen);
         if (PickRen >= 0 && PickRen < 4)
         {
             Instance.RendererIndex = static_cast<uint32_t>(PickRen);
@@ -194,155 +231,202 @@ float CameraSettingsInspector::Construct(
             Surface, FontWeightClass::Regular, { LeftX + PadX, HeroSec.Bottom() - 24.0f }, BodyW, 10.0f, InspectorMetrics::MutedInk, RendererLines[RIdx]);
         CursorY = HeroSec.Bottom() + InspectorMetrics::SectionGap;
 
-        // Quality & sample budget summary card
-        const Rectangle2D QualSec { LeftX, CursorY, InnerWidth, 198.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, QualSec, "Quality budget", QualityLabels[std::min<uint32_t>(Instance.QualityTierIndex, 3u)]);
+        const Rectangle2D QualSec { LeftX, CursorY, InnerWidth, 232.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, QualSec, "Quality budget", QualityLabels[std::min<uint32_t>(Instance.QualityTierIndex, 4u)]);
         float QY = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char SppBuf[20]{};
         std::snprintf(SppBuf, sizeof(SppBuf), "%.1f", BudgetSpp);
-        QY = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, QY, SppBuf, "spp", "Estimated samples per pixel");
+        QY = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, QY, SppBuf, "spp", "Live GPU shader sample budget");
         int32_t PickTier = -1;
-        (void)InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, QY, BodyW, "Master quality tier", QualityLabels, Instance.QualityTierIndex, 4u, Input, PickTier);
-        if (PickTier >= 0 && PickTier < 4) { Instance.QualityTierIndex = static_cast<uint32_t>(PickTier); OutMutated = true; }
+        (void)InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, QY, BodyW, "Master quality tier", QualityLabels, Instance.QualityTierIndex, 3u, Input, PickTier);
+        if (PickTier >= 0 && PickTier < 5) { Instance.QualityTierIndex = static_cast<uint32_t>(PickTier); OutMutated = true; }
         CursorY = QualSec.Bottom() + InspectorMetrics::SectionGap;
 
-        // Active renderer summary readout
-        const Rectangle2D SumSec { LeftX, CursorY, InnerWidth, 146.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, SumSec, RendererNames[RIdx], "Pages");
+        const Rectangle2D SumSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, SumSec, RendererNames[RIdx], "Live .slang");
         float SY = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char ScaleLine[48]{};
+        char AoLine[48]{}, ScaleLine[48]{};
+        std::snprintf(AoLine, sizeof(AoLine), "%s · %.0fx%.0f · %.2f m", Instance.XeGtaoEnabled ? "XeGTAO" : "Off", Instance.XeGtaoSliceCount, Instance.XeGtaoStepsPerSide, Instance.XeGtaoSearchRadiusM);
         std::snprintf(ScaleLine, sizeof(ScaleLine), "%.0f %% · exp %.2fx", Instance.RenderScalePercent, Instance.ExposureGain);
-        SY = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Pipeline", RendererNames[RIdx]);
-        SY = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Output",   ScaleLine);
-        (void)InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Temporal AA", Instance.TemporalAntiAliasing ? "Enabled" : "Off");
+        SY = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Engine", RendererNames[RIdx]);
+        SY = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "AO",     AoLine);
+        SY = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Output", ScaleLine);
+        (void)InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, SY, BodyW, "Cluster LOD", Instance.ClusterLodEnabled ? "Active" : "Bypass");
         CursorY = SumSec.Bottom() + InspectorMetrics::SectionGap;
 
-        static constexpr std::array<const char*, 2u> Tags = {{ "camera-settings", "renderer" }};
+        static constexpr std::array<const char*, 2u> Tags = {{ "camera-settings", "shader-live" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
     else if (ActivePage == OutputPageIdx)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 260.0f };
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 312.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Camera output");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8810u, "Render scale", "%", "%.0f", 50.0f, 200.0f, Instance.RenderScalePercent, ActiveDragId, Input, OutMutated);
+        int32_t PickRes = -1;
+        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Trace resolution", TraceResLabels, Instance.TraceResolutionIndex, 3u, Input, PickRes);
+        if (PickRes >= 0) { Instance.TraceResolutionIndex = static_cast<uint32_t>(PickRes); OutMutated = true; }
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8811u, "Exposure gain", "x", "%.2f", 0.1f, 4.0f, Instance.ExposureGain, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Temporal anti-aliasing", Instance.TemporalAntiAliasing, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Spatial shadow / AA denoise", Instance.SpatialAntiAliasing, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D LodS { LeftX, CursorY, InnerWidth, 250.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, LodS, "Cluster-LOD & debug");
+        InspectorPrimitives::ConstructTooltipTrigger(
+            Surface, { LeftX + InnerWidth - PadX - 8.0f, CursorY + InspectorMetrics::SectionPadTop + 8.0f },
+            "Cluster-LOD (.slang)",
+            "Drives WorldRenderConfiguration::NaniteLodEnabled, NanitePixelError, NaniteWireframeOverlay, and shader DebugChannel (0..22).",
+            Input);
+        float LY = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        LY = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, LY, BodyW, "Cluster-LOD cut", Instance.ClusterLodEnabled, Input, OutMutated);
+        LY = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, LY, BodyW, 8812u, "LOD pixel error", "px", "%.2f", 0.25f, 8.0f, Instance.ClusterLodPixelError, ActiveDragId, Input, OutMutated, !Instance.ClusterLodEnabled);
+        LY = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, LY, BodyW, "Triangle wireframe overlay", Instance.ClusterWireframeOverlay, Input, OutMutated);
+        float DebugF = static_cast<float>(Instance.DebugChannelIndex);
+        bool DebugChanged = false;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, LY, BodyW, 8813u, "Shader debug channel", "", "%.0f", 0.0f, 22.0f, DebugF, ActiveDragId, Input, DebugChanged);
+        if (DebugChanged) { Instance.DebugChannelIndex = static_cast<uint32_t>(std::clamp(std::lround(DebugF), 0l, 22l)); OutMutated = true; }
+        CursorY = LodS.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (Instance.RendererIndex == 0u) // PBR pages: Shadows(1), Lighting(2), AO(3)
     {
         if (ActivePage == 1u)
         {
-            static constexpr std::array<const char*, 3u> ShLabels = {{ "PCF", "PCSS", "SMRT" }};
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 232.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "PBR shadow maps");
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 342.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Solar shadow lab");
+            InspectorPrimitives::ConstructTooltipTrigger(
+                Surface, { LeftX + InnerWidth - PadX - 8.0f, CursorY + InspectorMetrics::SectionPadTop + 8.0f },
+                "Shadow Lab (.slang)",
+                "Selects SolarShadowAlgorithm in WorldViewportRadiometricCompute.slang. SMRT rays & march steps directly control Algorithm 2 quadratic raymarching.",
+                Input);
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             int32_t Pick = -1;
-            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Shadow kernel", ShLabels, Instance.PbrShadowIndex, 3u, Input, Pick);
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Shadow algorithm", ShadowAlgs, Instance.PbrShadowIndex, 3u, Input, Pick);
             if (Pick >= 0) { Instance.PbrShadowIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8820u, "Cascade resolution", "px", "%.0f", 512.0f, 4096.0f, Instance.PbrShadowCascadeRes, ActiveDragId, Input, OutMutated);
+            const bool SmrtDisabled = (Instance.PbrShadowIndex != 2u);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8820u, "SMRT shadow rays", "", "%.0f", 1.0f, 8.0f, Instance.SmrtShadowRays, ActiveDragId, Input, OutMutated, SmrtDisabled);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8821u, "SMRT march steps", "", "%.0f", 4.0f, 16.0f, Instance.SmrtMarchSteps, ActiveDragId, Input, OutMutated, SmrtDisabled);
+            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Bilateral shadow filter", Instance.SpatialAntiAliasing, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 2u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 186.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "PBR direct lighting");
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 256.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "OpenPBR direct & reflections");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "LTC polygonal area lights", Instance.PbrAreaLights, Input, OutMutated);
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8821u, "Sky fill gain", "x", "%.2f", 0.0f, 3.0f, Instance.PbrFillGain, ActiveDragId, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Specular reflections", Instance.PbrReflectionsEnabled, Input, OutMutated);
+            int32_t PickRefl = -1;
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Reflection source", ReflSources, Instance.ReflectionSourceIndex, 2u, Input, PickRefl);
+            if (PickRefl >= 0) { Instance.ReflectionSourceIndex = static_cast<uint32_t>(PickRefl); OutMutated = true; }
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8822u, "Sky fill gain", "x", "%.2f", 0.0f, 3.0f, Instance.PbrFillGain, ActiveDragId, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 150.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Ambient occlusion");
-            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "XeGTAO screen-space AO", Instance.PbrAoEnabled, Input, OutMutated);
-            if (DisplaySettings) DisplaySettings->XeGtaoEnabled = Instance.PbrAoEnabled;
-            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+            ConstructXeGtaoSection(Surface, LeftX, CursorY, InnerWidth, Instance, ActiveDragId, Input, OutMutated);
         }
     }
     else if (Instance.RendererIndex == 1u) // SDF pages: Shadows(1), GI(2), AO(3)
     {
         if (ActivePage == 1u)
         {
-            static constexpr std::array<const char*, 3u> SdfSh = {{ "Hard SDF", "Soft Cone", "Hybrid" }};
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 232.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "SDF shadows");
+            static constexpr std::array<const char*, 6u> SdfModes = {{ "Point SDF", "Cone", "Clipmap", "Cone GI", "Hybrid", "MC Ref" }};
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 286.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "SDF penumbra & trace");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             int32_t Pick = -1;
-            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "SDF penumbra mode", SdfSh, Instance.SdfShadowIndex, 3u, Input, Pick);
-            if (Pick >= 0) { Instance.SdfShadowIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8830u, "Trace steps", "", "%.0f", 16.0f, 128.0f, Instance.SdfTraceSteps, ActiveDragId, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "SDF penumbra mode", SdfModes, Instance.SdfPenumbraIndex, 3u, Input, Pick);
+            if (Pick >= 0) { Instance.SdfPenumbraIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
+            int32_t PickRes = -1;
+            (void)InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Trace resolution", TraceResLabels, Instance.TraceResolutionIndex, 3u, Input, PickRes);
+            if (PickRes >= 0) { Instance.TraceResolutionIndex = static_cast<uint32_t>(PickRes); OutMutated = true; }
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 2u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 236.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "SDF cone GI");
+            static constexpr std::array<const char*, 2u> GiCands = {{ "Stokes Contour", "Surfel Lattice" }};
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 304.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "GDF voxel cone GI");
+            InspectorPrimitives::ConstructTooltipTrigger(
+                Surface, { LeftX + InnerWidth - PadX - 8.0f, CursorY + InspectorMetrics::SectionPadTop + 8.0f },
+                "Voxel Cone GI (.slang)",
+                "Drives EvaluateGdfVoxelConeGi & EvaluateGdfGlossyCone step count and indirect bounce intensity in WorldViewportRadiometricCompute.slang.",
+                Input);
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Real-time cone GI", Instance.SdfConeGiEnabled, Input, OutMutated);
-            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8831u, "Diffuse cones", "", "%.0f", 2.0f, 16.0f, Instance.SdfConeCount, ActiveDragId, Input, OutMutated, !Instance.SdfConeGiEnabled);
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8832u, "Ambient fill", "x", "%.2f", 0.0f, 3.0f, Instance.SdfFillGain, ActiveDragId, Input, OutMutated);
+            int32_t PickCand = -1;
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "GI candidate", GiCands, Instance.GiCandidateIndex, 2u, Input, PickCand);
+            if (PickCand >= 0) { Instance.GiCandidateIndex = static_cast<uint32_t>(PickCand); OutMutated = true; }
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8831u, "Cone march steps", "", "%.0f", 3.0f, 12.0f, Instance.SdfConeSteps, ActiveDragId, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8832u, "GI indirect gain", "x", "%.2f", 0.0f, 2.5f, Instance.SdfGiIntensity, ActiveDragId, Input, OutMutated);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8833u, "Sky fill gain", "x", "%.2f", 0.0f, 3.0f, Instance.SdfFillGain, ActiveDragId, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 150.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Distance-field AO");
-            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable DFAO", Instance.SdfAoEnabled, Input, OutMutated);
-            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+            ConstructXeGtaoSection(Surface, LeftX, CursorY, InnerWidth, Instance, ActiveDragId, Input, OutMutated);
         }
     }
     else if (Instance.RendererIndex == 2u) // Ray traced pages: Tracer(1), GI(2), Shadows(3), AO(4), Reflections(5)
     {
         if (ActivePage == 1u)
         {
-            static constexpr std::array<const char*, 3u> Tracers = {{ "WideTree BVH", "ReSTIR GI", "Path Tracer" }};
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 186.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Ray tracer core");
+            static constexpr std::array<const char*, 3u> Tracers = {{ "BVH4 GI", "PT Realtime", "PT Final" }};
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 370.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Ray & path tracer");
+            InspectorPrimitives::ConstructTooltipTrigger(
+                Surface, { LeftX + InnerWidth - PadX - 8.0f, CursorY + InspectorMetrics::SectionPadTop + 8.0f },
+                "Path Tracer (.slang)",
+                "Controls WorldRenderEngine (3=HighEnd BVH4, 4=PT Realtime, 5=PT Final), samples/frame, convergence target spp (0=continuous), and max bounces in EvaluateProgressiveViewportPath.",
+                Input);
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             int32_t Pick = -1;
-            (void)InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Tracer algorithm", Tracers, Instance.RayTracerIndex, 2u, Input, Pick);
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Tracer engine", Tracers, Instance.RayTracerIndex, 3u, Input, Pick);
             if (Pick >= 0) { Instance.RayTracerIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
+            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable BVH4 raytracing", Instance.RaytracingEnabled, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8840u, "Samples / frame", "spp", "%.0f", 1.0f, 8.0f, Instance.PathTraceBatchSpp, ActiveDragId, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8841u, "Target samples", "spp", "%.0f", 0.0f, 1024.0f, Instance.PathTraceTargetSpp, ActiveDragId, Input, OutMutated);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8842u, "Max bounces", "", "%.0f", 1.0f, 8.0f, Instance.PathTraceMaxBounces, ActiveDragId, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 2u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 188.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Traced GI");
+            static constexpr std::array<const char*, 2u> GiCands = {{ "Stokes Contour", "Surfel Lattice" }};
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 248.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Traced indirect GI");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable traced GI", Instance.RayGiEnabled, Input, OutMutated);
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8840u, "GI samples", "spp", "%.0f", 1.0f, 32.0f, Instance.RayGiSamples, ActiveDragId, Input, OutMutated, !Instance.RayGiEnabled);
+            int32_t PickCand = -1;
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Dual-cascade GI", GiCands, Instance.GiCandidateIndex, 2u, Input, PickCand);
+            if (PickCand >= 0) { Instance.GiCandidateIndex = static_cast<uint32_t>(PickCand); OutMutated = true; }
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8843u, "Max bounces", "", "%.0f", 1.0f, 8.0f, Instance.PathTraceMaxBounces, ActiveDragId, Input, OutMutated);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8844u, "GI indirect gain", "x", "%.2f", 0.0f, 2.5f, Instance.SdfGiIntensity, ActiveDragId, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 3u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 152.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "BVH shadows");
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 304.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "BVH & SMRT shadows");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8841u, "Shadow rays", "spp", "%.0f", 1.0f, 16.0f, Instance.RayShadowRays, ActiveDragId, Input, OutMutated);
+            int32_t Pick = -1;
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Shadow algorithm", ShadowAlgs, Instance.RayShadowIndex, 3u, Input, Pick);
+            if (Pick >= 0) { Instance.RayShadowIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8845u, "SMRT shadow rays", "", "%.0f", 1.0f, 8.0f, Instance.SmrtShadowRays, ActiveDragId, Input, OutMutated);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8846u, "SMRT march steps", "", "%.0f", 4.0f, 16.0f, Instance.SmrtMarchSteps, ActiveDragId, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 4u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 150.0f };
-            InspectorPrimitives::ConstructSectionSurface(Surface, S, "Short-ray cavity AO");
-            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Ray-traced AO", Instance.RayAoEnabled, Input, OutMutated);
-            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+            ConstructXeGtaoSection(Surface, LeftX, CursorY, InnerWidth, Instance, ActiveDragId, Input, OutMutated);
         }
         else
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 188.0f };
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 256.0f };
             InspectorPrimitives::ConstructSectionSurface(Surface, S, "Traced reflections");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable reflections", Instance.RayReflectionsEnabled, Input, OutMutated);
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8842u, "Max bounces", "", "%.0f", 1.0f, 6.0f, Instance.RayReflectionBounces, ActiveDragId, Input, OutMutated, !Instance.RayReflectionsEnabled);
-            if (DisplaySettings) DisplaySettings->ReflectionsEnabled = Instance.RayReflectionsEnabled;
+            int32_t PickRefl = -1;
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Reflection source", ReflSources, Instance.ReflectionSourceIndex, 2u, Input, PickRefl);
+            if (PickRefl >= 0) { Instance.ReflectionSourceIndex = static_cast<uint32_t>(PickRefl); OutMutated = true; }
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8847u, "Max bounces", "", "%.0f", 1.0f, 8.0f, Instance.PathTraceMaxBounces, ActiveDragId, Input, OutMutated, !Instance.RayReflectionsEnabled);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
     }
@@ -371,14 +455,20 @@ float CameraSettingsInspector::Construct(
         else
         {
             static constexpr std::array<const char*, 4u> Channels = {{ "Clay", "Ceramic", "Metallic", "Normal" }};
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 186.0f };
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 224.0f };
             InspectorPrimitives::ConstructSectionSurface(Surface, S, "MatCap channel");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             int32_t Pick = -1;
-            (void)InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Shading sphere", Channels, Instance.MatcapChannelIndex, 2u, Input, Pick);
+            Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Shading sphere", Channels, Instance.MatcapChannelIndex, 2u, Input, Pick);
             if (Pick >= 0) { Instance.MatcapChannelIndex = static_cast<uint32_t>(Pick); OutMutated = true; }
+            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Triangle wireframe overlay", Instance.ClusterWireframeOverlay, Input, OutMutated);
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
+    }
+
+    if (OutMutated)
+    {
+        InspectorInstanceRegister::SyncCameraSettingsToDisplay(Instance, DisplaySettings);
     }
 
     return CursorY;

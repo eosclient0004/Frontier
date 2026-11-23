@@ -98,3 +98,17 @@ When multiple instances of the same construct are visible in the Outliner (regar
    - Multi-instance test: 2 independent Suns + 2 independent Moons + 2 independent Winds + 2 independent Starfields placed inside a custom generic folder (`"Sky Rig"`) — verify distinct per-instance parameters, dynamic breadcrumb `"SKY RIG"`, and combined vector/radiance output in `WorldSceneSpecification`.
    - Retained preview stability test: verify `InspectorPreviewSurface::QueryUploadCount()` does NOT increment across repeated frames with unchanged parameters, and DOES increment by exactly `1` when a parameter changes.
 4. Visual 1:1 inspection of rendered PNG exhibits via `read_file` covering Atmosphere (Overview + Baking LUTs), Sun (Overview + Baking), Clouds (Overview + Layer), Moon (Overview + Appearance), Stars (Overview + Baking), Wind, Camera, Light, PostProcess, Geometry specimen, and custom Folder.
+
+---
+
+## 5. Native `ControlTooltip` Reuse & Live C++ / `.slang` Pipeline Linkage
+
+- **Native `ControlTooltip` Reuse**: `InspectorSectionPrimitives::FlushTooltipOverlay` delegates directly to `ControlTooltip::ConstructAnchored(...)` (`Engine/Components/Controls/ControlTooltip.{h,cpp}`) instead of rendering duplicate custom tooltip boxes. Baked LUT cards use `SplitHeader` + `Success` tone + `TooltipMetricToken` (`64 KB · 4 B/texel`) with `FilletedCurve` speech pointer tails; `?` help triggers across native and Tier 2 Project Custom Inspectors use `Standard` + `Informational` tone with viewport clamping.
+- **Direct C++ / `.slang` Pipeline Linkage**: `CameraSettingsInspector` edits `CameraSettingsData` and pushes immediately through `InspectorInstanceRegister::SyncCameraSettingsToDisplay(...)` (and continuously in `CombineIntoScene(...)`) into `ViewportDisplaySettings` -> `EditorLifecycle` -> `WorldRenderConfiguration` -> `WorldViewportUniformBlockStd140` (`3040` bytes, `RenderTuningPacked0` + `RenderTuningPacked1`) -> `Engine/Shaders/GeometricRaster/WorldViewportRadiometricCompute.slang` (compiled to all 8 SPIR-V compute entry points):
+  - **Engine selection**: `WorldRenderEngine` `0..5` (MatCap, PBR Direct, SDF/GDF Cone GI, BVH4 Raytraced GI, Path Tracer Realtime, Path Tracer Final).
+  - **XeGTAO (`.slang`)**: Enable toggle, strength, slice count (`2..8`), horizon steps per side (`2..8`), world search radius (`0.25..3.0 m`).
+  - **SMRT Shadows & Reflections**: Shadow algorithm (`0..3`), SMRT rays (`1..8`), SMRT march steps (`4..16`), soft penumbra toggle, reflection source (`0..2`), sky fill gain (`0..3x`).
+  - **SDF / GDF Cone GI**: Voxel cone steps (`3..12`), GI intensity (`0..2.5x`), sky fill gain.
+  - **Ray / Path Tracer**: BVH4 toggle, samples per frame (`1..8 spp`), target convergence (`16..2048 spp`), max path bounces (`1..8`).
+  - **Output, MatCap, Cluster-LOD & Debug**: Exposure gain (`0.1..4.0x`), 3x3 Bilateral/NLM denoiser, MatCap shader studio presets, Cluster-LOD pixel error (`0.25..4.0 px`) + frustum/backface culling, and GPU debug channel switcher (`0..27`).
+

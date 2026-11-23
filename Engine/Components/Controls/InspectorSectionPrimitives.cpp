@@ -9,6 +9,7 @@
 
 #include "Engine/Components/Controls/InspectorSectionPrimitives.h"
 
+#include "Engine/Components/Controls/ControlTooltip.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 
@@ -1050,47 +1051,59 @@ void FlushTooltipOverlay(PixelSpace& Surface, Rectangle2D PaneBounds) noexcept
 {
     if (!ActiveTooltipQueue.Active) return;
 
-    const float TipW = std::min(258.0f, std::max(180.0f, PaneBounds.Width - 20.0f));
-    const float Pad  = 11.0f;
-    float TipH = Pad * 2.0f;
-    if (!ActiveTooltipQueue.Heading.empty()) TipH += 18.0f;
-    if (!ActiveTooltipQueue.BodyText.empty()) TipH += 32.0f;
-    TipH += static_cast<float>(ActiveTooltipQueue.Facts.size()) * 17.0f;
+    // Reuse Frontier's native ControlTooltip component (C1 filleted pointer tail, SplitHeader, semantic icon & auto viewport clamp)
+    TooltipDescriptor Desc {};
+    Desc.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+    Desc.TailProfile    = TooltipTailProfile::FilletedCurve;
+    Desc.TailAlignment  = TooltipTailAlignment::TargetAligned;
+    Desc.Direction      = TooltipDirection::Automatic;
+    Desc.PreferredWidth = std::min(312.0f, std::max(216.0f, PaneBounds.Width - 18.0f));
+    Desc.CornerRadius   = 16.0f;
+    Desc.AnchorGap      = 6.0f;
+    Desc.Title          = ActiveTooltipQueue.Heading.c_str();
 
-    float TipX = ActiveTooltipQueue.Anchor.X;
-    if (TipX + TipW > PaneBounds.Right() - 8.0f) TipX = PaneBounds.Right() - 8.0f - TipW;
-    if (TipX < PaneBounds.X + 8.0f) TipX = PaneBounds.X + 8.0f;
+    std::string CombinedBody {};
+    std::string HeaderTagStr {};
+    std::vector<TooltipMetricToken> Tokens {};
 
-    float TipY = ActiveTooltipQueue.Anchor.Bottom() + 6.0f;
-    if (TipY + TipH > PaneBounds.Bottom() - 8.0f) TipY = std::max(PaneBounds.Y + 8.0f, ActiveTooltipQueue.Anchor.Y - TipH - 6.0f);
-
-    const Rectangle2D Box { TipX, TipY, TipW, TipH };
-    // Soft elevated dark shadow & glass surface matching F76 .baked-map-tip
-    Surface.FillRectangle({ Box.X + 2.0f, Box.Y + 5.0f, Box.Width, Box.Height }, ColorRgba{ 0u, 0u, 0u, 145u }, 10.0f);
-    Surface.FillRectangle(Box, ColorRgba{ 22u, 23u, 27u, 248u }, 10.0f);
-    Surface.StrokeRectangle(Box, ColorRgba{ 255u, 255u, 255u, 32u }, 10.0f, 1.0f);
-
-    float Y = Box.Y + Pad;
-    if (!ActiveTooltipQueue.Heading.empty())
+    if (!ActiveTooltipQueue.Facts.empty())
     {
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Medium, { Box.X + Pad, Y }, TipW - Pad * 2.0f, 10.5f, InspectorMetrics::HeadingInk, ActiveTooltipQueue.Heading.c_str());
-        Y += 18.0f;
+        Desc.Layout   = TooltipLayoutVariant::SplitHeader;
+        Desc.Severity = TooltipSeverity::Success;
+
+        for (const auto& Fact : ActiveTooltipQueue.Facts)
+        {
+            if (Fact.Label == "RESOLUTION" && HeaderTagStr.empty())
+            {
+                HeaderTagStr = Fact.Reading;
+                continue;
+            }
+            if (Fact.Label == "SIZE")
+            {
+                TooltipMetricToken Tok {};
+                Tok.Caption = Fact.Reading.c_str();
+                Tok.Icon    = ControlIcon::CircleNotice;
+                Tokens.push_back(Tok);
+                continue;
+            }
+            if (!CombinedBody.empty()) CombinedBody.push_back('\n');
+            CombinedBody += Fact.Label;
+            CombinedBody += ": ";
+            CombinedBody += Fact.Reading;
+        }
+        Desc.HeaderTag    = HeaderTagStr.c_str();
+        Desc.BodyText     = CombinedBody.c_str();
+        Desc.MetricTokens = Tokens;
     }
-    if (!ActiveTooltipQueue.BodyText.empty())
+    else
     {
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { Box.X + Pad, Y }, TipW - Pad * 2.0f, 9.8f, InspectorMetrics::MutedInk, ActiveTooltipQueue.BodyText.c_str());
-        Y += 16.0f;
+        Desc.Layout   = TooltipLayoutVariant::Standard;
+        Desc.Severity = TooltipSeverity::Informational;
+        Desc.BodyText = ActiveTooltipQueue.BodyText.c_str();
     }
-    for (const auto& Fact : ActiveTooltipQueue.Facts)
-    {
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Medium, { Box.X + Pad, Y }, 68.0f, 8.8f, ColorRgba{ 130u, 136u, 146u, 255u }, Fact.Label.c_str());
-        WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { Box.X + Pad + 72.0f, Y }, TipW - Pad * 2.0f - 72.0f, 9.5f, ColorRgba{ 220u, 223u, 228u, 255u }, Fact.Reading.c_str());
-        Y += 17.0f;
-    }
+
+    const ControlPointer NeutralPointer {};
+    (void)ControlTooltip::ConstructAnchored(Surface, ActiveTooltipQueue.Anchor, PaneBounds, Desc, NeutralPointer, 1.0f);
 }
 
 void ConstructTooltipTrigger(

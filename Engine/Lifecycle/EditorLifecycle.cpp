@@ -2256,10 +2256,23 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
         ? GeometricRaster::SpecularReflectionSource::WideTreeRaytrace
         : GeometricRaster::SpecularReflectionSource::SkyEnvironment;
     RenderConfig.DebugChannel           = std::min(22u, DisplayCfg.DebugChannelIndex);
+    RenderConfig.GiCandidate            = (DisplayCfg.GiCandidateIndex == 0u)
+        ? GeometricRaster::RealTimeGiCandidate::StokesContour
+        : GeometricRaster::RealTimeGiCandidate::SurfelRadiosity;
     RenderConfig.XeGtaoEnabled          = DisplayCfg.XeGtaoEnabled;
     RenderConfig.XeGtaoStrength         = DisplayCfg.XeGtaoStrength;
+    RenderConfig.XeGtaoSliceCount       = std::clamp(DisplayCfg.XeGtaoSliceCount, 2u, 8u);
+    RenderConfig.XeGtaoStepsPerSide     = std::clamp(DisplayCfg.XeGtaoStepsPerSide, 2u, 8u);
+    RenderConfig.XeGtaoSearchRadiusM    = std::clamp(DisplayCfg.XeGtaoSearchRadiusM, 0.25f, 3.0f);
+    RenderConfig.SdfConeSteps           = std::clamp(DisplayCfg.SdfConeSteps, 3u, 12u);
+    RenderConfig.SdfGiIntensity         = std::clamp(DisplayCfg.SdfGiIntensity, 0.0f, 2.5f);
     RenderConfig.PathTraceSamples       = std::clamp(DisplayCfg.PathTraceBatchSpp, 1u, 8u);
     RenderConfig.PathTraceTargetSpp     = DisplayCfg.PathTraceTargetSpp;
+    RenderConfig.PathTraceMaxBounces    = std::clamp(DisplayCfg.PathTraceMaxBounces, 1u, 8u);
+    RenderConfig.SmrtShadowRays         = std::clamp(DisplayCfg.SmrtShadowRays, 1u, 8u);
+    RenderConfig.SmrtMarchSteps         = std::clamp(DisplayCfg.SmrtMarchSteps, 4u, 16u);
+    RenderConfig.SkyFillGain            = std::clamp(DisplayCfg.SkyFillGain, 0.0f, 3.0f);
+    RenderConfig.ExposureGain           = std::clamp(DisplayCfg.ExposureGain, 0.1f, 4.0f);
     RenderConfig.NaniteLodEnabled       = DisplayCfg.ClusterLodEnabled;
     RenderConfig.NanitePixelError       = DisplayCfg.ClusterLodPixelError;
     RenderConfig.NaniteForcedLodLevel   = DisplayCfg.ClusterForcedLodLevel;
@@ -2749,6 +2762,17 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 DisplayCfg.PathTraceBatchSpp != LastPathTraceBatchSpp ||
                 DisplayCfg.XeGtaoEnabled != LastXeGtaoEnabled ||
                 std::abs(DisplayCfg.XeGtaoStrength - LastXeGtaoStrength) > 0.001f ||
+                DisplayCfg.XeGtaoSliceCount != LastXeGtaoSlices ||
+                DisplayCfg.XeGtaoStepsPerSide != LastXeGtaoSteps ||
+                std::abs(DisplayCfg.XeGtaoSearchRadiusM - LastXeGtaoRadiusM) > 0.001f ||
+                DisplayCfg.GiCandidateIndex != LastGiCandidate ||
+                DisplayCfg.SdfConeSteps != LastSdfConeSteps ||
+                std::abs(DisplayCfg.SdfGiIntensity - LastSdfGiIntensity) > 0.001f ||
+                DisplayCfg.PathTraceMaxBounces != LastPtMaxBounces ||
+                DisplayCfg.SmrtShadowRays != LastSmrtShadowRays ||
+                DisplayCfg.SmrtMarchSteps != LastSmrtMarchSteps ||
+                std::abs(DisplayCfg.SkyFillGain - LastSkyFillGain) > 0.001f ||
+                std::abs(DisplayCfg.ExposureGain - LastExposureGain) > 0.001f ||
                 DisplayCfg.ReflectionsEnabled != LastReflectionsEnabled ||
                 DisplayCfg.AntiAliasingEnabled != LastAaEnabled ||
                 DisplayCfg.RaytracingEnabled != LastRtEnabled ||
@@ -2776,6 +2800,17 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             LastPathTraceBatchSpp  = DisplayCfg.PathTraceBatchSpp;
             LastXeGtaoEnabled      = DisplayCfg.XeGtaoEnabled;
             LastXeGtaoStrength     = DisplayCfg.XeGtaoStrength;
+            LastXeGtaoSlices       = DisplayCfg.XeGtaoSliceCount;
+            LastXeGtaoSteps        = DisplayCfg.XeGtaoStepsPerSide;
+            LastXeGtaoRadiusM      = DisplayCfg.XeGtaoSearchRadiusM;
+            LastGiCandidate        = DisplayCfg.GiCandidateIndex;
+            LastSdfConeSteps       = DisplayCfg.SdfConeSteps;
+            LastSdfGiIntensity     = DisplayCfg.SdfGiIntensity;
+            LastPtMaxBounces       = DisplayCfg.PathTraceMaxBounces;
+            LastSmrtShadowRays     = DisplayCfg.SmrtShadowRays;
+            LastSmrtMarchSteps     = DisplayCfg.SmrtMarchSteps;
+            LastSkyFillGain        = DisplayCfg.SkyFillGain;
+            LastExposureGain       = DisplayCfg.ExposureGain;
             LastReflectionsEnabled = DisplayCfg.ReflectionsEnabled;
             LastAaEnabled          = DisplayCfg.AntiAliasingEnabled;
             LastRtEnabled          = DisplayCfg.RaytracingEnabled;

@@ -199,9 +199,11 @@ struct WorldViewportUniformBlockStd140
     int32_t                      GlobalDistanceFineToroidalCell[4]   {};
     int32_t                      GlobalDistanceCoarseToroidalCell[4] {};
     uint32_t                     GlobalDistanceSlabBounds[4]         {};
+    uint32_t                     RenderTuningPacked0[4]              {}; // x=XeGTAO(slices|steps<<8), y=SDF/PT(coneSteps|ptBounces<<8), z=SMRT(rays|steps<<8), w=Reserved
+    float                        RenderTuningPacked1[4]              {}; // x=XeGtaoRadiusM, y=SdfGiIntensity, z=SkyFillGain, w=ExposureGain
 };
 
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 3008u, "WorldViewportUniformBlockStd140 must equal 3008 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 3040u, "WorldViewportUniformBlockStd140 must equal 3040 bytes.");
 
 struct GpuShadedTriangle96
 {
@@ -5296,6 +5298,20 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         (Config.XeGtaoEnabled ? 1u : 0u) |
         (static_cast<uint32_t>(std::clamp(Config.XeGtaoStrength, 0.0f, 2.0f) * 127.5f) << 8u) |
         ((UploadedLocalSdfInstanceCount & 0xFFFFu) << 16u);
+    Uniforms.RenderTuningPacked0[0] =
+        (std::clamp(Config.XeGtaoSliceCount, 2u, 8u) & 0xFFu) |
+        ((std::clamp(Config.XeGtaoStepsPerSide, 2u, 8u) & 0xFFu) << 8u);
+    Uniforms.RenderTuningPacked0[1] =
+        (std::clamp(Config.SdfConeSteps, 3u, 12u) & 0xFFu) |
+        ((std::clamp(Config.PathTraceMaxBounces, 1u, 8u) & 0xFFu) << 8u);
+    Uniforms.RenderTuningPacked0[2] =
+        (std::clamp(Config.SmrtShadowRays, 1u, 8u) & 0xFFu) |
+        ((std::clamp(Config.SmrtMarchSteps, 4u, 16u) & 0xFFu) << 8u);
+    Uniforms.RenderTuningPacked0[3] = 0u;
+    Uniforms.RenderTuningPacked1[0] = std::clamp(Config.XeGtaoSearchRadiusM, 0.25f, 3.0f);
+    Uniforms.RenderTuningPacked1[1] = std::clamp(Config.SdfGiIntensity, 0.0f, 2.5f);
+    Uniforms.RenderTuningPacked1[2] = std::clamp(Config.SkyFillGain, 0.0f, 3.0f);
+    Uniforms.RenderTuningPacked1[3] = std::clamp(Config.ExposureGain, 0.1f, 4.0f);
 
     uint8_t* UniformBytes = reinterpret_cast<uint8_t*>(UniformBuffer.HostAddress);
     std::memcpy(UniformBytes, &Uniforms, sizeof(Uniforms));

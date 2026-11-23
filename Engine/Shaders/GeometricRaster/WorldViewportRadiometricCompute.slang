@@ -58,6 +58,8 @@ struct WorldViewportUniformBlock
     int4                        GlobalDistanceFineToroidalCell;   // xyz = FineMinCellWorld,   w = Reserved
     int4                        GlobalDistanceCoarseToroidalCell; // xyz = CoarseMinCellWorld, w = Reserved
     uint4                       GlobalDistanceSlabBounds;         // xyz = (SlabMin | (SlabMax << 16)), w = SlabActiveFlag
+    uint4                       RenderTuningPacked0;              // x=XeGTAO(slices|steps<<8), y=SDF/PT(coneSteps|ptBounces<<8), z=SMRT(rays|steps<<8), w=Reserved
+    float4                      RenderTuningPacked1;              // x=XeGtaoRadiusM, y=SdfGiIntensity, z=SkyFillGain, w=ExposureGain
 };
 
 struct GpuWideTreeEntry128
@@ -244,6 +246,9 @@ bool IsRaytracingEnabled()  { return (WorldUniforms.AtmosphereMaskPad.w & 8u) ==
 
 float3 EvaluateSkyDome(float3 Dir)
 {
+    float SkyGain = (WorldUniforms.RenderTuningPacked1.z > 1.0e-4 || WorldUniforms.RenderTuningPacked0.x != 0u)
+        ? clamp(WorldUniforms.RenderTuningPacked1.z, 0.0, 3.0)
+        : 1.0;
     if ((WorldUniforms.AtmosphereMaskPad.x & 1u) != 0u)
     {
         float PlanetRadiusM = max(500000.0, WorldUniforms.CelestialParams.SolarOpticsParams.w);
@@ -254,10 +259,10 @@ float3 EvaluateSkyDome(float3 Dir)
             WorldUniforms.AtmosphereMaskPad.z,
             Dir,
             PlanetRadiusM,
-            ObsAltM);
+            ObsAltM) * SkyGain;
     }
     float Up = saturate(Dir.z * 0.5 + 0.5);
-    return WorldUniforms.SkyRadianceBvhCount.xyz * (0.65 + 0.70 * Up);
+    return WorldUniforms.SkyRadianceBvhCount.xyz * (0.65 + 0.70 * Up) * SkyGain;
 }
 
 float4 SampleCloudBufferBilinear(float2 PixelUv, out float OutCloudTrans)
@@ -1430,6 +1435,10 @@ float3 EvaluateGdfVoxelConeGi(float3 Pos, float3 N, float3 GeomN, float3 TAxis, 
 
     const float CosTilt = 0.6427876; // cos(50 deg)
     const float SinTilt = 0.7660444; // sin(50 deg)
+    uint PackedConeSteps = WorldUniforms.RenderTuningPacked0.y & 0xFFu;
+    uint PrimarySteps    = (PackedConeSteps >= 3u && PackedConeSteps <= 12u) ? PackedConeSteps : 6u;
+    uint SideSteps       = max(2u, PrimarySteps - 1u);
+    float GiScale        = (PackedConeSteps != 0u) ? clamp(WorldUniforms.RenderTuningPacked1.y, 0.0, 2.5) : 1.0;
     float3 GiIrr = float3(0.0);
 
     [loop]
@@ -1437,14 +1446,14 @@ float3 EvaluateGdfVoxelConeGi(float3 Pos, float3 N, float3 GeomN, float3 TAxis, 
     {
         float3 ConeDir = N;
         float  ConeWt  = 0.28;
-        uint   Steps   = 6u;
-        if (ConeIdx == 1u)      { ConeDir = normalize(N * CosTilt + TAxis * SinTilt); ConeWt = 0.18; Steps = 5u; }
-        else if (ConeIdx == 2u) { ConeDir = normalize(N * CosTilt - TAxis * SinTilt); ConeWt = 0.18; Steps = 5u; }
-        else if (ConeIdx == 3u) { ConeDir = normalize(N * CosTilt + BAxis * SinTilt); ConeWt = 0.18; Steps = 5u; }
-        else if (ConeIdx == 4u) { ConeDir = normalize(N * CosTilt - BAxis * SinTilt); ConeWt = 0.18; Steps = 5u; }
+        uint   Steps   = PrimarySteps;
+        if (ConeIdx == 1u)      { ConeDir = normalize(N * CosTilt + TAxis * SinTilt); ConeWt = 0.18; Steps = SideSteps; }
+        else if (ConeIdx == 2u) { ConeDir = normalize(N * CosTilt - TAxis * SinTilt); ConeWt = 0.18; Steps = SideSteps; }
+        else if (ConeIdx == 3u) { ConeDir = normalize(N * CosTilt + BAxis * SinTilt); ConeWt = 0.18; Steps = SideSteps; }
+        else if (ConeIdx == 4u) { ConeDir = normalize(N * CosTilt - BAxis * SinTilt); ConeWt = 0.18; Steps = SideSteps; }
         GiIrr += ConeWt * TraceSingleRadiosityCone(Pos, GeomN, StartP, ConeDir, 0.577, Steps, 0.34);
     }
-    return max(float3(0.0), GiIrr);
+    return max(float3(0.0), GiIrr * GiScale);
 }
 
 float3 EvaluateGdfGlossyCone(float3 Pos, float3 GeomN, float3 ReflDir, float Roughness)
@@ -1453,10 +1462,12 @@ float3 EvaluateGdfGlossyCone(float3 Pos, float3 GeomN, float3 ReflDir, float Rou
     {
         return EvaluateSkyDome(ReflDir);
     }
+    uint PackedConeSteps = WorldUniforms.RenderTuningPacked0.y & 0xFFu;
+    uint GlossySteps     = (PackedConeSteps >= 3u && PackedConeSteps <= 12u) ? PackedConeSteps : 6u;
     float  Vox0    = QueryFineGdfVoxelSize();
     float3 StartP  = Pos + GeomN * (Vox0 * 0.90);
     float  ConeTan = clamp(Roughness * Roughness * 0.85 + 0.045, 0.045, 0.65);
-    return TraceSingleRadiosityCone(Pos, GeomN, StartP, ReflDir, ConeTan, 6u, 1.0);
+    return TraceSingleRadiosityCone(Pos, GeomN, StartP, ReflDir, ConeTan, GlossySteps, 1.0);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -2116,19 +2127,25 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
         float Lit        = 0.0;
         float BlkDistSum = 0.0;
         uint  BlkHits    = 0u;
+        uint PackedSmrtRays  = WorldUniforms.RenderTuningPacked0.z & 0xFFu;
+        uint PackedSmrtSteps = (WorldUniforms.RenderTuningPacked0.z >> 8u) & 0xFFu;
+        uint SmrtRays        = (PackedSmrtRays >= 1u && PackedSmrtRays <= 8u) ? PackedSmrtRays : 4u;
+        uint SmrtSteps       = (PackedSmrtSteps >= 4u && PackedSmrtSteps <= 16u) ? PackedSmrtSteps : 10u;
+        float InvSmrtRays    = 1.0 / float(SmrtRays);
+        float InvSmrtSteps   = 1.0 / float(SmrtSteps);
         [loop]
-        for (uint R = 0u; R < 4u; ++R)
+        for (uint R = 0u; R < SmrtRays; ++R)
         {
             uint   StepRng = (PixelXY.x * 747796405u + PixelXY.y * 2891336453u + R * 277803737u) | 1u;
             float  StepJit = PcgFloat01(StepRng);
-            float  Rad     = sqrt((float(R) + 0.5) * 0.25);
+            float  Rad     = sqrt((float(R) + 0.5) * InvSmrtRays);
             float  Ang     = float(R) * 2.39996323 + RotPhi;
             float2 StepDir = float2(cos(Ang), sin(Ang)) * (Rad * MaxStepPx);
             bool   Occ     = false;
             float  PrevRayD = RecD;
-            for (uint S = 1u; S <= 10u; ++S)
+            for (uint S = 1u; S <= SmrtSteps; ++S)
             {
-                float TNorm = (float(S) - 0.5 + StepJit) * 0.10;
+                float TNorm = (float(S) - 0.5 + StepJit) * InvSmrtSteps;
                 float TQuad = TNorm * TNorm;
                 float RayD  = RecD - MaxMarchM * TQuad;
                 float2 SampleTXY = clamp(CenterTXY + StepDir * TQuad, float2(0.0), float2(float(MaxIdx)));
@@ -2152,7 +2169,7 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
                 }
                 PrevRayD = RayD;
             }
-            if (!Occ) Lit += 0.25;
+            if (!Occ) Lit += InvSmrtRays;
         }
         OutBlockerDist = (BlkHits > 0u) ? (BlkDistSum / float(BlkHits)) : 0.0;
         return Lit * TermFade;
@@ -2621,7 +2638,10 @@ float3 TraceThroughGlassSphere(float3 EntryPos, float3 EntryNrm, float3 Incident
 
 float3 ApplyAcesFilmicGpu(float3 Hdr)
 {
-    float3 V = max(float3(0.0), Hdr * 0.85);
+    float ExposureMul = (WorldUniforms.RenderTuningPacked1.w > 1.0e-4)
+        ? clamp(WorldUniforms.RenderTuningPacked1.w, 0.1, 4.0)
+        : 1.0;
+    float3 V = max(float3(0.0), Hdr * (0.85 * ExposureMul));
     return saturate((V * (2.51 * V + 0.03)) / (V * (2.43 * V + 0.59) + 0.14));
 }
 
@@ -2737,7 +2757,8 @@ float3 SampleAreaQuadLightStochasticPt(GpuAreaQuadLight Quad, float3 Pos, float3
 
 float3 EvaluateProgressiveViewportPath(float3 CamOrigin, float3 PrimaryDir, uint2 PixelXY, uint SampleIndex, uint EngineMode)
 {
-    uint   MaxBounces = (EngineMode == 5u) ? 4u : 3u;
+    uint   PackedPtBounces = (WorldUniforms.RenderTuningPacked0.y >> 8u) & 0xFFu;
+    uint   MaxBounces      = (PackedPtBounces >= 1u && PackedPtBounces <= 8u) ? PackedPtBounces : ((EngineMode == 5u) ? 4u : 3u);
     uint   MatCount   = max(1u, WorldUniforms.LightGlassMaterialDebug.z);
     float3 SunDir     = WorldUniforms.SunDirConeTan.xyz;
     float3 SunIrr     = WorldUniforms.SolarIrradiancePad.xyz;
@@ -3740,16 +3761,20 @@ float EvaluateGroundTruthAmbientOcclusion(uint2 PixelCoord, float3 WorldPos, flo
     float3 ViewToward = ToSurface / ViewDist;      // camera -> surface
     float3 ViewFrom   = -ViewToward;               // surface -> camera (V)
 
-    const float SearchRadiusMeters = 0.85;
+    float PackedRadius = WorldUniforms.RenderTuningPacked1.x;
+    const float SearchRadiusMeters = (PackedRadius >= 0.15) ? clamp(PackedRadius, 0.25, 3.0) : 0.85;
     float RadiusPx = clamp(SearchRadiusMeters * (float(Height) * 0.5) / (ViewDist * TanHalfY), 3.0, 48.0);
 
-    const uint SliceCount = 4u;
-    const uint StepsPerSide = 4u;
+    uint PackedSlices = WorldUniforms.RenderTuningPacked0.x & 0xFFu;
+    uint PackedSteps  = (WorldUniforms.RenderTuningPacked0.x >> 8u) & 0xFFu;
+    const uint SliceCount   = (PackedSlices >= 2u && PackedSlices <= 8u) ? PackedSlices : 4u;
+    const uint StepsPerSide = (PackedSteps  >= 2u && PackedSteps  <= 8u) ? PackedSteps  : 4u;
+    const float SliceAngleStep = PiConst / float(SliceCount);
     float VisibilitySum = 0.0;
 
     for (uint SliceIdx = 0u; SliceIdx < SliceCount; ++SliceIdx)
     {
-        float  SliceAngle = float(SliceIdx) * 0.7853981; // pi / 4
+        float  SliceAngle = float(SliceIdx) * SliceAngleStep;
         float2 SliceScreenDir = float2(cos(SliceAngle), sin(SliceAngle));
         float3 SliceWorldDir  = normalize(CamRight * SliceScreenDir.x + CamUp * SliceScreenDir.y);
         float3 SliceAxis      = SliceWorldDir - ViewFrom * dot(SliceWorldDir, ViewFrom);

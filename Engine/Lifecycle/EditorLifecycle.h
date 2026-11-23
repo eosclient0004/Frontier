@@ -218,6 +218,17 @@ private:
     uint32_t                                                         LastPathTraceBatchSpp  = 1u;
     bool                                                             LastXeGtaoEnabled    = false;
     float                                                            LastXeGtaoStrength   = 1.0f;
+    uint32_t                                                         LastXeGtaoSlices     = 4u;
+    uint32_t                                                         LastXeGtaoSteps      = 4u;
+    float                                                            LastXeGtaoRadiusM    = 0.85f;
+    uint32_t                                                         LastGiCandidate      = 1u;
+    uint32_t                                                         LastSdfConeSteps     = 6u;
+    float                                                            LastSdfGiIntensity   = 1.0f;
+    uint32_t                                                         LastPtMaxBounces     = 3u;
+    uint32_t                                                         LastSmrtShadowRays   = 4u;
+    uint32_t                                                         LastSmrtMarchSteps   = 10u;
+    float                                                            LastSkyFillGain      = 1.0f;
+    float                                                            LastExposureGain     = 1.0f;
     bool                                                             LastReflectionsEnabled = true;
     bool                                                             LastAaEnabled        = true;
     bool                                                             LastRtEnabled        = true;
