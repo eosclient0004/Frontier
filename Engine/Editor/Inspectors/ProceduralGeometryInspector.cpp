@@ -124,7 +124,7 @@ float ProceduralGeometryInspector::Construct(
     GeometricRaster::WorldSceneSpecification& Scene,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Generator", "Transform", "Material", "Physics" }};
+    static constexpr std::array<const char*, 8u> Pages = {{ "Overview", "Components", "Geometry", "Material", "UV", "Fracture", "SDF", "LOD" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
     const char* GenLabel = GeneratorLabels[std::min<std::size_t>(Instance.GeneratorIndex, GeneratorLabels.size() - 1u)];
@@ -170,9 +170,9 @@ float ProceduralGeometryInspector::Construct(
         Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Procedural generator", GenMeta, true, Input, HitGen);
         Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "OpenPBR surface", Instance.Surface.Metallic > 0.5f ? "Metallic" : "Dielectric", true, Input, HitMat);
         (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Rigid body & collision", Entry.DynamicMotion ? "Dynamic" : "Static", false, Input, HitPhys);
-        if (HitGen) { ActivePage = 1u; OutPageSwitched = true; }
+        if (HitGen) { ActivePage = 2u; OutPageSwitched = true; }
         else if (HitMat) { ActivePage = 3u; OutPageSwitched = true; }
-        else if (HitPhys) { ActivePage = 4u; OutPageSwitched = true; }
+        else if (HitPhys) { ActivePage = 1u; OutPageSwitched = true; }
         CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
 
         UpdateProceduralSurface(Instance);
@@ -207,6 +207,11 @@ float ProceduralGeometryInspector::Construct(
     }
     else if (ActivePage == 1u)
     {
+        CursorY = InspectorPrimitives::ConstructPhysicsSection(Surface, LeftX, CursorY, InnerWidth, Entry, "Procedural SDF", Input, OutMutated);
+    }
+    else if (ActivePage == 2u)
+    {
+        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7820u, ActiveDragId, Input, OutMutated);
         char RevBuf[24]{};
         std::snprintf(RevBuf, sizeof(RevBuf), "Rev %u", Instance.BuildRevision);
         const Rectangle2D S { LeftX, CursorY, InnerWidth, 536.0f };
@@ -240,19 +245,28 @@ float ProceduralGeometryInspector::Construct(
         }
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
-    else if (ActivePage == 2u)
-    {
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7820u, ActiveDragId, Input, OutMutated);
-    }
     else if (ActivePage == 3u)
     {
         bool MatChanged = false;
         CursorY = InspectorPrimitives::ConstructMaterialSection(Surface, LeftX, CursorY, InnerWidth, Instance.Surface, 7840u, ActiveDragId, Input, MatChanged);
         if (MatChanged) { SyncMaterialToScene(Instance.Surface, Scene); OutMutated = true; }
     }
+    else if (ActivePage == 4u)
+    {
+        CursorY = InspectorPrimitives::ConstructUvWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, 1u, GenLabel);
+    }
+    else if (ActivePage == 5u)
+    {
+        CursorY = InspectorPrimitives::ConstructFractureWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, 18u, "Procedural shards");
+    }
+    else if (ActivePage == 6u)
+    {
+        CursorY = InspectorPrimitives::ConstructSdfWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, true, GenLabel);
+    }
     else
     {
-        CursorY = InspectorPrimitives::ConstructPhysicsSection(Surface, LeftX, CursorY, InnerWidth, Entry, "Procedural SDF", Input, OutMutated);
+        const uint32_t EstTris = 256u * (1u << std::min(Instance.SubdivisionLevel, 6u));
+        CursorY = InspectorPrimitives::ConstructLodWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, EstTris, std::max(1u, EstTris / 128u));
     }
 
     return CursorY;

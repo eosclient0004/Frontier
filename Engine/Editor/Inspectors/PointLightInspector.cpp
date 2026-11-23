@@ -100,12 +100,11 @@ float PointLightInspector::Construct(
     OutlinerRecordEntry& Entry, PointLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Output", "Attenuation", "Placement", "Shadows" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
     const float Lux5m = Instance.IntensityCandela / std::pow(5.0f, std::max(0.01f, Instance.DecayExponent));
-    (void)Lux5m;
 
     if (ActivePage == 0u)
     {
@@ -160,23 +159,28 @@ float PointLightInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 294.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Source & colour");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 354.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char CdBuf[20]{}; std::snprintf(CdBuf, sizeof(CdBuf), "%.1f", Instance.IntensityCandela);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, CdBuf, "cd", "Authored luminous intensity");
+        const float HalfW = (BodyW - 8.0f) * 0.5f;
+        char LuxBuf[24]{}, ReachBuf[24]{};
+        std::snprintf(LuxBuf, sizeof(LuxBuf), "%.2f lx", Lux5m);
+        std::snprintf(ReachBuf, sizeof(ReachBuf), "%.0f m", Instance.ReachMeters);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "AT 5 M · ESTIMATE", LuxBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "REACH", ReachBuf);
+        Y += 58.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8110u, "Intensity", "cd", "%.1f", 0.0f, 60.0f, Instance.IntensityCandela, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8111u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8112u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 356.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Attenuation & distance response");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 444.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Attenuation", "OPTICS");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         std::array<float, 32u> Curve {};
         for (std::size_t I = 0u; I < Curve.size(); ++I)
         {
@@ -186,18 +190,23 @@ float PointLightInspector::Construct(
         InspectorPrimitives::ConstructCurvePlot(
             Surface, { LeftX + PadX, Y, BodyW, 74.0f }, Curve,
             ColorRgba{ 246u, 206u, 128u, 255u }, ColorRgba{ 246u, 206u, 128u, 32u }, "1 m", "10 m");
-        Y += 86.0f;
+        Y += 84.0f;
+        static constexpr std::array<float, 4u> SampleDists = {{ 1.0f, 2.0f, 5.0f, 10.0f }};
+        for (float Dist : SampleDists)
+        {
+            const float Ratio = 1.0f / std::pow(Dist, std::max(0.05f, Instance.DecayExponent));
+            char DLabel[16]{}, ValBuf[40]{};
+            std::snprintf(DLabel, sizeof(DLabel), "%.0f m", Dist);
+            std::snprintf(ValBuf, sizeof(ValBuf), "%.2f lx  ·  %.1f%%", Instance.IntensityCandela * Ratio, Ratio * 100.0f);
+            Y = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, DLabel, ValBuf);
+        }
+        Y += 6.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8120u, "Reach", "m", "%.0f", 1.0f, 120.0f, Instance.ReachMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8121u, "Decay exponent", "", "%.2f", 0.0f, 4.0f, Instance.DecayExponent, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8122u, "Source radius", "m", "%.2f", 0.01f, 1.0f, Instance.SourceRadiusMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
-    {
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8140u, ActiveDragId, Input, OutMutated);
-    }
-    else
-    {
         CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show glow", Instance.ShowGlow, Input, OutMutated);
     }
 

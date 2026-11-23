@@ -20,7 +20,7 @@ float AtmosphericFogInspector::Construct(
     OutlinerRecordEntry& Entry, AtmosphericFogInstanceData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 3u> Pages = {{ "Overview", "Density", "Light" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Spectrum" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
 
     auto& Fog = Instance.AerialFog;
@@ -120,22 +120,56 @@ float AtmosphericFogInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Aerial density");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6201u, "Density multiplier", "x", "%.2f", 0.0f, 4.0f, Fog.DensityMultiplier, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6202u, "Start distance", "m", "%.0f", 0.0f, 2000.0f, Fog.StartDistanceMeters, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6203u, "Scale height", "m", "%.0f", 200.0f, 8000.0f, Fog.ScaleHeightMeters, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
     else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 162.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Aerial scatter");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6204u, "Mie blend", "", "%.2f", 0.0f, 1.0f, Fog.MieBlend, ActiveDragId, Input, OutMutated);
+        // 1:1 HTML Spectrum tab: Spectral transmission (aerosol % KPI + RGB Rayleigh-vs-Mie spectral curve + Mie Blend)
+        const float Mie = std::clamp(Fog.MieBlend, 0.0f, 1.0f);
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 368.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Spectral transmission");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+
+        char AerBuf[16]{};
+        std::snprintf(AerBuf, sizeof(AerBuf), "%.0f", Mie * 100.0f);
+        const char* HazeDesc = (Mie < 0.35f) ? "Blue, clean-air haze" : (Mie > 0.65f ? "Grey-white, dusty haze" : "Mixed Rayleigh & aerosol");
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, AerBuf, "", "% aerosol", HazeDesc);
+        Y += 6.0f;
+
+        // Dark #151618 RGB spectral transmission well (400..700 nm, R/G/B curves converging as Mie -> 1)
+        const Rectangle2D Well { LeftX + PadX, Y, BodyW, 128.0f };
+        Surface.FillRectangle(Well, ColorRgba{ 21u, 22u, 24u, 255u }, 10.0f);
+        Surface.PushClip(Well);
+        const float PadL = 12.0f, PadR = 12.0f, PadT = 16.0f, PadB = 22.0f;
+        const float PW = Well.Width - PadL - PadR, PH = Well.Height - PadT - PadB;
+        const float ExtScale = std::clamp(Fog.DensityMultiplier * 0.45f, 0.12f, 2.0f);
+        const std::array<float, 3u> LambdaPow = {{ 0.42f, 0.72f, 1.25f }}; // R, G, B relative Rayleigh extinction
+        const std::array<ColorRgba, 3u> BandCol = {{
+            { 238u, 114u, 108u, 235u },
+            { 138u, 214u, 146u, 235u },
+            { 112u, 178u, 248u, 235u },
+        }};
+        for (std::size_t C = 0u; C < 3u; ++C)
+        {
+            const float K = LambdaPow[C] * (1.0f - Mie) + 0.80f * Mie;
+            std::array<Point2D, 24u> Pts{};
+            for (std::size_t I = 0u; I < 24u; ++I)
+            {
+                const float U = static_cast<float>(I) / 23.0f;
+                const float Trans = std::exp(-U * 2.2f * ExtScale * K);
+                Pts[I] = { Well.X + PadL + U * PW, Well.Bottom() - PadB - Trans * PH };
+            }
+            Surface.StrokePolyline(Pts, BandCol[C], 1.7f, false);
+        }
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + PadL, Well.Y + 6.0f }, 8.0f, ColorRgba{ 238u, 114u, 108u, 220u }, "R 650nm");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + PadL + 52.0f, Well.Y + 6.0f }, 8.0f, ColorRgba{ 138u, 214u, 146u, 220u }, "G 550nm");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + PadL + 104.0f, Well.Y + 6.0f }, 8.0f, ColorRgba{ 112u, 178u, 248u, 220u }, "B 450nm");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + PadL, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "0 km");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.Right() - 36.0f, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "12 km");
+        Surface.PopClip();
+        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        Y = Well.Bottom() + 12.0f;
+
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6204u, "Mie blend", "", "%.2f", 0.0f, 1.0f, Fog.MieBlend, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6203u, "Scale height", "m", "%.0f", 200.0f, 8000.0f, Fog.ScaleHeightMeters, ActiveDragId, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
 

@@ -135,12 +135,11 @@ float SpotLightInspector::Construct(
     OutlinerRecordEntry& Entry, SpotLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Output", "Beam", "Placement", "Shadows" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
     const float BeamDiam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * PiF / 360.0f);
-    (void)BeamDiam5m;
 
     if (ActivePage == 0u)
     {
@@ -204,38 +203,49 @@ float SpotLightInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 294.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Source & colour");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 354.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char CdBuf[20]{}; std::snprintf(CdBuf, sizeof(CdBuf), "%.1f", Instance.IntensityCandela);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, CdBuf, "cd", "Authored luminous intensity");
+        const float HalfW = (BodyW - 8.0f) * 0.5f;
+        char ConeBuf[20]{}, SoftBuf[20]{};
+        std::snprintf(ConeBuf, sizeof(ConeBuf), "%.1f\xC2\xB0", Instance.FullConeDegrees);
+        std::snprintf(SoftBuf, sizeof(SoftBuf), "%.0f %%", Instance.Penumbra * 100.0f);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "FULL CONE", ConeBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "SOFT EDGE", SoftBuf);
+        Y += 58.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8210u, "Intensity", "cd", "%.1f", 0.0f, 200.0f, Instance.IntensityCandela, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8211u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8212u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 314.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Beam shaping");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 386.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Beam shaping", "OPTICS");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char DiamBuf[20]{}; std::snprintf(DiamBuf, sizeof(DiamBuf), "%.2f", BeamDiam5m);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, DiamBuf, "m", "Beam diameter at 5 m");
+        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, DiamBuf, "m", "Beam diameter on a perpendicular plane at 5 m");
+        std::array<float, 32u> BeamCurve {};
+        const float InnerFrac = std::clamp(1.0f - Instance.Penumbra, 0.05f, 1.0f);
+        for (std::size_t I = 0u; I < BeamCurve.size(); ++I)
+        {
+            const float U = std::fabs((static_cast<float>(I) / 31.0f) * 2.0f - 1.0f);
+            BeamCurve[I] = (U <= InnerFrac) ? 1.0f : std::clamp(1.0f - (U - InnerFrac) / std::max(0.05f, 1.0f - InnerFrac), 0.0f, 1.0f);
+        }
+        InspectorPrimitives::ConstructCurvePlot(
+            Surface, { LeftX + PadX, Y, BodyW, 60.0f }, BeamCurve,
+            ColorRgba{ 246u, 206u, 128u, 255u }, ColorRgba{ 246u, 206u, 128u, 36u }, "-cone/2", "+cone/2");
+        Y += 72.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8220u, "Full cone angle", "deg", "%.1f", 2.0f, 80.0f, Instance.FullConeDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8221u, "Penumbra", "", "%.2f", 0.0f, 1.0f, Instance.Penumbra, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8222u, "Reach", "m", "%.0f", 1.0f, 150.0f, Instance.ReachMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8223u, "Lens radius", "m", "%.2f", 0.02f, 0.8f, Instance.SourceRadiusMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
-    {
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8240u, ActiveDragId, Input, OutMutated);
-    }
-    else
-    {
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Draw cone", Instance.ShowCone, Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Show cone", Instance.ShowCone, Input, OutMutated);
     }
 
     return CursorY;

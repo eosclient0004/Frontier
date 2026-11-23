@@ -25,8 +25,12 @@ public:
     void SetActivePage(uint32_t PageIndex) noexcept { ActivePage = PageIndex; }
 
 private:
+    void UpdateRainbowSurfaces(const RainbowInstanceData& Instance);
+
     uint32_t ActivePage   = 0u;
     uint32_t ActiveDragId = 0u;
+    InspectorPreviewSurface ArcPreview {};
+    InspectorPreviewSurface DispersionLut {};
 };
 
 } // namespace Frontier

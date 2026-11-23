@@ -144,7 +144,7 @@ float IesLightInspector::Construct(
     OutlinerRecordEntry& Entry, IesLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Output", "Distribution", "Placement", "Shadows" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
     static constexpr std::array<const char*, 8u> PresetLabels = {{
         "Downlight", "Wall wash", "Batwing", "ECE Low", "SAE Low", "High Beam", "Fog Lamp", "Parking"
     }};
@@ -204,24 +204,29 @@ float IesLightInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Source & colour");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 404.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", ScaledLumens);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Scaled photometric flux");
+        const float HalfW = (BodyW - 8.0f) * 0.5f;
+        char OutBuf[24]{}, AngBuf[20]{};
+        std::snprintf(OutBuf, sizeof(OutBuf), "%.0f lm", ScaledLumens);
+        std::snprintf(AngBuf, sizeof(AngBuf), "%.1f\xC2\xB0", Instance.FieldAngleDegrees);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "SCALED OUTPUT", OutBuf);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "FIELD ANGLE", AngBuf);
+        Y += 58.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8310u, "Source flux", "lm", "%.0f", 0.0f, 8000.0f, Instance.LuminousFlux, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8311u, "Profile multiplier", "x", "%.2f", 0.0f, 4.0f, Instance.ProfileMultiplier, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8312u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8313u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 456.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Distribution profile", PresetName);
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 456.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Distribution profile", PresetName);
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         std::array<float, 32u> LobeCurve {};
         for (std::size_t I = 0u; I < LobeCurve.size(); ++I)
         {
@@ -238,15 +243,10 @@ float IesLightInspector::Construct(
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8320u, "Field angle", "deg", "%.1f", 5.0f, 100.0f, Instance.FieldAngleDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8321u, "Cut-off pitch", "deg", "%.1f", -5.0f, 5.0f, Instance.CutoffPitchDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8322u, "Photometric range", "m", "%.0f", 1.0f, 250.0f, Instance.RangeMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
-    {
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8340u, ActiveDragId, Input, OutMutated);
-    }
-    else
-    {
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Draw distribution", Instance.ShowDistribution, Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Show distribution", Instance.ShowDistribution, Input, OutMutated);
     }
 
     return CursorY;

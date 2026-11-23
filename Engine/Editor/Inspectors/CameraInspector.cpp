@@ -190,7 +190,7 @@ float CameraInspector::Construct(
     ViewportDisplaySettings* DisplaySettings,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 6u> Pages = {{ "Overview", "Lens", "Body", "Mount", "Motion blur", "Lens flare" }};
+    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Mount", "Focus", "Body", "Render" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
@@ -289,15 +289,15 @@ float CameraInspector::Construct(
 
         const bool ReflOn = DisplaySettings ? DisplaySettings->ReflectionsEnabled : true;
         const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
-            { "Visible",     InspectorSwitchSymbol::CameraLens, Entry.VisibilityEnabled,    false },
-            { "Lens flare",  InspectorSwitchSymbol::PostFx,     Instance.LensFlare.Enabled, false },
-            { "Motion blur", InspectorSwitchSymbol::Cycle,      Instance.MotionBlurEnabled, false },
-            { "Reflections", InspectorSwitchSymbol::Stars,      ReflOn,                     false },
+            { "Tripod",        InspectorSwitchSymbol::CameraLens, Instance.TripodMounted,   false },
+            { "Depth of field",InspectorSwitchSymbol::Orbit,      Instance.ApertureFStop < 11.0f, false },
+            { "Motion blur",   InspectorSwitchSymbol::Cycle,      Instance.MotionBlurEnabled, false },
+            { "Reflections",   InspectorSwitchSymbol::Stars,      ReflOn,                     false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Instance.LensFlare.Enabled = !Instance.LensFlare.Enabled; OutMutated = true; }
+        if (Clicked == 0) { Instance.TripodMounted = !Instance.TripodMounted; OutMutated = true; }
+        else if (Clicked == 1) { Instance.ApertureFStop = (Instance.ApertureFStop < 11.0f) ? 16.0f : 2.8f; OutMutated = true; }
         else if (Clicked == 2) { Instance.MotionBlurEnabled = !Instance.MotionBlurEnabled; OutMutated = true; }
         else if (Clicked == 3 && DisplaySettings) { DisplaySettings->ReflectionsEnabled = !DisplaySettings->ReflectionsEnabled; OutMutated = true; }
 
@@ -306,35 +306,6 @@ float CameraInspector::Construct(
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
     else if (ActivePage == 1u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 356.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Camera lens & gate");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char Fl[16]{}; std::snprintf(Fl, sizeof(Fl), "%.0f", Instance.FocalLengthMm);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, Fl, "mm", "Rectilinear optical projection");
-        static constexpr std::array<const char*, 4u> Gates = {{ "Full 36mm", "Super 35", "Med 44mm", "APS-C" }};
-        static constexpr std::array<float, 4u> GateW = {{ 36.0f, 24.89f, 43.8f, 23.5f }};
-        int32_t Chosen = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Sensor gate", Gates, Instance.SensorGateIndex, 2u, Input, Chosen);
-        if (Chosen >= 0 && Chosen < 4) { Instance.SensorGateIndex = static_cast<uint32_t>(Chosen); Instance.SensorWidthMm = GateW[static_cast<std::size_t>(Chosen)]; OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7001u, "Focal length", "mm", "%.0f", 14.0f, 200.0f, Instance.FocalLengthMm, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7002u, "Aperture", "f/", "%.1f", 1.2f, 22.0f, Instance.ApertureFStop, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7003u, "Focus distance", "m", "%.1f", 0.3f, 120.0f, Instance.FocusDistanceMeters, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 184.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Camera body");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        static constexpr std::array<const char*, 3u> Bodies = {{ "Cinema", "Rig", "Compact" }};
-        int32_t Chosen = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Body rig", Bodies, Instance.RigPresetIndex, 3u, Input, Chosen);
-        if (Chosen >= 0 && Chosen < 3) { Instance.RigPresetIndex = static_cast<uint32_t>(Chosen); OutMutated = true; }
-        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "On tripod mount", Instance.TripodMounted, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
     {
         // 1:1 HTML Mount page (02-cine-mount.png): dark hero stage with illustrated camera + amber height bracket + 2 visual tiles + Tripod height + Position + angle
         UpdateMountSurface(Instance);
@@ -347,7 +318,6 @@ float CameraInspector::Construct(
         InspectorPrimitives::ConstructSectionSurface(Surface, MountSec, "Mount");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
 
-        // Dark glossy #15171c hero stage containing camera illustration + centered A · On tripod / B · Floating + subtitle
         const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 174.0f };
         Surface.FillRectangle(Stage, ColorRgba{ 21u, 23u, 28u, 255u }, 14.0f);
         Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, 14.0f, 1.0f);
@@ -359,7 +329,6 @@ float CameraInspector::Construct(
 
         if (!Floating)
         {
-            // Three extending tripod legs from camera head to ground line
             const Point2D Head { CamCx, CamCy + 14.0f };
             Surface.StrokeLine(Head, { CamCx - 24.0f, FloorY }, ColorRgba{ 168u, 174u, 184u, 220u }, 1.6f);
             Surface.StrokeLine(Head, { CamCx + 24.0f, FloorY }, ColorRgba{ 168u, 174u, 184u, 220u }, 1.6f);
@@ -369,7 +338,6 @@ float CameraInspector::Construct(
         }
         else
         {
-            // Dashed drop line + cyan ground target ring
             for (float Dy = CamCy + 18.0f; Dy < FloorY - 4.0f; Dy += 7.0f)
             {
                 Surface.StrokeLine({ CamCx, Dy }, { CamCx, std::min(FloorY - 2.0f, Dy + 3.5f) }, ColorRgba{ 98u, 206u, 214u, 160u }, 1.2f);
@@ -383,13 +351,11 @@ float CameraInspector::Construct(
             Surface.StrokePolyline(Ring, ColorRgba{ 98u, 206u, 214u, 185u }, 1.2f, true);
         }
 
-        // Illustrated cinema camera silhouette (dual film magazines + body + lens matte box)
         Surface.FillCircle({ CamCx - 9.0f, CamCy - 9.0f }, 6.5f, ColorRgba{ 194u, 198u, 206u, 255u });
         Surface.FillCircle({ CamCx + 5.0f, CamCy - 9.0f }, 6.5f, ColorRgba{ 194u, 198u, 206u, 255u });
         Surface.FillRectangle({ CamCx - 14.0f, CamCy - 4.0f, 26.0f, 15.0f }, ColorRgba{ 212u, 216u, 224u, 255u }, 3.0f);
         Surface.FillRectangle({ CamCx + 12.0f, CamCy - 2.0f, 10.0f, 10.0f }, ColorRgba{ 156u, 162u, 172u, 255u }, 2.0f);
 
-        // Amber vertical height bracket + label on right side (1:1 HTML)
         const float BrX = CamCx + 42.0f;
         const ColorRgba Amber { 228u, 174u, 76u, 235u };
         Surface.StrokeLine({ BrX, CamCy + 6.0f }, { BrX, FloorY }, Amber, 1.3f);
@@ -407,7 +373,6 @@ float CameraInspector::Construct(
         WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { Stage.Center().X - HSW * 0.5f, Stage.Y + 134.0f }, Stage.Width - 16.0f, 9.2f, ColorRgba{ 146u, 150u, 158u, 255u }, HeroSub);
         Y = Stage.Bottom() + 10.0f;
 
-        // 2 side-by-side visual tiles (A On tripod | B Floating) matching 02-cine-mount.png
         const float TileGap = 8.0f;
         const float TileW   = std::floor((BodyW - TileGap) * 0.5f);
         const float TileH   = 74.0f;
@@ -422,7 +387,6 @@ float CameraInspector::Construct(
                 Surface, FontWeightClass::Medium, { T.X + 8.0f, T.Y + 6.0f }, 9.6f,
                 Sel ? ColorRgba{ 239u, 68u, 68u, 255u } : ColorRgba{ 118u, 122u, 130u, 255u }, I == 0u ? "A" : "B");
 
-            // Mini vector icon inside tile
             const float Ix = T.Center().X, Iy = T.Y + 28.0f;
             Surface.FillRectangle({ Ix - 8.0f, Iy - 5.0f, 14.0f, 8.0f }, ColorRgba{ 186u, 192u, 202u, 255u }, 2.0f);
             if (I == 0u)
@@ -465,11 +429,10 @@ float CameraInspector::Construct(
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7011u, "Roll", "deg", "%.0f", -45.0f, 45.0f, Instance.CameraRollDegrees, ActiveDragId, Input, OutMutated);
         }
         char DescBuf[96]{};
-        std::snprintf(DescBuf, sizeof(DescBuf), Floating ? "Free floating mount at %.2f m with %.0f deg roll." : "The tripod legs extend to %.2f m and feet stay on ground (0.4–2.2 m).", Instance.MountHeightMeters, Instance.CameraRollDegrees);
+        std::snprintf(DescBuf, sizeof(DescBuf), Floating ? "Free floating mount at %.2f m with %.0f deg roll." : "The tripod legs extend to %.2f m and feet stay on ground (0.4-2.2 m).", Instance.MountHeightMeters, Instance.CameraRollDegrees);
         WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 9.2f, ColorRgba{ 138u, 142u, 150u, 255u }, DescBuf);
         CursorY = MountSec.Bottom() + InspectorMetrics::SectionGap;
 
-        // 1:1 HTML Position + angle KPI summary card (02-cine-mount.png)
         const Rectangle2D PosSec { LeftX, CursorY, InnerWidth, 168.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, PosSec, "Position + angle");
         float PY = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
@@ -485,30 +448,148 @@ float CameraInspector::Construct(
 
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7020u, ActiveDragId, Input, OutMutated);
     }
-    else if (ActivePage == 4u)
+    else if (ActivePage == 2u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 212.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Motion blur");
+        // 1:1 HTML Focus tab: Aperture study (polygonal iris) + Subject plane & sharpness (DOF range bar)
+        const float PupilMm = std::max(1.0f, Instance.FocalLengthMm / std::max(1.0f, Instance.ApertureFStop));
+        const Rectangle2D ApSec { LeftX, CursorY, InnerWidth, 298.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, ApSec, "Aperture study");
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char FVal[16]{}, PupSub[48]{};
+        std::snprintf(FVal, sizeof(FVal), "f/%.1f", Instance.ApertureFStop);
+        std::snprintf(PupSub, sizeof(PupSub), "Entrance pupil %.1f mm · 7 blades", PupilMm);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, FVal, "", "", PupSub);
+        Y += 6.0f;
+
+        // Dark #151618 7-blade optical iris graphic
+        const Rectangle2D IrisWell { LeftX + PadX, Y, BodyW, 128.0f };
+        Surface.FillRectangle(IrisWell, ColorRgba{ 21u, 22u, 24u, 255u }, 10.0f);
+        Surface.StrokeRectangle(IrisWell, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        const Point2D IC = IrisWell.Center();
+        const float OuterR = 46.0f;
+        const float OpenFrac = std::clamp(std::log2(22.0f / std::max(1.2f, Instance.ApertureFStop)) / std::log2(22.0f / 1.2f), 0.14f, 0.86f);
+        const float HoleR = OuterR * (0.16f + OpenFrac * 0.68f);
+        Surface.FillCircle(IC, OuterR, ColorRgba{ 34u, 36u, 42u, 255u });
+        Surface.StrokeCircle(IC, OuterR, ColorRgba{ 255u, 255u, 255u, 36u }, 1.2f);
+        std::array<Point2D, 7u> Poly{};
+        for (std::size_t B = 0u; B < 7u; ++B)
+        {
+            const float A = static_cast<float>(B) * (6.2831853f / 7.0f) - 0.3f;
+            Poly[B] = { IC.X + std::cos(A) * HoleR, IC.Y + std::sin(A) * HoleR };
+            const Point2D OuterP { IC.X + std::cos(A + 0.52f) * OuterR, IC.Y + std::sin(A + 0.52f) * OuterR };
+            Surface.StrokeLine(Poly[B], OuterP, ColorRgba{ 255u, 255u, 255u, 46u }, 1.0f);
+        }
+        Surface.FillPolygon(Poly, ColorRgba{ 16u, 15u, 22u, 255u });
+        Surface.StrokePolyline(Poly, ColorRgba{ 196u, 168u, 255u, 220u }, 1.4f, true);
+        Y = IrisWell.Bottom() + 12.0f;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7002u, "Aperture", "f/", "%.1f", 1.2f, 22.0f, Instance.ApertureFStop, ActiveDragId, Input, OutMutated);
+        CursorY = ApSec.Bottom() + InspectorMetrics::SectionGap;
+
+        // Subject plane + sharpness (thin-lens DOF bar)
+        const float CocMm = 0.03f;
+        const float HyperM = (Instance.FocalLengthMm * Instance.FocalLengthMm) / (std::max(1.0f, Instance.ApertureFStop) * CocMm * 1000.0f);
+        const float FocusM = std::max(0.3f, Instance.FocusDistanceMeters);
+        const float NearM  = (HyperM * FocusM) / (HyperM + FocusM);
+        const float FarM   = (FocusM >= HyperM) ? 999.0f : (HyperM * FocusM) / std::max(0.01f, HyperM - FocusM);
+
+        const Rectangle2D DofSec { LeftX, CursorY, InnerWidth, 272.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, DofSec, "Subject plane + sharpness");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char FocW[16]{}, DofSub[64]{};
+        std::snprintf(FocW, sizeof(FocW), "%.1f", FocusM);
+        if (FarM > 500.0f) std::snprintf(DofSub, sizeof(DofSub), "Near %.2f m / far infinity", NearM);
+        else               std::snprintf(DofSub, sizeof(DofSub), "Near %.2f m / far %.2f m", NearM, FarM);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, FocW, "", "m", DofSub);
+        Y += 6.0f;
+
+        const Rectangle2D DofWell { LeftX + PadX, Y, BodyW, 96.0f };
+        Surface.FillRectangle(DofWell, ColorRgba{ 21u, 22u, 24u, 255u }, 10.0f);
+        Surface.StrokeRectangle(DofWell, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        const float BarL = DofWell.X + 16.0f, BarR = DofWell.Right() - 16.0f, BarW = BarR - BarL;
+        const float BarY = DofWell.Center().Y;
+        const auto ToX = [&](float M) { return BarL + std::clamp(std::log2(1.0f + M) / std::log2(121.0f), 0.0f, 1.0f) * BarW; };
+        const float NX = ToX(NearM), FX = ToX(FocusM), FarX = (FarM > 500.0f) ? BarR : ToX(FarM);
+        Surface.StrokeLine({ BarL, BarY }, { BarR, BarY }, ColorRgba{ 255u, 255u, 255u, 36u }, 2.0f);
+        Surface.FillRectangle({ NX, BarY - 12.0f, std::max(4.0f, FarX - NX), 24.0f }, ColorRgba{ 168u, 134u, 248u, 64u }, 4.0f);
+        Surface.StrokeLine({ FX, BarY - 22.0f }, { FX, BarY + 22.0f }, ColorRgba{ 216u, 196u, 255u, 240u }, 2.0f);
+        Surface.FillCircle({ FX, BarY }, 4.0f, ColorRgba{ 226u, 210u, 255u, 255u });
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { BarL, DofWell.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "0.3 m");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { BarR - 26.0f, DofWell.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "120 m");
+        Y = DofWell.Bottom() + 12.0f;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7003u, "Subject distance", "m", "%.1f", 0.3f, 120.0f, Instance.FocusDistanceMeters, ActiveDragId, Input, OutMutated);
+        CursorY = DofSec.Bottom() + InspectorMetrics::SectionGap;
+    }
+    else if (ActivePage == 3u)
+    {
+        // 1:1 HTML Body tab: Camera body (hero + 3 choices) + Sensor (nested format gates + hyperfocal)
+        const Rectangle2D BodySec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, BodySec, "Camera body");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable motion blur", Instance.MotionBlurEnabled, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7004u, "Shutter angle", "deg", "%.0f", 15.0f, 360.0f, Instance.ShutterAngleDegrees, ActiveDragId, Input, OutMutated, !Instance.MotionBlurEnabled);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        static constexpr std::array<const char*, 3u> Bodies = {{ "Cinema", "Rig", "Compact" }};
+        int32_t ChosenBody = -1;
+        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Body form", Bodies, Instance.RigPresetIndex, 3u, Input, ChosenBody);
+        if (ChosenBody >= 0 && ChosenBody < 3) { Instance.RigPresetIndex = static_cast<uint32_t>(ChosenBody); OutMutated = true; }
+        (void)InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Mount mode", Instance.TripodMounted ? "On tripod" : "Floating");
+        CursorY = BodySec.Bottom() + InspectorMetrics::SectionGap;
+
+        const float SensorW = std::max(10.0f, Instance.SensorWidthMm);
+        const float Crop    = 36.0f / SensorW;
+        const float SensorH = SensorW / 1.5f;
+        const float HyperM  = (Instance.FocalLengthMm * Instance.FocalLengthMm) / (std::max(1.0f, Instance.ApertureFStop) * 30.0f);
+
+        const Rectangle2D SenSec { LeftX, CursorY, InnerWidth, 408.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, SenSec, "Sensor");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        char CropBuf[16]{};
+        std::snprintf(CropBuf, sizeof(CropBuf), "%.2f", Crop);
+        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, CropBuf, "", "\xC3\x97 crop", "Relative to 36 mm full-frame diagonal");
+        Y += 6.0f;
+
+        // Nested sensor format gate graphic
+        const Rectangle2D GateWell { LeftX + PadX, Y, BodyW, 118.0f };
+        Surface.FillRectangle(GateWell, ColorRgba{ 21u, 22u, 24u, 255u }, 10.0f);
+        Surface.StrokeRectangle(GateWell, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        static constexpr std::array<float, 4u> RefW = {{ 43.8f, 36.0f, 24.89f, 23.5f }};
+        static constexpr std::array<uint32_t, 4u> RefIdx = {{ 2u, 0u, 1u, 3u }};
+        const Point2D GC = GateWell.Center();
+        for (std::size_t I = 0u; I < 4u; ++I)
+        {
+            const float GW = (RefW[I] / 44.0f) * (GateWell.Width * 0.72f);
+            const float GH = GW / 1.5f;
+            const Rectangle2D R { GC.X - GW * 0.5f, GC.Y - GH * 0.5f, GW, GH };
+            const bool Active = (Instance.SensorGateIndex == RefIdx[I]);
+            if (Active) Surface.FillRectangle(R, ColorRgba{ 168u, 134u, 248u, 48u }, 3.0f);
+            Surface.StrokeRectangle(R, Active ? ColorRgba{ 204u, 178u, 255u, 245u } : ColorRgba{ 255u, 255u, 255u, 42u }, 3.0f, Active ? 1.6f : 1.0f);
+        }
+        Y = GateWell.Bottom() + 10.0f;
+
+        static constexpr std::array<const char*, 4u> Gates = {{ "Full 36mm", "Super 35", "Med 44mm", "APS-C" }};
+        static constexpr std::array<float, 4u> GateW = {{ 36.0f, 24.89f, 43.8f, 23.5f }};
+        int32_t ChosenGate = -1;
+        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Sensor gate", Gates, Instance.SensorGateIndex, 2u, Input, ChosenGate);
+        if (ChosenGate >= 0 && ChosenGate < 4) { Instance.SensorGateIndex = static_cast<uint32_t>(ChosenGate); Instance.SensorWidthMm = GateW[static_cast<std::size_t>(ChosenGate)]; OutMutated = true; }
+        char ShBuf[24]{}, HypBuf[24]{};
+        std::snprintf(ShBuf, sizeof(ShBuf), "%.1f mm", SensorH);
+        std::snprintf(HypBuf, sizeof(HypBuf), "%.1f m", HyperM);
+        Y = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Sensor height", ShBuf);
+        Y = InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Aspect ratio", "3 : 2");
+        (void)InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Hyperfocal distance", HypBuf);
+        CursorY = SenSec.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        auto& Flare = Instance.LensFlare;
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Optical lens flare");
+        // 1:1 HTML Render tab: Render settings summary + Render toggles
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 256.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Render settings");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Lens flare", Flare.Enabled, Input, OutMutated);
-        static constexpr std::array<const char*, 3u> Styles = {{ "Anamorphic", "Spherical", "Clean" }};
-        int32_t Chosen = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Optical style", Styles, static_cast<uint32_t>(Flare.Style), 3u, Input, Chosen);
-        if (Chosen >= 0 && Chosen < 3) { Flare.Style = static_cast<GeometricRaster::LensFlareStyle>(Chosen); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7005u, "Intensity", "x", "%.2f", 0.0f, 3.0f, Flare.FlareIntensity, ActiveDragId, Input, OutMutated, !Flare.Enabled);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7006u, "Halo glow", "x", "%.2f", 0.0f, 2.0f, Flare.HaloIntensity, ActiveDragId, Input, OutMutated, !Flare.Enabled);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7007u, "Ghost elements", "x", "%.2f", 0.0f, 2.0f, Flare.GhostIntensity, ActiveDragId, Input, OutMutated, !Flare.Enabled);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7008u, "Streak angle", "deg", "%.0f", -90.0f, 90.0f, Flare.StreakRotationDegrees, ActiveDragId, Input, OutMutated, !Flare.Enabled);
+        if (DisplaySettings)
+        {
+            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Anti-aliasing", DisplaySettings->AntiAliasingEnabled, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Reflections", DisplaySettings->ReflectionsEnabled, Input, OutMutated);
+            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Ambient occlusion (XeGTAO)", DisplaySettings->XeGtaoEnabled, Input, OutMutated);
+        }
+        Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Motion blur", Instance.MotionBlurEnabled, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Lens flare", Instance.LensFlare.Enabled, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
 

@@ -33,8 +33,11 @@ public:
     [[nodiscard]] uint32_t QueryActivePage() const noexcept { return ActivePage; }
 
 private:
-    uint32_t ActivePage   = 0u;
-    uint32_t ActiveDragId = 0u;
+    void UpdateVolumePreviewSurface(const LocalCloudInstanceData& Instance);
+
+    uint32_t                ActivePage    = 0u;
+    uint32_t                ActiveDragId  = 0u;
+    InspectorPreviewSurface VolumePreview {};
 };
 
 } // namespace Frontier

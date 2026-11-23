@@ -25,7 +25,114 @@ inline void PutPixel(std::vector<uint8_t>& Buf, uint32_t W, uint32_t X, uint32_t
     const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
     Buf[Off + 0u] = R; Buf[Off + 1u] = G; Buf[Off + 2u] = B; Buf[Off + 3u] = 255u;
 }
+inline float Hash2D(int X, int Y) noexcept
+{
+    uint32_t N = static_cast<uint32_t>(X) * 374761393u + static_cast<uint32_t>(Y) * 668265263u;
+    N = (N ^ (N >> 13u)) * 1274126177u;
+    return static_cast<float>((N ^ (N >> 16u)) & 0xFFFFu) / 65535.0f;
+}
+
+inline float SmoothLatticeNoise(float X, float Y) noexcept
+{
+    const int IX = static_cast<int>(std::floor(X));
+    const int IY = static_cast<int>(std::floor(Y));
+    const float FX = X - static_cast<float>(IX);
+    const float FY = Y - static_cast<float>(IY);
+    const float UX = FX * FX * (3.0f - 2.0f * FX);
+    const float UY = FY * FY * (3.0f - 2.0f * FY);
+    const float A = Hash2D(IX, IY);
+    const float B = Hash2D(IX + 1, IY);
+    const float C = Hash2D(IX, IY + 1);
+    const float D = Hash2D(IX + 1, IY + 1);
+    return (A + (B - A) * UX) + ((C - A) + (A - B - C + D) * UX) * UY;
+}
+
+inline float CloudFbm(float X, float Y) noexcept
+{
+    float Sum = 0.0f, Amp = 0.52f, Freq = 1.0f;
+    for (int Oct = 0; Oct < 4; ++Oct)
+    {
+        Sum += SmoothLatticeNoise(X * Freq, Y * Freq) * Amp;
+        Freq *= 2.07f;
+        Amp  *= 0.50f;
+    }
+    return Sum;
+}
 } // namespace
+
+void CloudInspector::UpdateCloudRadarSurface(const GeometricRaster::CloudDeckConfiguration& Clouds)
+{
+    uint64_t Sig = 0xC100A4A1ull;
+    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.CloudFraction);
+    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.ExtinctionMultiplier);
+    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Clouds.WindBearingDegrees);
+
+    const uint32_t W = 240u, H = 178u;
+    CloudRadarPreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    {
+        const float Cov   = std::clamp(Clouds.CloudFraction, 0.0f, 1.0f);
+        const float Dens  = std::clamp(Clouds.ExtinctionMultiplier * 0.45f, 0.15f, 1.15f);
+        const float Bear  = Clouds.WindBearingDegrees * (PiF / 180.0f);
+        const float Ca = std::cos(Bear * 0.35f), Sa = std::sin(Bear * 0.35f);
+        const float CX = static_cast<float>(W) * 0.5f, CY = static_cast<float>(H) * 0.5f;
+
+        for (uint32_t Y = 0u; Y < H; ++Y)
+        {
+            const float V = static_cast<float>(Y) / static_cast<float>(H);
+            for (uint32_t X = 0u; X < W; ++X)
+            {
+                const float U = static_cast<float>(X) / static_cast<float>(W);
+                // Deep blueprint radar backdrop
+                float R = 0.055f + (1.0f - V) * 0.022f;
+                float G = 0.082f + (1.0f - V) * 0.032f;
+                float B = 0.125f + (1.0f - V) * 0.048f;
+
+                // Subtle blueprint coordinate grid + range rings
+                const bool GridV = (X > 4u && X < W - 4u && (X % 40u) == 0u);
+                const bool GridH = (Y > 4u && Y < H - 4u && (Y % 44u) == 0u);
+                if (GridV || GridH) { R += 0.028f; G += 0.042f; B += 0.058f; }
+                const float DistC = std::sqrt((static_cast<float>(X) - CX) * (static_cast<float>(X) - CX) +
+                                              (static_cast<float>(Y) - CY) * (static_cast<float>(Y) - CY));
+                if (std::fabs(DistC - 54.0f) < 0.7f || std::fabs(DistC - 27.0f) < 0.7f)
+                {
+                    R += 0.036f; G += 0.054f; B += 0.075f;
+                }
+
+                // Multi-octave fBM volumetric cloud field with sun-lit billow highlight & soft shadow
+                const float RX = (U - 0.5f) * Ca - (V - 0.5f) * Sa;
+                const float RY = (U - 0.5f) * Sa + (V - 0.5f) * Ca;
+                const float N  = CloudFbm(RX * 5.6f + 4.3f, RY * 4.4f + 2.7f);
+                const float N2 = CloudFbm(RX * 5.6f + 4.18f, RY * 4.4f + 2.58f);
+                const float Thresh = 0.76f - Cov * 0.52f;
+                const float Cloud = std::clamp((N - Thresh) / 0.24f, 0.0f, 1.0f);
+                if (Cloud > 0.005f)
+                {
+                    const float Smooth = Cloud * Cloud * (3.0f - 2.0f * Cloud);
+                    const float Lit    = std::clamp(0.55f + (N - N2) * 3.8f, 0.25f, 1.0f);
+                    const float Opac   = std::clamp(Smooth * (0.48f + 0.44f * Dens), 0.0f, 0.94f);
+                    const float CR = 0.66f + 0.30f * Lit;
+                    const float CG = 0.74f + 0.23f * Lit;
+                    const float CB = 0.84f + 0.14f * Lit;
+                    R = R * (1.0f - Opac) + CR * Opac;
+                    G = G * (1.0f - Opac) + CG * Opac;
+                    B = B * (1.0f - Opac) + CB * Opac;
+                }
+
+                // Bottom scrim so white typography stays ultra-legible
+                if (V > 0.68f)
+                {
+                    const float Scrim = ((V - 0.68f) / 0.32f) * 0.55f;
+                    R *= (1.0f - Scrim); G *= (1.0f - Scrim); B *= (1.0f - Scrim);
+                }
+
+                PutPixel(Pixels, W, X, Y,
+                    static_cast<uint8_t>(std::clamp(std::lround(R * 255.0f), 0l, 255l)),
+                    static_cast<uint8_t>(std::clamp(std::lround(G * 255.0f), 0l, 255l)),
+                    static_cast<uint8_t>(std::clamp(std::lround(B * 255.0f), 0l, 255l)));
+            }
+        }
+    });
+}
 
 void CloudInspector::UpdateCloudDeckSurface(const GeometricRaster::CloudDeckConfiguration& Clouds)
 {
@@ -102,41 +209,15 @@ float CloudInspector::Construct(
 
     if (ActivePage == 0u)
     {
-        // 1:1 HTML Blueprint radar swath hero section + integrated 2x2 stat tiles
+        UpdateCloudRadarSurface(Clouds);
+        // 1:1 HTML Blueprint volumetric fBM radar swath hero section + integrated 2x2 stat tiles
         const Rectangle2D S { LeftX, CursorY, InnerWidth, 336.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud deck", "12 KM SWATH");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
 
         const Rectangle2D Swath { LeftX + PadX, Y, BodyW, 178.0f };
-        Surface.FillRectangle(Swath, ColorRgba{ 16u, 22u, 32u, 255u }, 12.0f);
+        CloudRadarPreview.Present(Surface, Swath, 12.0f);
         Surface.PushClip(Swath);
-
-        // Blueprint coordinate grid
-        for (int G = 1; G <= 5; ++G)
-        {
-            const float GX = Swath.X + Swath.Width * (static_cast<float>(G) / 6.0f);
-            Surface.StrokeLine({ GX, Swath.Y }, { GX, Swath.Bottom() }, ColorRgba{ 118u, 166u, 218u, 18u }, 1.0f);
-        }
-        for (int G = 1; G <= 3; ++G)
-        {
-            const float GY = Swath.Y + Swath.Height * (static_cast<float>(G) / 4.0f);
-            Surface.StrokeLine({ Swath.X, GY }, { Swath.Right(), GY }, ColorRgba{ 118u, 166u, 218u, 18u }, 1.0f);
-        }
-        Surface.StrokeCircle(Swath.Center(), 54.0f, ColorRgba{ 132u, 182u, 232u, 28u }, 1.0f);
-        Surface.StrokeCircle(Swath.Center(), 27.0f, ColorRgba{ 132u, 182u, 232u, 22u }, 1.0f);
-
-        // Soft cloud cells weighted by CloudFraction
-        const int CellCount = static_cast<int>(std::clamp(Clouds.CloudFraction * 26.0f, 0.0f, 26.0f));
-        const uint8_t CloudA = static_cast<uint8_t>(std::clamp(32.0f + Clouds.ExtinctionMultiplier * 28.0f, 24.0f, 118.0f));
-        for (int C = 0; C < CellCount; ++C)
-        {
-            const float HX = std::fabs(std::fmod(std::sin(static_cast<float>(C + 1) * 41.73f) * 43758.5f, 1.0f));
-            const float HY = std::fabs(std::fmod(std::sin(static_cast<float>(C + 1) * 19.31f) * 19283.7f, 1.0f));
-            const float Rad = 14.0f + 18.0f * std::fabs(std::fmod(std::sin(static_cast<float>(C + 3) * 13.7f) * 9123.3f, 1.0f));
-            const Point2D Pt { Swath.X + 20.0f + HX * (Swath.Width - 40.0f), Swath.Y + 26.0f + HY * (Swath.Height - 64.0f) };
-            Surface.FillCircle(Pt, Rad, ColorRgba{ 212u, 228u, 246u, static_cast<uint8_t>(CloudA / 2u) });
-            Surface.FillCircle(Pt, Rad * 0.62f, ColorRgba{ 232u, 242u, 255u, CloudA });
-        }
 
         // Top-left north compass indicator & drift vector arrow
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::SemiBold, { Swath.X + 10.0f, Swath.Y + 8.0f }, 9.0f, ColorRgba{ 162u, 206u, 248u, 235u }, "N");
@@ -191,14 +272,19 @@ float CloudInspector::Construct(
     }
     else if (ActivePage == 1u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 210.0f };
+        UpdateCloudRadarSurface(Clouds);
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Cloud coverage");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char Pct[16]{}; std::snprintf(Pct, sizeof(Pct), "%.0f", Clouds.CloudFraction * 100.0f);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, Pct, "%", "Horizontal sky cloud fraction");
+        const Rectangle2D PreviewBox { LeftX + PadX, Y + 4.0f, BodyW, 128.0f };
+        CloudRadarPreview.Present(Surface, PreviewBox, 10.0f);
+        Surface.StrokeRectangle(PreviewBox, ColorRgba{ 138u, 184u, 232u, 32u }, 10.0f, 1.0f);
+        Y = PreviewBox.Bottom() + 12.0f;
         float PctVal = Clouds.CloudFraction * 100.0f;
         bool Changed = false;
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y + 4.0f, BodyW, 3101u, "Fraction", "%", "%.0f", 0.0f, 100.0f, PctVal, ActiveDragId, Input, Changed);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 3101u, "Coverage", "%", "%.0f", 0.0f, 100.0f, PctVal, ActiveDragId, Input, Changed);
         if (Changed) { Clouds.CloudFraction = PctVal * 0.01f; OutMutated = true; }
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }

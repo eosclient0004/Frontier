@@ -108,20 +108,74 @@ float LocalFogInspector::Construct(
     }
     else if (ActivePage == 1u)
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Local fog density");
+        // 1:1 HTML Medium tab: Medium sliders + FogBeamChamber volumetric beam scattering study
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 356.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Medium");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+
+        const Rectangle2D Chamber { LeftX + PadX, Y, BodyW, 114.0f };
+        Surface.FillRectangle(Chamber, ColorRgba{ 16u, 18u, 22u, 255u }, 10.0f);
+        Surface.PushClip(Chamber);
+        const uint8_t TR = static_cast<uint8_t>(std::clamp(Fog.FogTint.R * 255.0f, 55.0f, 255.0f));
+        const uint8_t TG = static_cast<uint8_t>(std::clamp(Fog.FogTint.G * 255.0f, 55.0f, 255.0f));
+        const uint8_t TB = static_cast<uint8_t>(std::clamp(Fog.FogTint.B * 255.0f, 55.0f, 255.0f));
+        const Point2D EmitP { Chamber.X + 22.0f, Chamber.Y + 20.0f };
+        const float ScatA = std::clamp(Fog.Density * 0.35f, 0.10f, 0.85f);
+        for (int Layer = 0; Layer < 4; ++Layer)
+        {
+            const float Spread = 18.0f + static_cast<float>(Layer) * 18.0f;
+            const std::array<Point2D, 3u> Cone = {{
+                EmitP,
+                { Chamber.Right() - 12.0f, Chamber.Bottom() - 8.0f - Spread * 0.4f },
+                { Chamber.X + 48.0f + Spread * 1.4f, Chamber.Bottom() },
+            }};
+            Surface.FillPolygon(Cone, ColorRgba{ TR, TG, TB, static_cast<uint8_t>(ScatA * (42.0f - static_cast<float>(Layer) * 8.0f)) });
+        }
+        Surface.FillCircle(EmitP, 6.0f, ColorRgba{ 255u, 242u, 214u, 240u });
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Chamber.X + 10.0f, Chamber.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "BEAM CHAMBER · IN-SCATTERING");
+        Surface.PopClip();
+        Surface.StrokeRectangle(Chamber, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        Y = Chamber.Bottom() + 12.0f;
+
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6301u, "Density", "x", "%.2f", 0.0f, 4.0f, Fog.Density, ActiveDragId, Input, OutMutated);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6302u, "Edge softness", "", "%.2f", 0.0f, 1.0f, Fog.EdgeSoftness, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6303u, "Half extent X", "m", "%.1f", 1.0f, 400.0f, Fog.HalfExtentMeters.X, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 6310u, "Volume tint", Fog.FogTint, ActiveDragId, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 162.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Local fog tint");
+        // 1:1 HTML Shape tab: FogShapePanel wireframe bounding box diagram + Half Extents X / Y / Z
+        const Rectangle2D S { LeftX, CursorY, InnerWidth, 374.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Volume shape");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 6310u, "Volume tint", Fog.FogTint, ActiveDragId, Input, OutMutated);
+
+        const Rectangle2D Well { LeftX + PadX, Y, BodyW, 114.0f };
+        Surface.FillRectangle(Well, ColorRgba{ 19u, 20u, 24u, 255u }, 10.0f);
+        Surface.PushClip(Well);
+        const Point2D C = Well.Center();
+        const float MaxE = std::max({ 1.0f, Fog.HalfExtentMeters.X, Fog.HalfExtentMeters.Y, Fog.HalfExtentMeters.Z });
+        const float BX = (Fog.HalfExtentMeters.X / MaxE) * 58.0f;
+        const float BY = (Fog.HalfExtentMeters.Y / MaxE) * 32.0f;
+        const float OffX = 16.0f, OffY = -10.0f;
+        const Rectangle2D Front { C.X - BX * 0.5f - OffX * 0.3f, C.Y - BY * 0.5f + 6.0f, BX, BY };
+        const Rectangle2D Back  { Front.X + OffX, Front.Y + OffY, BX, BY };
+        Surface.FillRectangle(Front, ColorRgba{ 156u, 188u, 218u, 36u }, 2.0f);
+        Surface.StrokeRectangle(Back,  ColorRgba{ 156u, 188u, 218u, 96u }, 0.0f, 1.0f);
+        Surface.StrokeRectangle(Front, ColorRgba{ 196u, 220u, 246u, 210u }, 0.0f, 1.3f);
+        Surface.StrokeLine({ Front.X, Front.Y }, { Back.X, Back.Y }, ColorRgba{ 156u, 188u, 218u, 130u }, 1.0f);
+        Surface.StrokeLine({ Front.Right(), Front.Y }, { Back.Right(), Back.Y }, ColorRgba{ 156u, 188u, 218u, 130u }, 1.0f);
+        Surface.StrokeLine({ Front.X, Front.Bottom() }, { Back.X, Back.Bottom() }, ColorRgba{ 156u, 188u, 218u, 130u }, 1.0f);
+        Surface.StrokeLine({ Front.Right(), Front.Bottom() }, { Back.Right(), Back.Bottom() }, ColorRgba{ 156u, 188u, 218u, 130u }, 1.0f);
+        char DimBuf[48]{};
+        std::snprintf(DimBuf, sizeof(DimBuf), "%.0f \xC3\x97 %.0f \xC3\x97 %.0f m", Fog.HalfExtentMeters.X * 2.0f, Fog.HalfExtentMeters.Y * 2.0f, Fog.HalfExtentMeters.Z * 2.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 10.0f, Well.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, DimBuf);
+        Surface.PopClip();
+        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+        Y = Well.Bottom() + 12.0f;
+
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6303u, "Half extent X", "m", "%.1f", 1.0f, 400.0f, Fog.HalfExtentMeters.X, ActiveDragId, Input, OutMutated);
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6304u, "Half extent Y", "m", "%.1f", 1.0f, 200.0f, Fog.HalfExtentMeters.Y, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 6305u, "Half extent Z", "m", "%.1f", 1.0f, 400.0f, Fog.HalfExtentMeters.Z, ActiveDragId, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
 

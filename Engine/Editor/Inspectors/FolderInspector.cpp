@@ -18,15 +18,15 @@ float FolderInspector::Construct(
     OutlinerRecordEntry& FolderEntry, OutlinerPanel& Outliner,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Contents" }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
+    (void)OutPageSwitched;
+    // 1:1 HTML FolderInspector.jsx: single flowing collection inventory (NO invented tab strip)
+    float CursorY = TopY;
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
     const uint32_t DirectCount = Outliner.CountDirectNested(FolderEntry.Token);
     const uint32_t TotalCount  = Outliner.CountAllNested(FolderEntry.Token);
     const uint32_t FolderCount = Outliner.CountNestedFolders(FolderEntry.Token);
 
-    if (ActivePage == 0u)
     {
         // Count visible vs hidden direct entries & composition categories
         uint32_t VisCount = 0u, HidCount = 0u;
@@ -135,7 +135,6 @@ float FolderInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, FolderEntry.AuthorNotes);
     }
-    else
     {
         uint32_t Listed = 0u;
         for (const auto& Entry : Outliner.QueryEntries())

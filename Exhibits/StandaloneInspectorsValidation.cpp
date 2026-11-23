@@ -477,7 +477,7 @@ int main()
     CamInst.TripodMounted = false; // Floating crane / rig
     CamInst.MountHeightMeters = 2.4f;
     CamInst.CameraRollDegrees = -8.0f;
-    Inspectors.QueryCamera().SetActivePage(3u); // Mount page
+    Inspectors.QueryCamera().SetActivePage(1u); // Mount page (Tab 2 matching HTML)
     AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CameraTok, OutDir / "28-Camera-Mount.png"), "28-Camera-Mount.png");
     Inspectors.QueryCamera().SetActivePage(0u);
 
@@ -686,6 +686,77 @@ title = "Overview"
         AllOk &= VerifyRequirement(
             FirstWasCapture && SecondWasReplay && SwitchRebuilt && PostSwitchReplay,
             "InspectorPanel RetainedCanvasCache replays stationary frames (0 redraw) & rebuilds only on active card change");
+    }
+
+    // 12. Render ALL fixed tabs across every aligned inspector into Exhibits/Images/StandaloneInspectors/Tabs/
+    {
+        const auto TabsDir = OutDir / "Tabs";
+        std::filesystem::create_directories(TabsDir, DirEc);
+        auto CaptureTab = [&](auto& InspectorObj, OutlinerSlotToken Tok, uint32_t PageIdx, const char* FileName)
+        {
+            InspectorObj.SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, Tok, TabsDir / FileName),
+                FileName);
+            InspectorObj.SetActivePage(0u);
+        };
+
+        // Luminaires Tab 2: Source
+        CaptureTab(Inspectors.QueryPointLight(), PointLightTok, 1u, "PointLight-02-Source.png");
+        CaptureTab(Inspectors.QuerySpotLight(),  SpotLightTok,  1u, "SpotLight-02-Source.png");
+        CaptureTab(Inspectors.QueryIesLight(),   IesLightTok,   1u, "IesLight-02-Source.png");
+        CaptureTab(Inspectors.QueryAreaLight(),  AreaLightTok,  1u, "AreaLight-02-Source.png");
+        CaptureTab(Inspectors.QueryTubeLight(),  TubeLightTok,  1u, "TubeLight-02-Source.png");
+        CaptureTab(Inspectors.QueryLedLight(),   LedLightTok,   1u, "LedLight-02-Source.png");
+        CaptureTab(Inspectors.QueryLedStrip(),   LedStripTok,   1u, "LedStrip-02-Source.png");
+
+        // Environment Light, Post Process, Motion Blur, Lens Flare
+        CaptureTab(Inspectors.QueryEnvironmentLight(), EnvLightTok, 1u, "EnvironmentLight-02-Settings.png");
+        CaptureTab(Inspectors.QueryPostProcess(),      PostFxTok,   1u, "PostProcess-02-Settings.png");
+        CaptureTab(Inspectors.QueryMotionBlur(),       MotionBlurTok, 0u, "MotionBlur-01-Overview.png");
+        CaptureTab(Inspectors.QueryMotionBlur(),       MotionBlurTok, 1u, "MotionBlur-02-Settings.png");
+        CaptureTab(Inspectors.QueryLensFlare(),        LensFlareTok, 0u, "LensFlare-01-Overview.png");
+        CaptureTab(Inspectors.QueryLensFlare(),        LensFlareTok, 1u, "LensFlare-02-Optics.png");
+        CaptureTab(Inspectors.QueryLensFlare(),        LensFlareTok, 2u, "LensFlare-03-Halo.png");
+        CaptureTab(Inspectors.QueryLensFlare(),        LensFlareTok, 3u, "LensFlare-04-Baking.png");
+
+        // Camera all secondary tabs (Mount, Focus, Body, Render)
+        CaptureTab(Inspectors.QueryCamera(), CameraTok, 2u, "Camera-03-Focus.png");
+        CaptureTab(Inspectors.QueryCamera(), CameraTok, 3u, "Camera-04-Body.png");
+        CaptureTab(Inspectors.QueryCamera(), CameraTok, 4u, "Camera-05-Render.png");
+
+        // Fog all secondary tabs
+        CaptureTab(Inspectors.QueryHeightFog(),      HeightFog1Tok, 1u, "HeightFog-02-Density.png");
+        CaptureTab(Inspectors.QueryHeightFog(),      HeightFog1Tok, 2u, "HeightFog-03-Light.png");
+        CaptureTab(Inspectors.QueryAtmosphericFog(), AerialFogTok,  0u, "AtmosphericFog-01-Overview.png");
+        CaptureTab(Inspectors.QueryAtmosphericFog(), AerialFogTok,  1u, "AtmosphericFog-02-Spectrum.png");
+        CaptureTab(Inspectors.QueryLocalFog(),       LocalFogTok,   0u, "LocalFog-01-Overview.png");
+        CaptureTab(Inspectors.QueryLocalFog(),       LocalFogTok,   1u, "LocalFog-02-Medium.png");
+        CaptureTab(Inspectors.QueryLocalFog(),       LocalFogTok,   2u, "LocalFog-03-Shape.png");
+
+        // Cloud & Local Cloud (fBM volumetric radar + Coverage + Layer)
+        CaptureTab(Inspectors.QueryCloud(),      CloudTok,      1u, "Cloud-02-Coverage.png");
+        CaptureTab(Inspectors.QueryCloud(),      CloudTok,      2u, "Cloud-03-Layer.png");
+        CaptureTab(Inspectors.QueryLocalCloud(), LocalCloudTok, 0u, "LocalCloud-01-Overview.png");
+        CaptureTab(Inspectors.QueryLocalCloud(), LocalCloudTok, 1u, "LocalCloud-02-Coverage.png");
+        CaptureTab(Inspectors.QueryLocalCloud(), LocalCloudTok, 2u, "LocalCloud-03-Layer.png");
+
+        // Precipitation & Rainbow all tabs
+        CaptureTab(Inspectors.QueryPrecipitation(), PrecipTok,  0u, "Precipitation-01-Overview.png");
+        CaptureTab(Inspectors.QueryPrecipitation(), PrecipTok,  1u, "Precipitation-02-Particles.png");
+        CaptureTab(Inspectors.QueryPrecipitation(), PrecipTok,  2u, "Precipitation-03-Simulation.png");
+        CaptureTab(Inspectors.QueryRainbow(),       RainbowTok, 0u, "Rainbow-01-Overview.png");
+        CaptureTab(Inspectors.QueryRainbow(),       RainbowTok, 1u, "Rainbow-02-Bow.png");
+        CaptureTab(Inspectors.QueryRainbow(),       RainbowTok, 2u, "Rainbow-03-Baking.png");
+
+        // Geometry 8-tab workspaces (Components, Geometry, Material, UV, Fracture, SDF, LOD)
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 1u, "Geometry-02-Components.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 2u, "Geometry-03-Geometry.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 3u, "Geometry-04-Material.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 4u, "Geometry-05-UV.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 5u, "Geometry-06-Fracture.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 6u, "Geometry-07-SDF.png");
+        CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 7u, "Geometry-08-LOD.png");
     }
 
     TypographyRepository::AssignCurrent(nullptr);

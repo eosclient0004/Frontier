@@ -1831,6 +1831,183 @@ float ConstructLuminaireShadowsSection(
     return S.Bottom() + InspectorMetrics::SectionGap;
 }
 
+float ConstructUvWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    UvChannelCount,
+    const char* ProjectionLabel) noexcept
+{
+    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const Rectangle2D S { LeftX, TopY, InnerWidth, 276.0f };
+    ConstructSectionSurface(Surface, S, "UV layout", ProjectionLabel);
+    float Y = TopY + InspectorMetrics::SectionPadTop + 28.0f;
+
+    const Rectangle2D Well { LeftX + PadX, Y, BodyW, 132.0f };
+    Surface.FillRectangle(Well, ColorRgba{ 19u, 20u, 24u, 255u }, 10.0f);
+    Surface.PushClip(Well);
+    // Subtle 8x4 UV tile checker + packed UV island outlines
+    const float CellW = Well.Width / 8.0f, CellH = Well.Height / 4.0f;
+    for (int R = 0; R < 4; ++R)
+    {
+        for (int C = 0; C < 8; ++C)
+        {
+            if (((R + C) & 1) == 0)
+            {
+                Surface.FillRectangle({ Well.X + static_cast<float>(C) * CellW, Well.Y + static_cast<float>(R) * CellH, CellW, CellH }, ColorRgba{ 255u, 255u, 255u, 8u }, 0.0f);
+            }
+        }
+    }
+    const std::array<Rectangle2D, 3u> Islands = {{
+        { Well.X + 14.0f, Well.Y + 14.0f, Well.Width * 0.42f, Well.Height * 0.56f },
+        { Well.X + Well.Width * 0.50f, Well.Y + 14.0f, Well.Width * 0.42f, Well.Height * 0.34f },
+        { Well.X + Well.Width * 0.50f, Well.Y + Well.Height * 0.54f, Well.Width * 0.38f, Well.Height * 0.32f },
+    }};
+    for (const auto& Isl : Islands)
+    {
+        Surface.FillRectangle(Isl, ColorRgba{ 122u, 184u, 255u, 42u }, 4.0f);
+        Surface.StrokeRectangle(Isl, ColorRgba{ 146u, 202u, 255u, 215u }, 4.0f, 1.2f);
+    }
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 8.0f, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "UV [0..1] ATLAS · PACKED ISLANDS");
+    Surface.PopClip();
+    Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+    Y = Well.Bottom() + 12.0f;
+
+    char ChBuf[16]{};
+    std::snprintf(ChBuf, sizeof(ChBuf), "%u %s", UvChannelCount, UvChannelCount == 1u ? "set" : "sets");
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "UV channels", ChBuf);
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Texel packing", "84% efficiency");
+    (void)ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Projection", ProjectionLabel);
+    return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
+float ConstructFractureWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    CellCount,
+    const char* ModeLabel) noexcept
+{
+    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const Rectangle2D S { LeftX, TopY, InnerWidth, 276.0f };
+    ConstructSectionSurface(Surface, S, "Fracture cells", ModeLabel);
+    float Y = TopY + InspectorMetrics::SectionPadTop + 28.0f;
+
+    const Rectangle2D Well { LeftX + PadX, Y, BodyW, 132.0f };
+    Surface.FillRectangle(Well, ColorRgba{ 20u, 19u, 22u, 255u }, 10.0f);
+    Surface.PushClip(Well);
+    const Point2D C = Well.Center();
+    // Stylized Voronoi fracture cell shards radiating around impact centre
+    const std::array<Point2D, 7u> Ring = {{
+        { C.X - 46.0f, C.Y - 28.0f }, { C.X - 4.0f,  C.Y - 40.0f }, { C.X + 44.0f, C.Y - 24.0f },
+        { C.X + 54.0f, C.Y + 14.0f }, { C.X + 12.0f, C.Y + 38.0f }, { C.X - 36.0f, C.Y + 30.0f },
+        { C.X - 56.0f, C.Y + 2.0f  },
+    }};
+    for (std::size_t I = 0u; I < Ring.size(); ++I)
+    {
+        const Point2D& A = Ring[I];
+        const Point2D& B = Ring[(I + 1u) % Ring.size()];
+        const std::array<Point2D, 3u> Tri = {{ C, A, B }};
+        const uint8_t Shade = static_cast<uint8_t>(26 + (I % 3u) * 14);
+        Surface.FillPolygon(Tri, ColorRgba{ static_cast<uint8_t>(Shade + 18u), Shade, static_cast<uint8_t>(Shade + 4u), 165u });
+        Surface.StrokePolyline(Tri, ColorRgba{ 246u, 118u, 118u, 175u }, 1.1f, true);
+    }
+    Surface.FillCircle(C, 3.0f, ColorRgba{ 255u, 138u, 138u, 255u });
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 8.0f, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "VORONOI SHARDS · INTERIOR SEAMS");
+    Surface.PopClip();
+    Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+    Y = Well.Bottom() + 12.0f;
+
+    char CellsBuf[20]{};
+    std::snprintf(CellsBuf, sizeof(CellsBuf), "%u pieces", CellCount);
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Fracture cells", CellsBuf);
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Interior roughness", "0.78");
+    (void)ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Mode", ModeLabel);
+    return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
+float ConstructSdfWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    bool        SdfActive,
+    const char* BoundsLabel) noexcept
+{
+    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const Rectangle2D S { LeftX, TopY, InnerWidth, 276.0f };
+    ConstructSectionSurface(Surface, S, "Signed distance field", SdfActive ? "Baked" : "Analytic");
+    float Y = TopY + InspectorMetrics::SectionPadTop + 28.0f;
+
+    const Rectangle2D Well { LeftX + PadX, Y, BodyW, 132.0f };
+    Surface.FillRectangle(Well, ColorRgba{ 16u, 22u, 21u, 255u }, 10.0f);
+    Surface.PushClip(Well);
+    const Point2D C = Well.Center();
+    // Concentric SDF iso-distance contours (interior teal, zero iso-surface bright sage, exterior fading)
+    for (int Ring = 5; Ring >= 1; --Ring)
+    {
+        const float Rad = 12.0f + static_cast<float>(Ring) * 11.5f;
+        const bool IsZero = (Ring == 2);
+        const ColorRgba StrokeCol = IsZero ? ColorRgba{ 156u, 224u, 188u, 240u }
+                                           : (Ring < 2 ? ColorRgba{ 106u, 186u, 162u, 150u }
+                                                       : ColorRgba{ 138u, 188u, 168u, static_cast<uint8_t>(110 - Ring * 14) });
+        Surface.StrokeCircle(C, Rad, StrokeCol, IsZero ? 1.8f : 1.0f);
+    }
+    Surface.FillCircle(C, 22.0f, ColorRgba{ 118u, 198u, 166u, 42u });
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 8.0f, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "ISO-DISTANCE SLICE · ZERO CONTOUR");
+    Surface.PopClip();
+    Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+    Y = Well.Bottom() + 12.0f;
+
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Local SDF field", SdfActive ? "Active (64^3)" : "Analytic exact");
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Bounds", BoundsLabel);
+    (void)ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Raymarch AO", "Enabled");
+    return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
+float ConstructLodWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    TriangleCount,
+    uint32_t    ClusterCount) noexcept
+{
+    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    const Rectangle2D S { LeftX, TopY, InnerWidth, 276.0f };
+    ConstructSectionSurface(Surface, S, "Cluster LOD pyramid", "4 levels");
+    float Y = TopY + InspectorMetrics::SectionPadTop + 28.0f;
+
+    const Rectangle2D Well { LeftX + PadX, Y, BodyW, 132.0f };
+    Surface.FillRectangle(Well, ColorRgba{ 21u, 20u, 19u, 255u }, 10.0f);
+    Surface.PushClip(Well);
+    static constexpr std::array<float, 4u> Fracs = {{ 1.00f, 0.52f, 0.24f, 0.09f }};
+    static constexpr std::array<const char*, 4u> Names = {{ "LOD 0", "LOD 1", "LOD 2", "LOD 3" }};
+    const float BarAreaW = Well.Width - 68.0f;
+    for (std::size_t I = 0u; I < 4u; ++I)
+    {
+        const float RowY = Well.Y + 14.0f + static_cast<float>(I) * 26.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 10.0f, RowY + 2.0f }, 8.8f, InspectorMetrics::MutedInk, Names[I]);
+        const float BW = std::max(10.0f, BarAreaW * Fracs[I]);
+        Surface.FillRectangle({ Well.X + 52.0f, RowY, BarAreaW, 14.0f }, ColorRgba{ 32u, 32u, 36u, 255u }, 4.0f);
+        Surface.FillRectangle({ Well.X + 52.0f, RowY, BW, 14.0f }, ColorRgba{ 237u, 193u, 129u, static_cast<uint8_t>(220 - I * 36) }, 4.0f);
+    }
+    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Well.X + 10.0f, Well.Bottom() - 14.0f }, 8.0f, InspectorMetrics::DimInk, "CLUSTER DECIMATION · PIXEL ERROR");
+    Surface.PopClip();
+    Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 10.0f, 1.0f);
+    Y = Well.Bottom() + 12.0f;
+
+    char TriBuf[24]{}, ClsBuf[24]{};
+    std::snprintf(TriBuf, sizeof(TriBuf), "%u tris", TriangleCount);
+    std::snprintf(ClsBuf, sizeof(ClsBuf), "%u clusters", ClusterCount);
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Base triangles (LOD 0)", TriBuf);
+    Y = ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Meshlet clusters", ClsBuf);
+    (void)ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "LOD transition", "Screen-space error");
+    return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
 void ConstructInspectorFooter(
     PixelSpace& Surface,
     Rectangle2D FooterBounds,

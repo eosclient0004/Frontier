@@ -19,7 +19,7 @@ float PostProcessInspector::Construct(
     ViewportDisplaySettings* DisplaySettings,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 3u> Pages = {{ "Overview", "Tone", "Colour" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Settings" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
@@ -69,10 +69,10 @@ float PostProcessInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 344.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Exposure & tone curve");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 344.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Exposure & tone curve");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         std::array<float, 28u> Curve{};
         const float Gain = std::pow(2.0f, Instance.ExposureEv);
@@ -86,16 +86,14 @@ float PostProcessInspector::Construct(
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7201u, "Exposure", "EV", "%.2f", -4.0f, 4.0f, Instance.ExposureEv, ActiveDragId, Input, OutMutated);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7202u, "Vignette", "", "%.2f", 0.0f, 1.0f, Instance.VignetteStrength, ActiveDragId, Input, OutMutated);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7203u, "Chromatic shift", "", "%.2f", 0.0f, 1.0f, Instance.ChromaticShift, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 212.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Colour grading");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 212.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Colour grading");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7204u, "Contrast", "x", "%.2f", 0.5f, 1.8f, Instance.ContrastGain, ActiveDragId, Input, OutMutated);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7205u, "Saturation", "x", "%.2f", 0.0f, 2.0f, Instance.SaturationGain, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
     }
     return CursorY;
 }

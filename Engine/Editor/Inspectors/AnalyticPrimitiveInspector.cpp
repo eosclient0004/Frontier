@@ -180,7 +180,7 @@ float AnalyticPrimitiveInspector::Construct(
     GeometricRaster::WorldSceneSpecification& Scene,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Shape", "Transform", "Material", "Physics" }};
+    static constexpr std::array<const char*, 8u> Pages = {{ "Overview", "Components", "Geometry", "Material", "UV", "Fracture", "SDF", "LOD" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
     const char* ActiveFormLabel = FormLabels[std::min<std::size_t>(Instance.FormIndex, FormLabels.size() - 1u)];
@@ -233,9 +233,9 @@ float AnalyticPrimitiveInspector::Construct(
         Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Geometry shape", ShapeMeta, true, Input, HitShape);
         Y = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "OpenPBR surface", Instance.Surface.Metallic > 0.5f ? "Metallic" : "Dielectric", true, Input, HitMat);
         (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, Y, BodyW, "Rigid body & collision", Entry.DynamicMotion ? "Dynamic" : "Static", false, Input, HitPhys);
-        if (HitShape) { ActivePage = 1u; OutPageSwitched = true; }
+        if (HitShape) { ActivePage = 2u; OutPageSwitched = true; }
         else if (HitMat) { ActivePage = 3u; OutPageSwitched = true; }
-        else if (HitPhys) { ActivePage = 4u; OutPageSwitched = true; }
+        else if (HitPhys) { ActivePage = 1u; OutPageSwitched = true; }
         CursorY = CompSec.Bottom() + InspectorMetrics::SectionGap;
 
         // Icon capture section with compact thumbnail + action button
@@ -272,6 +272,11 @@ float AnalyticPrimitiveInspector::Construct(
     }
     else if (ActivePage == 1u)
     {
+        CursorY = InspectorPrimitives::ConstructPhysicsSection(Surface, LeftX, CursorY, InnerWidth, Entry, "Exact analytic SDF", Input, OutMutated);
+    }
+    else if (ActivePage == 2u)
+    {
+        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7520u, ActiveDragId, Input, OutMutated);
         const Rectangle2D S { LeftX, CursorY, InnerWidth, 492.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, S, "Analytic form & dimensions");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
@@ -289,19 +294,27 @@ float AnalyticPrimitiveInspector::Construct(
         (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Watertight solid", Instance.Watertight, Input, OutMutated);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
     }
-    else if (ActivePage == 2u)
-    {
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7520u, ActiveDragId, Input, OutMutated);
-    }
     else if (ActivePage == 3u)
     {
         bool MatChanged = false;
         CursorY = InspectorPrimitives::ConstructMaterialSection(Surface, LeftX, CursorY, InnerWidth, Instance.Surface, 7540u, ActiveDragId, Input, MatChanged);
         if (MatChanged) { SyncMaterialToScene(Instance.Surface, Scene); OutMutated = true; }
     }
+    else if (ActivePage == 4u)
+    {
+        CursorY = InspectorPrimitives::ConstructUvWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, 1u, ActiveFormLabel);
+    }
+    else if (ActivePage == 5u)
+    {
+        CursorY = InspectorPrimitives::ConstructFractureWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, 16u, "Voronoi uniform");
+    }
+    else if (ActivePage == 6u)
+    {
+        CursorY = InspectorPrimitives::ConstructSdfWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, Instance.Watertight, ActiveFormLabel);
+    }
     else
     {
-        CursorY = InspectorPrimitives::ConstructPhysicsSection(Surface, LeftX, CursorY, InnerWidth, Entry, "Exact analytic SDF", Input, OutMutated);
+        CursorY = InspectorPrimitives::ConstructLodWorkspaceSection(Surface, LeftX, CursorY, InnerWidth, Instance.RadialSegments * 32u, std::max(1u, Instance.RadialSegments / 4u));
     }
 
     return CursorY;

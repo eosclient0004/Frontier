@@ -33,11 +33,13 @@ public:
     [[nodiscard]] uint32_t QueryActivePage() const noexcept { return ActivePage; }
 
 private:
+    void UpdateCloudRadarSurface(const GeometricRaster::CloudDeckConfiguration& Clouds);
     void UpdateCloudDeckSurface(const GeometricRaster::CloudDeckConfiguration& Clouds);
 
-    uint32_t                ActivePage       = 0u;
-    uint32_t                ActiveDragId     = 0u;
-    InspectorPreviewSurface CloudDeckPreview {};
+    uint32_t                ActivePage        = 0u;
+    uint32_t                ActiveDragId      = 0u;
+    InspectorPreviewSurface CloudRadarPreview {};
+    InspectorPreviewSurface CloudDeckPreview  {};
 };
 
 } // namespace Frontier

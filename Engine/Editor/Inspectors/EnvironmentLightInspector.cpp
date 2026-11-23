@@ -190,7 +190,7 @@ float EnvironmentLightInspector::Construct(
     ViewportDisplaySettings* DisplaySettings,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 3u> Pages = {{ "Overview", "Source", "Response" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Settings" }};
     static constexpr std::array<const char*, 5u> SourceLabels = {{
         "Sky atmosphere", "HDRI · studio", "HDRI · overcast", "HDRI · sunset", "Uniform colour"
     }};
@@ -244,46 +244,45 @@ float EnvironmentLightInspector::Construct(
         InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "BOUNCE", BncVal);
         CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
 
-        const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Visible",     InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
-            { "Indirect GI", InspectorSwitchSymbol::Orbit,   Instance.IndirectGi,     false },
+        const bool SpecOn = DisplaySettings ? DisplaySettings->ReflectionsEnabled : true;
+        const bool AoOn   = DisplaySettings ? DisplaySettings->XeGtaoEnabled      : true;
+        const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
+            { "Enabled",           InspectorSwitchSymbol::Eye,   Entry.VisibilityEnabled, false },
+            { "Diffuse",           InspectorSwitchSymbol::Orbit, Instance.IndirectGi,     false },
+            { "Specular",          InspectorSwitchSymbol::Stars, SpecOn,                  false },
+            { "Ambient occlusion", InspectorSwitchSymbol::Sun,   AoOn,                    false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
         if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
         else if (Clicked == 1) { Instance.IndirectGi = !Instance.IndirectGi; OutMutated = true; }
+        else if (Clicked == 2 && DisplaySettings) { DisplaySettings->ReflectionsEnabled = !DisplaySettings->ReflectionsEnabled; OutMutated = true; }
+        else if (Clicked == 3 && DisplaySettings) { DisplaySettings->XeGtaoEnabled = !DisplaySettings->XeGtaoEnabled; OutMutated = true; }
 
         static constexpr std::array<const char*, 2u> Tags = {{ "sky-light", "ibl" }};
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 370.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Environment source", Preset.Title);
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        int32_t PickSrc = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Source preset", SourceLabels, Instance.SourcePresetIndex, 2u, Input, PickSrc);
-        if (PickSrc >= 0) { Instance.SourcePresetIndex = static_cast<uint32_t>(PickSrc); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7181u, "Rotation", "deg", "%.0f", 0.0f, 360.0f, Instance.RotationDegrees, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 7180u, "Sky colour", Instance.SkyRadiance, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
     else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 376.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Response & indirect GI");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 370.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source", Preset.Title);
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        int32_t PickSrc = -1;
+        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Source", SourceLabels, Instance.SourcePresetIndex, 2u, Input, PickSrc);
+        if (PickSrc >= 0) { Instance.SourcePresetIndex = static_cast<uint32_t>(PickSrc); OutMutated = true; }
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7181u, "Rotation", "deg", "%.0f", 0.0f, 360.0f, Instance.RotationDegrees, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 7180u, "Colour", Instance.SkyRadiance, ActiveDragId, Input, OutMutated);
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 286.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Response");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7190u, "Intensity", "x", "%.2f", 0.0f, 4.0f, Instance.GainScale, ActiveDragId, Input, OutMutated);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7191u, "Exposure", "EV", "%+.1f", -4.0f, 4.0f, Instance.ExposureEv, ActiveDragId, Input, OutMutated);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7192u, "Saturation", "", "%.2f", 0.0f, 2.0f, Instance.Saturation, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7193u, "Ground bounce", "", "%.2f", 0.0f, 1.0f, Instance.GroundBounce, ActiveDragId, Input, OutMutated);
-        if (DisplaySettings)
-        {
-            Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "XeGTAO occlusion", DisplaySettings->XeGtaoEnabled, Input, OutMutated);
-            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Reflections", DisplaySettings->ReflectionsEnabled, Input, OutMutated);
-        }
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7193u, "Ground bounce", "", "%.2f", 0.0f, 1.0f, Instance.GroundBounce, ActiveDragId, Input, OutMutated);
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
     }
 
     return CursorY;

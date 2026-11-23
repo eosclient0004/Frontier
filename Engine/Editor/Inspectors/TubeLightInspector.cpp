@@ -124,7 +124,7 @@ float TubeLightInspector::Construct(
     OutlinerRecordEntry& Entry, TubeLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Output", "Emitter", "Placement", "Shadows" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
@@ -180,36 +180,36 @@ float TubeLightInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 294.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Source & colour");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 354.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", Instance.LuminousFlux);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Authored luminous flux");
+        const float HalfW = (BodyW - 8.0f) * 0.5f;
+        char LinStat[24]{}, RadStat[24]{};
+        std::snprintf(LinStat, sizeof(LinStat), "%.0f lm/m", LinearLmPerM);
+        std::snprintf(RadStat, sizeof(RadStat), "%.0f mm", Instance.TubeRadiusMeters * 1000.0f);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "LINEAR OUTPUT", LinStat);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "TUBE RADIUS", RadStat);
+        Y += 58.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8510u, "Luminous flux", "lm", "%.0f", 0.0f, 12000.0f, Instance.LuminousFlux, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8511u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8512u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 268.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Emitter dimensions");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 268.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Emitter dimensions", "OPTICS");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char LinBuf[20]{}; std::snprintf(LinBuf, sizeof(LinBuf), "%.0f", LinearLmPerM);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LinBuf, "lm/m", "Authored flux per metre");
+        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LinBuf, "lm/m", "Authored source flux per metre");
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8520u, "Length", "m", "%.1f", 0.1f, 20.0f, Instance.LengthMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8521u, "Tube radius", "m", "%.2f", 0.01f, 1.0f, Instance.TubeRadiusMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8522u, "Reach", "m", "%.0f", 1.0f, 120.0f, Instance.ReachMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
-    {
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8540u, ActiveDragId, Input, OutMutated);
-    }
-    else
-    {
         CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
     }
 

@@ -25,8 +25,11 @@ public:
     void SetActivePage(uint32_t PageIndex) noexcept { ActivePage = PageIndex; }
 
 private:
+    void UpdateFlareAtlas(const LensFlareInstanceData& Instance);
+
     uint32_t ActivePage   = 0u;
     uint32_t ActiveDragId = 0u;
+    InspectorPreviewSurface FlareAtlas {};
 };
 
 } // namespace Frontier

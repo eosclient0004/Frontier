@@ -496,6 +496,39 @@ void ConstructStatTile(
     const PaneInputReading& Input,
     bool&                   OutMutated) noexcept;
 
+// Shared Geometry workspace pages matching PrimitiveInspector.jsx (UV, Fracture, SDF, LOD)
+[[nodiscard]] float ConstructUvWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    UvChannelCount,
+    const char* ProjectionLabel) noexcept;
+
+[[nodiscard]] float ConstructFractureWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    CellCount,
+    const char* ModeLabel) noexcept;
+
+[[nodiscard]] float ConstructSdfWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    bool        SdfActive,
+    const char* BoundsLabel) noexcept;
+
+[[nodiscard]] float ConstructLodWorkspaceSection(
+    PixelSpace& Surface,
+    float       LeftX,
+    float       TopY,
+    float       InnerWidth,
+    uint32_t    TriangleCount,
+    uint32_t    ClusterCount) noexcept;
+
 // Bottom 28px inspector footer bar
 void ConstructInspectorFooter(
     PixelSpace& Surface,

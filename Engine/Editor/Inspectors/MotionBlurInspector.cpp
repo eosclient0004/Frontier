@@ -20,7 +20,7 @@ float MotionBlurInspector::Construct(
     OutlinerRecordEntry& Entry, MotionBlurInstanceData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Shutter" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Settings" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
@@ -105,8 +105,10 @@ float MotionBlurInspector::Construct(
         InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "VELOCITY", VelVal);
         CursorY = S.Bottom() + InspectorMetrics::SectionGap;
 
-        const std::array<InspectorQuickSwitchSpec, 1u> Quick = {{
-            { "Visible", InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled && Instance.Enabled, false },
+        const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
+            { "Enabled",       InspectorSwitchSymbol::Eye,        Entry.VisibilityEnabled && Instance.Enabled, false },
+            { "Object motion", InspectorSwitchSymbol::Cube,       true,  false },
+            { "Camera motion", InspectorSwitchSymbol::CameraLens, true,  false },
         }};
         int32_t Clicked = -1;
         CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
@@ -118,13 +120,19 @@ float MotionBlurInspector::Construct(
     }
     else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 250.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Shutter dynamics");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 152.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Shutter");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7061u, "Shutter angle", "deg", "%.0f", 15.0f, 360.0f, Instance.ShutterAngleDegrees, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7062u, "Velocity scale", "x", "%.2f", 0.0f, 3.0f, Instance.VelocityScale, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7063u, "Max radius", "px", "%.0f", 2.0f, 64.0f, Instance.MaxSampleRadiusPx, ActiveDragId, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7061u, "Shutter angle", "deg", "%.0f", 0.0f, 360.0f, Instance.ShutterAngleDegrees, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructMetadataRow(Surface, LeftX + PadX, Y, BodyW, "Reference rate", "24 fps");
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 186.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Quality");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7063u, "Max blur", "px", "%.0f", 2.0f, 64.0f, Instance.MaxSampleRadiusPx, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7062u, "Preview speed", "x", "%.2f", 0.0f, 3.0f, Instance.VelocityScale, ActiveDragId, Input, OutMutated);
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
     }
     return CursorY;
 }

@@ -120,7 +120,7 @@ float LedStripInspector::Construct(
     OutlinerRecordEntry& Entry, LedStripData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 5u> Pages = {{ "Overview", "Output", "Layout", "Placement", "Shadows" }};
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
 
@@ -183,39 +183,39 @@ float LedStripInspector::Construct(
         CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
         CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
-    else if (ActivePage == 1u)
+    else
     {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 392.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Output per metre");
+        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 452.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Output per metre");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", TotalLumens);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Estimated ribbon flux");
+        const float HalfW = (BodyW - 8.0f) * 0.5f;
+        char LoadStat[24]{}, CountStat[24]{};
+        std::snprintf(LoadStat, sizeof(LoadStat), "%.1f W", TotalWatts);
+        std::snprintf(CountStat, sizeof(CountStat), "%.0f LEDs", TotalLeds);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "CONNECTED LOAD", LoadStat);
+        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "EMITTER COUNT", CountStat);
+        Y += 58.0f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8710u, "Flux per metre", "lm/m", "%.0f", 10.0f, 4000.0f, Instance.LumensPerMetre, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8711u, "Load per metre", "W/m", "%.1f", 1.0f, 50.0f, Instance.WattsPerMetre, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8712u, "Dimmer", "", "%.2f", 0.0f, 1.0f, Instance.Dimmer, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8713u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8714u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 2u)
-    {
-        const Rectangle2D S { LeftX, CursorY, InnerWidth, 306.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S, "Layout & electrical budget");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 306.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Layout & segments", "OPTICS");
+        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
         char AmpBuf[20]{}; std::snprintf(AmpBuf, sizeof(AmpBuf), "%.2f", LoadAmps);
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, AmpBuf, "A", "Ideal full-load current");
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8720u, "Strip length", "m", "%.1f", 0.1f, 20.0f, Instance.LengthMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8721u, "Emitter density", "/m", "%.0f", 10.0f, 240.0f, Instance.DiodesPerMetre, ActiveDragId, Input, OutMutated, Entry.Locked);
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8722u, "Supply voltage", "V", "%.0f", 5.0f, 48.0f, Instance.SupplyVolts, ActiveDragId, Input, OutMutated, Entry.Locked);
         (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Opal diffuser", Instance.OpalDiffuser, Input, OutMutated);
-        CursorY = S.Bottom() + InspectorMetrics::SectionGap;
-    }
-    else if (ActivePage == 3u)
-    {
+        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8740u, ActiveDragId, Input, OutMutated);
-    }
-    else
-    {
         CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
     }
 
