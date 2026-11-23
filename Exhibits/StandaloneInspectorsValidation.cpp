@@ -759,6 +759,38 @@ title = "Overview"
         CaptureTab(Inspectors.QueryAnalyticPrimitive(), AnalyticTok, 7u, "Geometry-08-LOD.png");
     }
 
+    // 13. Apples-to-apples HTML visual parity renders (identical default title, folder, & parameter state as ProjectZeroEditor)
+    {
+        const auto ParityDir = RepoRoot / "Exhibits/Images/VisualParity/CppRender";
+        std::filesystem::create_directories(ParityDir, DirEc);
+
+        const OutlinerSlotToken EnvFolder = AppendEntry(Outliner, "Environment", "Folder", "folder", ConstructSlotCategory::Folder, {});
+        const OutlinerSlotToken ParityHf  = AppendEntry(Outliner, "Height Fog",  "Height Fog", "env:height-fog", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* HfRec = Outliner.AccessEntry(ParityHf))
+        {
+            HfRec->VisibilityEnabled = false;
+        }
+        auto& HfInst = Reg.AccessHeightFog(ParityHf, Bundle.Scene);
+        HfInst.HeightFog.Density       = 0.02f;
+        HfInst.HeightFog.FalloffHeightMeters = 400.0f;
+        HfInst.HeightFog.SunScatterIntensity = 0.60f;
+        HfInst.HeightFog.HeightColour        = { 1.0f, 1.0f, 1.0f };
+
+        for (uint32_t PageIdx = 0u; PageIdx < 3u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 3u> Names = {{
+                "HeightFog-01-Overview.png",
+                "HeightFog-02-Density.png",
+                "HeightFog-03-Light.png",
+            }};
+            Inspectors.QueryHeightFog().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityHf, ParityDir / Names[PageIdx]),
+                Names[PageIdx]);
+        }
+        Inspectors.QueryHeightFog().SetActivePage(0u);
+    }
+
     TypographyRepository::AssignCurrent(nullptr);
     ImGui::DestroyContext(GuiSession);
     if (AllOk)

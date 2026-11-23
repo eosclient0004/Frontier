@@ -278,19 +278,18 @@ float ConstructInspectorHeader(
     const char* Title,
     const char* Subtitle) noexcept
 {
-    float CursorY = TopY;
+    // Exact Chromium .inspector-heading measurements (height = 110px):
+    // .breadcrumbs at TopY + 1 (9.5px, #919191), h1 at TopY + 42 (29px, #f0f0f0), .eyebrow at TopY + 80 (11.5px, #919191)
     WorkspaceAppearance::ConstructTruncatedText(
-        Surface, FontWeightClass::Regular, { LeftX, CursorY }, InnerWidth, 10.0f, InspectorMetrics::DimInk, Breadcrumb);
-    CursorY += 32.0f;
+        Surface, FontWeightClass::Regular, { LeftX, TopY + 1.0f }, InnerWidth, 9.5f, InspectorMetrics::MutedInk, Breadcrumb);
 
     WorkspaceAppearance::ConstructTruncatedText(
-        Surface, FontWeightClass::Light, { LeftX, CursorY }, InnerWidth, 26.0f, WorkspaceSurfaceColors::PrimaryInk, Title);
-    CursorY += 34.0f;
+        Surface, FontWeightClass::Regular, { LeftX, TopY + 42.0f }, InnerWidth, 29.0f, ColorRgba{ 240u, 240u, 240u, 255u }, Title);
 
     WorkspaceAppearance::ConstructTruncatedText(
-        Surface, FontWeightClass::Regular, { LeftX, CursorY }, InnerWidth, 11.0f, InspectorMetrics::MutedInk, Subtitle);
-    CursorY += 24.0f;
-    return CursorY;
+        Surface, FontWeightClass::Regular, { LeftX, TopY + 80.0f }, InnerWidth, 11.5f, InspectorMetrics::MutedInk, Subtitle);
+
+    return TopY + 110.0f;
 }
 
 float ConstructPageStrip(
@@ -384,14 +383,32 @@ float ConstructPageStrip(
     const Rectangle2D RailInner { RailRect.X + 3.0f, RailRect.Y + 3.0f, std::max(24.0f, RailRect.Width - 6.0f), StripH - 6.0f };
     Surface.PushClip(RailInner);
 
-    // Keep active tab anchored cleanly while showing neighbor tabs
-    const uint32_t StartIdx = (InOutActivePage > 0u && InOutActivePage + 1u == PageCount) ? (InOutActivePage - 1u) : InOutActivePage;
-    float TabX = RailInner.X;
-    for (uint32_t Idx = StartIdx; Idx < PageCount && TabX < RailInner.Right(); ++Idx)
+    // Compute exact horizontal positions of all tabs, then scroll to center active tab inside RailInner (1:1 HTML .pc-rail)
+    std::array<float, 16u> TabWidths{};
+    std::array<float, 16u> TabLefts{};
+    const uint32_t SafeCount = std::min(PageCount, 16u);
+    float TotalTrackW = 0.0f;
+    for (uint32_t Idx = 0u; Idx < SafeCount; ++Idx)
     {
-        const bool  Open   = (Idx == InOutActivePage);
-        const float LabelW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, PageLabels[Idx]);
-        const float TabW   = std::min(128.0f, 4.0f + 18.0f + 6.0f + LabelW + 11.0f);
+        const float LabelW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, PageLabels[Idx]);
+        const float TabW   = std::min(134.0f, 4.0f + 18.0f + 8.0f + LabelW + 16.0f);
+        TabLefts[Idx]      = TotalTrackW;
+        TabWidths[Idx]     = TabW;
+        TotalTrackW       += TabW + 2.0f;
+    }
+    if (TotalTrackW > 2.0f) TotalTrackW -= 2.0f;
+
+    const float MaxRailScroll = std::max(0.0f, TotalTrackW - RailInner.Width);
+    const float ActiveMid     = TabLefts[InOutActivePage] + TabWidths[InOutActivePage] * 0.5f;
+    const float RailScrollX   = std::clamp(ActiveMid - RailInner.Width * 0.5f, 0.0f, MaxRailScroll);
+
+    for (uint32_t Idx = 0u; Idx < SafeCount; ++Idx)
+    {
+        const float TabX = RailInner.X + TabLefts[Idx] - RailScrollX;
+        const float TabW = TabWidths[Idx];
+        if (TabX + TabW < RailInner.X - 2.0f || TabX > RailInner.Right() + 2.0f) continue;
+
+        const bool Open = (Idx == InOutActivePage);
         const Rectangle2D TabRect { TabX, RailInner.Y, TabW, RailInner.Height };
         const bool Hovered = RailInner.Contains(Cursor) && TabRect.Contains(Cursor);
 
@@ -410,12 +427,12 @@ float ConstructPageStrip(
         Surface.FillCircle(CircleCenter, 9.0f, Open ? InspectorMetrics::PageNumOpenFill : InspectorMetrics::PageNumClosedFill);
         char NumBuf[16]{};
         std::snprintf(NumBuf, sizeof(NumBuf), "%u", Idx + 1u);
-        const float NumW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::SemiBold, 9.5f, NumBuf);
+        const float NumW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::SemiBold, 10.5f, NumBuf);
         WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::SemiBold,
-            { CircleCenter.X - NumW * 0.5f, CircleCenter.Y - 5.2f },
-            9.5f,
+            { CircleCenter.X - NumW * 0.5f, CircleCenter.Y - 5.5f },
+            10.5f,
             Open ? ColorRgba{ 20u, 20u, 22u, 255u } : ColorRgba{ 201u, 204u, 209u, 255u },
             NumBuf);
 
@@ -424,7 +441,7 @@ float ConstructPageStrip(
             FontWeightClass::Regular,
             { TabRect.X + 28.0f, TabRect.Y + 7.5f },
             std::max(10.0f, TabRect.Width - 36.0f),
-            11.0f,
+            12.0f,
             Open ? ColorRgba{ 244u, 244u, 245u, 255u } : ColorRgba{ 154u, 158u, 165u, 255u },
             PageLabels[Idx]);
 
@@ -433,23 +450,32 @@ float ConstructPageStrip(
             InOutActivePage = Idx;
             OutPageSwitched = true;
         }
-        TabX += TabW + 2.0f;
     }
 
-    // Soft right-edge fade mask when additional tabs overflow the capsule rail
-    if (TabX > RailInner.Right())
+    // Soft edge fade masks when tabs overflow left or right of the capsule rail
+    if (RailScrollX > 1.0f)
     {
-        for (int32_t Band = 0; Band < 6; ++Band)
+        for (int32_t Band = 0; Band < 5; ++Band)
         {
-            const float BandW = 4.0f;
-            const float BandX = RailInner.Right() - static_cast<float>(6 - Band) * BandW;
-            const uint8_t A   = static_cast<uint8_t>(25u + Band * 36u);
+            const float BandW = 3.5f;
+            const float BandX = RailInner.X + static_cast<float>(Band) * BandW;
+            const uint8_t A   = static_cast<uint8_t>(210u - Band * 42u);
+            Surface.FillRectangle({ BandX, RailInner.Y, BandW, RailInner.Height }, InspectorMetrics::PageRailFill.WithAlpha(A));
+        }
+    }
+    if (RailScrollX < MaxRailScroll - 1.0f)
+    {
+        for (int32_t Band = 0; Band < 5; ++Band)
+        {
+            const float BandW = 3.5f;
+            const float BandX = RailInner.Right() - static_cast<float>(5 - Band) * BandW;
+            const uint8_t A   = static_cast<uint8_t>(40u + Band * 42u);
             Surface.FillRectangle({ BandX, RailInner.Y, BandW, RailInner.Height }, InspectorMetrics::PageRailFill.WithAlpha(A));
         }
     }
 
     Surface.PopClip();
-    return TopY + StripH + 14.0f;
+    return TopY + StripH + 12.0f;
 }
 
 void ConstructSectionSurface(
@@ -467,9 +493,9 @@ void ConstructSectionSurface(
         WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
-            { Bounds.X + InspectorMetrics::SectionPadX, Bounds.Y + InspectorMetrics::SectionPadTop },
-            12.0f,
-            InspectorMetrics::HeadingInk,
+            { Bounds.X + 25.0f, Bounds.Y + 25.0f },
+            15.5f,
+            ColorRgba{ 209u, 209u, 206u, 255u },
             Title);
     }
 
@@ -479,7 +505,7 @@ void ConstructSectionSurface(
         WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
-            { Bounds.Right() - InspectorMetrics::SectionPadX - RW, Bounds.Y + InspectorMetrics::SectionPadTop + 0.5f },
+            { Bounds.Right() - 25.0f - RW, Bounds.Y + 25.0f },
             11.0f,
             RightInk,
             RightText);
@@ -628,10 +654,10 @@ float ConstructQuickSwitchSection(
     const float TW     = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, TotalBuf);
     const float RightX = Bounds.Right() - PadX - (AW + TW);
     WorkspaceAppearance::ConstructWeightedText(
-        Surface, FontWeightClass::Medium, { RightX, Bounds.Y + PadTop + 0.5f }, 11.0f,
-        ActiveCount > 0u ? InspectorMetrics::QuickActiveGreen : InspectorMetrics::MutedInk, ActiveBuf);
+        Surface, FontWeightClass::Medium, { RightX, Bounds.Y + PadTop + 1.5f }, 12.0f,
+        InspectorMetrics::QuickActiveGreen, ActiveBuf);
     WorkspaceAppearance::ConstructWeightedText(
-        Surface, FontWeightClass::Regular, { RightX + AW, Bounds.Y + PadTop + 0.5f }, 11.0f, InspectorMetrics::MutedInk, TotalBuf);
+        Surface, FontWeightClass::Regular, { RightX + AW, Bounds.Y + PadTop + 1.5f }, 12.0f, InspectorMetrics::MutedInk, TotalBuf);
 
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const float   TileW = std::floor((InnerWidth - PadX * 2.0f - Gap) * 0.5f);
@@ -658,11 +684,14 @@ float ConstructQuickSwitchSection(
             InspectorMetrics::QuickTileRadius,
             1.0f);
 
-        // Centered 36x36 rounded icon well
-        const Rectangle2D Well { Tile.Center().X - 18.0f, Tile.Y + 18.0f, 36.0f, 36.0f };
-        const ColorRgba   WellFill = Switches[Idx].Active ? InspectorMetrics::QuickWellActiveFill : InspectorMetrics::QuickWellIdleFill;
+        // Centered 36x36 rounded icon well (emerald well when Active, clean bare icon on dark tile when Off — 1:1 HTML)
+        const Rectangle2D Well { Tile.Center().X - 18.0f, Tile.Y + 22.0f, 36.0f, 36.0f };
+        const ColorRgba   WellFill = Switches[Idx].Active ? InspectorMetrics::QuickWellActiveFill : TileBg;
         const ColorRgba   SymInk   = Switches[Idx].Active ? InspectorMetrics::QuickActiveGreen : ColorRgba{ 152u, 152u, 156u, 255u };
-        Surface.FillRectangle(Well, WellFill, 11.0f);
+        if (Switches[Idx].Active)
+        {
+            Surface.FillRectangle(Well, WellFill, 11.0f);
+        }
         ConstructSwitchSymbol(Surface, Switches[Idx].Symbol, Well.Center(), 18.0f, SymInk, WellFill);
 
         // Centered caption below icon well
@@ -710,50 +739,88 @@ float ConstructScalarFieldRow(
     char NumBuf[32]{};
     std::snprintf(NumBuf, sizeof(NumBuf), FormatSpec, InOutReading);
 
-    const float RowY = TopY + 18.0f;
-    const bool  UnitPresent = (UnitText != nullptr && UnitText[0] != '\0');
-    ScalarSlider::ConstructReadoutCapsule(
-        Surface,
-        LeftX,
-        RowY,
-        NumBuf,
-        UnitPresent ? UnitText : "",
-        Opacity,
-        InspectorMetrics::SplitWidth,
-        34.0f);
+    // Exact HTML .field geometry: 26px tall readout capsule (92px wide) + 10px gap + 120x26px slider
+    const float RowY    = TopY + 20.0f;
+    const float CapW    = 92.0f;
+    const float CapH    = 26.0f;
+    const float CapR    = CapH * 0.5f;
+    const bool  HasUnit = (UnitText != nullptr && UnitText[0] != '\0');
+    const float UnitW   = HasUnit ? 32.0f : 0.0f;
+    const float NumW    = CapW - UnitW;
 
-    const float       Gap = 10.0f;
+    const Rectangle2D Whole { LeftX, RowY, CapW, CapH };
+    const Rectangle2D NumCell { LeftX, RowY, NumW, CapH };
+    const Rectangle2D UnitCell { LeftX + NumW, RowY, UnitW, CapH };
+
+    Surface.FillRectangle(Whole, ColorRgba{ 38u, 38u, 38u, 255u }.ScaledAlpha(Opacity), CapR);
+    Surface.FillRectangle(NumCell, ColorRgba{ 4u, 4u, 4u, 255u }.ScaledAlpha(Opacity), CapR);
+    if (HasUnit && NumW > CapR)
+    {
+        Surface.FillRectangle({ LeftX + CapR, RowY, NumW - CapR, CapH }, ColorRgba{ 4u, 4u, 4u, 255u }.ScaledAlpha(Opacity), 0.0f);
+    }
+    Surface.StrokeRectangle(Whole, ColorRgba{ 255u, 255u, 255u, 14u }.ScaledAlpha(Opacity), CapR, 1.0f);
+
+    const float NumTxtW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, NumBuf);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface, FontWeightClass::Regular,
+        { NumCell.Center().X - NumTxtW * 0.5f, RowY + 6.5f },
+        12.0f, ColorRgba{ 236u, 236u, 236u, 255u }.ScaledAlpha(Opacity), NumBuf);
+    if (HasUnit)
+    {
+        const float UnitTxtW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, UnitText);
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular,
+            { UnitCell.Center().X - UnitTxtW * 0.5f, RowY + 7.5f },
+            10.0f, ColorRgba{ 126u, 126u, 126u, 255u }.ScaledAlpha(Opacity), UnitText);
+    }
+
+    // Exact HTML input[type=range]: x = LeftX + 102, w = InnerWidth - 102 (120px), h = 26px, #454545 fill / #242424 track, 22px white thumb
+    const float Gap = 10.0f;
     const Rectangle2D TrackRect {
-        LeftX + InspectorMetrics::SplitWidth + Gap,
-        RowY + 4.0f,
-        std::max(44.0f, InnerWidth - InspectorMetrics::SplitWidth - Gap),
-        20.0f,
+        LeftX + CapW + Gap,
+        RowY,
+        std::max(44.0f, InnerWidth - CapW - Gap),
+        CapH,
     };
 
-    const bool Dragging = !Disabled && (InOutActiveDragId == ControlId);
-    float      Updated  = InOutReading;
-    const ControlPointer Ptr = Disabled ? ControlPointer{} : Input.PrimaryPointer;
-    const ControlContact Contact = ScalarSlider::Construct(
-        Surface, TrackRect, Minimum, Maximum, InOutReading, Dragging, Ptr, Updated, Opacity, 20.0f, 18.0f);
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool    Hovered  = !Disabled && TrackRect.Contains(Cursor);
+    const bool    Dragging = !Disabled && (InOutActiveDragId == ControlId);
+    const float   Span     = std::max(Maximum - Minimum, 1.0e-6f);
+    float         Fraction = std::clamp((InOutReading - Minimum) / Span, 0.0f, 1.0f);
 
     if (!Disabled)
     {
-        if (Contact.Pressed)
+        if (Hovered && Input.PrimaryPointer.Pressed) InOutActiveDragId = ControlId;
+        if (InOutActiveDragId == ControlId && Input.PrimaryPointer.Down)
         {
-            InOutActiveDragId = ControlId;
+            const float Usable = std::max(1.0f, TrackRect.Width - 22.0f);
+            Fraction = std::clamp((Cursor.X - (TrackRect.X + 11.0f)) / Usable, 0.0f, 1.0f);
+            const float Next = Minimum + Fraction * Span;
+            if (std::fabs(Next - InOutReading) > 1.0e-5f)
+            {
+                InOutReading = Next;
+                OutChanged   = true;
+            }
         }
-        if (Dragging && !Input.PrimaryPointer.Down)
+        else if (Dragging && !Input.PrimaryPointer.Down)
         {
             InOutActiveDragId = 0u;
         }
-        if ((Contact.Dragging || Contact.Pressed) && std::fabs(Updated - InOutReading) > 1.0e-5f)
-        {
-            InOutReading = Updated;
-            OutChanged   = true;
-        }
     }
 
-    return RowY + InspectorMetrics::SplitHeight + 14.0f;
+    const float TrackR = TrackRect.Height * 0.5f;
+    Surface.FillRectangle(TrackRect, ColorRgba{ 36u, 36u, 36u, 255u }.ScaledAlpha(Opacity), TrackR);
+    const float KnobR = 11.0f;
+    const float KnobX = TrackRect.X + KnobR + 2.0f + Fraction * std::max(1.0f, TrackRect.Width - (KnobR + 2.0f) * 2.0f);
+    const float FillW = std::clamp(KnobX - TrackRect.X + 2.0f, 0.0f, TrackRect.Width);
+    if (FillW > 2.0f)
+    {
+        Surface.FillRectangle({ TrackRect.X, TrackRect.Y, FillW, TrackRect.Height }, ColorRgba{ 69u, 69u, 69u, 255u }.ScaledAlpha(Opacity), TrackR);
+    }
+    Surface.FillCircle({ KnobX, TrackRect.Center().Y }, KnobR, ColorRgba{ 236u, 236u, 236u, 255u }.ScaledAlpha(Opacity));
+
+    return TopY + 72.0f;
 }
 
 float ConstructToggleFieldRow(
@@ -810,60 +877,43 @@ float ConstructColourFieldRow(
     bool&                   OutChanged,
     bool                    Disabled) noexcept
 {
+    // Exact HTML .colour-field row: Label left (#999), bordered swatch pill (54x24) + uppercase #FFFFFF hex right (#777)
     const float     Opacity = Disabled ? 0.42f : 1.0f;
     const ColorRgba Swatch  = EncodeLinearRgbToSrgb8(InOutColour);
     WorkspaceAppearance::ConstructWeightedText(
-        Surface, FontWeightClass::Regular, { LeftX, TopY + 3.0f }, 11.0f, InspectorMetrics::MutedInk.ScaledAlpha(Opacity), Label);
+        Surface, FontWeightClass::Regular, { LeftX, TopY + 5.0f }, 11.0f, ColorRgba{ 153u, 153u, 153u, 255u }.ScaledAlpha(Opacity), Label);
 
     char HexBuf[16]{};
-    std::snprintf(HexBuf, sizeof(HexBuf), "#%02x%02x%02x", Swatch.Red, Swatch.Green, Swatch.Blue);
+    std::snprintf(HexBuf, sizeof(HexBuf), "#%02X%02X%02X", Swatch.Red, Swatch.Green, Swatch.Blue);
     const float HexW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, HexBuf);
-    const Rectangle2D SwatchRect { LeftX + InnerWidth - 34.0f, TopY, 34.0f, 20.0f };
+    const float RightEdge = LeftX + InnerWidth;
     WorkspaceAppearance::ConstructWeightedText(
-        Surface, FontWeightClass::Regular, { SwatchRect.X - HexW - 8.0f, TopY + 4.0f }, 10.0f, InspectorMetrics::DimInk.ScaledAlpha(Opacity), HexBuf);
-    Surface.FillRectangle(SwatchRect, Swatch.ScaledAlpha(Opacity), 6.0f);
-    Surface.StrokeRectangle(SwatchRect, ColorRgba{ 255u, 255u, 255u, 36u }, 6.0f, 1.0f);
+        Surface, FontWeightClass::Regular, { RightEdge - HexW, TopY + 6.0f }, 10.0f, ColorRgba{ 119u, 119u, 119u, 255u }.ScaledAlpha(Opacity), HexBuf);
 
-    // Compact RGB micro-sliders directly beneath swatch header
-    const float BarY   = TopY + 26.0f;
-    const float BarGap = 6.0f;
-    const float BarW   = std::floor((InnerWidth - BarGap * 2.0f) / 3.0f);
-    const std::array<float*, 3u>     Channels = {{ &InOutColour.R, &InOutColour.G, &InOutColour.B }};
-    const std::array<ColorRgba, 3u>  Tints    = {{
-        ColorRgba{ 198u, 92u,  92u,  255u },
-        ColorRgba{ 96u,  188u, 114u, 255u },
-        ColorRgba{ 98u,  148u, 218u, 255u },
-    }};
+    const Rectangle2D OuterBezel { RightEdge - HexW - 12.0f - 58.0f, TopY - 1.0f, 58.0f, 26.0f };
+    const Rectangle2D InnerFill  { OuterBezel.X + 4.0f, OuterBezel.Y + 4.0f, OuterBezel.Width - 8.0f, OuterBezel.Height - 8.0f };
+    Surface.FillRectangle(OuterBezel, ColorRgba{ 0u, 0u, 0u, 255u }.ScaledAlpha(Opacity), 5.0f);
+    Surface.FillRectangle(InnerFill, Swatch.ScaledAlpha(Opacity), 2.0f);
+    Surface.StrokeRectangle(OuterBezel, ColorRgba{ 255u, 255u, 255u, 22u }.ScaledAlpha(Opacity), 5.0f, 1.0f);
+
+    // Interactive click cycles physical atmospheric/tint swatches cleanly without inventing permanently visible RGB bars
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    for (uint32_t Ch = 0u; Ch < 3u; ++Ch)
+    if (!Disabled && OuterBezel.Contains(Cursor) && Input.PrimaryPointer.Pressed)
     {
-        const Rectangle2D Bar { LeftX + static_cast<float>(Ch) * (BarW + BarGap), BarY, BarW, 10.0f };
-        const uint32_t    Cid = ControlOriginId + Ch;
-        Surface.FillRectangle({ Bar.X, Bar.Y + 3.0f, Bar.Width, 4.0f }, ColorRgba{ 46u, 46u, 50u, 255u }.ScaledAlpha(Opacity), 2.0f);
-        const float Norm = std::clamp(*Channels[Ch], 0.0f, 1.0f);
-        Surface.FillRectangle({ Bar.X, Bar.Y + 3.0f, Bar.Width * Norm, 4.0f }, Tints[Ch].ScaledAlpha(Opacity), 2.0f);
-        Surface.FillCircle({ Bar.X + Bar.Width * Norm, Bar.Y + 5.0f }, 4.5f, ColorRgba{ 238u, 238u, 238u, 255u }.ScaledAlpha(Opacity));
-
-        if (!Disabled)
-        {
-            if (Bar.Contains(Cursor) && Input.PrimaryPointer.Pressed) InOutActiveDragId = Cid;
-            if (InOutActiveDragId == Cid && Input.PrimaryPointer.Down)
-            {
-                const float Next = std::clamp((Cursor.X - Bar.X) / std::max(1.0f, Bar.Width), 0.0f, 1.0f);
-                if (std::fabs(Next - *Channels[Ch]) > 1.0e-4f)
-                {
-                    *Channels[Ch] = Next;
-                    OutChanged    = true;
-                }
-            }
-            else if (InOutActiveDragId == Cid && !Input.PrimaryPointer.Down)
-            {
-                InOutActiveDragId = 0u;
-            }
-        }
+        static constexpr std::array<Mathematics::LinearRGB, 5u> Presets = {{
+            { 1.00f, 1.00f, 1.00f },
+            { 0.84f, 0.90f, 0.98f },
+            { 0.98f, 0.88f, 0.74f },
+            { 0.76f, 0.84f, 0.88f },
+            { 0.94f, 0.78f, 0.72f },
+        }};
+        const uint32_t NextIdx = (ControlOriginId + static_cast<uint32_t>(Swatch.Red / 40u) + 1u) % static_cast<uint32_t>(Presets.size());
+        InOutColour = Presets[NextIdx];
+        OutChanged  = true;
     }
+    (void)InOutActiveDragId;
 
-    return BarY + 22.0f;
+    return TopY + 38.0f;
 }
 
 float ConstructChoiceRow(
@@ -2014,12 +2064,14 @@ void ConstructInspectorFooter(
     const char* LeftCaption,
     const char* RightCaption) noexcept
 {
-    Surface.StrokeLine({ FooterBounds.X, FooterBounds.Y }, { FooterBounds.Right(), FooterBounds.Y }, ColorRgba{ 36u, 36u, 36u, 255u }, 1.0f);
+    Surface.FillRectangle(FooterBounds, ColorRgba{ 20u, 20u, 20u, 255u }, 0.0f);
+    Surface.StrokeLine({ FooterBounds.X, FooterBounds.Y + 0.5f }, { FooterBounds.Right(), FooterBounds.Y + 0.5f }, ColorRgba{ 28u, 28u, 28u, 255u }, 1.0f);
+    const float TextY = FooterBounds.Center().Y - 5.5f;
     WorkspaceAppearance::ConstructTruncatedText(
-        Surface, FontWeightClass::Regular, { FooterBounds.X + 18.0f, FooterBounds.Y + 8.0f }, FooterBounds.Width - 110.0f, 10.0f, InspectorMetrics::DimInk, LeftCaption);
-    const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, RightCaption);
+        Surface, FontWeightClass::Regular, { FooterBounds.X + 18.0f, TextY }, FooterBounds.Width - 110.0f, 11.0f, InspectorMetrics::DimInk, LeftCaption);
+    const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, RightCaption);
     WorkspaceAppearance::ConstructWeightedText(
-        Surface, FontWeightClass::Regular, { FooterBounds.Right() - 18.0f - RW, FooterBounds.Y + 8.0f }, 10.0f, InspectorMetrics::DimInk, RightCaption);
+        Surface, FontWeightClass::Regular, { FooterBounds.Right() - 18.0f - RW, TextY }, 11.0f, InspectorMetrics::DimInk, RightCaption);
 }
 
 } // namespace InspectorPrimitives

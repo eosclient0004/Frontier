@@ -268,10 +268,10 @@ bool InspectorRegistry::ConstructActiveInspector(
 
     InspectorPrimitives::ResetTooltipQueue();
 
-    Surface.FillRectangle(PaneBounds, ColorRgba{ 24u, 24u, 24u, 255u }, 0.0f);
+    Surface.FillRectangle(PaneBounds, ColorRgba{ 18u, 18u, 18u, 255u }, 0.0f);
     Surface.StrokeLine({ PaneBounds.X + 0.5f, PaneBounds.Y }, { PaneBounds.X + 0.5f, PaneBounds.Bottom() }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
 
-    const float FooterH    = 28.0f;
+    const float FooterH    = 45.0f;
     const Rectangle2D ScrollClip { PaneBounds.X, PaneBounds.Y, PaneBounds.Width, std::max(40.0f, PaneBounds.Height - FooterH) };
     const Rectangle2D FooterRect { PaneBounds.X, ScrollClip.Bottom(), PaneBounds.Width, FooterH };
 
@@ -286,7 +286,7 @@ bool InspectorRegistry::ConstructActiveInspector(
     const float InnerWidth = std::max(180.0f, PaneBounds.Width - PadX * 2.0f);
 
     Surface.PushClip(ScrollClip);
-    float CursorY = PaneBounds.Y + 18.0f - ScrollOffsetY;
+    float CursorY = PaneBounds.Y + 32.0f - ScrollOffsetY;
 
     // Dynamic breadcrumb from actual enclosing Outliner hierarchy (zero hardcoded folder names!)
     const std::string Breadcrumb = InspectorInstanceRegister::ResolveEnclosingBreadcrumb(Outliner, Entry->Token);
@@ -401,76 +401,7 @@ bool InspectorRegistry::ConstructActiveInspector(
             break;
     }
 
-    // Action row (Reset + Delete) — CameraSettings renders its own 1:1 quiet footer row without Delete
-    bool ResetRequested  = false;
-    bool DeleteRequested = false;
-    if (Target != ResolvedInspectorTarget::CameraSettings)
-    {
-        const float Gap       = 8.0f;
-        const float BtnH      = 30.0f;
-        const bool  CanDelete = !Entry->RemovalProtected;
-        const float BtnW      = CanDelete ? (InnerWidth - Gap) * 0.5f : InnerWidth;
-
-        const Rectangle2D ResetRect { InnerLeft, CursorY, BtnW, BtnH };
-        const bool ResetHov = ResetRect.Contains(Cursor);
-        Surface.FillRectangle(ResetRect, ResetHov ? ColorRgba{ 46u, 46u, 52u, 255u } : ColorRgba{ 32u, 32u, 36u, 255u }, 12.0f);
-        Surface.StrokeRectangle(ResetRect, ColorRgba{ 255u, 255u, 255u, 18u }, 12.0f, 1.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { ResetRect.X + BtnW * 0.5f - 16.0f, ResetRect.Y + 8.0f }, 11.5f, InspectorMetrics::HeadingInk, "Reset");
-        if (ResetHov && Input.PrimaryPointer.Pressed) ResetRequested = true;
-
-        if (CanDelete)
-        {
-            const Rectangle2D DelRect { ResetRect.Right() + Gap, CursorY, BtnW, BtnH };
-            const bool DelHov = DelRect.Contains(Cursor);
-            Surface.FillRectangle(DelRect, DelHov ? ColorRgba{ 68u, 28u, 30u, 255u } : ColorRgba{ 44u, 22u, 24u, 255u }, 12.0f);
-            Surface.StrokeRectangle(DelRect, ColorRgba{ 232u, 108u, 108u, 52u }, 12.0f, 1.0f);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { DelRect.X + BtnW * 0.5f - 18.0f, DelRect.Y + 8.0f }, 11.5f, ColorRgba{ 238u, 146u, 146u, 255u }, "Delete");
-            if (DelHov && Input.PrimaryPointer.Pressed) DeleteRequested = true;
-        }
-        CursorY += BtnH + 24.0f;
-    }
-
-    if (ResetRequested)
-    {
-        Instances.EraseEntry(Entry->Token);
-        ProjectHost.EraseEntryReadings(Entry->Token);
-        if (Target == ResolvedInspectorTarget::AnalyticPrimitive ||
-            Target == ResolvedInspectorTarget::NativeGeometry    ||
-            Target == ResolvedInspectorTarget::ImportedGeometry  ||
-            Target == ResolvedInspectorTarget::ProceduralGeometry)
-        {
-            Entry->PositionX = Entry->PositionY = Entry->PositionZ = 0.0f;
-            Entry->RotationX = Entry->RotationY = Entry->RotationZ = 0.0f;
-            Entry->ScaleX    = Entry->ScaleY    = Entry->ScaleZ    = 1.0f;
-        }
-        LocalMutated = true;
-    }
-
-    if (DeleteRequested && !Entry->RemovalProtected)
-    {
-        const OutlinerSlotToken TargetToken = Entry->Token;
-        Instances.EraseEntry(TargetToken);
-        ProjectHost.EraseEntryReadings(TargetToken);
-        bool RemovedViaRegistry = false;
-        if (EnvironmentRegistry != nullptr)
-        {
-            for (const auto& Reg : EnvironmentRegistry->QueryRegisteredEntries())
-            {
-                if (Reg.Token == TargetToken)
-                {
-                    std::array<OutlinerSlotToken, 1u> Tokens {{ TargetToken }};
-                    EnvironmentRegistry->UnregisterSlots(Tokens, Outliner, Scene, DisplaySettings);
-                    RemovedViaRegistry = true;
-                    break;
-                }
-            }
-        }
-        if (!RemovedViaRegistry)
-        {
-            Outliner.DeleteSlot(TargetToken);
-        }
-        LocalMutated = true;
-    }
+    (void)EnvironmentRegistry;
 
     if (PageSwitched)
     {
