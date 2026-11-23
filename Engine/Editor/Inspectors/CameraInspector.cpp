@@ -249,25 +249,125 @@ float CameraInspector::Construct(
     }
     else if (ActivePage == 3u)
     {
-        // F78 Mount page: On tripod (legs follow height) vs Floating (crane/rig/drone + roll) + Position & Aim at Showcase
+        // 1:1 HTML Mount page (02-cine-mount.png): dark hero stage with illustrated camera + amber height bracket + 2 visual tiles + Tripod height + Position + angle
         UpdateMountSurface(Instance);
         const bool Floating = !Instance.TripodMounted;
-        const float MountSecH = Floating ? 430.0f : 378.0f;
+        const Point2D Cur { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+        const bool Pressed = Input.PrimaryPointer.Pressed;
+
+        const float MountSecH = Floating ? 476.0f : 424.0f;
         const Rectangle2D MountSec { LeftX, CursorY, InnerWidth, MountSecH };
-        InspectorPrimitives::ConstructSectionSurface(Surface, MountSec, "Mount", Floating ? "B · Floating" : "A · On tripod");
+        InspectorPrimitives::ConstructSectionSurface(Surface, MountSec, "Mount");
         float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        MountPreview.Present(Surface, { LeftX + PadX, Y, BodyW, 148.0f }, 12.0f);
-        Y += 158.0f;
-        static constexpr std::array<const char*, 2u> MountChoices = {{ "A · On tripod", "B · Floating" }};
-        int32_t PickMount = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Camera mount", MountChoices, Floating ? 1u : 0u, 2u, Input, PickMount);
-        if (PickMount >= 0)
+
+        // Dark glossy #15171c hero stage containing camera illustration + centered A · On tripod / B · Floating + subtitle
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 174.0f };
+        Surface.FillRectangle(Stage, ColorRgba{ 21u, 23u, 28u, 255u }, 14.0f);
+        Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, 14.0f, 1.0f);
+
+        const float FloorY = Stage.Y + 98.0f;
+        const float CamCx  = Stage.Center().X;
+        const float CamCy  = Stage.Y + 42.0f;
+        Surface.StrokeLine({ Stage.X + 26.0f, FloorY }, { Stage.Right() - 26.0f, FloorY }, ColorRgba{ 255u, 255u, 255u, 42u }, 1.0f);
+
+        if (!Floating)
         {
-            Instance.TripodMounted = (PickMount == 0);
-            if (Instance.TripodMounted && Instance.MountHeightMeters > 2.2f) Instance.MountHeightMeters = 2.2f;
-            Entry.PositionY = Instance.MountHeightMeters;
-            OutMutated = true;
+            // Three extending tripod legs from camera head to ground line
+            const Point2D Head { CamCx, CamCy + 14.0f };
+            Surface.StrokeLine(Head, { CamCx - 24.0f, FloorY }, ColorRgba{ 168u, 174u, 184u, 220u }, 1.6f);
+            Surface.StrokeLine(Head, { CamCx + 24.0f, FloorY }, ColorRgba{ 168u, 174u, 184u, 220u }, 1.6f);
+            Surface.StrokeLine(Head, { CamCx + 2.0f,  FloorY }, ColorRgba{ 120u, 126u, 136u, 190u }, 1.3f);
+            Surface.StrokeLine({ CamCx - 12.0f, CamCy + 34.0f }, { CamCx + 12.0f, CamCy + 34.0f }, ColorRgba{ 140u, 146u, 156u, 180u }, 1.1f);
+            Surface.FillRectangle({ CamCx - 8.0f, CamCy + 11.0f, 16.0f, 5.0f }, ColorRgba{ 170u, 176u, 188u, 255u }, 2.0f);
         }
+        else
+        {
+            // Dashed drop line + cyan ground target ring
+            for (float Dy = CamCy + 18.0f; Dy < FloorY - 4.0f; Dy += 7.0f)
+            {
+                Surface.StrokeLine({ CamCx, Dy }, { CamCx, std::min(FloorY - 2.0f, Dy + 3.5f) }, ColorRgba{ 98u, 206u, 214u, 160u }, 1.2f);
+            }
+            std::array<Point2D, 24u> Ring {};
+            for (uint32_t R = 0u; R < 24u; ++R)
+            {
+                const float A = (6.2831853f * static_cast<float>(R)) / 24.0f;
+                Ring[R] = { CamCx + std::cos(A) * 18.0f, FloorY + std::sin(A) * 5.0f };
+            }
+            Surface.StrokePolyline(Ring, ColorRgba{ 98u, 206u, 214u, 185u }, 1.2f, true);
+        }
+
+        // Illustrated cinema camera silhouette (dual film magazines + body + lens matte box)
+        Surface.FillCircle({ CamCx - 9.0f, CamCy - 9.0f }, 6.5f, ColorRgba{ 194u, 198u, 206u, 255u });
+        Surface.FillCircle({ CamCx + 5.0f, CamCy - 9.0f }, 6.5f, ColorRgba{ 194u, 198u, 206u, 255u });
+        Surface.FillRectangle({ CamCx - 14.0f, CamCy - 4.0f, 26.0f, 15.0f }, ColorRgba{ 212u, 216u, 224u, 255u }, 3.0f);
+        Surface.FillRectangle({ CamCx + 12.0f, CamCy - 2.0f, 10.0f, 10.0f }, ColorRgba{ 156u, 162u, 172u, 255u }, 2.0f);
+
+        // Amber vertical height bracket + label on right side (1:1 HTML)
+        const float BrX = CamCx + 42.0f;
+        const ColorRgba Amber { 228u, 174u, 76u, 235u };
+        Surface.StrokeLine({ BrX, CamCy + 6.0f }, { BrX, FloorY }, Amber, 1.3f);
+        Surface.StrokeLine({ BrX - 4.0f, CamCy + 6.0f }, { BrX + 4.0f, CamCy + 6.0f }, Amber, 1.3f);
+        Surface.StrokeLine({ BrX - 4.0f, FloorY }, { BrX + 4.0f, FloorY }, Amber, 1.3f);
+        char HBuf[24]{};
+        std::snprintf(HBuf, sizeof(HBuf), "%.2f m", Instance.MountHeightMeters);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { BrX + 7.0f, (CamCy + FloorY) * 0.5f - 4.0f }, 9.5f, Amber, HBuf);
+
+        const char* HeroTitle = Floating ? "B · Floating" : "A · On tripod";
+        const char* HeroSub   = Floating ? "Free crane / drone mount · full roll & height" : "A fixed camera · the tripod's legs extend to the camera's height";
+        const float HTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.0f, HeroTitle);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - HTW * 0.5f, Stage.Y + 114.0f }, 13.0f, ColorRgba{ 242u, 244u, 248u, 255u }, HeroTitle);
+        const float HSW = std::min(Stage.Width - 16.0f, WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.2f, HeroSub));
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { Stage.Center().X - HSW * 0.5f, Stage.Y + 134.0f }, Stage.Width - 16.0f, 9.2f, ColorRgba{ 146u, 150u, 158u, 255u }, HeroSub);
+        Y = Stage.Bottom() + 10.0f;
+
+        // 2 side-by-side visual tiles (A On tripod | B Floating) matching 02-cine-mount.png
+        const float TileGap = 8.0f;
+        const float TileW   = std::floor((BodyW - TileGap) * 0.5f);
+        const float TileH   = 74.0f;
+        for (uint32_t I = 0u; I < 2u; ++I)
+        {
+            const Rectangle2D T { LeftX + PadX + static_cast<float>(I) * (TileW + TileGap), Y, TileW, TileH };
+            const bool Sel = (I == 0u ? !Floating : Floating);
+            const bool Hov = T.Contains(Cur);
+            Surface.FillRectangle(T, Sel ? ColorRgba{ 36u, 38u, 43u, 255u } : (Hov ? ColorRgba{ 28u, 30u, 34u, 255u } : ColorRgba{ 22u, 23u, 26u, 255u }), 11.0f);
+            Surface.StrokeRectangle(T, Sel ? ColorRgba{ 235u, 238u, 244u, 185u } : ColorRgba{ 255u, 255u, 255u, 18u }, 11.0f, Sel ? 1.2f : 1.0f);
+            WorkspaceAppearance::ConstructWeightedText(
+                Surface, FontWeightClass::Medium, { T.X + 8.0f, T.Y + 6.0f }, 9.6f,
+                Sel ? ColorRgba{ 239u, 68u, 68u, 255u } : ColorRgba{ 118u, 122u, 130u, 255u }, I == 0u ? "A" : "B");
+
+            // Mini vector icon inside tile
+            const float Ix = T.Center().X, Iy = T.Y + 28.0f;
+            Surface.FillRectangle({ Ix - 8.0f, Iy - 5.0f, 14.0f, 8.0f }, ColorRgba{ 186u, 192u, 202u, 255u }, 2.0f);
+            if (I == 0u)
+            {
+                Surface.StrokeLine({ Ix - 1.0f, Iy + 3.0f }, { Ix - 11.0f, Iy + 21.0f }, ColorRgba{ 156u, 162u, 172u, 220u }, 1.2f);
+                Surface.StrokeLine({ Ix - 1.0f, Iy + 3.0f }, { Ix + 9.0f,  Iy + 21.0f }, ColorRgba{ 156u, 162u, 172u, 220u }, 1.2f);
+                Surface.StrokeLine({ Ix - 14.0f, Iy + 21.0f }, { Ix + 12.0f, Iy + 21.0f }, ColorRgba{ 255u, 255u, 255u, 44u }, 1.0f);
+            }
+            else
+            {
+                Surface.StrokeLine({ Ix - 1.0f, Iy + 6.0f }, { Ix - 1.0f, Iy + 18.0f }, ColorRgba{ 98u, 206u, 214u, 165u }, 1.1f);
+                std::array<Point2D, 18u> MiniRing {};
+                for (uint32_t R = 0u; R < 18u; ++R)
+                {
+                    const float A = (6.2831853f * static_cast<float>(R)) / 18.0f;
+                    MiniRing[R] = { (Ix - 1.0f) + std::cos(A) * 10.0f, (Iy + 20.0f) + std::sin(A) * 3.0f };
+                }
+                Surface.StrokePolyline(MiniRing, ColorRgba{ 98u, 206u, 214u, 185u }, 1.1f, true);
+            }
+            const char* TLab = (I == 0u) ? "On tripod" : "Floating";
+            const float TLW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, TLab);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.Center().X - TLW * 0.5f, T.Bottom() - 16.0f }, 9.6f, Sel ? ColorRgba{ 238u, 240u, 244u, 255u } : ColorRgba{ 148u, 152u, 160u, 255u }, TLab);
+            if (Hov && Pressed)
+            {
+                Instance.TripodMounted = (I == 0u);
+                if (Instance.TripodMounted && Instance.MountHeightMeters > 2.2f) Instance.MountHeightMeters = 2.2f;
+                Entry.PositionY = Instance.MountHeightMeters;
+                OutMutated = true;
+            }
+        }
+        Y += TileH + 14.0f;
+
         const float MaxH = Floating ? 8.0f : 2.2f;
         Y = InspectorPrimitives::ConstructScalarFieldRow(
             Surface, LeftX + PadX, Y, BodyW, 7010u, Floating ? "Height" : "Tripod height", "m", "%.2f",
@@ -277,8 +377,25 @@ float CameraInspector::Construct(
         {
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7011u, "Roll", "deg", "%.0f", -45.0f, 45.0f, Instance.CameraRollDegrees, ActiveDragId, Input, OutMutated);
         }
-        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Aim at Showcase", Instance.AimAtShowcase, Input, OutMutated);
+        char DescBuf[96]{};
+        std::snprintf(DescBuf, sizeof(DescBuf), Floating ? "Free floating mount at %.2f m with %.0f deg roll." : "The tripod legs extend to %.2f m and feet stay on ground (0.4–2.2 m).", Instance.MountHeightMeters, Instance.CameraRollDegrees);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 9.2f, ColorRgba{ 138u, 142u, 150u, 255u }, DescBuf);
         CursorY = MountSec.Bottom() + InspectorMetrics::SectionGap;
+
+        // 1:1 HTML Position + angle KPI summary card (02-cine-mount.png)
+        const Rectangle2D PosSec { LeftX, CursorY, InnerWidth, 168.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, PosSec, "Position + angle");
+        float PY = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        char HighBuf[16]{};
+        std::snprintf(HighBuf, sizeof(HighBuf), "%.2f", Instance.MountHeightMeters);
+        PY = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, PY, HighBuf, "m high", "On its arc in front of the Showcase");
+        PY = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, PY, BodyW, "Aim at Showcase", Instance.AimAtShowcase, Input, OutMutated);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + PadX, PY + 2.0f }, 10.0f, ColorRgba{ 138u, 142u, 150u, 255u }, "Camera");
+        const char* AimTag = Instance.AimAtShowcase ? "AIMED AT SHOWCASE" : "MANUAL ORIENTATION";
+        const float AW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.4f, AimTag);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + PadX + BodyW - AW, PY + 2.0f }, 9.4f, ColorRgba{ 138u, 142u, 150u, 255u }, AimTag);
+        CursorY = PosSec.Bottom() + InspectorMetrics::SectionGap;
+
         CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 7020u, ActiveDragId, Input, OutMutated);
     }
     else if (ActivePage == 4u)

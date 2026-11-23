@@ -412,6 +412,30 @@ struct GeometrySurfaceBinding
     const char* Label,
     const char* ReadingText) noexcept;
 
+// Exact 1:1 HTML .rc-segments pill-track selector (#121212 track, #e6e6e6 active white pill with #141414 ink)
+[[nodiscard]] float ConstructSegmentTrack(
+    PixelSpace&                  Surface,
+    float                        LeftX,
+    float                        TopY,
+    float                        InnerWidth,
+    const char*                  UppercaseCaption,
+    std::span<const char* const> Choices,
+    uint32_t                     ActiveIndex,
+    const PaneInputReading&      Input,
+    int32_t&                     OutChosenIndex) noexcept;
+
+// Exact 1:1 HTML clickable summary navigation row ("Shadows"  "Voxel + Cone GI · 24 steps  >")
+[[nodiscard]] float ConstructNavigationRow(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   TopY,
+    float                   InnerWidth,
+    const char*             LeftLabel,
+    const char*             RightSummary,
+    bool                    ShowBottomDivider,
+    const PaneInputReading& Input,
+    bool&                   OutClicked) noexcept;
+
 // Full-width interactive pill action button inside a section
 [[nodiscard]] bool ConstructSectionActionButton(
     PixelSpace&             Surface,

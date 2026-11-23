@@ -69,8 +69,9 @@ public:
         const PaneInputReading&                   Input,
         bool&                                     OutMutated) noexcept;
 
-    void SetScrollOffset(float ScrollPixels) noexcept { ScrollOffsetY = std::max(0.0f, ScrollPixels); }
-    void ClearInstances() noexcept { Instances.Clear(); ProjectHost.ClearAll(); }
+    void SetScrollOffset(float ScrollPixels) noexcept { ScrollOffsetY = std::max(0.0f, ScrollPixels); ++ActivePanelRevision; }
+    void ClearInstances() noexcept { Instances.Clear(); ProjectHost.ClearAll(); ++ActivePanelRevision; }
+    [[nodiscard]] uint64_t QueryActiveSignature() const noexcept;
 
     [[nodiscard]] ProjectInspectorHost&      QueryProjectHost() noexcept { return ProjectHost; }
     [[nodiscard]] InspectorInstanceRegister& QueryInstances() noexcept { return Instances; }
@@ -142,8 +143,9 @@ private:
     FolderInspector             Folder             {};
     ProjectInspectorHost        ProjectHost        {};
 
-    uint32_t LastEntryId   = 0u;
-    float    ScrollOffsetY = 0.0f;
+    uint32_t LastEntryId        = 0u;
+    float    ScrollOffsetY      = 0.0f;
+    uint64_t ActivePanelRevision = 1ull;
 };
 
 } // namespace Frontier

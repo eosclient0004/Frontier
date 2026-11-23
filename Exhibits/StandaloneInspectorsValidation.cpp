@@ -9,10 +9,12 @@
 
 #include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/PixelSpace.h"
+#include "Engine/Components/Panes/InspectorPanel.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
 #include "Engine/Components/Panes/ViewportPanel.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Editor/Inspectors/InspectorRegistry.h"
+#include "Engine/Editor/WorldEnvironmentRegistry.h"
 #include "Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
 
@@ -604,6 +606,87 @@ title = "Overview"
     }
     std::filesystem::remove(OutDir / "99-AuxCheck.png", DirEc);
     AllOk &= VerifyRequirement(true, "All 31 native standalone inspectors + Project User UI Inspector foundation exercised cleanly");
+
+    // 9. Capture Camera Settings SDF sub-pages (Overview, Shadows, GI, AO, Output) for 1:1 HTML visual parity review
+    {
+        auto& SdfCam = Reg.AccessCameraSettings(CamSetTok);
+        SdfCam.RendererIndex = 1u; // B · SDF
+        Inspectors.QueryCameraSettings().SetActivePage(0u);
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CamSetTok, OutDir / "34-CameraSettings-SDF-Overview.png"), "34-CameraSettings-SDF-Overview.png");
+        Inspectors.QueryCameraSettings().SetActivePage(1u);
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CamSetTok, OutDir / "35-CameraSettings-SDF-Shadows.png"), "35-CameraSettings-SDF-Shadows.png");
+        Inspectors.QueryCameraSettings().SetActivePage(2u);
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CamSetTok, OutDir / "36-CameraSettings-SDF-GI.png"), "36-CameraSettings-SDF-GI.png");
+        Inspectors.QueryCameraSettings().SetActivePage(3u);
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CamSetTok, OutDir / "37-CameraSettings-SDF-AO.png"), "37-CameraSettings-SDF-AO.png");
+        Inspectors.QueryCameraSettings().SetActivePage(4u);
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, CamSetTok, OutDir / "38-CameraSettings-SDF-Output.png"), "38-CameraSettings-SDF-Output.png");
+        Inspectors.QueryCameraSettings().SetActivePage(0u);
+    }
+
+    // 10. Regression guard: WorldEnvironmentRegistry::SyncToWorld MUST NOT ping-pong Scene.SkyRadiance after SynchronizeWorldAtmosphere
+    {
+        OutlinerPanel EnvOutliner {};
+        WorldEnvironmentRegistry EnvReg {};
+        EnvReg.AdoptInitialSceneState(EnvOutliner, Bundle.Scene);
+        (void)EnvReg.SyncToWorld(EnvOutliner, Bundle.Scene); // First call settles initial scene state
+        // Simulate SynchronizeWorldAtmosphere writing overhead radiance into Scene.SkyRadiance
+        Bundle.Scene.SkyRadiance = { 0.284f, 0.482f, 0.761f };
+        const bool PingPong1 = EnvReg.SyncToWorld(EnvOutliner, Bundle.Scene);
+        const bool PingPong2 = EnvReg.SyncToWorld(EnvOutliner, Bundle.Scene);
+        AllOk &= VerifyRequirement(!PingPong1 && !PingPong2, "WorldEnvironmentRegistry::SyncToWorld idle non-ping-pong after SkyRadiance update (0 redundant LUT builds)");
+    }
+
+    // 11. Regression guard: InspectorPanel::PresentInImGuiPane RetainedCanvasCache replays stationary standalone inspectors without redrawing every frame
+    {
+        InspectorPanel Panel {};
+        Panel.AttachOutliner(&Outliner);
+        Panel.ConfigureOverrideSignatureCallback([&]() -> uint64_t
+        {
+            return Inspectors.QueryActiveSignature();
+        });
+        Panel.ConfigureFullOverrideCallback([&](PixelSpace& S, Rectangle2D B, OutlinerPanel* Out, OutlinerRecordEntry*, const PaneInputReading& In, double) -> bool
+        {
+            if (Out == nullptr) return false;
+            bool Mutated = false;
+            return Inspectors.ConstructActiveInspector(S, B, *Out, nullptr, Bundle.Scene, &DisplaySettings, In, Mutated);
+        });
+
+        ImGuiIO& Io    = ImGui::GetIO();
+        Io.DisplaySize = ImVec2(640.0f, 900.0f);
+        Io.DeltaTime   = 1.0f / 60.0f;
+        Io.MousePos    = ImVec2(500.0f, 240.0f); // Outside the 340px inspector pane (viewport idle/orbit)
+
+        auto RunCachedFrame = [&]()
+        {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(340.0f, 825.0f), ImGuiCond_Always);
+            ImGui::Begin("##RetainedCacheProof", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+            Panel.PresentInImGuiPane(0.016, 1.0f);
+            ImGui::End();
+            ImGui::Render();
+        };
+
+        Outliner.SelectSingle(CamSetTok);
+        RunCachedFrame();
+        const bool FirstWasCapture  = !Panel.QueryLastRenderReplayed() && Panel.QueryRetainedCaptureCount() == 1u;
+
+        RunCachedFrame();
+        const bool SecondWasReplay  = Panel.QueryLastRenderReplayed() && Panel.QueryRetainedReplayCount() == 1u && Panel.QueryRetainedCaptureCount() == 1u;
+
+        // Switching selected card MUST invalidate signature and rebuild ONLY the newly selected card
+        Outliner.SelectSingle(SpotLightTok);
+        RunCachedFrame();
+        const bool SwitchRebuilt    = !Panel.QueryLastRenderReplayed() && Panel.QueryRetainedCaptureCount() == 2u;
+
+        RunCachedFrame();
+        const bool PostSwitchReplay = Panel.QueryLastRenderReplayed() && Panel.QueryRetainedReplayCount() == 2u && Panel.QueryRetainedCaptureCount() == 2u;
+
+        AllOk &= VerifyRequirement(
+            FirstWasCapture && SecondWasReplay && SwitchRebuilt && PostSwitchReplay,
+            "InspectorPanel RetainedCanvasCache replays stationary frames (0 redraw) & rebuilds only on active card change");
+    }
 
     TypographyRepository::AssignCurrent(nullptr);
     ImGui::DestroyContext(GuiSession);

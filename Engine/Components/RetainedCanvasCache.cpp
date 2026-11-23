@@ -84,6 +84,36 @@ bool RetainedCanvasCache::QueryReusable(
     return true;
 }
 
+bool RetainedCanvasCache::QueryReusableStationary(
+    uint64_t    CandidateSignature,
+    Rectangle2D PhysicalBounds,
+    Point2D     CurrentMousePhysical,
+    bool        ForceRebuild) const noexcept
+{
+    if (ForceRebuild || !CacheValid || CandidateSignature != CachedSignature)
+    {
+        return false;
+    }
+    if (PhysicalBounds.Width <= 2.0f || PhysicalBounds.Height <= 2.0f)
+    {
+        return false;
+    }
+    const bool InsideNow  = PointInsideExpanded(PhysicalBounds, CurrentMousePhysical, 4.0f);
+    const bool InsidePrev = PointInsideExpanded(CachedPhysicalBounds, LastMousePhysical, 4.0f);
+    if (!InsideNow && !InsidePrev)
+    {
+        return true;
+    }
+    // Pointer is resting inside the pane: replay cached vertices (including any active hover/tooltip) unless cursor moved.
+    if (InsideNow && InsidePrev &&
+        std::fabs(CurrentMousePhysical.X - LastMousePhysical.X) < 0.5f &&
+        std::fabs(CurrentMousePhysical.Y - LastMousePhysical.Y) < 0.5f)
+    {
+        return true;
+    }
+    return false;
+}
+
 void RetainedCanvasCache::BeginCapture(ImDrawList* TargetCanvas) noexcept
 {
     CaptureActive = false;

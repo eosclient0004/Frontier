@@ -45,6 +45,12 @@ public:
         Point2D     CurrentMousePhysical,
         bool        ForceRebuild) const noexcept;
 
+    [[nodiscard]] bool QueryReusableStationary(
+        uint64_t    CandidateSignature,
+        Rectangle2D PhysicalBounds,
+        Point2D     CurrentMousePhysical,
+        bool        ForceRebuild) const noexcept;
+
     void BeginCapture(ImDrawList* TargetCanvas) noexcept;
     void EndCapture(
         ImDrawList* TargetCanvas,

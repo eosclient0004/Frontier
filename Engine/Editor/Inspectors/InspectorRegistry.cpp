@@ -6,6 +6,7 @@
 #include "Engine/Editor/Inspectors/InspectorRegistry.h"
 
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Lifecycle/ThoughtLog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -240,6 +241,7 @@ bool InspectorRegistry::ConstructActiveInspector(
     const PaneInputReading&                   Input,
     bool&                                     OutMutated) noexcept
 {
+    FRONTIER_THOUGHT_SCOPE("Inspector.ConstructActive");
     OutlinerRecordEntry* Entry = Outliner.AccessEntry(Outliner.QueryPrimarySelection());
     if (Entry == nullptr)
     {
@@ -250,6 +252,7 @@ bool InspectorRegistry::ConstructActiveInspector(
     {
         LastEntryId   = Entry->Token.Identifier;
         ScrollOffsetY = 0.0f;
+        ++ActivePanelRevision;
     }
 
     const ResolvedInspectorTarget Target = ResolveTarget(*Entry);
@@ -398,9 +401,10 @@ bool InspectorRegistry::ConstructActiveInspector(
             break;
     }
 
-    // Action row (Reset + Delete)
+    // Action row (Reset + Delete) — CameraSettings renders its own 1:1 quiet footer row without Delete
     bool ResetRequested  = false;
     bool DeleteRequested = false;
+    if (Target != ResolvedInspectorTarget::CameraSettings)
     {
         const float Gap       = 8.0f;
         const float BtnH      = 30.0f;
@@ -471,10 +475,12 @@ bool InspectorRegistry::ConstructActiveInspector(
     if (PageSwitched)
     {
         ScrollOffsetY = 0.0f;
+        ++ActivePanelRevision;
     }
 
     if (LocalMutated)
     {
+        ++ActivePanelRevision;
         Instances.CombineIntoScene(Outliner, Scene, DisplaySettings);
         OutMutated = true;
     }
@@ -487,6 +493,14 @@ bool InspectorRegistry::ConstructActiveInspector(
     InspectorPrimitives::ConstructInspectorFooter(Surface, FooterRect, ActiveSubtitle, "F11");
     InspectorPrimitives::FlushTooltipOverlay(Surface, PaneBounds);
     return true;
+}
+
+uint64_t InspectorRegistry::QueryActiveSignature() const noexcept
+{
+    uint64_t Sig = RetainedCanvasCache::MixHash(0x51A7C0DE1337BEEFull, ActivePanelRevision);
+    Sig = RetainedCanvasCache::MixHash(Sig, LastEntryId);
+    Sig = RetainedCanvasCache::MixHash(Sig, static_cast<uint64_t>(std::llround(ScrollOffsetY * 4.0f)));
+    return Sig;
 }
 
 } // namespace Frontier

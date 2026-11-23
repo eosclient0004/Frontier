@@ -1214,19 +1214,22 @@ float ConstructBakedLutSection(
         return Section.Bottom() + InspectorMetrics::SectionGap;
     }
 
-    // Standard Baked face (F76): Title header, Baked status bar (green Baked capsule + tooltip + res + Rebake/Save icons), LUT image, axis/format captions
-    const float BarH = 26.0f;
-    const float BoxH = InspectorMetrics::SectionPadTop + 26.0f + BarH + 6.0f + PreviewHeightPx + 42.0f + InspectorMetrics::SectionPadBottom;
+    // Standard Baked face (1:1 HTML BakedMapCards.jsx + BakedMapCards.css):
+    // Title, Baked status bar (green Baked pill + native ControlTooltip + res + Rebake/Save icons),
+    // Y-axis + X-axis plotted LUT image, and live "Point at the image to read it" readout.
+    const float BarH    = 26.0f;
+    const float AxisW   = 32.0f;
+    const float AxisX_H = 18.0f;
+    const float BoxH    = InspectorMetrics::SectionPadTop + 26.0f + BarH + 8.0f + PreviewHeightPx + AxisX_H + 26.0f + InspectorMetrics::SectionPadBottom;
     const Rectangle2D Section { LeftX, TopY, InnerWidth, BoxH };
     ConstructSectionSurface(Surface, Section, Title, "", InspectorMetrics::MutedInk);
 
     const float BarY = TopY + InspectorMetrics::SectionPadTop + 24.0f;
-    // Green "Baked" capsule (hover opens F76 details tooltip)
+    // Green "Baked" capsule (hover opens F76 details native ControlTooltip)
     const Rectangle2D BakedCap { LeftX + PadX, BarY + 2.0f, 68.0f, 22.0f };
     const bool BakedHover = BakedCap.Contains(Cur);
     Surface.FillRectangle(BakedCap, BakedHover ? ColorRgba{ 28u, 62u, 42u, 255u } : ColorRgba{ 22u, 46u, 33u, 255u }, 11.0f);
     Surface.StrokeRectangle(BakedCap, ColorRgba{ 88u, 214u, 141u, 110u }, 11.0f, 1.0f);
-    // Crisp check stroke inside Baked capsule
     Surface.StrokeLine({ BakedCap.X + 9.0f, BakedCap.Y + 11.5f }, { BakedCap.X + 12.0f, BakedCap.Y + 14.5f }, ColorRgba{ 118u, 232u, 162u, 255u }, 1.5f);
     Surface.StrokeLine({ BakedCap.X + 12.0f, BakedCap.Y + 14.5f }, { BakedCap.X + 17.5f, BakedCap.Y + 8.0f }, ColorRgba{ 118u, 232u, 162u, 255u }, 1.5f);
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { BakedCap.X + 23.0f, BakedCap.Y + 5.0f }, 10.0f, ColorRgba{ 150u, 238u, 184u, 255u }, "Baked");
@@ -1288,28 +1291,61 @@ float ConstructBakedLutSection(
         *OptionalSaveClicked = true;
     }
 
-    const Rectangle2D ImgBox { LeftX + PadX, BarY + BarH + 6.0f, BodyW, PreviewHeightPx };
-    Preview.Present(Surface, ImgBox, 10.0f);
-    Surface.StrokeRectangle(ImgBox, ColorRgba{ 255u, 255u, 255u, 22u }, 10.0f, 1.0f);
+    // Exact 1:1 HTML .baked-map-plot.with-axes: 32px left Y-axis rule + rounded LUT plot + 18px bottom X-axis rule
+    const float       PlotTopY = BarY + BarH + 8.0f;
+    const Rectangle2D ImgBox { LeftX + PadX + AxisW, PlotTopY, std::max(40.0f, BodyW - AxisW), PreviewHeightPx };
 
-    // Live cursor crosshair readout when pointing inside the baked image
+    // Y-axis ticks & hairline rule (#ffffff14)
+    const ColorRgba AxisInk  { 138u, 143u, 152u, 255u };
+    const ColorRgba AxisRule { 255u, 255u, 255u, 20u  };
+    Surface.StrokeLine({ ImgBox.X - 4.0f, ImgBox.Y }, { ImgBox.X - 4.0f, ImgBox.Bottom() }, AxisRule, 1.0f);
+    static constexpr std::array<const char*, 5u> YTicks = {{ "90°", "45°", "0°", "-45°", "-90°" }};
+    for (uint32_t I = 0u; I < 5u; ++I)
+    {
+        const float Frac = static_cast<float>(I) / 4.0f;
+        const float TW   = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.5f, YTicks[I]);
+        float       TY   = ImgBox.Y + Frac * (ImgBox.Height - 9.0f);
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Medium, { ImgBox.X - 8.0f - TW, TY }, 8.5f, AxisInk, YTicks[I]);
+    }
+
+    Preview.Present(Surface, ImgBox, 10.0f);
+    Surface.StrokeRectangle(ImgBox, ColorRgba{ 255u, 255u, 255u, 18u }, 10.0f, 1.0f);
+
+    // X-axis ticks & hairline rule (#ffffff14)
+    Surface.StrokeLine({ ImgBox.X, ImgBox.Bottom() + 4.0f }, { ImgBox.Right(), ImgBox.Bottom() + 4.0f }, AxisRule, 1.0f);
+    static constexpr std::array<const char*, 5u> XTicks = {{ "0°", "90°", "180°", "270°", "360°" }};
+    for (uint32_t I = 0u; I < 5u; ++I)
+    {
+        const float Frac = static_cast<float>(I) / 4.0f;
+        const float TW   = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.5f, XTicks[I]);
+        float       TX   = ImgBox.X + Frac * ImgBox.Width;
+        if (I == 4u)      TX -= TW;
+        else if (I > 0u)  TX -= TW * 0.5f;
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Medium, { TX, ImgBox.Bottom() + 7.5f }, 8.5f, AxisInk, XTicks[I]);
+    }
+
+    // Live cursor reticle & "Point at the image to read it" footer line
+    const float ReadoutY = ImgBox.Bottom() + AxisX_H + 8.0f;
     if (ImgBox.Contains(Cur))
     {
-        Surface.StrokeCircle(Cur, 5.5f, ColorRgba{ 255u, 255u, 255u, 220u }, 1.0f);
-        const float U = std::clamp((Cur.X - ImgBox.X) / std::max(1.0f, ImgBox.Width), 0.0f, 1.0f);
-        const float V = std::clamp((Cur.Y - ImgBox.Y) / std::max(1.0f, ImgBox.Height), 0.0f, 1.0f);
-        char UvBuf[48]{};
-        std::snprintf(UvBuf, sizeof(UvBuf), "Cursor U %.2f · V %.2f", U, V);
+        Surface.StrokeCircle(Cur, 6.2f, ColorRgba{ 0u, 0u, 0u, 175u }, 1.5f);
+        Surface.StrokeCircle(Cur, 5.2f, ColorRgba{ 255u, 255u, 255u, 240u }, 1.2f);
+        const float U   = std::clamp((Cur.X - ImgBox.X) / std::max(1.0f, ImgBox.Width), 0.0f, 1.0f);
+        const float V   = std::clamp((Cur.Y - ImgBox.Y) / std::max(1.0f, ImgBox.Height), 0.0f, 1.0f);
+        const float Az  = U * 360.0f;
+        const float El  = 90.0f - V * 180.0f;
+        char UvBuf[64]{};
+        std::snprintf(UvBuf, sizeof(UvBuf), "Azimuth %.0f° · Elevation %+.0f° · %s", Az, El, AxisCaption ? AxisCaption : "");
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, ImgBox.Bottom() + 10.0f }, BodyW, 10.0f, ColorRgba{ 226u, 232u, 240u, 255u }, UvBuf);
+            Surface, FontWeightClass::Regular, { LeftX + PadX, ReadoutY }, BodyW, 9.8f, ColorRgba{ 226u, 232u, 240u, 255u }, UvBuf);
     }
     else
     {
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { LeftX + PadX, ImgBox.Bottom() + 10.0f }, BodyW, 10.0f, InspectorMetrics::MutedInk, FormatText);
+            Surface, FontWeightClass::Regular, { LeftX + PadX, ReadoutY }, BodyW, 9.8f, InspectorMetrics::DimInk, "Point at the image to read it");
     }
-    WorkspaceAppearance::ConstructTruncatedText(
-        Surface, FontWeightClass::Regular, { LeftX + PadX, ImgBox.Bottom() + 26.0f }, BodyW, 9.5f, InspectorMetrics::DimInk, AxisCaption);
 
     return Section.Bottom() + InspectorMetrics::SectionGap;
 }
@@ -1518,6 +1554,112 @@ bool ConstructSectionActionButton(
     const float LW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 11.5f, Label);
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Btn.Center().X - LW * 0.5f, Btn.Y + 8.0f }, 11.5f, Ink, Label);
     return Hov && Input.PrimaryPointer.Pressed;
+}
+
+float ConstructSegmentTrack(
+    PixelSpace&                  Surface,
+    float                        LeftX,
+    float                        TopY,
+    float                        InnerWidth,
+    const char*                  UppercaseCaption,
+    std::span<const char* const> Choices,
+    uint32_t                     ActiveIndex,
+    const PaneInputReading&      Input,
+    int32_t&                     OutChosenIndex) noexcept
+{
+    OutChosenIndex = -1;
+    float Y = TopY;
+    if (UppercaseCaption != nullptr && UppercaseCaption[0] != '\0')
+    {
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Medium, { LeftX, Y }, 9.8f, ColorRgba{ 148u, 155u, 165u, 255u }, UppercaseCaption);
+        Y += 16.0f;
+    }
+
+    const float TrackH = 34.0f;
+    const Rectangle2D Track { LeftX, Y, InnerWidth, TrackH };
+    Surface.FillRectangle(Track, ColorRgba{ 18u, 18u, 19u, 255u }, TrackH * 0.5f);
+    Surface.StrokeRectangle(Track, ColorRgba{ 255u, 255u, 255u, 14u }, TrackH * 0.5f, 1.0f);
+
+    const uint32_t Count = std::max(1u, static_cast<uint32_t>(Choices.size()));
+    const float    Pad   = 3.0f;
+    const float    Gap   = 3.0f;
+    const float    SegW  = (InnerWidth - Pad * 2.0f - Gap * static_cast<float>(Count - 1u)) / static_cast<float>(Count);
+    const float    SegH  = TrackH - Pad * 2.0f;
+    const float    FontPx = (Count >= 5u) ? 9.4f : 10.5f;
+    const Point2D  Cur { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+
+    for (uint32_t I = 0u; I < Count; ++I)
+    {
+        const Rectangle2D Seg { LeftX + Pad + static_cast<float>(I) * (SegW + Gap), Y + Pad, SegW, SegH };
+        const bool Active = (I == ActiveIndex);
+        const bool Hov    = Seg.Contains(Cur);
+        if (Active)
+        {
+            Surface.FillRectangle(Seg, ColorRgba{ 230u, 230u, 230u, 255u }, SegH * 0.5f);
+        }
+        else if (Hov)
+        {
+            Surface.FillRectangle(Seg, ColorRgba{ 36u, 37u, 41u, 255u }, SegH * 0.5f);
+        }
+        const ColorRgba Ink = Active ? ColorRgba{ 20u, 20u, 20u, 255u } : (Hov ? ColorRgba{ 220u, 220u, 220u, 255u } : ColorRgba{ 154u, 154u, 154u, 255u });
+        const FontWeightClass Wgt = Active ? FontWeightClass::Medium : FontWeightClass::Regular;
+        const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, Wgt, FontPx, Choices[I]);
+        const float LabelOriginX = std::max(Seg.X + 4.0f, Seg.Center().X - TW * 0.5f);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, Wgt, { LabelOriginX, Seg.Center().Y - FontPx * 0.52f }, Seg.Width - 6.0f, FontPx, Ink, Choices[I]);
+        if (Hov && Input.PrimaryPointer.Pressed)
+        {
+            OutChosenIndex = static_cast<int32_t>(I);
+        }
+    }
+    return Track.Bottom() + 12.0f;
+}
+
+float ConstructNavigationRow(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   TopY,
+    float                   InnerWidth,
+    const char*             LeftLabel,
+    const char*             RightSummary,
+    bool                    ShowBottomDivider,
+    const PaneInputReading& Input,
+    bool&                   OutClicked) noexcept
+{
+    OutClicked = false;
+    const Rectangle2D Row { LeftX, TopY, InnerWidth, 30.0f };
+    const Point2D     Cur { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool        Hov = Row.Contains(Cur);
+    if (Hov)
+    {
+        Surface.FillRectangle({ Row.X - 6.0f, Row.Y + 1.0f, Row.Width + 12.0f, Row.Height - 2.0f }, ColorRgba{ 255u, 255u, 255u, 10u }, 8.0f);
+    }
+
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface, FontWeightClass::Regular, { LeftX, TopY + 8.0f }, 10.8f, ColorRgba{ 150u, 154u, 162u, 255u }, LeftLabel);
+
+    // Right chevron ">"
+    const float ChevX = LeftX + InnerWidth - 7.0f;
+    const float ChevY = TopY + 15.0f;
+    const ColorRgba ChevInk = Hov ? ColorRgba{ 235u, 238u, 244u, 255u } : ColorRgba{ 126u, 130u, 138u, 255u };
+    Surface.StrokeLine({ ChevX - 3.5f, ChevY - 4.0f }, { ChevX + 1.0f, ChevY }, ChevInk, 1.3f);
+    Surface.StrokeLine({ ChevX + 1.0f, ChevY }, { ChevX - 3.5f, ChevY + 4.0f }, ChevInk, 1.3f);
+
+    const float MaxRightW = std::max(40.0f, InnerWidth * 0.66f);
+    const float RW = std::min(MaxRightW, WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 10.8f, RightSummary));
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface, FontWeightClass::Medium, { ChevX - 10.0f - RW, TopY + 8.0f }, MaxRightW, 10.8f, ColorRgba{ 234u, 236u, 240u, 255u }, RightSummary);
+
+    if (ShowBottomDivider)
+    {
+        Surface.StrokeLine({ LeftX, Row.Bottom() }, { LeftX + InnerWidth, Row.Bottom() }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+    }
+
+    if (Hov && Input.PrimaryPointer.Pressed)
+    {
+        OutClicked = true;
+    }
+    return Row.Bottom();
 }
 
 Mathematics::LinearRGB ComputeKelvinRgb(float Kelvin) noexcept
