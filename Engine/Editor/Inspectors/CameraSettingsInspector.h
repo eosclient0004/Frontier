@@ -15,7 +15,7 @@ class CameraSettingsInspector
 {
 public:
     CameraSettingsInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Camera settings · render pipeline"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Render type, its shadows, lighting, GI, AO and reflections, quality and output"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

@@ -1099,6 +1099,95 @@ title = "Overview"
             AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityStars, ParityDir / Names[PageIdx]), Names[PageIdx]);
         }
         Inspectors.QueryStarfield().SetActivePage(0u);
+
+        // Card #14: Post Process (2 tabs)
+        const OutlinerSlotToken ParityPost = AppendEntry(Outliner, "Post Process", "Post Process", "env:post-process", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityPost)) Rec->VisibilityEnabled = true;
+        auto& PostInst = Reg.AccessPostProcess(ParityPost);
+        PostInst.Enabled          = true;
+        PostInst.ExposureEv       = 0.0f;
+        PostInst.SaturationGain   = 1.0f;
+        PostInst.ContrastGain     = 1.0f;
+        PostInst.VignetteStrength = 0.15f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "PostProcess-01-Overview.png", "PostProcess-02-Settings.png" }};
+            Inspectors.QueryPostProcess().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityPost, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryPostProcess().SetActivePage(0u);
+
+        // Card #15: Motion Blur (2 tabs)
+        const OutlinerSlotToken ParityMBlur = AppendEntry(Outliner, "Motion Blur", "Motion Blur", "env:motion-blur", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityMBlur)) Rec->VisibilityEnabled = true;
+        auto& MbInst = Reg.AccessMotionBlur(ParityMBlur);
+        MbInst.Enabled             = true;
+        MbInst.ShutterAngleDegrees = 180.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "MotionBlur-01-Overview.png", "MotionBlur-02-Settings.png" }};
+            Inspectors.QueryMotionBlur().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityMBlur, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryMotionBlur().SetActivePage(0u);
+
+        // Card #16: Lens Flare (4 tabs)
+        const OutlinerSlotToken ParityFlare = AppendEntry(Outliner, "Lens Flare", "Lens Flare", "env:lens-flare", ConstructSlotCategory::LayerGroup, EnvFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityFlare)) Rec->VisibilityEnabled = true;
+        auto& FlareInst = Reg.AccessLensFlare(ParityFlare, Bundle.Scene);
+        FlareInst.Flare.Enabled               = true;
+        FlareInst.Flare.FlareIntensity        = 1.0f;
+        FlareInst.Flare.FlareSpread           = 1.0f;
+        FlareInst.Flare.StreakRotationDegrees = 0.0f;
+        FlareInst.Flare.GhostCount            = 6u;
+        FlareInst.Flare.GhostIntensity        = 0.8f;
+        FlareInst.Flare.HaloIntensity         = 1.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 4u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 4u> Names = {{
+                "LensFlare-01-Overview.png", "LensFlare-02-Optics.png",
+                "LensFlare-03-Halo.png", "LensFlare-04-Baking.png"
+            }};
+            Inspectors.QueryLensFlare().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityFlare, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryLensFlare().SetActivePage(0u);
+
+        // Card #17: Editor Camera (4 tabs)
+        const OutlinerSlotToken ParityCam = AppendEntry(Outliner, "Editor Camera", "Editor Camera", "optics:camera", ConstructSlotCategory::OpticsCamera, {});
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityCam)) Rec->VisibilityEnabled = true;
+        auto& CamInst = Reg.AccessCamera(ParityCam, Bundle.Scene);
+        CamInst.FocalLengthMm  = 35.0f;
+        CamInst.ApertureFStop  = 2.8f;
+        CamInst.SensorWidthMm  = 36.0f;
+        CamInst.RigPresetIndex = 2u; // C · Mirrorless matching camera__2
+        for (uint32_t PageIdx = 0u; PageIdx < 4u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 4u> Names = {{
+                "Camera-01-Overview.png", "Camera-02-Focus.png",
+                "Camera-03-Body.png", "Camera-04-Render.png"
+            }};
+            Inspectors.QueryCamera().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCam, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryCamera().SetActivePage(0u);
+
+        // Card #18: Camera Settings (5 tabs in SDF mode)
+        const OutlinerSlotToken ParityCamSet = AppendEntry(Outliner, "Camera Settings", "Camera Settings", "env:camera-settings", ConstructSlotCategory::OpticsCamera, ParityCam);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityCamSet)) Rec->VisibilityEnabled = true;
+        auto& CsInst = Reg.AccessCameraSettings(ParityCamSet);
+        CsInst.RendererIndex = 1u; // SDF
+        CsInst.ExposureGain  = 1.35f;
+        for (uint32_t PageIdx = 0u; PageIdx < 5u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 5u> Names = {{
+                "CameraSettings-01-Overview.png", "CameraSettings-02-Shadows.png",
+                "CameraSettings-03-GI.png", "CameraSettings-04-AO.png", "CameraSettings-05-Output.png"
+            }};
+            Inspectors.QueryCameraSettings().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCamSet, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryCameraSettings().SetActivePage(0u);
     }
 
     TypographyRepository::AssignCurrent(nullptr);

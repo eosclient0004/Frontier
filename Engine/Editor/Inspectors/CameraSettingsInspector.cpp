@@ -421,6 +421,10 @@ float CameraSettingsInspector::Construct(
     ViewportDisplaySettings* DisplaySettings,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
+    // HTML .rs-inspector / .rs-card spans x=14..326 (w=312)
+    LeftX      -= 20.0f;
+    InnerWidth += 40.0f;
+    TopY       -= 4.0f;
     const float PadX  = InspectorMetrics::SectionPadX;
     const float BodyW = InnerWidth - PadX * 2.0f;
     const Point2D Cur { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
@@ -429,7 +433,7 @@ float CameraSettingsInspector::Construct(
     // 1:1 HTML Editor Camera component banner right above the page carousel
     float CursorY = TopY;
     {
-        const Rectangle2D Banner { LeftX, CursorY, InnerWidth, 54.0f };
+        const Rectangle2D Banner { LeftX, CursorY, InnerWidth, 62.0f };
         const bool Hov = Banner.Contains(Cur);
         Surface.FillRectangle(Banner, Hov ? ColorRgba{ 26u, 27u, 31u, 255u } : ColorRgba{ 20u, 21u, 24u, 255u }, 14.0f);
         Surface.StrokeRectangle(Banner, ColorRgba{ 255u, 255u, 255u, 18u }, 14.0f, 1.0f);
@@ -530,20 +534,22 @@ float CameraSettingsInspector::Construct(
     const auto ConstructOutputSection = [&](float Top) -> float
     {
         const float ScalePct = DisplaySettings ? DisplaySettings->RenderScalePercent : 100.0f;
-        const Rectangle2D OutSec { LeftX, Top, InnerWidth, 538.0f };
+        const Rectangle2D OutSec { LeftX, Top, InnerWidth, 612.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, OutSec, "Output");
-        float Y = Top + InspectorMetrics::SectionPadTop + 28.0f;
+        float Y = Top + InspectorMetrics::SectionPadTop + 34.0f;
         char ScaleBuf[16]{}, SubBuf[88]{};
         std::snprintf(ScaleBuf, sizeof(ScaleBuf), "%.0f", ScalePct);
         std::snprintf(SubBuf, sizeof(SubBuf), "Exposure gain %.2f × · edge AA %s", Data.ExposureGain, Data.SpatialAntiAliasing ? "on" : "off");
         Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, ScaleBuf, "% scale", SubBuf);
+        Y += 8.0f;
 
-        const Rectangle2D Well { LeftX + PadX, Y, BodyW, 110.0f };
+        const Rectangle2D Well { LeftX + PadX, Y, BodyW, 126.0f };
         PaintOutputScaleWell(Surface, Well, ScalePct);
-        Y = Well.Bottom() + 14.0f;
+        Y = Well.Bottom() + 20.0f;
 
         bool Local = false;
         Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8740u, "Exposure gain", "x", "%.2f", 0.10f, 4.0f, Data.ExposureGain, ActiveDragId, Input, Local);
+        Y += 6.0f;
 
         // 6-step scale pill track (1:1 HTML 50% .. 200%)
         static constexpr std::array<const char*, 6u> ScaleLabels = {{ "50%", "75%", "100%", "125%", "150%", "200%" }};
@@ -561,13 +567,16 @@ float CameraSettingsInspector::Construct(
             if (DisplaySettings) DisplaySettings->RenderScalePercent = Data.RenderScalePercent;
             Local = true;
         }
+        Y += 6.0f;
 
         Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Edge anti-aliasing", Data.SpatialAntiAliasing, Input, Local);
+        Y += 6.0f;
 
         static constexpr std::array<const char*, 2u> ReflSrc = {{ "WideTree", "Sky" }};
         int32_t PickRefl = -1;
         Y = InspectorPrimitives::ConstructSegmentTrack(Surface, LeftX + PadX, Y, BodyW, "REFLECTION SOURCE", ReflSrc, std::min(Data.ReflectionSourceIndex, 1u), Input, PickRefl);
         if (PickRefl >= 0) { Data.ReflectionSourceIndex = static_cast<uint32_t>(PickRefl); Local = true; }
+        Y += 6.0f;
 
         static constexpr std::array<const char*, 3u> TraceRes = {{ "Full", "½", "¼" }};
         int32_t PickRes = -1;
@@ -617,23 +626,24 @@ float CameraSettingsInspector::Construct(
         }};
         const uint32_t EIdx = std::min(Data.RendererIndex, 3u);
 
-        const Rectangle2D HeroSec { LeftX, CursorY, InnerWidth, 344.0f };
+        // 1:1 HTML Render type hero card height = 409px
+        const Rectangle2D HeroSec { LeftX, CursorY, InnerWidth, 409.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, HeroSec, "Render type");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+        float Y = CursorY + InspectorMetrics::SectionPadTop + 34.0f;
 
         // Dark glossy hero stage box containing sphere + bold title + subtitle + capability tag chips
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 184.0f };
+        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 210.0f };
         Surface.FillRectangle(Stage, ColorRgba{ 21u, 23u, 28u, 255u }, 14.0f);
         Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, 14.0f, 1.0f);
-        RendererHeroPreview.Present(Surface, { Stage.X + 8.0f, Stage.Y + 6.0f, Stage.Width - 16.0f, 102.0f }, 10.0f);
+        RendererHeroPreview.Present(Surface, { Stage.X + 8.0f, Stage.Y + 8.0f, Stage.Width - 16.0f, 118.0f }, 10.0f);
 
         const float TitleW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.5f, HeroTitles[EIdx]);
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Medium, { Stage.Center().X - TitleW * 0.5f, Stage.Y + 114.0f }, 13.5f, ColorRgba{ 242u, 244u, 248u, 255u }, HeroTitles[EIdx]);
+            Surface, FontWeightClass::Medium, { Stage.Center().X - TitleW * 0.5f, Stage.Y + 134.0f }, 13.5f, ColorRgba{ 242u, 244u, 248u, 255u }, HeroTitles[EIdx]);
 
         const float SubW = std::min(Stage.Width - 16.0f, WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, HeroSubtitles[EIdx]));
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { Stage.Center().X - SubW * 0.5f, Stage.Y + 134.0f }, Stage.Width - 16.0f, 9.6f, ColorRgba{ 146u, 150u, 158u, 255u }, HeroSubtitles[EIdx]);
+            Surface, FontWeightClass::Regular, { Stage.Center().X - SubW * 0.5f, Stage.Y + 154.0f }, Stage.Width - 16.0f, 9.6f, ColorRgba{ 146u, 150u, 158u, 255u }, HeroSubtitles[EIdx]);
 
         // Centered capability chips inside hero stage ([Shadows] [GI] [AO])
         static constexpr std::array<const char*, 3u> PbrChips = {{ "Shadows", "Reflections", "AO" }};
@@ -652,7 +662,7 @@ float CameraSettingsInspector::Construct(
             if (I + 1u < Chips.size()) TotalChipW += 5.0f;
         }
         float ChipX = Stage.Center().X - TotalChipW * 0.5f;
-        const float ChipY = Stage.Y + 154.0f;
+        const float ChipY = Stage.Y + 176.0f;
         for (const char* CLabel : Chips)
         {
             const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.0f, CLabel) + 14.0f;
@@ -662,14 +672,14 @@ float CameraSettingsInspector::Construct(
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { CR.X + 7.0f, CR.Y + 4.0f }, 9.0f, ColorRgba{ 196u, 200u, 208u, 255u }, CLabel);
             ChipX += CW + 5.0f;
         }
-        Y = Stage.Bottom() + 10.0f;
+        Y = Stage.Bottom() + 12.0f;
 
         // 4-column visual thumbnail selector tiles (1:1 HTML A PBR | B SDF | C Ray traced | D MatCap)
         static constexpr std::array<const char*, 4u> TileLetters = {{ "A", "B", "C", "D" }};
         static constexpr std::array<const char*, 4u> TileNames   = {{ "PBR", "SDF", "Ray traced", "MatCap" }};
         const float TileGap = 6.0f;
         const float TileW   = std::floor((BodyW - TileGap * 3.0f) / 4.0f);
-        const float TileH   = 68.0f;
+        const float TileH   = 74.0f;
         for (uint32_t I = 0u; I < 4u; ++I)
         {
             const Rectangle2D T { LeftX + PadX + static_cast<float>(I) * (TileW + TileGap), Y, TileW, TileH };

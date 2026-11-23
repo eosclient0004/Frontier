@@ -76,6 +76,28 @@ PARITY_CASES = [
     ("Starfield", "2-Motion",   "stars__1-stars_motion.png",   "Starfield-02-Motion.png",   "Starfield-02-Motion-Proof.png",   0.85, 0.75),
     ("Starfield", "3-Renderer", "stars__2-stars_renderer.png", "Starfield-03-Renderer.png", "Starfield-03-Renderer-Proof.png", 0.85, 0.75),
     ("Starfield", "4-Baking",   "stars__3-stars_baking.png",   "Starfield-04-Baking.png",   "Starfield-04-Baking-Proof.png",   0.85, 0.75),
+    # Card 14: Post Process
+    ("PostProcess", "1-Overview", "post__0-post_overview.png", "PostProcess-01-Overview.png", "PostProcess-01-Overview-Proof.png", 0.85, 0.75),
+    ("PostProcess", "2-Settings", "post__1-post_settings.png", "PostProcess-02-Settings.png", "PostProcess-02-Settings-Proof.png", 0.85, 0.75),
+    # Card 15: Motion Blur
+    ("MotionBlur", "1-Overview", "motion-blur__0-motion-blur_overview.png", "MotionBlur-01-Overview.png", "MotionBlur-01-Overview-Proof.png", 0.85, 0.75),
+    ("MotionBlur", "2-Settings", "motion-blur__1-motion-blur_settings.png", "MotionBlur-02-Settings.png", "MotionBlur-02-Settings-Proof.png", 0.85, 0.75),
+    # Card 16: Lens Flare
+    ("LensFlare", "1-Overview", "flare__0-flare_overview.png", "LensFlare-01-Overview.png", "LensFlare-01-Overview-Proof.png", 0.85, 0.75),
+    ("LensFlare", "2-Optics",   "flare__1-flare_optics.png",   "LensFlare-02-Optics.png",   "LensFlare-02-Optics-Proof.png",   0.85, 0.75),
+    ("LensFlare", "3-Halo",     "flare__2-flare_halo.png",     "LensFlare-03-Halo.png",     "LensFlare-03-Halo-Proof.png",     0.85, 0.75),
+    ("LensFlare", "4-Baking",   "flare__3-flare_baking.png",   "LensFlare-04-Baking.png",   "LensFlare-04-Baking-Proof.png",   0.85, 0.75),
+    # Card 17: Camera
+    ("Camera", "1-Overview", "camera__0-camera_overview.png", "Camera-01-Overview.png", "Camera-01-Overview-Proof.png", 0.85, 0.75),
+    ("Camera", "2-Focus",    "camera__1-camera_focus.png",    "Camera-02-Focus.png",    "Camera-02-Focus-Proof.png",    0.85, 0.75),
+    ("Camera", "3-Body",     "camera__2-camera_body.png",     "Camera-03-Body.png",     "Camera-03-Body-Proof.png",     0.85, 0.75),
+    ("Camera", "4-Render",   "camera__3-camera_render.png",   "Camera-04-Render.png",   "Camera-04-Render-Proof.png",   0.85, 0.75),
+    # Card 18: Camera Settings
+    ("CameraSettings", "1-Overview", "camera-camera-settings__0-render-camera-sdf_overview.png", "CameraSettings-01-Overview.png", "CameraSettings-01-Overview-Proof.png", 0.85, 0.75),
+    ("CameraSettings", "2-Shadows",  "camera-camera-settings__1-render-camera-sdf_shadows.png",  "CameraSettings-02-Shadows.png",  "CameraSettings-02-Shadows-Proof.png",  0.85, 0.75),
+    ("CameraSettings", "3-GI",       "camera-camera-settings__2-render-camera-sdf_gi.png",       "CameraSettings-03-GI.png",       "CameraSettings-03-GI-Proof.png",       0.85, 0.75),
+    ("CameraSettings", "4-AO",       "camera-camera-settings__3-render-camera-sdf_ao.png",       "CameraSettings-04-AO.png",       "CameraSettings-04-AO-Proof.png",       0.85, 0.75),
+    ("CameraSettings", "5-Output",   "camera-camera-settings__4-render-camera-sdf_output.png",   "CameraSettings-05-Output.png",   "CameraSettings-05-Output-Proof.png",   0.85, 0.75),
 ]
 
 

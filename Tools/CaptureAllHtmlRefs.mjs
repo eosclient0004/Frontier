@@ -139,7 +139,7 @@ async function main() {
 
       // Lock inspector column width to exact 340px
       await page.evaluate((w) => {
-        const content = document.querySelector(".specialized-inspector, .folder-inspector");
+        const content = document.querySelector(".specialized-inspector, .folder-inspector, .generic-inspector, .primitive-inspector, .inspector-scroll");
         if (!content) return;
         let panel = content.parentElement;
         while (panel && panel.parentElement && panel.getBoundingClientRect().height < 700) panel = panel.parentElement;
@@ -171,16 +171,11 @@ async function main() {
         }
 
         const layout = await page.evaluate(({ w, h }) => {
-          const content = document.querySelector(".specialized-inspector, .folder-inspector");
+          const scrollEl = document.querySelector(".inspector-scroll");
+          const content = document.querySelector(".specialized-inspector, .folder-inspector, .generic-inspector, .primitive-inspector") || scrollEl;
           if (!content) return null;
-          let scroller = content.parentElement;
-          while (scroller && scroller !== document.body) {
-            const st = getComputedStyle(scroller);
-            if (st.overflowY === "auto" || st.overflowY === "scroll" || scroller.classList.contains("panel-body")) break;
-            scroller = scroller.parentElement;
-          }
-          const host = scroller || content;
-          host.scrollTop = 0;
+          if (scrollEl) scrollEl.scrollTop = 0;
+          const host = scrollEl || content;
           const rect = host.getBoundingClientRect();
 
           // Only collect elements that are actually inside the visible viewport horizontally [rect.left..rect.right]

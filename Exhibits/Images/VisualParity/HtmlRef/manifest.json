@@ -1,0 +1,34 @@
+{
+  "camera-camera-settings": [
+    {
+      "index": 0,
+      "key": "render-camera-sdf_overview",
+      "png": "camera-camera-settings__0-render-camera-sdf_overview.png",
+      "json": "camera-camera-settings__0-render-camera-sdf_overview.json"
+    },
+    {
+      "index": 1,
+      "key": "render-camera-sdf_shadows",
+      "png": "camera-camera-settings__1-render-camera-sdf_shadows.png",
+      "json": "camera-camera-settings__1-render-camera-sdf_shadows.json"
+    },
+    {
+      "index": 2,
+      "key": "render-camera-sdf_gi",
+      "png": "camera-camera-settings__2-render-camera-sdf_gi.png",
+      "json": "camera-camera-settings__2-render-camera-sdf_gi.json"
+    },
+    {
+      "index": 3,
+      "key": "render-camera-sdf_ao",
+      "png": "camera-camera-settings__3-render-camera-sdf_ao.png",
+      "json": "camera-camera-settings__3-render-camera-sdf_ao.json"
+    },
+    {
+      "index": 4,
+      "key": "render-camera-sdf_output",
+      "png": "camera-camera-settings__4-render-camera-sdf_output.png",
+      "json": "camera-camera-settings__4-render-camera-sdf_output.json"
+    }
+  ]
+}
