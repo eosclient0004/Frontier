@@ -14,7 +14,13 @@ void NativeGeometryInspector::UpdateSpecimenSurface(const NativeGeometryData& In
     uint64_t Key = 0xA2020001ull ^ (static_cast<uint64_t>(Instance.TriangleCount) << 4u);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.LodPixelError);
 
-    SpecimenPreview.EnsureUpdated(Key, 96u, 96u, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::GeometrySpecimenPreview, 1u,
+        { static_cast<float>(Instance.TriangleCount), Instance.LodPixelError, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.58f, 0.66f, 0.74f, 1.0f }
+    };
+    SpecimenPreview.EnsureUpdatedGpu(Key, 96u, 96u, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < 96u; ++Y)
         {

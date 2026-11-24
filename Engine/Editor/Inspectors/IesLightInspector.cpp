@@ -41,7 +41,13 @@ void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.FieldAngleDegrees);
 
     const uint32_t W = 524u, H = 376u;
-    PolarPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 2u,
+        { Instance.LuminousFlux * 0.0008f, static_cast<float>(Instance.ProfilePresetIndex), Instance.FieldAngleDegrees, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.72f, 0.84f, 0.98f, 1.0f }
+    };
+    PolarPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = static_cast<float>(H) * 0.49f;

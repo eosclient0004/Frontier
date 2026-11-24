@@ -14,7 +14,13 @@ void ImportedGeometryInspector::UpdateExchangeSurface(const ImportedGeometryData
     uint64_t Key = 0xA3030001ull ^ (static_cast<uint64_t>(Instance.ExchangeFormatIndex) << 8u);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.ImportScaleFactor);
 
-    ExchangePreview.EnsureUpdated(Key, 96u, 96u, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::GeometrySpecimenPreview, 2u,
+        { static_cast<float>(Instance.ExchangeFormatIndex), Instance.ImportScaleFactor, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.56f, 0.70f, 0.76f, 1.0f }
+    };
+    ExchangePreview.EnsureUpdatedGpu(Key, 96u, 96u, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < 96u; ++Y)
         {

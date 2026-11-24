@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Appearance/TypographyRepository.h"
+#include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
 #include "Engine/Components/PixelSpace.h"
 #include "Engine/Components/Panes/InspectorPanel.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
@@ -1474,6 +1475,86 @@ title = "Overview"
                 DistanceFieldSpace::LocalSignedDistanceVolume::QueryGpuBakeCount() == (GpuBefore + 1ull) &&
                 DistanceFieldSpace::LocalSignedDistanceVolume::QueryCpuBakeCount() == CpuBefore,
                 "LocalSignedDistanceVolume executes on GPU aspect baker with zero CPU bake fallback");
+        }
+
+        // 14f. ThumbnailSpecimenCompute.comp.spv compiled by Slang
+        {
+            const std::filesystem::path ShaderDir(FRONTIER_COMPILED_SHADER_DIR);
+            AllOk &= VerifyRequirement(
+                std::filesystem::exists(ShaderDir / "ThumbnailSpecimenCompute.comp.spv"),
+                "GPU compute shader ThumbnailSpecimenCompute.comp.spv compiled by Slang");
+        }
+
+        // 14g. Zero-copy direct GPU ImGui image hook on InspectorPreviewSurface (0 CPU fallback, 0 readback, 1 retained upload)
+        {
+            uint32_t DirectDispatches = 0u;
+            uint32_t ReleasedSurfaces = 0u;
+            uint32_t CpuFallbacks     = 0u;
+            InspectorPreviewSurface::AssignGpuDirectBakeHook(
+                [&](uint64_t SurfaceId, const InspectorGpuBakeSpec&, uint32_t, uint32_t, uint64_t& OutHandle) -> bool
+                {
+                    ++DirectDispatches;
+                    OutHandle = 0xDEADBEEF00000000ull | (SurfaceId & 0xFFFFFFFFull);
+                    return true;
+                },
+                [&](uint64_t) { ++ReleasedSurfaces; });
+
+            {
+                InspectorPreviewSurface DirectSurf {};
+                const InspectorGpuBakeSpec Spec { InspectorGpuBakeMode::PhotometricLightPreview, 0u };
+                DirectSurf.EnsureUpdatedGpu(0x55AA1122ull, 256u, 180u, Spec, [&](std::vector<uint8_t>&) { ++CpuFallbacks; });
+                DirectSurf.EnsureUpdatedGpu(0x55AA1122ull, 256u, 180u, Spec, [&](std::vector<uint8_t>&) { ++CpuFallbacks; });
+                AllOk &= VerifyRequirement(
+                    DirectDispatches == 1u && CpuFallbacks == 0u &&
+                    DirectSurf.QueryDirectGpuUploadCount() == 1u && DirectSurf.QueryCpuUploadCount() == 0u,
+                    "InspectorPreviewSurface zero-copy direct GPU image hook skips CPU readback & stays at 1 retained upload");
+            }
+            InspectorPreviewSurface::ClearGpuDirectBakeHook();
+            AllOk &= VerifyRequirement(
+                ReleasedSurfaces == 1u,
+                "InspectorPreviewSurface destructor cleanly releases direct GPU surface");
+        }
+
+        // 14h. ThumbnailSheetRepository defers eager startup CPU baking & routes material/geometry tiles strictly to GPU baker
+        {
+            const uint64_t CpuBefore = ThumbnailSheetRepository::QueryCpuBakedTileCount();
+            const uint64_t GpuBefore = ThumbnailSheetRepository::QueryGpuBakedTileCount();
+            ThumbnailSheetRepository LazyRepo {};
+            const bool ZeroEagerCpuBakes = (ThumbnailSheetRepository::QueryCpuBakedTileCount() == CpuBefore);
+            AllOk &= VerifyRequirement(
+                ZeroEagerCpuBakes && !LazyRepo.QueryAllEntries().empty(),
+                "ThumbnailSheetRepository construction defers eager CPU specimen baking (0 ms F=1 startup cost)");
+
+            uint32_t GpuThumbCalls = 0u;
+            ThumbnailSheetRepository::AssignGpuThumbnailBaker(
+                [&](const ThumbnailSheetRepository::ThumbnailGpuBakeDesc&, uint32_t DimPx, std::vector<uint8_t>& OutRgba) -> bool
+                {
+                    ++GpuThumbCalls;
+                    OutRgba.assign(static_cast<std::size_t>(DimPx) * DimPx * 4u, 0xE4u);
+                    return true;
+                });
+
+            std::size_t TargetIdx = SIZE_MAX;
+            const auto AllEntries = LazyRepo.QueryAllEntries();
+            for (std::size_t I = 0u; I < AllEntries.size(); ++I)
+            {
+                const auto Cat = static_cast<ContentCategory>(AllEntries[I].IndexHeader.CategoryCode);
+                if (!AllEntries[I].TileResident &&
+                    (Cat == ContentCategory::Geometry || Cat == ContentCategory::Materials))
+                {
+                    TargetIdx = I;
+                    break;
+                }
+            }
+            std::vector<uint8_t> TilePixels {};
+            const bool QueriedOk = (TargetIdx != SIZE_MAX) && LazyRepo.QueryTileRgbaPixels(TargetIdx, TilePixels);
+            ThumbnailSheetRepository::ClearGpuThumbnailBaker();
+            AllOk &= VerifyRequirement(
+                QueriedOk && GpuThumbCalls == 1u &&
+                ThumbnailSheetRepository::QueryGpuBakedTileCount() == (GpuBefore + 1ull) &&
+                ThumbnailSheetRepository::QueryCpuBakedTileCount() == CpuBefore &&
+                !TilePixels.empty() && TilePixels[0] == 0xE4u,
+                "ThumbnailSheetRepository lazily bakes Geometry/Material tiles on GPU with 0 CPU raytracing");
         }
     }
 

@@ -33,7 +33,13 @@ void PointLightInspector::UpdateFalloffSurface(const PointLightData& Instance)
 
     // Seamless dark card background rgb(24,24,25) with concentric reach rings + indigo core
     const uint32_t W = 524u, H = 376u;
-    FalloffPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 0u,
+        { Instance.IntensityCandela * 0.0015f, Instance.ReachMeters, Instance.DecayExponent, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { Instance.RadiantTint.R, Instance.RadiantTint.G, Instance.RadiantTint.B, 1.0f }
+    };
+    FalloffPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = static_cast<float>(H) * 0.50f;

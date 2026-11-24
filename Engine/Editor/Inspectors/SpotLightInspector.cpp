@@ -30,7 +30,13 @@ void SpotLightInspector::UpdateEnvelopeSurface(const SpotLightData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.IntensityCandela);
 
     const uint32_t W = 524u, H = 376u;
-    EnvelopePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 1u,
+        { Instance.IntensityCandela * 0.001f, Instance.FullConeDegrees * (1.0f - Instance.Penumbra), Instance.FullConeDegrees, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.96f, 0.88f, 0.72f, 1.0f }
+    };
+    EnvelopePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float ApexY = 82.0f, BaseY = 304.0f;

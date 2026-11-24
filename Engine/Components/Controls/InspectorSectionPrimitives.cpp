@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -27,8 +28,11 @@ namespace Frontier
 namespace
 {
 
-std::mutex                             GlobalGpuBakeHookMutex {};
-InspectorPreviewSurface::GpuBakeHookFn GlobalGpuBakeHook      {};
+std::mutex                                    GlobalGpuBakeHookMutex  {};
+InspectorPreviewSurface::GpuBakeHookFn        GlobalGpuBakeHook       {};
+InspectorPreviewSurface::GpuDirectBakeHookFn  GlobalGpuDirectHook     {};
+InspectorPreviewSurface::GpuDirectReleaseHookFn GlobalGpuReleaseHook  {};
+std::atomic<uint64_t>                         GlobalNextSurfaceId     { 1ull };
 
 struct InspectorCaptureFrameScope
 {
@@ -61,6 +65,19 @@ InspectorCaptureFrameScope& AccessCaptureScope() noexcept
 
 InspectorPreviewSurface::~InspectorPreviewSurface() noexcept
 {
+    if (SurfaceUniqueId != 0ull)
+    {
+        GpuDirectReleaseHookFn ReleaseHook {};
+        {
+            std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+            ReleaseHook = GlobalGpuReleaseHook;
+        }
+        if (ReleaseHook)
+        {
+            ReleaseHook(SurfaceUniqueId);
+        }
+        DirectGpuTextureHandle = 0ull;
+    }
     ResidentTexture.DestroyPixels();
     ResidentTexture.SetStatus(ImTextureStatus_Destroyed);
 }
@@ -81,6 +98,26 @@ bool InspectorPreviewSurface::QueryGpuBakeHookAttached() noexcept
 {
     std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
     return static_cast<bool>(GlobalGpuBakeHook);
+}
+
+void InspectorPreviewSurface::AssignGpuDirectBakeHook(GpuDirectBakeHookFn Hook, GpuDirectReleaseHookFn ReleaseHook)
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    GlobalGpuDirectHook  = std::move(Hook);
+    GlobalGpuReleaseHook = std::move(ReleaseHook);
+}
+
+void InspectorPreviewSurface::ClearGpuDirectBakeHook() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    GlobalGpuDirectHook  = {};
+    GlobalGpuReleaseHook = {};
+}
+
+bool InspectorPreviewSurface::QueryGpuDirectBakeHookAttached() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    return static_cast<bool>(GlobalGpuDirectHook);
 }
 
 void InspectorPreviewSurface::UploadStagingPixels(
@@ -159,7 +196,8 @@ void InspectorPreviewSurface::EnsureUpdatedGpu(
         return;
     }
 
-    const bool SizeMismatch = (WidthPx != TargetWidthPx) || (HeightPx != TargetHeightPx) || (ResidentTexture.Pixels == nullptr);
+    const bool HasAnyResident = (DirectGpuTextureHandle != 0ull) || (ResidentTexture.Pixels != nullptr);
+    const bool SizeMismatch   = (WidthPx != TargetWidthPx) || (HeightPx != TargetHeightPx) || !HasAnyResident;
     if (!SizeMismatch && RetainedSignature == RevisionSignature)
     {
         return;
@@ -174,22 +212,48 @@ void InspectorPreviewSurface::EnsureUpdatedGpu(
         }
     }
 
-    StagingPixels.resize(static_cast<std::size_t>(TargetWidthPx) * TargetHeightPx * 4u);
-
-    // Pure-GPU Vulkan compute path first — zero CPU pixel loops when GPU is active!
-    GpuBakeHookFn GpuHook {};
+    // 1. Zero-Copy Pure-GPU Direct ImGui Image Path (0 CPU readback, 0 memcpy, 0 ImGui texture re-upload!)
+    GpuDirectBakeHookFn DirectHook {};
+    GpuBakeHookFn       GpuHook {};
     {
         std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
-        GpuHook = GlobalGpuBakeHook;
+        DirectHook = GlobalGpuDirectHook;
+        GpuHook    = GlobalGpuBakeHook;
     }
+    if (DirectHook)
+    {
+        if (SurfaceUniqueId == 0ull)
+        {
+            SurfaceUniqueId = GlobalNextSurfaceId.fetch_add(1ull, std::memory_order_relaxed);
+        }
+        uint64_t NativeHandle = 0ull;
+        if (DirectHook(SurfaceUniqueId, GpuSpec, TargetWidthPx, TargetHeightPx, NativeHandle) && NativeHandle != 0ull)
+        {
+            DirectGpuTextureHandle = NativeHandle;
+            WidthPx                = TargetWidthPx;
+            HeightPx               = TargetHeightPx;
+            RetainedSignature      = RevisionSignature;
+            LastBakeTimeNs         = QueryMonotonicNowNs();
+            ++UploadCounter;
+            ++GpuUploadCounter;
+            ++DirectGpuUploadCounter;
+            return;
+        }
+    }
+
+    // 2. Staging Pure-GPU Compute Path (when Vulkan device is attached without external ImGui presenter)
+    StagingPixels.resize(static_cast<std::size_t>(TargetWidthPx) * TargetHeightPx * 4u);
     if (GpuHook && GpuHook(GpuSpec, TargetWidthPx, TargetHeightPx, StagingPixels))
     {
+        DirectGpuTextureHandle = 0ull;
         UploadStagingPixels(RevisionSignature, TargetWidthPx, TargetHeightPx, SizeMismatch, true);
         return;
     }
 
+    // 3. Deterministic CPU Fallback (headless validation tests without Vulkan GPU)
     if (CpuFallbackCallback)
     {
+        DirectGpuTextureHandle = 0ull;
         CpuFallbackCallback(StagingPixels);
         UploadStagingPixels(RevisionSignature, TargetWidthPx, TargetHeightPx, SizeMismatch, false);
     }
@@ -208,6 +272,11 @@ void InspectorPreviewSurface::Present(
     if (!QueryResident())
     {
         Surface.FillRectangle(Bounds, InspectorMetrics::ChamberDark, CornerRadius);
+        return;
+    }
+    if (DirectGpuTextureHandle != 0ull)
+    {
+        Surface.FillTexturedRectangle(Bounds, nullptr, DirectGpuTextureHandle, Tint, { 0.0f, 0.0f }, { 1.0f, 1.0f }, CornerRadius);
         return;
     }
     Surface.FillTexturedRectangle(Bounds, &ResidentTexture, { 0.0f, 0.0f }, { 1.0f, 1.0f }, CornerRadius, Tint);

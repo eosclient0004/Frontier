@@ -549,19 +549,44 @@ bool VulkanWorldRenderSequence::InitializeSequence(
             AspectSdfSlots,
             "ComputeEntry");
     }
-    HighEndBvhProgramHandle        = UINT32_MAX;
-    ViewportPathTraceProgramHandle = UINT32_MAX;
+    HighEndBvhProgramHandle.store(UINT32_MAX, std::memory_order_relaxed);
+    ViewportPathTraceProgramHandle.store(UINT32_MAX, std::memory_order_relaxed);
+    AsyncWarmupCancel.store(false, std::memory_order_relaxed);
+    AsyncWarmupFinished.store(false, std::memory_order_relaxed);
     if (TargetDevice.QueryHardwareAccelerated())
     {
-        HighEndBvhProgramHandle = DispatchEncoder.RegisterProgram(
-            CompiledShaderDirectory / "WorldViewportHighEndCompute.comp.spv",
-            SlotTypes,
-            "HighEndBvhComputeEntry");
-        ViewportPathTraceProgramHandle = DispatchEncoder.RegisterProgram(
-            CompiledShaderDirectory / "WorldViewportPathTraceCompute.comp.spv",
-            SlotTypes,
-            "ViewportPathTraceEntry");
-        DispatchEncoder.PersistProgramCache();
+        // Compile heavy HighEnd BVH4 & Path Tracer mega-shaders asynchronously on a background thread
+        // so F=1 startup and switching to Path Tracer NEVER freeze the UI thread!
+        const std::filesystem::path ShaderDirCopy = CompiledShaderDirectory;
+        const auto WarmupSlotTypes = SlotTypes;
+        AsyncWarmupThread = std::thread([this, ShaderDirCopy, WarmupSlotTypes]()
+        {
+            if (!AsyncWarmupCancel.load(std::memory_order_acquire))
+            {
+                const uint32_t HighEndH = DispatchEncoder.RegisterProgram(
+                    ShaderDirCopy / "WorldViewportHighEndCompute.comp.spv",
+                    WarmupSlotTypes,
+                    "HighEndBvhComputeEntry");
+                HighEndBvhProgramHandle.store(HighEndH, std::memory_order_release);
+            }
+            if (!AsyncWarmupCancel.load(std::memory_order_acquire))
+            {
+                const uint32_t PathTraceH = DispatchEncoder.RegisterProgram(
+                    ShaderDirCopy / "WorldViewportPathTraceCompute.comp.spv",
+                    WarmupSlotTypes,
+                    "ViewportPathTraceEntry");
+                ViewportPathTraceProgramHandle.store(PathTraceH, std::memory_order_release);
+            }
+            if (!AsyncWarmupCancel.load(std::memory_order_acquire))
+            {
+                DispatchEncoder.PersistProgramCache();
+            }
+            AsyncWarmupFinished.store(true, std::memory_order_release);
+        });
+    }
+    else
+    {
+        AsyncWarmupFinished.store(true, std::memory_order_release);
     }
 
     if (TargetDevice.QueryTimestampValidBits() > 0u)
@@ -800,8 +825,75 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     return false;
 }
 
+void VulkanWorldRenderSequence::HarvestGpuTimestampQueries(bool AllowBlockingWait) noexcept
+{
+    if (BoundDevice == nullptr || !BoundDevice->Ready() || TimestampQueryPool == VK_NULL_HANDLE)
+    {
+        return;
+    }
+    uint64_t Stamps[10u]{};
+    const VkQueryResultFlags Flags = static_cast<VkQueryResultFlags>(VK_QUERY_RESULT_64_BIT) |
+        (AllowBlockingWait ? static_cast<VkQueryResultFlags>(VK_QUERY_RESULT_WAIT_BIT) : static_cast<VkQueryResultFlags>(0u));
+    if (vkGetQueryPoolResults(
+            BoundDevice->AccessDevice(),
+            TimestampQueryPool,
+            0u,
+            10u,
+            sizeof(Stamps),
+            Stamps,
+            sizeof(uint64_t),
+            Flags) == VK_SUCCESS)
+    {
+        const uint32_t Bits = BoundDevice->QueryTimestampValidBits();
+        const uint64_t Mask = (Bits >= 64u) ? ~0ull : ((1ull << Bits) - 1ull);
+        const double PeriodMs = static_cast<double>(BoundDevice->QueryTimestampPeriodNs()) * 1.0e-6;
+        auto DeltaMs = [&](uint32_t A, uint32_t B) -> float
+        {
+            const uint64_t DA = Stamps[A] & Mask;
+            const uint64_t DB = Stamps[B] & Mask;
+            return (DB >= DA) ? static_cast<float>(static_cast<double>(DB - DA) * PeriodMs) : 0.0f;
+        };
+        LastViewportTiming.GpuSkyLutMs        = DeltaMs(0u, 1u);
+        LastViewportTiming.GpuCloudsMs        = DeltaMs(2u, 3u);
+        LastViewportTiming.GpuPrimaryTraceMs  = DeltaMs(4u, 5u);
+        LastViewportTiming.GpuDenoiseMs       = DeltaMs(6u, 7u);
+        LastViewportTiming.GpuReadbackCopyMs  = DeltaMs(8u, 9u);
+        LastViewportTiming.GpuTotalPassMs     = DeltaMs(0u, 9u);
+        LastViewportTiming.GpuTimestampsValid = true;
+    }
+}
+
+void VulkanWorldRenderSequence::FlushPendingLiveWorldDispatch() noexcept
+{
+    if (PendingLiveWorldCmd == VK_NULL_HANDLE)
+    {
+        return;
+    }
+    if (BoundDevice != nullptr && BoundDevice->Ready())
+    {
+        if (PendingLiveWorldSignal != 0ull)
+        {
+            (void)BoundDevice->AwaitTimelineTick(PendingLiveWorldSignal, 60000000000ull);
+        }
+        BoundDevice->FreeCommandBuffer(PendingLiveWorldCmd);
+        if (PendingLiveWorldHasTimers)
+        {
+            HarvestGpuTimestampQueries(false);
+        }
+    }
+    PendingLiveWorldCmd       = VK_NULL_HANDLE;
+    PendingLiveWorldSignal    = 0ull;
+    PendingLiveWorldHasTimers = false;
+}
+
 void VulkanWorldRenderSequence::TeardownSequence() noexcept
 {
+    AsyncWarmupCancel.store(true, std::memory_order_release);
+    if (AsyncWarmupThread.joinable())
+    {
+        AsyncWarmupThread.join();
+    }
+    FlushPendingLiveWorldDispatch();
 #if FRONTIER_EDITOR_ENABLED
     InspectorGpuBaker::DetachDevice();
 #endif
@@ -871,8 +963,9 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     ShadowCascadeProgramHandle      = UINT32_MAX;
     GlobalDistanceBakeProgramHandle = UINT32_MAX;
     GlobalRadiosityProgramHandle    = UINT32_MAX;
-    HighEndBvhProgramHandle         = UINT32_MAX;
-    ViewportPathTraceProgramHandle  = UINT32_MAX;
+    HighEndBvhProgramHandle.store(UINT32_MAX, std::memory_order_relaxed);
+    ViewportPathTraceProgramHandle.store(UINT32_MAX, std::memory_order_relaxed);
+    AsyncWarmupFinished.store(false, std::memory_order_relaxed);
     UploadedCatalogStarCount        = 0u;
     UploadedPhotometricProfiles     = 0u;
     UploadedPhotometricLamps        = 0u;
@@ -3848,6 +3941,7 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
     {
         return;
     }
+    FlushPendingLiveWorldDispatch();
     const auto SyncStart = std::chrono::steady_clock::now();
 
     // 1 & 2. Assemble Resident Multi-LOD Cluster BVH4 + Shaded Triangles once (or fall back to raw SceneTree)
@@ -4638,6 +4732,10 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
 
     const auto StartClock = std::chrono::steady_clock::now();
     LastViewportTiming = {};
+
+    // Complete previous pipelined GPU frame & harvest its GPU timestamps BEFORE mutating shared buffers or descriptors!
+    FlushPendingLiveWorldDispatch();
+    const auto PrevGpuTimingSnapshot = LastViewportTiming;
 
     if (!SceneUploadedOnce)
     {
@@ -5555,33 +5653,41 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    if ((EngIdx == 4u || EngIdx == 5u) && Config.DebugChannel == 0u && ViewportPathTraceProgramHandle == UINT32_MAX)
+    uint32_t ActivePathTraceHandle = ViewportPathTraceProgramHandle.load(std::memory_order_acquire);
+    uint32_t ActiveHighEndHandle   = HighEndBvhProgramHandle.load(std::memory_order_acquire);
+
+    // Only synchronously register if background warmup already finished (e.g. software ICD fallback);
+    // while background warmup is in flight, NEVER freeze the UI thread for 17s!
+    if ((EngIdx == 4u || EngIdx == 5u) && Config.DebugChannel == 0u &&
+        ActivePathTraceHandle == UINT32_MAX && AsyncWarmupFinished.load(std::memory_order_acquire))
     {
         std::array<VkDescriptorType, 32u> LazyPtSlots {};
         LazyPtSlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         LazyPtSlots[0] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        ViewportPathTraceProgramHandle = DispatchEncoder.RegisterProgram(
+        ActivePathTraceHandle = DispatchEncoder.RegisterProgram(
             CachedCompiledShaderDir / "WorldViewportPathTraceCompute.comp.spv",
             LazyPtSlots,
             "ViewportPathTraceEntry");
+        ViewportPathTraceProgramHandle.store(ActivePathTraceHandle, std::memory_order_release);
         DispatchEncoder.PersistProgramCache();
     }
-    if (EngIdx == 3u && HighEndBvhProgramHandle == UINT32_MAX)
+    if (EngIdx == 3u && ActiveHighEndHandle == UINT32_MAX && AsyncWarmupFinished.load(std::memory_order_acquire))
     {
         std::array<VkDescriptorType, 32u> LazyHighEndSlots {};
         LazyHighEndSlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         LazyHighEndSlots[0] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        HighEndBvhProgramHandle = DispatchEncoder.RegisterProgram(
+        ActiveHighEndHandle = DispatchEncoder.RegisterProgram(
             CachedCompiledShaderDir / "WorldViewportHighEndCompute.comp.spv",
             LazyHighEndSlots,
             "HighEndBvhComputeEntry");
+        HighEndBvhProgramHandle.store(ActiveHighEndHandle, std::memory_order_release);
         DispatchEncoder.PersistProgramCache();
     }
 
     const bool UseDedicatedPathTracer =
         (EngIdx == 4u || EngIdx == 5u) &&
         (Config.DebugChannel == 0u) &&
-        (ViewportPathTraceProgramHandle != UINT32_MAX);
+        (ActivePathTraceHandle != UINT32_MAX);
 
     if (UseDedicatedPathTracer)
     {
@@ -5599,7 +5705,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 std::memcpy(UniformBytes + SampleUniOffs, &SampleUni, sizeof(SampleUni));
                 SampleSlots = ConstructStepSlots(SampleUniOffs, false);
             }
-            if (!DispatchEncoder.EncodeComputeDispatch(Cmd, ViewportPathTraceProgramHandle, SampleSlots, GroupsX, GroupsY, 1u))
+            if (!DispatchEncoder.EncodeComputeDispatch(Cmd, ActivePathTraceHandle, SampleSlots, GroupsX, GroupsY, 1u))
             {
                 BoundDevice->FreeCommandBuffer(Cmd);
                 return false;
@@ -5617,8 +5723,8 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     {
         WriteStamp(4u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         const uint32_t PrimaryProgramHandle =
-            (EngIdx == 3u && HighEndBvhProgramHandle != UINT32_MAX)
-                ? HighEndBvhProgramHandle
+            (EngIdx == 3u && ActiveHighEndHandle != UINT32_MAX)
+                ? ActiveHighEndHandle
                 : RadiometricProgramHandle;
         if (!DispatchEncoder.EncodeComputeDispatch(Cmd, PrimaryProgramHandle, InitialSlots, GroupsX, GroupsY, 1u))
         {
@@ -5796,43 +5902,36 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     WriteStamp(9u, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-    if (!BoundDevice->AwaitTimelineTick(SyncPoint, 60000000000ull))
+    if (CopyToReadbackStaging || OutDisplayRgba8 != nullptr)
     {
-        std::fprintf(stderr, "[VulkanWorldRenderSequence] AwaitTimelineTick timed out (Engine=%u, %ux%u)\n",
-                     static_cast<unsigned>(Config.Engine), WidthPx, HeightPx);
-        BoundDevice->FreeCommandBuffer(Cmd);
-        return false;
-    }
-    BoundDevice->FreeCommandBuffer(Cmd);
-
-    if (UseGpuTimers)
-    {
-        uint64_t Stamps[10u]{};
-        if (vkGetQueryPoolResults(
-                BoundDevice->AccessDevice(),
-                TimestampQueryPool,
-                0u,
-                10u,
-                sizeof(Stamps),
-                Stamps,
-                sizeof(uint64_t),
-                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS)
+        // Headless / RGBA8 readback path: wait synchronously so OutDisplayRgba8 is immediately populated.
+        if (!BoundDevice->AwaitTimelineTick(SyncPoint, 60000000000ull))
         {
-            const uint32_t Bits = BoundDevice->QueryTimestampValidBits();
-            const uint64_t Mask = (Bits >= 64u) ? ~0ull : ((1ull << Bits) - 1ull);
-            const double PeriodMs = static_cast<double>(BoundDevice->QueryTimestampPeriodNs()) * 1.0e-6;
-            auto DeltaMs = [&](uint32_t A, uint32_t B) -> float
-            {
-                const uint64_t DA = Stamps[A] & Mask;
-                const uint64_t DB = Stamps[B] & Mask;
-                return (DB >= DA) ? static_cast<float>(static_cast<double>(DB - DA) * PeriodMs) : 0.0f;
-            };
-            LastViewportTiming.GpuSkyLutMs        = DeltaMs(0u, 1u);
-            LastViewportTiming.GpuCloudsMs        = DeltaMs(2u, 3u);
-            LastViewportTiming.GpuPrimaryTraceMs  = DeltaMs(4u, 5u);
-            LastViewportTiming.GpuDenoiseMs       = DeltaMs(6u, 7u);
-            LastViewportTiming.GpuReadbackCopyMs  = DeltaMs(8u, 9u);
-            LastViewportTiming.GpuTotalPassMs     = DeltaMs(0u, 9u);
+            std::fprintf(stderr, "[VulkanWorldRenderSequence] AwaitTimelineTick timed out (Engine=%u, %ux%u)\n",
+                         static_cast<unsigned>(Config.Engine), WidthPx, HeightPx);
+            BoundDevice->FreeCommandBuffer(Cmd);
+            return false;
+        }
+        BoundDevice->FreeCommandBuffer(Cmd);
+        if (UseGpuTimers)
+        {
+            HarvestGpuTimestampQueries(true);
+        }
+    }
+    else
+    {
+        // Live GPU viewport path: submit asynchronously and overlap GPU World Compute with CPU UI + Gizmo + Present!
+        PendingLiveWorldCmd       = Cmd;
+        PendingLiveWorldSignal    = SyncPoint;
+        PendingLiveWorldHasTimers = UseGpuTimers;
+        if (PrevGpuTimingSnapshot.GpuTimestampsValid)
+        {
+            LastViewportTiming.GpuSkyLutMs        = PrevGpuTimingSnapshot.GpuSkyLutMs;
+            LastViewportTiming.GpuCloudsMs        = PrevGpuTimingSnapshot.GpuCloudsMs;
+            LastViewportTiming.GpuPrimaryTraceMs  = PrevGpuTimingSnapshot.GpuPrimaryTraceMs;
+            LastViewportTiming.GpuDenoiseMs       = PrevGpuTimingSnapshot.GpuDenoiseMs;
+            LastViewportTiming.GpuReadbackCopyMs  = PrevGpuTimingSnapshot.GpuReadbackCopyMs;
+            LastViewportTiming.GpuTotalPassMs     = PrevGpuTimingSnapshot.GpuTotalPassMs;
             LastViewportTiming.GpuTimestampsValid = true;
         }
     }

@@ -30,7 +30,13 @@ void LedStripInspector::UpdateRibbonSurface(const LedStripData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.KelvinTemperature);
 
     const uint32_t W = 524u, H = 376u;
-    RibbonPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 6u,
+        { 1.2f, Instance.DiodesPerMetre * 0.1f, Instance.LengthMeters, Instance.KelvinTemperature },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 1.0f, 0.78f, 0.44f, 1.0f }
+    };
+    RibbonPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = 186.0f;

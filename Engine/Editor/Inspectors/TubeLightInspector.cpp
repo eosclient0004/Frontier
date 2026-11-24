@@ -30,7 +30,13 @@ void TubeLightInspector::UpdateTubeSurface(const TubeLightData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.LuminousFlux);
 
     const uint32_t W = 524u, H = 376u;
-    TubePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 4u,
+        { Instance.LuminousFlux * 0.0008f, Instance.LengthMeters, Instance.TubeRadiusMeters, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.88f, 0.94f, 1.0f, 1.0f }
+    };
+    TubePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = 178.0f;

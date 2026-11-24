@@ -33,7 +33,9 @@ void LensFlareInspector::UpdateFlareComposite(const GeometricRaster::LensFlareCo
 
     // Exact flare__0 black optical composite canvas (222 x 196 -> 2x crisp 444 x 392)
     const uint32_t W = 444u, H = 392u;
-    FlareComposite.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    const float FlagsMask = static_cast<float>((AnamorphicEnabled ? 1u : 0u) | (StreaksEnabled ? 2u : 0u) | (HalosEnabled ? 4u : 0u));
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::LensFlarePreview, 0u, { Flare.FlareIntensity, HaloRadius, Flare.FlareSpread, FlagsMask } };
+    FlareComposite.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Gain = std::clamp(Flare.FlareIntensity, 0.0f, 3.0f);
         const float Sx   = static_cast<float>(W) * 0.27f;
@@ -119,7 +121,8 @@ void LensFlareInspector::UpdateFlareAtlas(const GeometricRaster::LensFlareConfig
 
     // Exact 4x2 Lights/Ghosts optical atlas (188 x 94 -> 2x crisp 376 x 188) matching flare__3
     const uint32_t W = 376u, H = 188u;
-    FlareAtlas.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::LensFlarePreview, 1u, { Flare.FlareIntensity, RayPairs, 0.0f, 0.0f } };
+    FlareAtlas.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float CellW = static_cast<float>(W) * 0.25f;
         const float CellH = static_cast<float>(H) * 0.50f;

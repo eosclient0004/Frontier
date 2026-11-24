@@ -297,7 +297,11 @@ void CameraSettingsInspector::UpdateRendererHeroSurface(const CameraSettingsData
     Sig = InspectorPrimitives::MixRevisionU64(Sig, Data.MatcapChannelIndex);
     Sig = InspectorPrimitives::MixRevisionU64(Sig, Data.QualityTierIndex);
 
-    RendererHeroPreview.EnsureUpdated(Sig, 220u, 108u, [&](std::vector<uint8_t>& Rgba)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::RendererHeroPreview, 0u,
+        { static_cast<float>(Data.RendererIndex), static_cast<float>(Data.MatcapChannelIndex), static_cast<float>(Data.QualityTierIndex), 0.0f }
+    };
+    RendererHeroPreview.EnsureUpdatedGpu(Sig, 220u, 108u, GpuSpec, [&](std::vector<uint8_t>& Rgba)
     {
         const uint32_t W = 220u, H = 108u;
         const float Cx = W * 0.5f, Cy = H * 0.45f, Rad = 32.0f;

@@ -28,6 +28,7 @@ ComputeDispatchEncoder::~ComputeDispatchEncoder()
 
 void ComputeDispatchEncoder::WriteProgramCacheToDisk() const noexcept
 {
+    std::lock_guard<std::mutex> CacheLock(PipelineCacheMutex);
     if (DeviceInterchange == nullptr || !DeviceInterchange->Ready() ||
         ProgramBinaryCache == VK_NULL_HANDLE || ProgramCacheFilePath.empty())
     {
@@ -280,7 +281,12 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
     PipeCreate.stage.pName        = EntryPointName;
     PipeCreate.layout             = Prog.ProgramLayout;
 
-    if (vkCreateComputePipelines(DeviceHandle, ProgramBinaryCache, 1u, &PipeCreate, nullptr, &Prog.ComputeProgram) != VK_SUCCESS)
+    VkResult PipeStatus = VK_ERROR_INITIALIZATION_FAILED;
+    {
+        std::lock_guard<std::mutex> CacheLock(PipelineCacheMutex);
+        PipeStatus = vkCreateComputePipelines(DeviceHandle, ProgramBinaryCache, 1u, &PipeCreate, nullptr, &Prog.ComputeProgram);
+    }
+    if (PipeStatus != VK_SUCCESS)
     {
         vkDestroyPipelineLayout(DeviceHandle, Prog.ProgramLayout, nullptr);
         vkDestroyDescriptorSetLayout(DeviceHandle, Prog.SlotLayout, nullptr);
@@ -289,6 +295,7 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
     }
 
     Prog.SlotCount = static_cast<uint32_t>(SlotCategories.size());
+    std::lock_guard<std::mutex> ProgLock(ProgramsMutex);
     const uint32_t AssignedIndex = static_cast<uint32_t>(Programs.size());
     Programs.push_back(Prog);
     return AssignedIndex;
@@ -324,13 +331,22 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
     const void*                               PushData,
     uint32_t                                  PushBytes)
 {
-    if (DeviceInterchange == nullptr || ProgramHandle >= Programs.size() || GroupCountX == 0u)
+    if (DeviceInterchange == nullptr || GroupCountX == 0u)
     {
         return false;
     }
 
+    RegisteredComputeProgram Prog {};
+    {
+        std::lock_guard<std::mutex> ProgLock(ProgramsMutex);
+        if (ProgramHandle >= Programs.size())
+        {
+            return false;
+        }
+        Prog = Programs[ProgramHandle];
+    }
+
     VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
-    const RegisteredComputeProgram& Prog = Programs[ProgramHandle];
 
     VkDescriptorSetAllocateInfo AllocSpec {};
     AllocSpec.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;

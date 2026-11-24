@@ -43,7 +43,8 @@ void CameraInspector::UpdateCameraBodySurface(uint32_t RigPresetIndex)
 {
     const uint64_t Key = 0xCA003303ull ^ (static_cast<uint64_t>(RigPresetIndex) << 8u);
     const uint32_t W = 444u, H = 310u;
-    BodyPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::CameraBodyPreview, 0u, { static_cast<float>(RigPresetIndex), 0.0f, 0.0f, 0.0f } };
+    BodyPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < H; ++Y)
         {

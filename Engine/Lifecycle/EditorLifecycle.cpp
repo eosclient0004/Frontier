@@ -10,6 +10,7 @@
 #if FRONTIER_EDITOR_ENABLED
 
 #include "Engine/Components/Controls/CapsuleButton.h"
+#include "Engine/Editor/Inspectors/InspectorGpuBaker.h"
 
 #include <imgui.h>
 
@@ -264,6 +265,10 @@ bool EditorLifecycle::AttachVulkanGizmoOverlay(
         if (CandidateWorldGpu->InitializeSequence(*BoundDevice, CompiledShaderDirectory))
         {
             GpuWorldRenderer = std::move(CandidateWorldGpu);
+            if (StartupConfig.ImGuiPresenter != nullptr)
+            {
+                InspectorGpuBaker::AttachImGuiPresenter(StartupConfig.ImGuiPresenter);
+            }
             if (ShowcaseBundle != nullptr)
             {
                 GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
@@ -3277,6 +3282,7 @@ void EditorLifecycle::Finalize() noexcept
         }
     }
     EditorSequence.Finalize();
+    InspectorGpuBaker::DetachImGuiPresenter();
     if (StartupConfig.ImGuiPresenter != nullptr)
     {
         StartupConfig.ImGuiPresenter->ReleaseExternalImages();

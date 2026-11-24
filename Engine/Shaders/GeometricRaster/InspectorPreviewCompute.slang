@@ -75,7 +75,8 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
     uint H = max(1u, Params.DimensionsAndMode.y);
     if (Tid.x >= W || Tid.y >= H) return;
 
-    uint Mode = Params.DimensionsAndMode.z;
+    uint Mode    = Params.DimensionsAndMode.z;
+    uint SubMode = Params.DimensionsAndMode.w;
     float U = (float(Tid.x) + 0.5) / float(W);
     float V = (float(Tid.y) + 0.5) / float(H);
     float3 Col = float3(0.08, 0.08, 0.09);
@@ -266,6 +267,204 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
                 uint DarkChk = (((Tid.x / 10u) + (Tid.y / 10u)) & 1u);
                 Col = (DarkChk == 0u) ? (float3(22.0, 22.0, 24.0) / 255.0) : (float3(44.0, 44.0, 46.0) / 255.0);
             }
+        }
+    }
+    else if (Mode == 13u) // Lens Flare Optical Composite & 4x2 Atlas
+    {
+        float Gain = clamp(Params.ParamA.x, 0.0, 3.0);
+        if (SubMode == 0u)
+        {
+            float HaloR = clamp(Params.ParamA.y * 0.92, 0.12, 0.42);
+            float Spread = max(0.05, Params.ParamA.z);
+            uint Flags = uint(Params.ParamA.w + 0.5);
+            float2 Core = float2(0.27, 0.43);
+            float2 D = float2(U - Core.x, (V - Core.y) * (float(H) / float(W)));
+            float Dist = length(D);
+            Col = float3(0.02, 0.02, 0.025);
+            Col += float3(1.0, 0.92, 0.78) * exp(-Dist * Dist * 48.0) * (1.25 * Gain);
+            if ((Flags & 1u) != 0u) // Anamorphic horizontal streak
+            {
+                float Streak = exp(-abs(D.y) * 52.0) * exp(-abs(D.x) * (3.6 / Spread));
+                Col += float3(0.45, 0.72, 1.0) * Streak * 0.85 * Gain;
+            }
+            if ((Flags & 2u) != 0u) // Diffraction star spikes
+            {
+                float Ang = atan2(D.y, D.x);
+                float Spikes = pow(abs(cos(Ang * 3.0)), 18.0) * exp(-Dist * 7.5);
+                Col += float3(1.0, 0.86, 0.68) * Spikes * 0.70 * Gain;
+            }
+            if ((Flags & 4u) != 0u) // Chromatic halo ring + 5 ghosts
+            {
+                float Ring = exp(-pow((Dist - HaloR) / 0.022, 2.0));
+                Col += float3(0.55, 0.78, 1.0) * Ring * 0.42 * Gain;
+                for (int G = 0; G < 5; ++G)
+                {
+                    float T = 0.34 + float(G) * 0.16;
+                    float2 Gp = lerp(Core, float2(1.0 - Core.x, 1.0 - Core.y), T);
+                    float Gd = length(float2(U - Gp.x, (V - Gp.y) * (float(H) / float(W))));
+                    float Gr = 0.055 - float(G) * 0.006;
+                    float Disc = smoothstep(Gr, Gr * 0.3, Gd) * 0.35 * Gain;
+                    float3 Gc = float3(0.42 + 0.10 * float(G), 0.56 - 0.04 * float(G), 0.38 + 0.08 * float(G));
+                    Col += Gc * Disc;
+                }
+            }
+        }
+        else // 4x2 Optical Flare Kernel Atlas
+        {
+            uint CellX = min(3u, uint(U * 4.0));
+            uint CellY = min(1u, uint(V * 2.0));
+            float2 Lu = float2(frac(U * 4.0) * 2.0 - 1.0, frac(V * 2.0) * 2.0 - 1.0);
+            float R = length(Lu);
+            Col = float3(0.035, 0.035, 0.04);
+            if (CellY == 0u)
+            {
+                float Sp = 4.0 + float(CellX) * 2.0;
+                float Ang = atan2(Lu.y, Lu.x);
+                float Star = exp(-R * 4.2) + pow(abs(cos(Ang * (2.0 + float(CellX)))), 14.0) * exp(-R * Sp * 0.65);
+                Col += float3(1.0, 0.92, 0.80) * Star * 0.72 * Gain;
+            }
+            else
+            {
+                static const float3 GhostCols[4] = {
+                    float3(0.92, 0.58, 0.30), float3(0.55, 0.78, 0.42),
+                    float3(0.58, 0.64, 0.72), float3(0.84, 0.44, 0.56)
+                };
+                float Ring = exp(-pow((R - 0.58) / 0.14, 2.0)) * 0.65 + smoothstep(0.68, 0.10, R) * 0.32;
+                Col += GhostCols[CellX] * Ring * Gain;
+            }
+        }
+    }
+    else if (Mode == 14u) // Camera Body Studio Backdrop
+    {
+        float D = length(float2((U - 0.50) * 1.4, (V - 0.42) * 1.6));
+        float Glow = exp(-D * D * 2.2) * (24.0 / 255.0);
+        Col = float3(18.0 / 255.0 + Glow, 19.0 / 255.0 + Glow, 22.0 / 255.0 + Glow * 1.15);
+    }
+    else if (Mode == 15u) // CameraSettings Renderer Hero Sphere
+    {
+        float2 P = float2((U - 0.5) * (float(W) / float(H)), V - 0.45);
+        float Rad = 0.296;
+        Col = lerp(float3(0.11, 0.12, 0.14), float3(0.05, 0.055, 0.065), V);
+        float D = length(P);
+        if (D <= Rad)
+        {
+            float2 Nxy = P / Rad;
+            float Nz = sqrt(max(0.0, 1.0 - dot(Nxy, Nxy)));
+            float3 N = normalize(float3(Nxy.x, -Nxy.y, Nz));
+            float3 L = normalize(float3(-0.45, 0.58, 0.68));
+            float3 Hvec = normalize(L + float3(0.0, 0.0, 1.0));
+            float NdotL = max(0.0, dot(N, L));
+            float Spec = pow(max(0.0, dot(N, Hvec)), 42.0);
+            float Rim = pow(1.0 - Nz, 2.6);
+            uint Eng = uint(Params.ParamA.x + 0.5);
+            float3 BaseCol = (Eng == 0u) ? float3(0.76, 0.50, 0.36) :
+                             (Eng == 4u || Eng == 5u) ? float3(0.64, 0.72, 0.86) :
+                             float3(0.70, 0.74, 0.79);
+            Col = BaseCol * (0.14 + 0.86 * NdotL) + float3(1.0, 0.96, 0.90) * Spec * 0.65 + float3(0.45, 0.62, 0.88) * Rim * 0.35;
+        }
+        else if (V > 0.76)
+        {
+            float Shadow = exp(-pow(P.x / 0.28, 2.0)) * exp(-pow((V - 0.81) / 0.06, 2.0));
+            Col *= (1.0 - 0.55 * Shadow);
+        }
+    }
+    else if (Mode == 16u) // Photometric Lights (0=Point, 1=Spot, 2=IES, 3=Area, 4=Tube, 5=LED, 6=LEDStrip)
+    {
+        float3 Tint = max(Params.ColourA.rgb, float3(0.15, 0.15, 0.15));
+        float IntGain = clamp(Params.ParamA.x, 0.25, 3.0);
+        Col = float3(0.075, 0.078, 0.086);
+        float2 Center = float2(0.5, 0.5);
+        float Aspect = float(W) / float(H);
+        float2 P = float2((U - Center.x) * Aspect, V - Center.y);
+        if (SubMode == 0u) // Point Light radial falloff
+        {
+            float R = length(P);
+            float Falloff = 1.0 / (1.0 + pow(R * 5.2, clamp(Params.ParamA.z, 1.0, 3.0)));
+            Col += Tint * Falloff * (0.95 * IntGain) + float3(1.0, 0.98, 0.94) * exp(-R * R * 120.0);
+        }
+        else if (SubMode == 1u) // Spot Light cone envelope
+        {
+            float2 Sp = float2((U - 0.5) * Aspect, V - 0.16);
+            float Dist = max(0.01, length(Sp));
+            float Ang = atan2(abs(Sp.x), max(0.001, Sp.y));
+            float InnerR = radians(clamp(Params.ParamA.y, 4.0, 65.0)) * 0.5;
+            float OuterR = radians(clamp(Params.ParamA.z, 8.0, 82.0)) * 0.5;
+            float Cone = 1.0 - smoothstep(min(InnerR, OuterR), max(InnerR + 0.02, OuterR), Ang);
+            float Atten = saturate(1.0 - Dist * 1.15);
+            Col += Tint * Cone * Atten * 0.88 * IntGain + float3(1.0, 0.97, 0.90) * exp(-Dist * Dist * 160.0);
+        }
+        else if (SubMode == 2u) // IES polar candela web
+        {
+            float2 Sp = float2((U - 0.5) * Aspect, V - 0.18);
+            float R = length(Sp);
+            float Ang = atan2(abs(Sp.x), max(0.001, Sp.y));
+            float Lobe = pow(max(0.0, cos(Ang * 1.45)), 2.2) * (0.72 + 0.28 * cos(Ang * 6.0));
+            float Fill = smoothstep(Lobe * 0.68, Lobe * 0.62, R);
+            float Rings = exp(-pow(abs(frac(R * 5.0) - 0.5) * 2.0, 14.0)) * 0.08;
+            Col += float3(0.24, 0.28, 0.34) * Rings + Tint * Fill * 0.72 * IntGain;
+        }
+        else if (SubMode == 3u) // Area Light aperture emitter
+        {
+            float2 HalfE = float2(clamp(Params.ParamA.y * 0.18, 0.10, 0.45), clamp(Params.ParamA.z * 0.18, 0.08, 0.32));
+            float2 Q = max(abs(P) - HalfE, float2(0.0, 0.0));
+            float D = length(Q);
+            float Core = smoothstep(0.015, 0.0, D);
+            float Glow = exp(-D * 6.5) * 0.62 * IntGain;
+            Col += Tint * Glow + lerp(Tint, float3(1.0, 1.0, 1.0), 0.55) * Core;
+        }
+        else if (SubMode == 4u) // Tube Light capsule emitter
+        {
+            float HalfLen = clamp(Params.ParamA.y * 0.26, 0.16, 0.55);
+            float2 Q = float2(max(0.0, abs(P.x) - HalfLen), P.y);
+            float D = length(Q);
+            Col += Tint * exp(-D * 7.5) * 0.72 * IntGain + lerp(Tint, float3(1.0, 1.0, 1.0), 0.6) * smoothstep(0.055, 0.032, D);
+        }
+        else if (SubMode == 5u) // LED package domed die
+        {
+            float R = length(P);
+            float Die = smoothstep(0.11, 0.08, R);
+            float Lens = exp(-R * 5.8) * 0.75 * IntGain;
+            float Bezel = smoothstep(0.22, 0.19, max(abs(P.x), abs(P.y))) * (1.0 - smoothstep(0.16, 0.13, R));
+            Col += float3(0.22, 0.24, 0.28) * Bezel + Tint * Lens + lerp(Tint, float3(1.0, 1.0, 1.0), 0.65) * Die;
+        }
+        else // LED Strip multi-emitter ribbon
+        {
+            float Ribbon = smoothstep(0.11, 0.09, abs(P.y));
+            Col = lerp(Col, float3(0.15, 0.16, 0.18), Ribbon);
+            float Count = clamp(Params.ParamA.y, 4.0, 12.0);
+            float Fx = (frac(U * Count) - 0.5) / Count * Aspect;
+            float D = length(float2(Fx, P.y));
+            Col += Tint * exp(-D * 18.0) * 0.90 * IntGain + float3(1.0, 0.98, 0.95) * smoothstep(0.038, 0.015, D);
+        }
+    }
+    else if (Mode == 17u) // Geometry 96x96 Specimen Preview (0=Analytic, 1=Native, 2=Imported, 3=Procedural)
+    {
+        float2 P = float2((U - 0.5) * 2.0, (V - 0.5) * 2.0);
+        float R = length(P);
+        Col = lerp(float3(0.13, 0.14, 0.16), float3(0.08, 0.085, 0.095), V);
+        float Rad = 0.72;
+        if (SubMode == 3u)
+        {
+            Rad += 0.06 * sin(atan2(P.y, P.x) * 6.0) * cos(R * 8.0);
+        }
+        if (R <= Rad)
+        {
+            float2 Nxy = P / max(0.001, Rad);
+            float Nz = sqrt(max(0.0, 1.0 - dot(Nxy, Nxy)));
+            float3 N = normalize(float3(Nxy.x, -Nxy.y, Nz));
+            float3 L = normalize(float3(-0.48, 0.62, 0.62));
+            float3 Hvec = normalize(L + float3(0.0, 0.0, 1.0));
+            float Diff = max(0.0, dot(N, L));
+            float Spec = pow(max(0.0, dot(N, Hvec)), 36.0);
+            float Rim = pow(1.0 - Nz, 2.4);
+            float3 Base = max(Params.ColourA.rgb, float3(0.45, 0.52, 0.60));
+            if (SubMode == 2u) // Imported wireframe tint overlay
+            {
+                float Wire = max(exp(-pow(abs(frac(U * 8.0) - 0.5) * 2.0, 10.0)),
+                                 exp(-pow(abs(frac(V * 8.0) - 0.5) * 2.0, 10.0)));
+                Base = lerp(Base, float3(0.42, 0.78, 0.96), Wire * 0.25);
+            }
+            Col = Base * (0.18 + 0.82 * Diff) + float3(1.0, 0.97, 0.92) * Spec * 0.55 + float3(0.42, 0.62, 0.92) * Rim * 0.35;
         }
     }
 

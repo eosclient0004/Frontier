@@ -480,6 +480,7 @@ frontier_compile_modular_slang_shader(Atmosphere/StellarTileCullCompute.slang   
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareBakeCompute.slang                     ComputeEntry                    compute  LensFlareBakeCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareCompute.slang                         ComputeEntry                    compute  LensFlareCompute.comp.spv)
 frontier_compile_modular_slang_shader(Baking/BakeAspectSdfCompute.slang                         ComputeEntry                    compute  BakeAspectSdfCompute.comp.spv)
+frontier_compile_modular_slang_shader(Baking/ThumbnailSpecimenCompute.slang                     ComputeEntry                    compute  ThumbnailSpecimenCompute.comp.spv)
 frontier_compile_modular_slang_shader(GeometricRaster/InspectorPreviewCompute.slang             ComputeEntry                    compute  InspectorPreviewCompute.comp.spv)
 
 function(frontier_compile_sketcher_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)

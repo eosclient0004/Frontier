@@ -112,19 +112,24 @@ struct InspectorKpiMetricSpec
 
 enum class InspectorGpuBakeMode : uint32_t
 {
-    AtmosphereLimb      = 0u,
-    AtmosphereGlobe     = 1u,
-    TransmittanceLut    = 2u,
-    SkyViewLut          = 3u,
-    SolarBake           = 4u,
-    CloudSwath          = 5u,
-    LunarPhase          = 6u,
-    StarfieldSheet      = 7u,
-    FogLayer            = 8u,
-    RainbowArc          = 9u,
-    EnvironmentDome     = 10u,
-    GeometrySdfSlice    = 11u,
-    GeometryUvAtlas     = 12u,
+    AtmosphereLimb          = 0u,
+    AtmosphereGlobe         = 1u,
+    TransmittanceLut        = 2u,
+    SkyViewLut              = 3u,
+    SolarBake               = 4u,
+    CloudSwath              = 5u,
+    LunarPhase              = 6u,
+    StarfieldSheet          = 7u,
+    FogLayer                = 8u,
+    RainbowArc              = 9u,
+    EnvironmentDome         = 10u,
+    GeometrySdfSlice        = 11u,
+    GeometryUvAtlas         = 12u,
+    LensFlarePreview        = 13u,
+    CameraBodyPreview       = 14u,
+    RendererHeroPreview     = 15u,
+    PhotometricLightPreview = 16u,
+    GeometrySpecimenPreview = 17u,
 };
 
 struct InspectorGpuBakeSpec
@@ -142,7 +147,9 @@ struct InspectorGpuBakeSpec
 class InspectorPreviewSurface
 {
 public:
-    using GpuBakeHookFn = std::function<bool(const InspectorGpuBakeSpec&, uint32_t, uint32_t, std::vector<uint8_t>&)>;
+    using GpuBakeHookFn          = std::function<bool(const InspectorGpuBakeSpec&, uint32_t, uint32_t, std::vector<uint8_t>&)>;
+    using GpuDirectBakeHookFn    = std::function<bool(uint64_t, const InspectorGpuBakeSpec&, uint32_t, uint32_t, uint64_t&)>;
+    using GpuDirectReleaseHookFn = std::function<void(uint64_t)>;
 
     InspectorPreviewSurface() noexcept = default;
     ~InspectorPreviewSurface() noexcept;
@@ -154,6 +161,10 @@ public:
     static void ClearGpuBakeHook() noexcept;
     [[nodiscard]] static bool QueryGpuBakeHookAttached() noexcept;
 
+    static void AssignGpuDirectBakeHook(GpuDirectBakeHookFn Hook, GpuDirectReleaseHookFn ReleaseHook = {});
+    static void ClearGpuDirectBakeHook() noexcept;
+    [[nodiscard]] static bool QueryGpuDirectBakeHookAttached() noexcept;
+
     // Ensures the RGBA32 buffer matches (WidthPx, HeightPx) and RevisionSignature.
     // RasterCallback receives a mutable RGBA8 byte buffer of size WidthPx * HeightPx * 4.
     void EnsureUpdated(
@@ -162,8 +173,8 @@ public:
         uint32_t                                          HeightPx,
         const std::function<void(std::vector<uint8_t>&)>& RasterCallback);
 
-    // Pure-GPU first path: dispatches InspectorPreviewCompute.comp.spv on Vulkan GPU when attached,
-    // falling back to CpuFallbackCallback only in headless mode without a Vulkan device.
+    // Pure-GPU first path: dispatches InspectorPreviewCompute.comp.spv directly into a zero-copy GPU ImGui VkImage
+    // when available (zero CPU readback / re-upload bounce), falling back to staging GPU or headless CPU callback.
     void EnsureUpdatedGpu(
         uint64_t                                          RevisionSignature,
         uint32_t                                          WidthPx,
@@ -177,26 +188,30 @@ public:
         float       CornerRadius = 12.0f,
         ColorRgba   Tint         = { 255u, 255u, 255u, 255u }) noexcept;
 
-    [[nodiscard]] bool     QueryResident() const noexcept { return ResidentTexture.Pixels != nullptr && WidthPx > 0u && HeightPx > 0u; }
+    [[nodiscard]] bool     QueryResident() const noexcept { return (DirectGpuTextureHandle != 0ull || ResidentTexture.Pixels != nullptr) && WidthPx > 0u && HeightPx > 0u; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return RetainedSignature; }
     [[nodiscard]] uint32_t QueryWidthPx()  const noexcept { return WidthPx; }
     [[nodiscard]] uint32_t QueryHeightPx() const noexcept { return HeightPx; }
     [[nodiscard]] uint32_t QueryUploadCount() const noexcept { return UploadCounter; }
     [[nodiscard]] uint32_t QueryGpuUploadCount() const noexcept { return GpuUploadCounter; }
+    [[nodiscard]] uint32_t QueryDirectGpuUploadCount() const noexcept { return DirectGpuUploadCounter; }
     [[nodiscard]] uint32_t QueryCpuUploadCount() const noexcept { return CpuUploadCounter; }
 
 private:
     void UploadStagingPixels(uint64_t RevisionSignature, uint32_t TargetWidthPx, uint32_t TargetHeightPx, bool SizeMismatch, bool BakedOnGpu);
 
-    ImTextureData        ResidentTexture   {};
-    std::vector<uint8_t> StagingPixels     {};
-    uint64_t             RetainedSignature = 0ull;
-    uint32_t             WidthPx           = 0u;
-    uint32_t             HeightPx          = 0u;
-    uint32_t             UploadCounter     = 0u;
-    uint32_t             GpuUploadCounter  = 0u;
-    uint32_t             CpuUploadCounter  = 0u;
-    uint64_t             LastBakeTimeNs    = 0ull;
+    ImTextureData        ResidentTexture        {};
+    std::vector<uint8_t> StagingPixels          {};
+    uint64_t             DirectGpuTextureHandle = 0ull;
+    uint64_t             SurfaceUniqueId        = 0ull;
+    uint64_t             RetainedSignature      = 0ull;
+    uint32_t             WidthPx                = 0u;
+    uint32_t             HeightPx               = 0u;
+    uint32_t             UploadCounter          = 0u;
+    uint32_t             GpuUploadCounter       = 0u;
+    uint32_t             DirectGpuUploadCounter = 0u;
+    uint32_t             CpuUploadCounter       = 0u;
+    uint64_t             LastBakeTimeNs         = 0ull;
 };
 
 //------------------------------------------------------------------------------------------------------------------------

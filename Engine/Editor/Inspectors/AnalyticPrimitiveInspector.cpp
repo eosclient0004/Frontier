@@ -17,7 +17,13 @@ void AnalyticPrimitiveInspector::UpdatePrimitiveSurface(const AnalyticPrimitiveD
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.RadiusMeters);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.HeightMeters);
 
-    PrimitivePreview.EnsureUpdated(Key, 96u, 96u, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::GeometrySpecimenPreview, 0u,
+        { static_cast<float>(Instance.FormIndex), Instance.RadiusMeters, Instance.HeightMeters, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.62f, 0.68f, 0.78f, 1.0f }
+    };
+    PrimitivePreview.EnsureUpdatedGpu(Key, 96u, 96u, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < 96u; ++Y)
         {

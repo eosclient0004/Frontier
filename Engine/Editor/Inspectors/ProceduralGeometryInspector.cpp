@@ -14,7 +14,13 @@ void ProceduralGeometryInspector::UpdateProceduralSurface(const ProceduralGeomet
     uint64_t Key = 0xA4040001ull ^ (static_cast<uint64_t>(Instance.GeneratorIndex) << 8u);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.FeatureScaleMeters);
 
-    ProceduralPreview.EnsureUpdated(Key, 96u, 96u, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::GeometrySpecimenPreview, 3u,
+        { static_cast<float>(Instance.GeneratorIndex), Instance.FeatureScaleMeters, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.68f, 0.64f, 0.56f, 1.0f }
+    };
+    ProceduralPreview.EnsureUpdatedGpu(Key, 96u, 96u, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < 96u; ++Y)
         {

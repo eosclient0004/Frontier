@@ -30,7 +30,13 @@ void AreaLightInspector::UpdateApertureSurface(const AreaLightData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.LuminousFlux);
 
     const uint32_t W = 524u, H = 376u;
-    AperturePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 3u,
+        { Instance.LuminousFlux * 0.0008f, Instance.WidthMeters, Instance.HeightMeters, static_cast<float>(Instance.ApertureFormIndex) },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.96f, 0.92f, 0.84f, 1.0f }
+    };
+    AperturePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = static_cast<float>(H) * 0.48f;

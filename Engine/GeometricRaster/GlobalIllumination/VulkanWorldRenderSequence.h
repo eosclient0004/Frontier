@@ -14,12 +14,14 @@
 #include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <future>
 #include <span>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace Frontier::GeometricRaster
@@ -258,10 +260,22 @@ private:
     uint32_t               ShadowCascadeProgramHandle      = UINT32_MAX;
     uint32_t               GlobalDistanceBakeProgramHandle = UINT32_MAX;
     uint32_t               GlobalRadiosityProgramHandle    = UINT32_MAX;
-    uint32_t               HighEndBvhProgramHandle         = UINT32_MAX;
-    uint32_t               ViewportPathTraceProgramHandle  = UINT32_MAX;
+    std::atomic<uint32_t>  HighEndBvhProgramHandle         { UINT32_MAX };
+    std::atomic<uint32_t>  ViewportPathTraceProgramHandle  { UINT32_MAX };
     uint32_t               LocalAspectSdfBakeProgramHandle = UINT32_MAX;
     VkQueryPool            TimestampQueryPool              = VK_NULL_HANDLE;
+
+    // Background mega-shader warmup thread (prevents 17s UI freeze on F=1 or switching to Path Tracer / HighEnd BVH4)
+    std::thread            AsyncWarmupThread               {};
+    std::atomic<bool>      AsyncWarmupCancel               { false };
+    std::atomic<bool>      AsyncWarmupFinished             { false };
+
+    // Pipelined async live-viewport submission (overlaps GPU World Compute with CPU UI + Gizmo + Swapchain Present)
+    VkCommandBuffer        PendingLiveWorldCmd             = VK_NULL_HANDLE;
+    uint64_t               PendingLiveWorldSignal          = 0ull;
+    bool                   PendingLiveWorldHasTimers       = false;
+    void                   FlushPendingLiveWorldDispatch() noexcept;
+    void                   HarvestGpuTimestampQueries(bool AllowBlockingWait) noexcept;
 
     DeviceBufferResource   UniformBuffer                   {};
     DeviceBufferResource   SkyViewUniformBuffer            {};

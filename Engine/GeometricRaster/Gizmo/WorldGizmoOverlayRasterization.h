@@ -124,6 +124,35 @@ private:
     uint32_t              TargetWidthPx               = 0u;
     uint32_t              TargetHeightPx              = 0u;
     uint64_t              ColorAttachmentGeneration   = 0ull;
+    static constexpr std::size_t kCompositeSlots = 3u;
+    struct AsyncCompositeSlot
+    {
+        VkDescriptorPool     DescriptorPool        = VK_NULL_HANDLE;
+        DeviceBufferResource UniformBuffer         {};
+        DeviceBufferResource VertexBuffer          {};
+        DeviceBufferResource ReadbackPickPatchBuf  {};
+        VkCommandBuffer      CommandBuffer         = VK_NULL_HANDLE;
+        uint64_t             TimelineSignal        = 0ull;
+        bool                 HasPendingPickPatch   = false;
+        uint32_t             PendingPatchX0        = 0u;
+        uint32_t             PendingPatchY0        = 0u;
+        uint32_t             PendingPatchW         = 0u;
+        uint32_t             PendingPatchH         = 0u;
+    };
+
+    void HarvestCompletedPickPatches() noexcept;
+    void RetireSlot(std::size_t SlotIndex, bool BlockIfBusy) noexcept;
+
+    std::array<AsyncCompositeSlot, kCompositeSlots> CompositeSlots {};
+    std::size_t                                     CompositeSlotCursor = 0u;
+    uint64_t                                        LastHarvestedPickSignal = 0ull;
+
+    // Stationary gizmo triangle stream cache (avoids rebuilding & sorting vertices every frame)
+    uint64_t                            CachedGizmoStreamKey      = 0ull;
+    std::vector<Editor::GizmoGPUVertex> CachedOrderedVertices     {};
+    uint32_t                            CachedOpaqueVertexCount   = 0u;
+    uint32_t                            CachedTranslucentCount    = 0u;
+
     VkCommandBuffer       PreviousCompositeCmd        = VK_NULL_HANDLE;
     uint64_t              PreviousCompositeSignal     = 0ull;
     std::vector<uint32_t> CachedPickOrdinals          {};

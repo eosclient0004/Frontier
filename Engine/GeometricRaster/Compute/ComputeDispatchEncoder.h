@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <span>
 #include <vector>
 
@@ -108,6 +109,8 @@ private:
     std::filesystem::path               ProgramCacheFilePath     {};               // [-] - On-disk cache file path in OS temp directory
     std::vector<VkDescriptorPool>          DescriptorAllocators {}; // [-] - Separate allocators retained for one recorded command buffer
     uint32_t                              MaxDispatchesPerAllocator = 128u; // [-] - Capacity of each retained allocator
+    mutable std::mutex                    PipelineCacheMutex        {};     // [-] - Protects VkPipelineCache during background warmup
+    mutable std::mutex                    ProgramsMutex             {};     // [-] - Protects Programs vector during background registration
     std::vector<RegisteredComputeProgram> Programs       {};               // [-] - Registered .slang compute pipelines
 };
 

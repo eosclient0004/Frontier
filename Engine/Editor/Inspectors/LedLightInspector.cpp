@@ -30,7 +30,13 @@ void LedLightInspector::UpdatePackageSurface(const LedLightData& Instance)
     Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.OpticAngleDeg);
 
     const uint32_t W = 524u, H = 376u;
-    PackagePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::PhotometricLightPreview, 5u,
+        { Instance.DriverWatts * 0.04f, Instance.OpticAngleDeg, Instance.PackageDiameterMm, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { 1.0f, 0.92f, 0.72f, 1.0f }
+    };
+    PackagePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float Cy = 186.0f;
