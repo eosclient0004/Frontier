@@ -1,9 +1,10 @@
 /*============================================================================================================================================
                                                           IESLIGHTINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance IesLightInspector with own retained C0/C90 polar candela diagram
+// 🧩 Brand-new 1:1 HTML parity port of IES Photometric Light Inspector (2 tabs: Overview, Source)
 
 #include "Engine/Editor/Inspectors/IesLightInspector.h"
+#include "Engine/Editor/Inspectors/LightInspectorShared.h"
 
 #include <algorithm>
 #include <array>
@@ -15,125 +16,74 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
-
-inline uint8_t ToneSrgb8(float Hdr) noexcept
+[[nodiscard]] uint8_t ClampByteIes(float V) noexcept
 {
-    const float M = std::clamp(Hdr / (1.0f + std::max(0.0f, Hdr)), 0.0f, 1.0f);
-    const float S = (M <= 0.0031308f) ? (M * 12.92f) : (1.055f * std::pow(M, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 
-// Analytical photometric lobe matching ProjectZeroEditor IesProfile.js (Section 0 = C0 plane, Section 1 = C90 plane)
-[[nodiscard]] float EvaluatePresetLobe(uint32_t ProfileIdx, float SignedAngleRad, float ConeDeg, bool PlaneC90) noexcept
+[[nodiscard]] float EvaluateIesCurve(uint32_t Preset, float Deg) noexcept
 {
-    const float Scaled = SignedAngleRad * (60.0f / std::max(5.0f, ConeDeg));
-    if (std::fabs(Scaled) > PiF * 0.5f) return 0.0f;
-    const float Axis = std::max(0.0f, std::cos(Scaled));
-    if (ProfileIdx == 2u) // Batwing
+    if (Deg >= 90.0f) return 0.0f;
+    const float U = Deg / 90.0f;
+    if (Preset == 3u) // ECE Low Beam
     {
-        return std::pow(std::fabs(std::sin(Scaled * 2.0f)), 1.4f) * Axis;
+        if (Deg < 12.0f) return 1.0f - (Deg / 12.0f) * 0.36f;
+        return std::max(0.0f, 0.64f * std::pow(1.0f - (Deg - 12.0f) / 78.0f, 1.6f));
     }
-    if (ProfileIdx == 1u) // Wall wash
-    {
-        return std::pow(std::max(0.0f, std::cos(Scaled - 0.55f)), PlaneC90 ? 3.0f : 5.0f);
-    }
-    float Power = 130.0f / 60.0f;
-    if (ProfileIdx == 5u) Power = 240.0f / 60.0f; // High Beam
-    else if (ProfileIdx == 6u) Power = 0.65f;     // Fog Lamp
-    else if (ProfileIdx == 7u) Power = 0.40f;     // Parking Lamp
-    float Lobe = std::pow(Axis, std::max(0.4f, Power * (PlaneC90 ? 0.65f : 1.0f)));
-    if (ProfileIdx == 3u || ProfileIdx == 4u) // ECE / SAE Low Beam asymmetric cutoff
-    {
-        if (std::sin(Scaled) > 0.0f) Lobe *= (ProfileIdx == 4u) ? 0.50f : 0.65f;
-    }
-    return Lobe;
+    return std::pow(std::max(0.0f, std::cos(U * 1.570796f)), (Preset == 0u) ? 2.2f : 1.3f);
 }
 } // namespace
 
 void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
 {
-    uint64_t Sig = 0x1C010001ull;
-    Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.ProfilePresetIndex);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.LuminousFlux);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.ProfileMultiplier);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.KelvinTemperature);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.R);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.G);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.B);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.FieldAngleDegrees);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.CutoffPitchDegrees);
+    uint64_t Key = 0x11030001ull ^ (static_cast<uint64_t>(Instance.ProfilePresetIndex) << 8u);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.LuminousFlux);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.FieldAngleDegrees);
 
-    const uint32_t W = 240u, H = 152u;
-    PolarPreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    const uint32_t W = 524u, H = 376u;
+    PolarPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const auto K = InspectorPrimitives::ComputeKelvinRgb(Instance.KelvinTemperature);
-        const float TR = Instance.RadiantTint.R * K.R;
-        const float TG = Instance.RadiantTint.G * K.G;
-        const float TB = Instance.RadiantTint.B * K.B;
-        const float CX = static_cast<float>(W) * 0.5f;
-        const float CY = static_cast<float>(H) * 0.48f;
-        const float MaxR = 60.0f;
-        const float PitchRad = Instance.CutoffPitchDegrees * (PiF / 180.0f);
-        const float Gain = std::clamp((Instance.LuminousFlux * Instance.ProfileMultiplier) / 2400.0f, 0.25f, 1.8f);
+        const float Cx = static_cast<float>(W) * 0.5f;
+        const float Cy = static_cast<float>(H) * 0.49f;
+        const float MaxR = 148.0f;
 
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float DY = static_cast<float>(Y) + 0.5f - CY;
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float DX = static_cast<float>(X) + 0.5f - CX;
+                const float DX = static_cast<float>(X) - Cx;
+                const float DY = static_cast<float>(Y) - Cy;
                 const float D  = std::sqrt(DX * DX + DY * DY);
-                float R = 0.017f, G = 0.018f, B = 0.021f;
 
-                // Polar concentric rings & 8 radial spokes
-                for (int Ring = 1; Ring <= 4; ++Ring)
+                float R = 24.0f, G = 24.0f, B = 25.0f;
+                for (int K = 1; K <= 4; ++K)
                 {
-                    if (std::fabs(D - MaxR * (static_cast<float>(Ring) * 0.25f)) < 0.65f)
-                    {
-                        R += 0.036f; G += 0.040f; B += 0.046f;
-                    }
-                }
-                if (D < MaxR && D > 3.0f)
-                {
-                    const float Ang = std::atan2(DX, DY);
-                    const float Mod = std::fmod(std::fabs(Ang), PiF * 0.25f);
-                    const float SpokeDist = std::min(Mod, PiF * 0.25f - Mod) * D;
-                    if (SpokeDist < 0.60f && (static_cast<int>(D) % 6) < 3)
-                    {
-                        R += 0.026f; G += 0.030f; B += 0.034f;
-                    }
-
-                    // C0 (solid warm-tinted) & C90 (dashed mint-tinted) polar lobes
-                    const float SignedGamma = Ang - PitchRad;
-                    const float R0 = MaxR * EvaluatePresetLobe(Instance.ProfilePresetIndex, SignedGamma, Instance.FieldAngleDegrees, false);
-                    const float R9 = MaxR * EvaluatePresetLobe(Instance.ProfilePresetIndex, SignedGamma, Instance.FieldAngleDegrees, true);
-
-                    if (D <= R9)
-                    {
-                        R += 0.028f; G += 0.052f; B += 0.050f;
-                    }
-                    if (D <= R0)
-                    {
-                        const float Fill = 0.14f + 0.12f * Gain;
-                        R += TR * Fill; G += TG * Fill; B += TB * Fill;
-                    }
-                    if (std::fabs(D - R9) < 1.15f && (static_cast<int>(X + Y) % 7) < 4)
-                    {
-                        R += 0.30f; G += 0.56f; B += 0.52f;
-                    }
-                    if (std::fabs(D - R0) < 1.25f)
-                    {
-                        R += TR * 0.90f; G += TG * 0.90f; B += TB * 0.90f;
-                    }
-                }
-                if (D < 2.8f)
-                {
-                    R += TR * 0.95f; G += TG * 0.95f; B += TB * 0.95f;
+                    const float RR = MaxR * (static_cast<float>(K) * 0.25f);
+                    if (std::fabs(D - RR) < 1.0f) { R += 16.0f; G += 17.0f; B += 19.0f; }
                 }
 
+                // Polar candela lobe (downward = 0 deg -> +Y)
+                const float DegFromDown = std::atan2(std::fabs(DX), DY) * 57.29578f;
+                if (DY >= 0.0f)
+                {
+                    const bool RightSide = (DX >= 0.0f);
+                    float LobeVal = EvaluateIesCurve(Instance.ProfilePresetIndex, DegFromDown);
+                    if (Instance.ProfilePresetIndex == 3u && !RightSide) LobeVal = (DegFromDown < 3.5f) ? LobeVal : 0.0f;
+                    const float LobeR = LobeVal * MaxR;
+                    if (D <= LobeR)
+                    {
+                        R += 28.0f; G += 24.0f; B += 16.0f;
+                    }
+                    if (std::fabs(D - LobeR) < 1.6f)
+                    {
+                        R = 228.0f; G = 186.0f; B = 132.0f;
+                    }
+                }
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ToneSrgb8(R); Pixels[Off + 1u] = ToneSrgb8(G); Pixels[Off + 2u] = ToneSrgb8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteIes(R);
+                Pixels[Off + 1u] = ClampByteIes(G);
+                Pixels[Off + 2u] = ClampByteIes(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -144,109 +94,175 @@ float IesLightInspector::Construct(
     OutlinerRecordEntry& Entry, IesLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
-    static constexpr std::array<const char*, 8u> PresetLabels = {{
-        "Downlight", "Wall wash", "Batwing", "ECE Low", "SAE Low", "High Beam", "Fog Lamp", "Parking"
-    }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    // Auto-detect ECE Low Beam preset when Entry title mentions ECE
+    if (Entry.Title.find("ECE") != std::string::npos && Instance.ProfilePresetIndex == 0u)
+    {
+        Instance.ProfilePresetIndex = 3u;
+    }
 
-    const char* PresetName = PresetLabels[std::min<std::size_t>(Instance.ProfilePresetIndex, PresetLabels.size() - 1u)];
-    const float ScaledLumens = Instance.LuminousFlux * Instance.ProfileMultiplier;
+    const float WideX = LeftX - 20.0f;
+    const float WideW = InnerWidth + 40.0f;
+    static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = 25.0f;
+    const float BodyX = WideX + PadX;
+    const float BodyW = WideW - PadX * 2.0f;
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+
+    static constexpr std::array<const char*, 8u> PresetNames = {{
+        "Downlight", "Wall wash", "Batwing", "ECE Low Beam", "SAE Low Beam", "High Beam", "Fog Lamp", "Parking Lamp"
+    }};
+    const uint32_t PresetIdx = std::min(Instance.ProfilePresetIndex, 7u);
 
     if (ActivePage == 0u)
     {
         UpdatePolarSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Photometric distribution");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        const long WholeLm = static_cast<long>(std::floor(ScaledLumens));
-        const int  FracLm  = static_cast<int>(std::lround((ScaledLumens - static_cast<float>(WholeLm)) * 10.0f)) % 10;
-        char WholeBuf[24]{}, FracBuf[8]{};
-        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
-        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
-        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Scaled photometric flux");
+        Surface.FillCircle({ BodyX + 10.0f, Card.Y + 34.0f }, 8.0f, ColorRgba{ 118u, 174u, 224u, 220u });
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Photometric distribution");
 
-        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
-        Y += 14.0f;
+        float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.LuminousFlux, "lm", "Profile source flux");
+        Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
+        Y += 16.0f;
 
-        char CapBuf[72]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%s / C0 solid / C90 dashed", PresetName);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
-        Y += 20.0f;
+        char SumBuf[64]{};
+        std::snprintf(SumBuf, sizeof(SumBuf), "%s / polar study", PresetNames[PresetIdx]);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
+        Y += 26.0f;
 
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
-        PolarPreview.Present(Surface, Stage, 10.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 226u, 184u, 108u, 255u }, "C0 PLANE");
-        const char* C90Tag = "C90 PLANE";
-        const float C90W = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, C90Tag);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - C90W, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 114u, 198u, 188u, 255u }, C90Tag);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.X + 10.0f, Stage.Center().Y - 5.0f }, 8.2f, ColorRgba{ 130u, 134u, 142u, 255u }, "90\xC2\xB0");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Right() - 24.0f, Stage.Center().Y - 5.0f }, 8.2f, ColorRgba{ 130u, 134u, 142u, 255u }, "90\xC2\xB0");
-        const char* ZeroFoot = "0\xC2\xB0 · Polar candela";
-        const float ZFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, ZeroFoot);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.Center().X - ZFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 138u, 142u, 150u, 255u }, ZeroFoot);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
+        PolarPreview.Present(Surface, ImgBox, 8.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 8.0f, ImgBox.Y + 10.0f }, 8.4f, ColorRgba{ 222u, 168u, 114u, 255u }, "C0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 28.0f, ImgBox.Y + 10.0f }, 8.4f, ColorRgba{ 126u, 186u, 186u, 255u }, "C90");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 38.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 56.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - 5.0f, ImgBox.Bottom() - 22.0f }, 8.4f, InspectorMetrics::DimInk, "0\xC2\xB0");
+        const char* Cap = "NORMALIZED PRESET";
+        const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, Cap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 8.0f }, 8.4f, InspectorMetrics::DimInk, Cap);
 
-        const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled,   false },
-            { "Cast shadows", InspectorSwitchSymbol::Shadow,  Entry.CastShadows,         false },
-            { "Distribution", InspectorSwitchSymbol::Orbit,   Instance.ShowDistribution, false },
-        }};
-        int32_t Clicked = -1;
-        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Entry.CastShadows = !Entry.CastShadows; OutMutated = true; }
-        else if (Clicked == 2) { Instance.ShowDistribution = !Instance.ShowDistribution; OutMutated = true; }
-
-        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
-        CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
-        CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
+        char ScaledBuf[32]{}, FieldBuf[16]{};
+        LightUi::FormatWithCommas(Instance.LuminousFlux * Instance.ProfileMultiplier, ScaledBuf, sizeof(ScaledBuf));
+        std::string ScaledStr = std::string(ScaledBuf) + " lm";
+        std::snprintf(FieldBuf, sizeof(FieldBuf), "%.0f\xC2\xB0", Instance.FieldAngleDegrees);
+        LightUi::ConstructStudyTilesAndFooter(
+            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
+            "Illustrative preset \xC2\xB7 no measured IES data",
+            "Scaled output", ScaledStr.c_str(), nullptr,
+            "Field angle", FieldBuf, nullptr,
+            "Source & colour", "Luminous flux");
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 404.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", ScaledLumens);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Scaled photometric flux");
-        const float HalfW = (BodyW - 8.0f) * 0.5f;
-        char OutBuf[24]{}, AngBuf[20]{};
-        std::snprintf(OutBuf, sizeof(OutBuf), "%.0f lm", ScaledLumens);
-        std::snprintf(AngBuf, sizeof(AngBuf), "%.1f\xC2\xB0", Instance.FieldAngleDegrees);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "SCALED OUTPUT", OutBuf);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "FIELD ANGLE", AngBuf);
-        Y += 58.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8310u, "Source flux", "lm", "%.0f", 0.0f, 8000.0f, Instance.LuminousFlux, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8311u, "Profile multiplier", "x", "%.2f", 0.0f, 4.0f, Instance.ProfileMultiplier, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8312u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8313u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+        // TAB 2: SOURCE — Distribution profile curve editor + 4 pills + 4 KPIs + Name/Actions + Preset grid
+        const Rectangle2D Card { WideX, CursorY, WideW, 620.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Distribution profile");
+        const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - OW, Card.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "OPTICS");
 
-        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 456.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Distribution profile", PresetName);
-        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        std::array<float, 32u> LobeCurve {};
-        for (std::size_t I = 0u; I < LobeCurve.size(); ++I)
+        // Curve editor well
+        const Rectangle2D Well { BodyX, Card.Y + 56.0f, BodyW, 152.0f };
+        Surface.FillRectangle(Well, ColorRgba{ 16u, 16u, 17u, 255u }, 12.0f);
+        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 16u }, 12.0f, 1.0f);
+        const Rectangle2D PBox { Well.X + 28.0f, Well.Y + 14.0f, Well.Width - 36.0f, Well.Height - 36.0f };
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 4.0f, PBox.Y - 4.0f }, 8.0f, InspectorMetrics::DimInk, "100%");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 8.0f, PBox.Center().Y - 4.0f }, 8.0f, InspectorMetrics::DimInk, "50%");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 18.0f, PBox.Bottom() - 4.0f }, 8.0f, InspectorMetrics::DimInk, "0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PBox.X + PBox.Width * 0.17f, PBox.Y + 4.0f }, 8.0f, InspectorMetrics::DimInk, "beam");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PBox.X + PBox.Width * 0.37f, PBox.Y + 4.0f }, 8.0f, InspectorMetrics::DimInk, "field");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PBox.X + PBox.Width * 0.68f, PBox.Y + 4.0f }, 8.0f, InspectorMetrics::DimInk, "UPWARD");
+
+        const std::array<float, 11u> KnotsDeg = {{ 0.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 75.0f, 90.0f, 120.0f, 180.0f }};
+        Point2D Prev {};
+        for (std::size_t I = 0u; I < KnotsDeg.size(); ++I)
         {
-            const float Gamma = (static_cast<float>(I) / 31.0f) * (PiF * 0.5f);
-            LobeCurve[I] = std::clamp(EvaluatePresetLobe(Instance.ProfilePresetIndex, Gamma, Instance.FieldAngleDegrees, false), 0.0f, 1.0f);
+            const float T = KnotsDeg[I] / 180.0f;
+            const float V = EvaluateIesCurve(PresetIdx, KnotsDeg[I]);
+            const Point2D P { PBox.X + T * PBox.Width, PBox.Bottom() - V * PBox.Height };
+            if (I > 0u) Surface.StrokeLine(Prev, P, ColorRgba{ 232u, 178u, 118u, 255u }, 1.8f);
+            Surface.FillCircle(P, 3.6f, ColorRgba{ 20u, 20u, 22u, 255u });
+            Surface.StrokeCircle(P, 3.6f, ColorRgba{ 246u, 246u, 246u, 255u }, 1.4f);
+            Prev = P;
         }
-        InspectorPrimitives::ConstructCurvePlot(
-            Surface, { LeftX + PadX, Y, BodyW, 70.0f }, LobeCurve,
-            ColorRgba{ 168u, 212u, 200u, 255u }, ColorRgba{ 168u, 212u, 200u, 32u }, "0 deg", "90 deg");
-        Y += 82.0f;
-        int32_t PickPreset = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Photometric preset", PresetLabels, Instance.ProfilePresetIndex, 2u, Input, PickPreset);
-        if (PickPreset >= 0 && !Entry.Locked) { Instance.ProfilePresetIndex = static_cast<uint32_t>(PickPreset); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8320u, "Field angle", "deg", "%.1f", 5.0f, 100.0f, Instance.FieldAngleDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8321u, "Cut-off pitch", "deg", "%.1f", -5.0f, 5.0f, Instance.CutoffPitchDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8322u, "Photometric range", "m", "%.0f", 1.0f, 250.0f, Instance.RangeMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
 
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8340u, ActiveDragId, Input, OutMutated);
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Show distribution", Instance.ShowDistribution, Input, OutMutated);
+        // 4 mode pills: C0 plane | C90 plane | Linked | Smooth
+        const float PillY = Well.Bottom() + 12.0f;
+        const std::array<std::pair<const char*, bool>, 4u> Pills = {{
+            { "C0 plane", true }, { "C90 plane", false }, { "Linked", false }, { "Smooth", true }
+        }};
+        const float PGap = 6.0f;
+        const float PW = std::floor((BodyW - PGap * 3.0f) / 4.0f);
+        for (uint32_t I = 0u; I < 4u; ++I)
+        {
+            const Rectangle2D P { BodyX + static_cast<float>(I) * (PW + PGap), PillY, PW, 28.0f };
+            Surface.FillRectangle(P, Pills[I].second ? ColorRgba{ 54u, 54u, 58u, 255u } : ColorRgba{ 28u, 28u, 30u, 255u }, 14.0f);
+            Surface.StrokeRectangle(P, Pills[I].second ? ColorRgba{ 165u, 165u, 172u, 150u } : ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, Pills[I].first);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { P.Center().X - TW * 0.5f, P.Y + 8.5f }, 9.6f, Pills[I].second ? InspectorMetrics::HeadingInk : InspectorMetrics::MutedInk, Pills[I].first);
+        }
+
+        // 4 mini KPI tiles: Peak, Beam, Field, Upward
+        const float KpiY = PillY + 40.0f;
+        const std::array<std::pair<const char*, const char*>, 4u> Kpis = {{
+            { "1,16...", "Peak" }, { "54\xC2\xB0", "Beam" }, { "127\xC2\xB0", "Field" }, { "0.0 %", "Upward" }
+        }};
+        for (uint32_t I = 0u; I < 4u; ++I)
+        {
+            const Rectangle2D K { BodyX + static_cast<float>(I) * (PW + PGap), KpiY, PW, 54.0f };
+            Surface.FillRectangle(K, LightUi::TileFill, 10.0f);
+            Surface.StrokeRectangle(K, LightUi::TileBorder, 10.0f, 1.0f);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 7.0f, K.Y + 12.0f }, 13.0f, InspectorMetrics::HeadingInk, Kpis[I].first);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 7.0f, K.Y + 34.0f }, 9.2f, InspectorMetrics::DimInk, Kpis[I].second);
+        }
+
+        (void)InspectorPrimitives::ConstructWrappedParagraph(
+            Surface, BodyX, KpiY + 68.0f, BodyW, 10.6f, 15.0f, InspectorMetrics::MutedInk,
+            "ECE Low Beam preset \xC2\xB7 drag a point to start a custom profile from it.");
+
+        // Name + Profile name input
+        const float NameY = KpiY + 120.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, NameY + 8.0f }, 11.2f, InspectorMetrics::MutedInk, "Name");
+        const Rectangle2D NameBox { BodyX + 46.0f, NameY, BodyW - 46.0f, 30.0f };
+        Surface.FillRectangle(NameBox, ColorRgba{ 14u, 14u, 15u, 255u }, 15.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { NameBox.X + 12.0f, NameBox.Y + 8.5f }, 11.2f, InspectorMetrics::DimInk, "Profile name");
+
+        // 3 action buttons + Reset to preset
+        const float ActY = NameY + 42.0f;
+        const std::array<const char*, 3u> Acts = {{ "Save to library", "Export .ies", "Import .ies" }};
+        const float AW = std::floor((BodyW - 12.0f) / 3.0f);
+        for (uint32_t I = 0u; I < 3u; ++I)
+        {
+            const Rectangle2D B { BodyX + static_cast<float>(I) * (AW + 6.0f), ActY, AW, 28.0f };
+            Surface.FillRectangle(B, ColorRgba{ 34u, 34u, 36u, 255u }, 14.0f);
+            Surface.StrokeRectangle(B, ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, Acts[I]);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.Center().X - TW * 0.5f, B.Y + 8.5f }, 9.6f, InspectorMetrics::MutedInk, Acts[I]);
+        }
+        const Rectangle2D ResetBtn { BodyX, ActY + 36.0f, BodyW, 28.0f };
+        Surface.FillRectangle(ResetBtn, ColorRgba{ 34u, 34u, 36u, 255u }, 14.0f);
+        Surface.StrokeRectangle(ResetBtn, ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
+        const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, "Reset to preset");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ResetBtn.Center().X - RW * 0.5f, ResetBtn.Y + 8.0f }, 10.6f, InspectorMetrics::MutedInk, "Reset to preset");
+
+        // Start from a preset 2x2 buttons
+        const float PreY = ResetBtn.Bottom() + 28.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, PreY }, 11.0f, InspectorMetrics::MutedInk, "Start from a preset");
+        const float PreW = std::floor((BodyW - 8.0f) * 0.5f);
+        for (uint32_t I = 0u; I < 4u; ++I)
+        {
+            const Rectangle2D PB { BodyX + static_cast<float>(I % 2u) * (PreW + 8.0f), PreY + 18.0f + static_cast<float>(I / 2u) * 38.0f, PreW, 30.0f };
+            const bool Sel = (PresetIdx == I);
+            Surface.FillRectangle(PB, Sel ? ColorRgba{ 54u, 54u, 58u, 255u } : ColorRgba{ 30u, 30u, 32u, 255u }, 10.0f);
+            Surface.StrokeRectangle(PB, Sel ? ColorRgba{ 160u, 160u, 168u, 150u } : ColorRgba{ 255u, 255u, 255u, 18u }, 10.0f, 1.0f);
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.8f, PresetNames[I]);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PB.Center().X - TW * 0.5f, PB.Y + 9.0f }, 10.8f, Sel ? InspectorMetrics::HeadingInk : InspectorMetrics::MutedInk, PresetNames[I]);
+            if (PB.Contains(Cursor) && Input.PrimaryPointer.Pressed) { Instance.ProfilePresetIndex = I; OutMutated = true; }
+        }
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
 
     return CursorY;

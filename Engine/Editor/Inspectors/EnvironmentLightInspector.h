@@ -15,7 +15,7 @@ class EnvironmentLightInspector
 {
 public:
     EnvironmentLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Sky hemisphere radiance & GI"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Image-based sky light \xC2\xB7 HDRI or procedural sky"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

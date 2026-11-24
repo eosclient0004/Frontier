@@ -15,7 +15,7 @@ class TubeLightInspector
 {
 public:
     TubeLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Tube light · linear emitter"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Tube light \xC2\xB7 HTML authoring"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

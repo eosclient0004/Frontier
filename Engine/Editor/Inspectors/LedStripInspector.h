@@ -15,7 +15,7 @@ class LedStripInspector
 {
 public:
     LedStripInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "LED strip · linear ribbon"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "LED strip \xC2\xB7 HTML authoring"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

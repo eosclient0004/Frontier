@@ -1,9 +1,10 @@
 /*============================================================================================================================================
                                                          AREALIGHTINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance AreaLightInspector with own retained orthographic aperture elevation
+// 🧩 Brand-new 1:1 HTML parity port of Area Light Inspector (2 tabs: Overview, Source)
 
 #include "Engine/Editor/Inspectors/AreaLightInspector.h"
+#include "Engine/Editor/Inspectors/LightInspectorShared.h"
 
 #include <algorithm>
 #include <array>
@@ -15,109 +16,55 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
-
-inline uint8_t ToneSrgb8(float Hdr) noexcept
+[[nodiscard]] uint8_t ClampByteAr(float V) noexcept
 {
-    const float M = std::clamp(Hdr / (1.0f + std::max(0.0f, Hdr)), 0.0f, 1.0f);
-    const float S = (M <= 0.0031308f) ? (M * 12.92f) : (1.055f * std::pow(M, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 } // namespace
 
 void AreaLightInspector::UpdateApertureSurface(const AreaLightData& Instance)
 {
-    uint64_t Sig = 0x1D010001ull;
-    Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.ApertureFormIndex);
-    Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.TwoSidedRadiator ? 1u : 0u);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.LuminousFlux);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.KelvinTemperature);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.R);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.G);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.B);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.WidthMeters);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.HeightMeters);
+    uint64_t Key = 0x11040001ull ^ (static_cast<uint64_t>(Instance.ApertureFormIndex) << 8u);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.WidthMeters);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.HeightMeters);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.LuminousFlux);
 
-    const uint32_t W = 240u, H = 152u;
-    AperturePreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    const uint32_t W = 524u, H = 376u;
+    AperturePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const auto K = InspectorPrimitives::ComputeKelvinRgb(Instance.KelvinTemperature);
-        const float TR = Instance.RadiantTint.R * K.R;
-        const float TG = Instance.RadiantTint.G * K.G;
-        const float TB = Instance.RadiantTint.B * K.B;
-        const float CX = static_cast<float>(W) * 0.5f;
-        const float CY = static_cast<float>(H) * 0.5f;
-        const float Scale = std::min(152.0f / std::max(0.2f, Instance.WidthMeters), 96.0f / std::max(0.2f, Instance.HeightMeters));
-        const float HW = std::clamp(Instance.WidthMeters  * Scale * 0.5f, 16.0f, 84.0f);
-        const float HH = std::clamp(Instance.HeightMeters * Scale * 0.5f, 14.0f, 52.0f);
-        const bool  Disk = (Instance.ApertureFormIndex == 1u);
-        const float GlowGain = 0.22f + std::clamp(Instance.LuminousFlux / 8000.0f, 0.0f, 0.55f);
+        const float Cx = static_cast<float>(W) * 0.5f;
+        const float Cy = static_cast<float>(H) * 0.48f;
+        const float Aspect = std::clamp(Instance.WidthMeters / std::max(0.1f, Instance.HeightMeters), 0.35f, 3.0f);
+        const float HalfW = (Aspect >= 1.0f) ? 168.0f : 168.0f * Aspect;
+        const float HalfH = (Aspect >= 1.0f) ? (168.0f / Aspect) : 168.0f;
 
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float DY = static_cast<float>(Y) + 0.5f - CY;
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float DX = static_cast<float>(X) + 0.5f - CX;
-                float R = 0.017f, G = 0.018f, B = 0.021f;
+                float R = 24.0f, G = 24.0f, B = 25.0f;
+                const float DX = std::fabs(static_cast<float>(X) - Cx);
+                const float DY = std::fabs(static_cast<float>(Y) - Cy);
+                const bool Inside = (Instance.ApertureFormIndex == 0u)
+                    ? (DX <= HalfW && DY <= HalfH)
+                    : (std::hypot(DX / std::max(1.0f, HalfW), DY / std::max(1.0f, HalfH)) <= 1.0f);
+                const bool OnEdge = (Instance.ApertureFormIndex == 0u)
+                    ? ((std::fabs(DX - HalfW) < 1.8f && DY <= HalfH + 1.0f) || (std::fabs(DY - HalfH) < 1.8f && DX <= HalfW + 1.0f))
+                    : (std::fabs(std::hypot(DX / std::max(1.0f, HalfW), DY / std::max(1.0f, HalfH)) - 1.0f) < 0.015f);
 
-                // Orthographic dashed crosshairs
-                if ((std::fabs(DX) < 0.7f && (static_cast<int>(Y) % 7) < 3) ||
-                    (std::fabs(DY) < 0.7f && (static_cast<int>(X) % 7) < 3))
-                {
-                    R += 0.06f; G += 0.065f; B += 0.072f;
-                }
-
-                float EdgeDist = 100.0f;
-                bool Inside = false;
-                if (Disk)
-                {
-                    const float NX = DX / HW, NY = DY / HH;
-                    const float E = std::sqrt(NX * NX + NY * NY);
-                    Inside = (E <= 1.0f);
-                    EdgeDist = std::fabs(E - 1.0f) * std::min(HW, HH);
-                }
-                else
-                {
-                    const float AX = std::fabs(DX), AY = std::fabs(DY);
-                    Inside = (AX <= HW && AY <= HH);
-                    EdgeDist = Inside ? std::min(HW - AX, HH - AY)
-                                      : std::sqrt(std::max(0.0f, AX - HW) * std::max(0.0f, AX - HW) +
-                                                  std::max(0.0f, AY - HH) * std::max(0.0f, AY - HH));
-                }
-
-                // Soft outside halo
-                if (!Inside && EdgeDist < 16.0f)
-                {
-                    const float Halo = (1.0f - EdgeDist / 16.0f) * (1.0f - EdgeDist / 16.0f) * 0.16f;
-                    R += TR * Halo; G += TG * Halo; B += TB * Halo;
-                }
-
-                // Illuminated emitter interior + diffuser micro-dot grid
                 if (Inside)
                 {
-                    const float Diffuser = ((static_cast<int>(X) % 9) < 2 && (static_cast<int>(Y) % 9) < 2) ? 0.35f : 0.0f;
-                    const float Fill = GlowGain + Diffuser;
-                    R += TR * Fill; G += TG * Fill; B += TB * Fill;
+                    R = 48.0f; G = 46.0f; B = 42.0f;
+                    // Dotted emitter grid inside softbox matching light__0
+                    if ((X % 18u) < 2u && (Y % 18u) < 2u) { R = 132.0f; G = 122.0f; B = 98.0f; }
                 }
-                if (EdgeDist < 1.3f)
-                {
-                    R += TR * 0.82f; G += TG * 0.82f; B += TB * 0.82f;
-                }
-
-                // Bottom dimension tick bar
-                const float DimY = CY + HH + 14.0f;
-                if (std::fabs(static_cast<float>(Y) - DimY) < 0.7f && std::fabs(DX) <= HW)
-                {
-                    R += 0.22f; G += 0.24f; B += 0.26f;
-                }
-                if (std::fabs(static_cast<float>(Y) - DimY) < 3.5f && std::fabs(std::fabs(DX) - HW) < 0.8f)
-                {
-                    R += 0.28f; G += 0.30f; B += 0.32f;
-                }
+                if (OnEdge) { R = 224.0f; G = 212.0f; B = 186.0f; }
 
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ToneSrgb8(R); Pixels[Off + 1u] = ToneSrgb8(G); Pixels[Off + 2u] = ToneSrgb8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteAr(R);
+                Pixels[Off + 1u] = ClampByteAr(G);
+                Pixels[Off + 2u] = ClampByteAr(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -128,101 +75,114 @@ float AreaLightInspector::Construct(
     OutlinerRecordEntry& Entry, AreaLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
+    const float WideX = LeftX - 20.0f;
+    const float WideW = InnerWidth + 40.0f;
     static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
-    static constexpr std::array<const char*, 2u> ApertureLabels = {{ "Rectangle", "Disk" }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = 25.0f;
+    const float BodyX = WideX + PadX;
+    const float BodyW = WideW - PadX * 2.0f;
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
-    const bool  DiskAperture = (Instance.ApertureFormIndex == 1u);
-    const float AreaM2   = std::max(0.01f, Instance.WidthMeters * Instance.HeightMeters * (DiskAperture ? (PiF * 0.25f) : 1.0f));
-    const float Density  = Instance.LuminousFlux / AreaM2;
+    const float AreaM2 = (Instance.ApertureFormIndex == 0u)
+        ? (Instance.WidthMeters * Instance.HeightMeters)
+        : (3.14159265f * 0.25f * Instance.WidthMeters * Instance.HeightMeters);
 
     if (ActivePage == 0u)
     {
         UpdateApertureSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Luminous surface");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        const long WholeLm = static_cast<long>(std::floor(Instance.LuminousFlux));
-        const int  FracLm  = static_cast<int>(std::lround((Instance.LuminousFlux - static_cast<float>(WholeLm)) * 10.0f)) % 10;
-        char WholeBuf[24]{}, FracBuf[8]{};
-        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
-        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
-        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Authored luminous flux");
+        Surface.FillRectangle({ BodyX + 2.0f, Card.Y + 25.0f, 16.0f, 12.0f }, ColorRgba{ 238u, 226u, 198u, 240u }, 3.0f);
+        Surface.StrokeRectangle({ BodyX + 2.0f, Card.Y + 25.0f, 16.0f, 12.0f }, ColorRgba{ 120u, 118u, 114u, 220u }, 3.0f, 1.2f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Luminous surface");
 
-        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
-        Y += 14.0f;
+        float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.LuminousFlux, "lm", "Authored luminous flux");
+        Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
+        Y += 16.0f;
 
-        char CapBuf[72]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%s / %.1f \xC3\x97 %.1f m / %.0f\xC2\xB0 spread",
-            DiskAperture ? "Disk" : "Rectangle", Instance.WidthMeters, Instance.HeightMeters, Instance.SpreadDegrees);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
-        Y += 20.0f;
+        char SumBuf[64]{};
+        std::snprintf(SumBuf, sizeof(SumBuf), "%s / %.1f \xC3\x97 %.1f m aperture",
+            (Instance.ApertureFormIndex == 0u) ? "Rectangle" : "Disk", Instance.WidthMeters, Instance.HeightMeters);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
+        Y += 26.0f;
 
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
-        AperturePreview.Present(Surface, Stage, 10.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, "APERTURE");
-        const char* ElevTag = "FRONT ELEVATION";
-        const float ETW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, ElevTag);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - ETW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, ElevTag);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
+        AperturePreview.Present(Surface, ImgBox, 8.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, "APERTURE / FRONT ELEVATION");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, "FRONT FACE");
+        char SpBuf[24]{};
+        std::snprintf(SpBuf, sizeof(SpBuf), "%.0f\xC2\xB0 SPREAD", Instance.SpreadDegrees);
+        const float SW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, SpBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - SW - 4.0f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, SpBuf);
+        char WDim[16]{};
+        std::snprintf(WDim, sizeof(WDim), "%.1f m", Instance.WidthMeters);
+        const float WDW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, WDim);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - WDW * 0.5f, ImgBox.Bottom() - 28.0f }, 8.2f, InspectorMetrics::DimInk, WDim);
 
-        char DimFoot[48]{};
-        std::snprintf(DimFoot, sizeof(DimFoot), "%.1f m \xC3\x97 %.1f m · %.2f m\xC2\xB2", Instance.WidthMeters, Instance.HeightMeters, AreaM2);
-        const float DFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.6f, DimFoot);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - DFW * 0.5f, Stage.Bottom() - 14.0f }, 8.6f, ColorRgba{ 168u, 172u, 180u, 255u }, DimFoot);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
-        (void)Density;
-
-        const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Visible",    InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled,   false },
-            { "Two-sided",  InspectorSwitchSymbol::Orbit,   Instance.TwoSidedRadiator, false },
-            { "Show shape", InspectorSwitchSymbol::Cube,    Instance.ShowFixture,      false },
-        }};
-        int32_t Clicked = -1;
-        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Instance.TwoSidedRadiator = !Instance.TwoSidedRadiator; OutMutated = true; }
-        else if (Clicked == 2) { Instance.ShowFixture = !Instance.ShowFixture; OutMutated = true; }
-
-        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
-        CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
-        CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
+        char AreaBuf[24]{};
+        std::snprintf(AreaBuf, sizeof(AreaBuf), "%.2g m\xC2\xB2", AreaM2);
+        LightUi::ConstructStudyTilesAndFooter(
+            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
+            "Source study \xC2\xB7 HTML authoring",
+            "Aperture", AreaBuf, nullptr,
+            "Emission", Instance.TwoSidedRadiator ? "Two-" : "One-", "sided",
+            "Source & colour", "Luminous flux");
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 354.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", Instance.LuminousFlux);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Authored luminous flux");
-        const float HalfW = (BodyW - 8.0f) * 0.5f;
-        char AreaBuf[24]{};
-        std::snprintf(AreaBuf, sizeof(AreaBuf), "%.2f m\xC2\xB2", AreaM2);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "APERTURE", AreaBuf);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "EMISSION", Instance.TwoSidedRadiator ? "Two-sided" : "One-sided");
-        Y += 58.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8410u, "Luminous flux", "lm", "%.0f", 0.0f, 20000.0f, Instance.LuminousFlux, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8411u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8412u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+        // TAB 2: SOURCE — Emitter dimensions (h = 540) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 540.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Emitter dimensions");
+        const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - OW, Card.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "OPTICS");
 
-        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 434.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Emitter dimensions", "OPTICS");
-        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char DensBuf[24]{}; std::snprintf(DensBuf, sizeof(DensBuf), "%.0f", Density);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, DensBuf, "lm/m\xC2\xB2", "Flux per aperture area");
-        int32_t PickShape = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Aperture shape", ApertureLabels, Instance.ApertureFormIndex, 2u, Input, PickShape);
-        if (PickShape >= 0 && !Entry.Locked) { Instance.ApertureFormIndex = static_cast<uint32_t>(PickShape); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8420u, "Width", "m", "%.1f", 0.1f, 20.0f, Instance.WidthMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8421u, "Height", "m", "%.1f", 0.1f, 20.0f, Instance.HeightMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8422u, "Beam spread", "deg", "%.0f", 1.0f, 180.0f, Instance.SpreadDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Two-sided emission", Instance.TwoSidedRadiator, Input, OutMutated);
-        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+        char FluxArea[32]{};
+        LightUi::FormatWithCommas(Instance.LuminousFlux / std::max(0.01f, AreaM2), FluxArea, sizeof(FluxArea));
+        std::string FaStr = std::string(FluxArea) + " lm/m\xC2\xB2";
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 58.0f }, 34.0f, ColorRgba{ 244u, 244u, 244u, 255u }, FaStr);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 108.0f }, 11.0f, InspectorMetrics::MutedInk, "Flux per aperture area \xC2\xB7 not surface luminance");
 
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8440u, ActiveDragId, Input, OutMutated);
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
+        // Lambertian cosine angular distribution (-90°..90°)
+        const Rectangle2D Plot { BodyX, Card.Y + 138.0f, BodyW, 88.0f };
+        LightUi::ConstructMinimalOpticGrid(Surface, Plot, "\xE2\x88\x92""90\xC2\xB0", "90\xC2\xB0");
+        const int Segs = 60;
+        Point2D Prev {};
+        for (int I = 0; I <= Segs; ++I)
+        {
+            const float T   = static_cast<float>(I) / static_cast<float>(Segs);
+            const float Rad = (-1.570796f) + T * 3.14159265f;
+            const float Amp = std::max(0.0f, std::cos(Rad));
+            const Point2D P { Plot.X + T * Plot.Width, (Plot.Bottom() - 16.0f) - Amp * (Plot.Height - 20.0f) };
+            if (I > 0) Surface.StrokeLine(Prev, P, ColorRgba{ 212u, 206u, 192u, 255u }, 1.5f);
+            Prev = P;
+        }
+
+        // Rectangle | Disk 2-button toggle
+        const float SegY = Plot.Bottom() + 10.0f;
+        const float SegW = std::floor((BodyW - 8.0f) * 0.5f);
+        static constexpr std::array<const char*, 2u> Forms = {{ "Rectangle", "Disk" }};
+        for (uint32_t I = 0u; I < 2u; ++I)
+        {
+            const Rectangle2D B { BodyX + static_cast<float>(I) * (SegW + 8.0f), SegY, SegW, 34.0f };
+            const bool Sel = (Instance.ApertureFormIndex == I);
+            Surface.FillRectangle(B, Sel ? ColorRgba{ 62u, 62u, 65u, 255u } : ColorRgba{ 32u, 32u, 34u, 255u }, 10.0f);
+            Surface.StrokeRectangle(B, Sel ? ColorRgba{ 165u, 165u, 170u, 150u } : ColorRgba{ 255u, 255u, 255u, 18u }, 10.0f, 1.0f);
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.4f, Forms[I]);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.Center().X - TW * 0.5f, B.Y + 10.5f }, 11.4f, Sel ? InspectorMetrics::HeadingInk : InspectorMetrics::MutedInk, Forms[I]);
+            if (B.Contains(Cursor) && Input.PrimaryPointer.Pressed) { Instance.ApertureFormIndex = I; OutMutated = true; }
+        }
+
+        float FY = SegY + 50.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8621u, "Width",       "m",        "%.2g", 0.1f, 10.0f, Instance.WidthMeters,  ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8622u, "Height",      "m",        "%.2g", 0.1f, 10.0f, Instance.HeightMeters, ActiveDragId, Input, OutMutated);
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8623u, "Beam spread", "\xC2\xB0", "%.0f", 15.0f, 180.0f, Instance.SpreadDegrees, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, BodyX, FY + 4.0f, BodyW, "Two-sided emission", Instance.TwoSidedRadiator, Input, OutMutated);
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
+        CursorY = LightUi::ConstructTransformCard(Surface, WideX, CursorY, WideW, Entry);
     }
 
     return CursorY;

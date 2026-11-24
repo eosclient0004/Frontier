@@ -1,9 +1,10 @@
 /*============================================================================================================================================
                                                       ENVIRONMENTLIGHTINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance EnvironmentLightInspector with own retained dome-lit hemisphere study
+// 🧩 Brand-new 1:1 HTML parity port of Environment Light Inspector (2 tabs: Overview, Settings)
 
 #include "Engine/Editor/Inspectors/EnvironmentLightInspector.h"
+#include "Engine/Components/Panes/WorkspaceAppearance.h"
 
 #include <algorithm>
 #include <array>
@@ -15,170 +16,94 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
-
-struct EnvironmentPresetSpec
+[[nodiscard]] uint8_t ClampByteEl(float V) noexcept
 {
-    const char*            Title;
-    Mathematics::LinearRGB Overhead;
-    Mathematics::LinearRGB Skyline;
-    Mathematics::LinearRGB Ground;
-    float                  ReferenceLux;
-    float                  PatchAzimuthDeg;
-    float                  PatchElevationDeg;
-    Mathematics::LinearRGB PatchTint;
-    float                  PatchShare;
-};
-
-constexpr std::array<EnvironmentPresetSpec, 5u> EnvironmentPresets = {{
-    { "Sky atmosphere", { 0.25f, 0.50f, 0.88f }, { 0.74f, 0.84f, 0.95f }, { 0.35f, 0.32f, 0.28f }, 12000.0f, 140.0f, 38.0f, { 1.00f, 0.95f, 0.78f }, 0.55f },
-    { "HDRI · studio",  { 0.17f, 0.17f, 0.17f }, { 0.44f, 0.44f, 0.44f }, { 0.12f, 0.12f, 0.12f },   900.0f,  60.0f, 34.0f, { 1.00f, 1.00f, 1.00f }, 0.45f },
-    { "HDRI · overcast",{ 0.64f, 0.68f, 0.71f }, { 0.83f, 0.85f, 0.86f }, { 0.29f, 0.29f, 0.27f },  2500.0f,   0.0f, 70.0f, { 0.92f, 0.94f, 0.96f }, 0.10f },
-    { "HDRI · sunset",  { 0.16f, 0.25f, 0.48f }, { 1.00f, 0.60f, 0.35f }, { 0.23f, 0.17f, 0.14f },  1400.0f, 250.0f,  6.0f, { 1.00f, 0.77f, 0.42f }, 0.60f },
-    { "Uniform colour", { 0.62f, 0.71f, 0.80f }, { 0.62f, 0.71f, 0.80f }, { 0.32f, 0.36f, 0.40f },  1000.0f,   0.0f, 90.0f, { 1.00f, 1.00f, 1.00f }, 0.00f },
-}};
-
-inline uint8_t ToneSrgb8(float Hdr) noexcept
-{
-    const float M = std::clamp(Hdr / (1.0f + std::max(0.0f, Hdr)), 0.0f, 1.0f);
-    const float S = (M <= 0.0031308f) ? (M * 12.92f) : (1.055f * std::pow(M, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
-}
-
-inline Mathematics::LinearRGB ApplySat(Mathematics::LinearRGB C, float Sat) noexcept
-{
-    const float L = 0.2126f * C.R + 0.7152f * C.G + 0.0722f * C.B;
-    return {
-        std::max(0.0f, L + (C.R - L) * Sat),
-        std::max(0.0f, L + (C.G - L) * Sat),
-        std::max(0.0f, L + (C.B - L) * Sat),
-    };
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 } // namespace
 
 void EnvironmentLightInspector::UpdateHemisphereSurface(const EnvironmentLightInstanceData& Instance)
 {
-    uint64_t Sig = 0xE1010002ull;
-    Sig = InspectorPrimitives::MixRevisionU64(Sig, Instance.SourcePresetIndex);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.SkyRadiance.R);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.SkyRadiance.G);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.SkyRadiance.B);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RotationDegrees);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.GainScale);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.ExposureEv);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.Saturation);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.GroundBounce);
+    uint64_t Key = 0xE11B0001ull ^ (static_cast<uint64_t>(Instance.SourcePresetIndex) << 8u);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.RotationDegrees);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.GainScale);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SkyRadiance.R);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SkyRadiance.G);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.SkyRadiance.B);
 
-    const uint32_t W = 240u, H = 152u;
-    HemispherePreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    // Exact 268 x 144 sky-dome side view + top-view blue compass (2x crisp: 536 x 288)
+    const uint32_t W = 536u, H = 288u;
+    HemispherePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const auto& Preset = EnvironmentPresets[std::min<std::size_t>(Instance.SourcePresetIndex, EnvironmentPresets.size() - 1u)];
-        const bool Uniform = (Instance.SourcePresetIndex == 4u);
-        const Mathematics::LinearRGB Overhead = ApplySat(Uniform ? Instance.SkyRadiance : Preset.Overhead, Instance.Saturation);
-        const Mathematics::LinearRGB Skyline  = ApplySat(Uniform ? Instance.SkyRadiance : Preset.Skyline,  Instance.Saturation);
-        const Mathematics::LinearRGB Ground   = ApplySat(Preset.Ground, Instance.Saturation);
-        const float Gain = Instance.GainScale * std::pow(2.0f, Instance.ExposureEv * 0.5f);
-
-        const float AzRad = (Preset.PatchAzimuthDeg + Instance.RotationDegrees) * (PiF / 180.0f);
-        const float ElRad = Preset.PatchElevationDeg * (PiF / 180.0f);
-        const float SunX  = std::cos(ElRad) * std::sin(AzRad);
-        const float SunY  = std::sin(ElRad);
-
-        const float SphereCX = static_cast<float>(W) * 0.27f, SphereCY = static_cast<float>(H) * 0.48f, SphereR = 38.0f;
-        const float CompassCX = static_cast<float>(W) * 0.74f, CompassCY = static_cast<float>(H) * 0.48f, CompassR = 38.0f;
+        const float SideCx = 166.0f, SideCy = 216.0f, SideR = 132.0f;
+        const float TopCx  = 416.0f, TopCy  = 144.0f, TopR  = 86.0f;
+        const float AzRad  = (135.0f + Instance.RotationDegrees) * 0.01745329f;
+        const float SunTx  = TopCx + std::sin(AzRad) * TopR * 0.56f;
+        const float SunTy  = TopCy - std::cos(AzRad) * TopR * 0.56f;
 
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float FY = static_cast<float>(Y) + 0.5f;
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float FX = static_cast<float>(X) + 0.5f;
-                // Clean dark well background (#151618) with subtle centre divider
-                float R = 0.017f, G = 0.018f, B = 0.021f;
-                if (std::fabs(FX - static_cast<float>(W) * 0.5f) < 0.6f && FY > 10.0f && FY < static_cast<float>(H) - 10.0f)
+                float R = 21.0f, G = 21.0f, B = 23.0f;
+
+                // Left: Side-view sky dome + ground slab + central shaded probe sphere
+                const float SDX = static_cast<float>(X) - SideCx;
+                const float SDY = static_cast<float>(Y) - SideCy;
+                const float SD  = std::sqrt(SDX * SDX + SDY * SDY);
+                if (SDY <= 0.0f && SD <= SideR)
                 {
-                    R += 0.022f; G += 0.023f; B += 0.026f;
+                    const float Elev = std::clamp(-SDY / SideR, 0.0f, 1.0f);
+                    R = 198.0f * (1.0f - Elev) + 84.0f  * Elev;
+                    G = 216.0f * (1.0f - Elev) + 148.0f * Elev;
+                    B = 234.0f * (1.0f - Elev) + 214.0f * Elev;
+                    // Sun glow on right slope
+                    const float SunGlow = std::exp(-std::hypot(SDX - 64.0f, SDY + 62.0f) / 36.0f) * 48.0f;
+                    R += SunGlow; G += SunGlow; B += SunGlow * 0.85f;
+                    if (SD > SideR - 2.0f) { R = 165.0f; G = 198.0f; B = 232.0f; }
+                }
+                // Ground bar under dome
+                if (SDY > 0.0f && SDY <= 22.0f && std::fabs(SDX) <= SideR + 8.0f)
+                {
+                    R = 96.0f; G = 88.0f; B = 80.0f;
+                }
+                // Shaded white probe sphere resting on ground
+                const float PDX = static_cast<float>(X) - SideCx;
+                const float PDY = static_cast<float>(Y) - (SideCy - 24.0f);
+                const float PD  = std::sqrt(PDX * PDX + PDY * PDY);
+                if (PD <= 26.0f)
+                {
+                    const float NX = PDX / 26.0f, NY = PDY / 26.0f;
+                    const float NZ = std::sqrt(std::max(0.0f, 1.0f - NX * NX - NY * NY));
+                    const float L  = std::clamp(NX * 0.42f - NY * 0.58f + NZ * 0.68f, 0.15f, 1.0f);
+                    const float Spec = std::pow(std::max(0.0f, NX * 0.25f - NY * 0.45f + NZ * 0.86f), 14.0f) * 0.45f;
+                    R = 65.0f + L * 185.0f + Spec * 70.0f;
+                    G = 72.0f + L * 185.0f + Spec * 70.0f;
+                    B = 82.0f + L * 182.0f + Spec * 70.0f;
                 }
 
-                // Left side-view sky hemisphere + ground half-dome
-                const float SX = (FX - SphereCX) / SphereR;
-                const float SY = (SphereCY - FY) / SphereR;
-                const float S2 = SX * SX + SY * SY;
-                if (S2 <= 1.0f)
+                // Right: Top-view sky compass disc
+                const float TDX = static_cast<float>(X) - TopCx;
+                const float TDY = static_cast<float>(Y) - TopCy;
+                const float TD  = std::sqrt(TDX * TDX + TDY * TDY);
+                if (TD <= TopR)
                 {
-                    if (SY >= 0.0f)
-                    {
-                        const float T = std::pow(1.0f - SY, 0.75f);
-                        R = (Overhead.R * (1.0f - T) + Skyline.R * T) * 0.92f * Gain;
-                        G = (Overhead.G * (1.0f - T) + Skyline.G * T) * 0.92f * Gain;
-                        B = (Overhead.B * (1.0f - T) + Skyline.B * T) * 0.92f * Gain;
-                        const float SunSideX = std::clamp(SunX * 0.8f, -0.82f, 0.82f);
-                        const float SunSideY = std::clamp(SunY * 0.85f, 0.08f, 0.88f);
-                        const float SD = std::sqrt((SX - SunSideX) * (SX - SunSideX) + (SY - SunSideY) * (SY - SunSideY));
-                        if (Preset.PatchShare > 0.01f && SD < 0.55f)
-                        {
-                            const float Glow = std::exp(-SD * SD * 18.0f) * Preset.PatchShare * 2.1f * Gain;
-                            R += Preset.PatchTint.R * Glow; G += Preset.PatchTint.G * Glow; B += Preset.PatchTint.B * Glow;
-                        }
-                    }
-                    else
-                    {
-                        const float Dn = std::clamp(-SY, 0.0f, 1.0f);
-                        const float Bnc = (0.35f + 0.65f * Instance.GroundBounce) * (1.0f - Dn * 0.55f);
-                        R = Ground.R * Bnc * Gain;
-                        G = Ground.G * Bnc * Gain;
-                        B = Ground.B * Bnc * Gain;
-                    }
-                    // Horizon line across equator
-                    if (std::fabs(SY) < 0.028f)
-                    {
-                        R += 0.22f; G += 0.24f; B += 0.26f;
-                    }
-                }
-                else if (std::fabs(std::sqrt(S2) - 1.0f) < 0.032f)
-                {
-                    R += 0.16f; G += 0.17f; B += 0.19f;
-                }
-
-                // Right top-down hemisphere polar compass showing rotated bright patch direction
-                const float CDX = FX - CompassCX, CDY = FY - CompassCY;
-                const float CD  = std::sqrt(CDX * CDX + CDY * CDY);
-                if (CD <= CompassR + 1.1f)
-                {
-                    if (CD <= CompassR)
-                    {
-                        const float Fade = std::pow(CD / CompassR, 0.85f);
-                        R = (Overhead.R * (1.0f - Fade) + Skyline.R * Fade) * 0.82f * Gain;
-                        G = (Overhead.G * (1.0f - Fade) + Skyline.G * Fade) * 0.82f * Gain;
-                        B = (Overhead.B * (1.0f - Fade) + Skyline.B * Fade) * 0.82f * Gain;
-                        const float PX = CompassCX + std::sin(AzRad) * std::cos(ElRad) * (CompassR * 0.82f);
-                        const float PY = CompassCY - std::cos(AzRad) * std::cos(ElRad) * (CompassR * 0.82f);
-                        const float PD = std::sqrt((FX - PX) * (FX - PX) + (FY - PY) * (FY - PY));
-                        if (Preset.PatchShare > 0.01f && PD < 14.0f)
-                        {
-                            const float Glow = std::exp(-PD * PD / 32.0f) * Preset.PatchShare * 2.6f * Gain;
-                            R += Preset.PatchTint.R * Glow; G += Preset.PatchTint.G * Glow; B += Preset.PatchTint.B * Glow;
-                        }
-                        // Dashed 30° and 60° altitude rings + subtle crosshairs
-                        const float Ring30 = std::fabs(CD - CompassR * 0.34f);
-                        const float Ring60 = std::fabs(CD - CompassR * 0.67f);
-                        if ((Ring30 < 0.65f || Ring60 < 0.65f) && ((static_cast<int>(X + Y) / 3) & 1) == 0)
-                        {
-                            R += 0.14f; G += 0.15f; B += 0.17f;
-                        }
-                        if ((std::fabs(CDX) < 0.55f || std::fabs(CDY) < 0.55f) && ((static_cast<int>(X + Y) / 4) & 1) == 0)
-                        {
-                            R += 0.08f; G += 0.09f; B += 0.10f;
-                        }
-                    }
-                    if (std::fabs(CD - CompassR) < 0.95f)
-                    {
-                        R += 0.18f; G += 0.19f; B += 0.21f;
-                    }
+                    const float T = TD / TopR;
+                    R = 88.0f  * (1.0f - T) + 214.0f * T;
+                    G = 152.0f * (1.0f - T) + 226.0f * T;
+                    B = 216.0f * (1.0f - T) + 238.0f * T;
+                    const float SDot = std::hypot(static_cast<float>(X) - SunTx, static_cast<float>(Y) - SunTy);
+                    const float SG = std::exp(-SDot / 18.0f) * 95.0f;
+                    R += SG; G += SG; B += SG * 0.9f;
+                    if (SDot < 6.0f) { R = 255.0f; G = 255.0f; B = 248.0f; }
+                    if (TD < 4.5f)   { R = 18.0f;  G = 22.0f;  B = 28.0f;  }
                 }
 
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ToneSrgb8(R); Pixels[Off + 1u] = ToneSrgb8(G); Pixels[Off + 2u] = ToneSrgb8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteEl(R);
+                Pixels[Off + 1u] = ClampByteEl(G);
+                Pixels[Off + 2u] = ClampByteEl(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -187,102 +112,112 @@ void EnvironmentLightInspector::UpdateHemisphereSurface(const EnvironmentLightIn
 float EnvironmentLightInspector::Construct(
     PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,
     OutlinerRecordEntry& Entry, EnvironmentLightInstanceData& Instance,
-    ViewportDisplaySettings* DisplaySettings,
+    ViewportDisplaySettings* /*DisplaySettings*/,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
+    const float WideX = LeftX - 20.0f;
+    const float WideW = InnerWidth + 40.0f;
     static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Settings" }};
-    static constexpr std::array<const char*, 5u> SourceLabels = {{
-        "Sky atmosphere", "HDRI · studio", "HDRI · overcast", "HDRI · sunset", "Uniform colour"
-    }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = 25.0f;
+    const float BodyX = WideX + PadX;
+    const float BodyW = WideW - PadX * 2.0f;
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
-    const auto& Preset = EnvironmentPresets[std::min<std::size_t>(Instance.SourcePresetIndex, EnvironmentPresets.size() - 1u)];
-    const float EffectiveLux = Preset.ReferenceLux * Instance.GainScale * std::pow(2.0f, Instance.ExposureEv);
+    static constexpr std::array<const char*, 5u> SourceNames = {{
+        "Sky atmosphere", "HDRI Studio", "HDRI Overcast", "HDRI Sunset", "Uniform colour"
+    }};
 
     if (ActivePage == 0u)
     {
         UpdateHemisphereSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 332.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Sky dome");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        // TAB 1: OVERVIEW — Sky dome (h = 400) + Quick controls (5 switches)
+        const Rectangle2D DomeCard { WideX, CursorY, WideW, 400.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, DomeCard, "Sky dome", SourceNames[std::min(Instance.SourcePresetIndex, 4u)], InspectorMetrics::DimInk);
 
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::SemiBold, { LeftX + PadX, Y }, 20.0f, WorkspaceSurfaceColors::PrimaryInk, Preset.Title);
-        Y += 26.0f;
-        char LuxSub[48]{};
-        if (EffectiveLux >= 1000.0f) std::snprintf(LuxSub, sizeof(LuxSub), "%.0fk lx on a level surface", EffectiveLux * 0.001f);
-        else                         std::snprintf(LuxSub, sizeof(LuxSub), "%.0f lx on a level surface", EffectiveLux);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, 10.5f, InspectorMetrics::MutedInk, LuxSub);
-        Y += 20.0f;
+        const float LuxK = 12.0f * std::max(0.05f, Instance.GainScale);
+        char LuxBuf[24]{};
+        std::snprintf(LuxBuf, sizeof(LuxBuf), "%.0fk", LuxK);
+        (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, DomeCard.Y + 56.0f, LuxBuf, "lx on a level surface", nullptr, 38.0f);
 
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 134.0f };
-        HemispherePreview.Present(Surface, Stage, 10.0f);
-        // Side-view & polar compass overlaid annotations
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 7.0f, Stage.Y + Stage.Height * 0.43f }, 8.4f, ColorRgba{ 146u, 150u, 158u, 255u }, "W");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + Stage.Width * 0.45f, Stage.Y + Stage.Height * 0.43f }, 8.4f, ColorRgba{ 146u, 150u, 158u, 255u }, "E");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.X + 12.0f, Stage.Bottom() - 15.0f }, 8.0f, ColorRgba{ 130u, 134u, 142u, 255u }, "side view · looking north");
-        const float CompCX = Stage.X + Stage.Width * 0.74f;
-        const float CompCY = Stage.Y + Stage.Height * 0.48f;
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CompCX - 3.5f, Stage.Y + 4.0f }, 8.2f, ColorRgba{ 184u, 188u, 196u, 255u }, "N");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CompCX + 40.0f, CompCY - 5.0f }, 8.0f, ColorRgba{ 146u, 150u, 158u, 255u }, "E");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { CompCX - 46.0f, CompCY - 5.0f }, 8.0f, ColorRgba{ 146u, 150u, 158u, 255u }, "W");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Stage.X + Stage.Width * 0.53f, Stage.Bottom() - 15.0f }, 8.0f, ColorRgba{ 130u, 134u, 142u, 255u }, "top view · rings 30\xC2\xB0 / 60\xC2\xB0");
-        Y = Stage.Bottom() + 10.0f;
+        // Dark sky-dome + compass well
+        const Rectangle2D Well { BodyX - 3.0f, DomeCard.Y + 110.0f, BodyW + 6.0f, 160.0f };
+        HemispherePreview.Present(Surface, Well, 12.0f);
+        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 12.0f, 1.0f);
+        // Compass letters & captions matching environment-light__0
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 12.0f,  Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "W");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 44.0f,  Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "side view \xC2\xB7 looking north");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 144.0f, Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "E");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 172.0f, Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "top view \xC2\xB7 rings 30\xC2\xB0 / 60\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 206.0f, Well.Y + 10.0f }, 8.4f, InspectorMetrics::MutedInk, "N");
 
-        // 3-column stat tiles inside hero section (KEY LIGHT / DIRECT / BOUNCE)
-        static constexpr std::array<const char*, 8u> CompassDirs = {{ "N", "NE", "E", "SE", "S", "SW", "W", "NW" }};
-        const float ModAz = std::fmod(std::fmod(Preset.PatchAzimuthDeg + Instance.RotationDegrees, 360.0f) + 360.0f, 360.0f);
-        const std::size_t DirIdx = static_cast<std::size_t>(std::lround(ModAz / 45.0f)) % 8u;
-        char KeyVal[24]{}, DirVal[16]{}, BncVal[16]{};
-        std::snprintf(KeyVal, sizeof(KeyVal), "%s · %.0f\xC2\xB0", CompassDirs[DirIdx], Preset.PatchElevationDeg);
-        std::snprintf(DirVal, sizeof(DirVal), "%.0f%%", Preset.PatchShare * 100.0f);
-        std::snprintf(BncVal, sizeof(BncVal), "%.0f%%", Instance.GroundBounce * 100.0f);
-        const float Gap = 6.0f;
-        const float TileW = (BodyW - Gap * 2.0f) / 3.0f;
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, TileW, 46.0f }, "KEY LIGHT", KeyVal);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + TileW + Gap, Y, TileW, 46.0f }, "DIRECT", DirVal);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + (TileW + Gap) * 2.0f, Y, TileW, 46.0f }, "BOUNCE", BncVal);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
+        // 3 KPI tiles: KEY LIGHT SE · 38°, DIRECT 55%, BOUNCE 30%
+        const float KpiY = Well.Bottom() + 12.0f;
+        const float KpiGap = 8.0f;
+        const float KpiW = std::floor((BodyW - KpiGap * 2.0f) / 3.0f);
+        char BounceBuf[16]{};
+        std::snprintf(BounceBuf, sizeof(BounceBuf), "%.0f%%", Instance.GroundBounce * 100.0f);
+        const std::array<std::pair<const char*, const char*>, 3u> Kpis = {{
+            { "KEY LIGHT", "SE \xC2\xB7 38\xC2\xB0" },
+            { "DIRECT",    "55%" },
+            { "BOUNCE",    BounceBuf },
+        }};
+        for (uint32_t I = 0u; I < 3u; ++I)
+        {
+            const Rectangle2D T { BodyX + static_cast<float>(I) * (KpiW + KpiGap), KpiY, KpiW, 54.0f };
+            Surface.FillRectangle(T, ColorRgba{ 26u, 26u, 27u, 255u }, 12.0f);
+            Surface.StrokeRectangle(T, ColorRgba{ 255u, 255u, 255u, 14u }, 12.0f, 1.0f);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 10.0f, T.Y + 9.0f }, 8.4f, InspectorMetrics::DimInk, Kpis[I].first);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 10.0f, T.Y + 27.0f }, 14.0f, InspectorMetrics::HeadingInk, Kpis[I].second);
+        }
 
-        const bool SpecOn = DisplaySettings ? DisplaySettings->ReflectionsEnabled : true;
-        const bool AoOn   = DisplaySettings ? DisplaySettings->XeGtaoEnabled      : true;
-        const std::array<InspectorQuickSwitchSpec, 4u> Quick = {{
-            { "Enabled",           InspectorSwitchSymbol::Eye,   Entry.VisibilityEnabled, false },
-            { "Diffuse",           InspectorSwitchSymbol::Orbit, Instance.IndirectGi,     false },
-            { "Specular",          InspectorSwitchSymbol::Stars, SpecOn,                  false },
-            { "Ambient occlusion", InspectorSwitchSymbol::Sun,   AoOn,                    false },
+        (void)InspectorPrimitives::ConstructWrappedParagraph(
+            Surface, BodyX, KpiY + 64.0f, BodyW, 10.2f, 14.8f, InspectorMetrics::DimInk,
+            "Light arriving from the whole sky \xC2\xB7 drag to rotate the environment. Diagram of the authored values; not the native renderer.");
+        CursorY = DomeCard.Bottom() + InspectorMetrics::SectionGap;
+
+        // Quick controls (4 / 5 on: Enabled, Diffuse, Specular, Shadows, Use sun)
+        const std::array<InspectorQuickSwitchSpec, 5u> Quick = {{
+            { "Enabled",  InspectorSwitchSymbol::Eye,       Entry.VisibilityEnabled, false },
+            { "Diffuse",  InspectorSwitchSymbol::Orbit,     Instance.IndirectGi,     false },
+            { "Specular", InspectorSwitchSymbol::Stars,     true,                    false },
+            { "Shadows",  InspectorSwitchSymbol::Shadow,    true,                    false },
+            { "Use sun",  InspectorSwitchSymbol::Sun,       false,                   false },
         }};
         int32_t Clicked = -1;
-        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
+        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, WideX, CursorY, WideW, Quick, Input, Clicked);
+        if (Clicked == 0)      { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
         else if (Clicked == 1) { Instance.IndirectGi = !Instance.IndirectGi; OutMutated = true; }
-        else if (Clicked == 2 && DisplaySettings) { DisplaySettings->ReflectionsEnabled = !DisplaySettings->ReflectionsEnabled; OutMutated = true; }
-        else if (Clicked == 3 && DisplaySettings) { DisplaySettings->XeGtaoEnabled = !DisplaySettings->XeGtaoEnabled; OutMutated = true; }
-
-        static constexpr std::array<const char*, 2u> Tags = {{ "sky-light", "ibl" }};
-        CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
-        CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
     }
     else
     {
-        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 370.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source", Preset.Title);
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        int32_t PickSrc = -1;
-        Y = InspectorPrimitives::ConstructChoiceRow(Surface, LeftX + PadX, Y, BodyW, "Source", SourceLabels, Instance.SourcePresetIndex, 2u, Input, PickSrc);
-        if (PickSrc >= 0) { Instance.SourcePresetIndex = static_cast<uint32_t>(PickSrc); OutMutated = true; }
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7181u, "Rotation", "deg", "%.0f", 0.0f, 360.0f, Instance.RotationDegrees, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 7180u, "Colour", Instance.SkyRadiance, ActiveDragId, Input, OutMutated);
-        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+        // TAB 2: SETTINGS — Card 1 Source (h = 283), Card 2 Response (h = 379)
+        const Rectangle2D SrcCard { WideX, CursorY, WideW, 283.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, SrcCard, "Source");
+        float SY = SrcCard.Y + 68.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, SY }, 11.4f, InspectorMetrics::MutedInk, "Source");
+        const Rectangle2D Drop { BodyX, SY + 18.0f, BodyW, 34.0f };
+        Surface.FillRectangle(Drop, ColorRgba{ 12u, 12u, 12u, 255u }, 17.0f);
+        Surface.StrokeRectangle(Drop, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Drop.X + 16.0f, Drop.Y + 10.5f }, 12.2f, InspectorMetrics::HeadingInk, SourceNames[std::min(Instance.SourcePresetIndex, 4u)]);
+        const Point2D Ch { Drop.Right() - 16.0f, Drop.Center().Y };
+        Surface.StrokeLine({ Ch.X - 4.0f, Ch.Y - 2.0f }, { Ch.X, Ch.Y + 2.5f }, InspectorMetrics::HeadingInk, 1.5f);
+        Surface.StrokeLine({ Ch.X, Ch.Y + 2.5f }, { Ch.X + 4.0f, Ch.Y - 2.0f }, InspectorMetrics::HeadingInk, 1.5f);
+        if (Drop.Contains(Cursor) && Input.PrimaryPointer.Pressed) { Instance.SourcePresetIndex = (Instance.SourcePresetIndex + 1u) % 5u; OutMutated = true; }
 
-        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 286.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Response");
-        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7190u, "Intensity", "x", "%.2f", 0.0f, 4.0f, Instance.GainScale, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7191u, "Exposure", "EV", "%+.1f", -4.0f, 4.0f, Instance.ExposureEv, ActiveDragId, Input, OutMutated);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7192u, "Saturation", "", "%.2f", 0.0f, 2.0f, Instance.Saturation, ActiveDragId, Input, OutMutated);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 7193u, "Ground bounce", "", "%.2f", 0.0f, 1.0f, Instance.GroundBounce, ActiveDragId, Input, OutMutated);
-        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+        SY = Drop.Bottom() + 20.0f;
+        SY = InspectorPrimitives::ConstructColourFieldRow(Surface, BodyX, SY, BodyW, 8500u, "Colour", Instance.SkyRadiance, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, SY + 6.0f, BodyW, 8501u, "Rotation", "\xC2\xB0", "%.0f", 0.0f, 360.0f, Instance.RotationDegrees, ActiveDragId, Input, OutMutated);
+        CursorY = SrcCard.Bottom() + InspectorMetrics::SectionGap;
+
+        const Rectangle2D RespCard { WideX, CursorY, WideW, 379.0f };
+        InspectorPrimitives::ConstructSectionSurface(Surface, RespCard, "Response");
+        float RY = RespCard.Y + 68.0f;
+        RY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, RY, BodyW, 8502u, "Intensity",     "\xC3\x97", "%.2g", 0.0f, 4.0f, Instance.GainScale,    ActiveDragId, Input, OutMutated);
+        RY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, RY, BodyW, 8503u, "Exposure",      "EV",       "%.2g", -4.0f, 4.0f, Instance.ExposureEv,  ActiveDragId, Input, OutMutated);
+        RY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, RY, BodyW, 8504u, "Saturation",    "",         "%.2g", 0.0f, 2.0f, Instance.Saturation,   ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, RY, BodyW, 8505u, "Ground bounce", "",        "%.2g", 0.0f, 1.0f, Instance.GroundBounce, ActiveDragId, Input, OutMutated);
+        CursorY = RespCard.Bottom() + InspectorMetrics::SectionGap;
     }
 
     return CursorY;

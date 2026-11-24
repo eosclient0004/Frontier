@@ -1,9 +1,10 @@
 /*============================================================================================================================================
-                                                        LEDLIGHTINSPECTOR.CPP
+                                                          LEDLIGHTINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance LedLightInspector with own retained PCB die-array & optic preview
+// 🧩 Brand-new 1:1 HTML parity port of LED Emitter Inspector (2 tabs: Overview, Source)
 
 #include "Engine/Editor/Inspectors/LedLightInspector.h"
+#include "Engine/Editor/Inspectors/LightInspectorShared.h"
 
 #include <algorithm>
 #include <array>
@@ -15,101 +16,66 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
-
-inline uint8_t ToneSrgb8(float Hdr) noexcept
+[[nodiscard]] uint8_t ClampByteLd(float V) noexcept
 {
-    const float M = std::clamp(Hdr / (1.0f + std::max(0.0f, Hdr)), 0.0f, 1.0f);
-    const float S = (M <= 0.0031308f) ? (M * 12.92f) : (1.055f * std::pow(M, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 } // namespace
 
 void LedLightInspector::UpdatePackageSurface(const LedLightData& Instance)
 {
-    uint64_t Sig = 0x1F010001ull;
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.DriverWatts);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.EfficacyLmPerW);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.Dimmer);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.KelvinTemperature);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.R);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.G);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.B);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.PackageDiameterMm);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.OpticAngleDeg);
+    uint64_t Key = 0x11060001ull;
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.DriverWatts);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.PackageDiameterMm);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.OpticAngleDeg);
 
-    const uint32_t W = 240u, H = 152u;
-    PackagePreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    const uint32_t W = 524u, H = 376u;
+    PackagePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const auto K = InspectorPrimitives::ComputeKelvinRgb(Instance.KelvinTemperature);
-        const float TR = Instance.RadiantTint.R * K.R;
-        const float TG = Instance.RadiantTint.G * K.G;
-        const float TB = Instance.RadiantTint.B * K.B;
-        const float CX = static_cast<float>(W) * 0.5f;
-        const float CY = static_cast<float>(H) * 0.52f;
-        const float DieSize = std::clamp(58.0f + Instance.PackageDiameterMm * 0.28f, 60.0f, 88.0f);
-        const float HalfDie = DieSize * 0.5f;
-        const float HalfBoard = HalfDie + 10.0f;
-        const float Dim = std::clamp(Instance.Dimmer, 0.0f, 1.0f);
-        const float HalfOpticRad = (Instance.OpticAngleDeg * PiF) / 360.0f;
+        const float Cx = static_cast<float>(W) * 0.5f;
+        const float Cy = 186.0f;
+        const float PkgHalf = 104.0f;
+        const float InnerHalf = 84.0f;
 
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float DY = static_cast<float>(Y) + 0.5f - CY;
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float DX = static_cast<float>(X) + 0.5f - CX;
-                const float AX = std::fabs(DX), AY = std::fabs(DY);
-                const float D  = std::sqrt(DX * DX + DY * DY);
-                float R = 0.017f, G = 0.018f, B = 0.021f;
+                float R = 24.0f, G = 24.0f, B = 25.0f;
+                const float DX = std::fabs(static_cast<float>(X) - Cx);
+                const float DY = std::fabs(static_cast<float>(Y) - Cy);
 
-                // Soft phosphor bloom glow
-                const float Bloom = std::exp(-D * 0.028f) * 0.26f * Dim;
-                R += TR * Bloom; G += TG * Bloom; B += TB * Bloom;
-
-                // Metallic solder pins along left & right edges
-                if (AX > HalfBoard && AX < HalfBoard + 7.0f && AY < HalfDie - 4.0f)
+                // Ceramic COB square package with rounded bezel
+                if (DX <= PkgHalf && DY <= PkgHalf)
                 {
-                    const float PinT = (DY + HalfDie - 4.0f) / std::max(1.0f, (DieSize - 8.0f)) * 4.0f;
-                    if (std::fabs(PinT - std::round(PinT)) < 0.14f)
+                    R = 46.0f; G = 48.0f; B = 45.0f;
+                    if (DX > PkgHalf - 2.0f || DY > PkgHalf - 2.0f) { R = 112.0f; G = 114.0f; B = 108.0f; }
+                }
+                // Warm phosphor interior well with 4x4 bright LED dies
+                if (DX <= InnerHalf && DY <= InnerHalf)
+                {
+                    R = 114.0f; G = 96.0f; B = 78.0f;
+                    const float LX = (static_cast<float>(X) - (Cx - InnerHalf)) / (InnerHalf * 2.0f) * 4.0f;
+                    const float LY = (static_cast<float>(Y) - (Cy - InnerHalf)) / (InnerHalf * 2.0f) * 4.0f;
+                    const float Fx = LX - std::floor(LX);
+                    const float Fy = LY - std::floor(LY);
+                    if (Fx > 0.22f && Fx < 0.78f && Fy > 0.22f && Fy < 0.78f)
                     {
-                        R = 0.44f; G = 0.40f; B = 0.28f;
+                        R = 236.0f; G = 198.0f; B = 158.0f;
                     }
                 }
-
-                // Dark ceramic/PCB carrier housing
-                if (AX <= HalfBoard && AY <= HalfBoard)
+                // Side gold SMD solder pins (5 per side)
+                if (DX > PkgHalf + 4.0f && DX < PkgHalf + 18.0f && DY < 84.0f)
                 {
-                    R = 0.10f; G = 0.11f; B = 0.10f;
-                    if (AX > HalfBoard - 1.2f || AY > HalfBoard - 1.2f)
-                    {
-                        R = 0.36f; G = 0.38f; B = 0.35f;
-                    }
-                }
-
-                // Illuminated phosphor substrate + 4x4 LED die matrix
-                if (AX <= HalfDie && AY <= HalfDie)
-                {
-                    const float CellPitch = DieSize * 0.25f;
-                    const float LX = std::fmod(DX + HalfDie, CellPitch);
-                    const float LY = std::fmod(DY + HalfDie, CellPitch);
-                    const bool InsideCell = (LX > 2.6f && LX < CellPitch - 2.6f && LY > 2.6f && LY < CellPitch - 2.6f);
-                    const float Gain = InsideCell ? (0.28f + 1.05f * Dim) : (0.14f + 0.34f * Dim);
-                    R = 0.06f + TR * Gain;
-                    G = 0.06f + TG * Gain;
-                    B = 0.05f + TB * Gain;
-                }
-
-                // Emission optic angle arc above package
-                const float ArcR = HalfDie * 1.48f;
-                const float AngFromUp = std::atan2(DX, -DY);
-                if (std::fabs(D - ArcR) < 1.15f && std::fabs(AngFromUp) <= HalfOpticRad)
-                {
-                    R += TR * 0.65f; G += TG * 0.65f; B += TB * 0.65f;
+                    const int PinMod = static_cast<int>(std::lround(static_cast<float>(Y) - (Cy - 72.0f))) % 36;
+                    if (PinMod >= 0 && PinMod < 5) { R = 158.0f; G = 144.0f; B = 112.0f; }
                 }
 
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ToneSrgb8(R); Pixels[Off + 1u] = ToneSrgb8(G); Pixels[Off + 2u] = ToneSrgb8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteLd(R);
+                Pixels[Off + 1u] = ClampByteLd(G);
+                Pixels[Off + 2u] = ClampByteLd(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -120,95 +86,84 @@ float LedLightInspector::Construct(
     OutlinerRecordEntry& Entry, LedLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
+    const float WideX = LeftX - 20.0f;
+    const float WideW = InnerWidth + 40.0f;
     static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
-
-    const float EstLumens = std::max(0.0f, Instance.DriverWatts * Instance.EfficacyLmPerW * Instance.Dimmer);
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = 25.0f;
+    const float BodyX = WideX + PadX;
+    const float BodyW = WideW - PadX * 2.0f;
+    const float EstLm = Instance.DriverWatts * Instance.EfficacyLmPerW * Instance.Dimmer;
 
     if (ActivePage == 0u)
     {
         UpdatePackageSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "LED emitter");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        const long WholeLm = static_cast<long>(std::floor(EstLumens));
-        const int  FracLm  = static_cast<int>(std::lround((EstLumens - static_cast<float>(WholeLm)) * 10.0f)) % 10;
-        char WholeBuf[24]{}, FracBuf[8]{};
-        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeLm);
-        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracLm);
-        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "lm", "Estimated luminous flux");
+        Surface.FillRectangle({ BodyX + 2.0f, Card.Y + 24.0f, 16.0f, 16.0f }, ColorRgba{ 88u, 76u, 54u, 255u }, 3.0f);
+        Surface.FillRectangle({ BodyX + 5.0f, Card.Y + 27.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
+        Surface.FillRectangle({ BodyX + 11.0f, Card.Y + 27.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
+        Surface.FillRectangle({ BodyX + 5.0f, Card.Y + 33.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
+        Surface.FillRectangle({ BodyX + 11.0f, Card.Y + 33.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "LED emitter");
 
-        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
-        Y += 14.0f;
+        float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, EstLm, "lm", "Estimated luminous flux");
+        Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
+        Y += 16.0f;
 
-        char CapBuf[72]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.0f mm package / %.0f K / %.0f\xC2\xB0 optic",
-            Instance.PackageDiameterMm, Instance.KelvinTemperature, Instance.OpticAngleDeg);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
-        Y += 20.0f;
+        char SumBuf[48]{};
+        std::snprintf(SumBuf, sizeof(SumBuf), "%.0f mm package / %.0f K", Instance.PackageDiameterMm, Instance.KelvinTemperature);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
+        Y += 26.0f;
 
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
-        PackagePreview.Present(Surface, Stage, 10.0f);
-        char OptTag[28]{};
-        std::snprintf(OptTag, sizeof(OptTag), "%.0f\xC2\xB0 OPTIC", Instance.OpticAngleDeg);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, OptTag);
-        const char* CobTag = "COB ARRAY";
-        const float CTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, CobTag);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - CTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, CobTag);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
+        PackagePreview.Present(Surface, ImgBox, 8.0f);
+        char OptCap[24]{};
+        std::snprintf(OptCap, sizeof(OptCap), "%.0f\xC2\xB0 OPTIC", Instance.OpticAngleDeg);
+        const float OCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, OptCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - OCW * 0.5f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, OptCap);
+        char PkgCap[28]{};
+        std::snprintf(PkgCap, sizeof(PkgCap), "%.0f mm PACKAGE", Instance.PackageDiameterMm);
+        const float PCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, PkgCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - PCW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, PkgCap);
 
-        char PkgFoot[36]{};
-        std::snprintf(PkgFoot, sizeof(PkgFoot), "%.0f MM PACKAGE · %.1f W", Instance.PackageDiameterMm, Instance.DriverWatts);
-        const float PFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, PkgFoot);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Center().X - PFW * 0.5f, Stage.Bottom() - 14.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, PkgFoot);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
-
-        const std::array<InspectorQuickSwitchSpec, 2u> Quick = {{
-            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
-            { "Show emitter", InspectorSwitchSymbol::Cube,    Instance.ShowFixture,    false },
-        }};
-        int32_t Clicked = -1;
-        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Instance.ShowFixture = !Instance.ShowFixture; OutMutated = true; }
-
-        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
-        CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
-        CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
+        char PwrBuf[16]{}, EffBuf[24]{};
+        std::snprintf(PwrBuf, sizeof(PwrBuf), "%.0f W", Instance.DriverWatts);
+        std::snprintf(EffBuf, sizeof(EffBuf), "%.0f lm/W", Instance.EfficacyLmPerW);
+        LightUi::ConstructStudyTilesAndFooter(
+            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
+            "Source study \xC2\xB7 HTML authoring",
+            "Driver power", PwrBuf, nullptr,
+            "Efficacy target", EffBuf, nullptr,
+            "Driver & colour", "Driver power");
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 452.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Driver & colour");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char LmBuf[20]{}; std::snprintf(LmBuf, sizeof(LmBuf), "%.0f", EstLumens);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, LmBuf, "lm", "Estimated luminous flux");
-        const float HalfW = (BodyW - 8.0f) * 0.5f;
-        char WStat[20]{}, EffStat[24]{};
-        std::snprintf(WStat, sizeof(WStat), "%.1f W", Instance.DriverWatts);
-        std::snprintf(EffStat, sizeof(EffStat), "%.0f lm/W", Instance.EfficacyLmPerW);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "DRIVER POWER", WStat);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "EFFICACY TARGET", EffStat);
-        Y += 58.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8610u, "Driver power", "W", "%.1f", 0.1f, 100.0f, Instance.DriverWatts, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8611u, "Efficacy target", "lm/W", "%.0f", 10.0f, 250.0f, Instance.EfficacyLmPerW, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8612u, "Dimmer", "", "%.2f", 0.0f, 1.0f, Instance.Dimmer, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8613u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8614u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+        // TAB 2: SOURCE — Package & optic (h = 394) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 394.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Package & optic");
+        const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - OW, Card.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "OPTICS");
 
-        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 218.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Package & optic", "OPTICS");
-        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char DimBuf[20]{}; std::snprintf(DimBuf, sizeof(DimBuf), "%.0f", Instance.Dimmer * 100.0f);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, DimBuf, "%", "Conversion dimmer output");
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8620u, "Package diameter", "mm", "%.0f", 5.0f, 120.0f, Instance.PackageDiameterMm, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8621u, "Emission angle", "deg", "%.0f", 10.0f, 180.0f, Instance.OpticAngleDeg, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
+        char DimBuf[16]{};
+        std::snprintf(DimBuf, sizeof(DimBuf), "%.0f %%", Instance.Dimmer * 100.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 58.0f }, 36.0f, ColorRgba{ 244u, 244u, 244u, 255u }, DimBuf);
+        (void)InspectorPrimitives::ConstructWrappedParagraph(
+            Surface, BodyX, Card.Y + 106.0f, BodyW, 11.0f, 15.5f, InspectorMetrics::MutedInk,
+            "Authored dimmer \xC2\xB7 estimated output ignores thermal losses");
 
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8640u, ActiveDragId, Input, OutMutated);
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, false, "Show emitter", Instance.ShowFixture, Input, OutMutated);
+        const Rectangle2D Plot { BodyX, Card.Y + 148.0f, BodyW, 88.0f };
+        LightUi::ConstructMinimalOpticGrid(Surface, Plot, "0", "100%");
+        Surface.StrokeLine({ Plot.X, Plot.Bottom() - 16.0f }, { Plot.Right(), Plot.Y + 4.0f }, ColorRgba{ 226u, 182u, 144u, 255u }, 1.6f);
+
+        float FY = Plot.Bottom() + 18.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8641u, "Package diameter", "mm",        "%.0f", 5.0f, 120.0f, Instance.PackageDiameterMm, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8642u, "Emission angle",   "\xC2\xB0", "%.0f", 15.0f, 160.0f, Instance.OpticAngleDeg,    ActiveDragId, Input, OutMutated);
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
+        CursorY = LightUi::ConstructTransformCard(Surface, WideX, CursorY, WideW, Entry);
     }
 
     return CursorY;

@@ -1188,6 +1188,163 @@ title = "Overview"
             AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCamSet, ParityDir / Names[PageIdx]), Names[PageIdx]);
         }
         Inspectors.QueryCameraSettings().SetActivePage(0u);
+
+        // Batch 4 Lighting Folder ("Lighting" so breadcrumb reads "Inspector / Lighting")
+        const OutlinerSlotToken LightFolder = AppendEntry(Outliner, "Lighting", "Folder", "folder", ConstructSlotCategory::Folder, {});
+
+        // Card #19: Environment Light (2 tabs)
+        const OutlinerSlotToken ParityEnvL = AppendEntry(Outliner, "Environment Light", "Environment Light", "env:environment-light", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityEnvL)) Rec->VisibilityEnabled = true;
+        auto& EnvLInst = Reg.AccessEnvironmentLight(ParityEnvL, Bundle.Scene);
+        EnvLInst.SourcePresetIndex = 0u;
+        EnvLInst.SkyRadiance       = { 0.624f, 0.706f, 0.800f }; // #9FB4CC
+        EnvLInst.RotationDegrees   = 0.0f;
+        EnvLInst.GainScale         = 1.0f;
+        EnvLInst.ExposureEv        = 0.0f;
+        EnvLInst.Saturation        = 1.0f;
+        EnvLInst.GroundBounce      = 0.30f;
+        EnvLInst.IndirectGi        = true;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "EnvironmentLight-01-Overview.png", "EnvironmentLight-02-Settings.png" }};
+            Inspectors.QueryEnvironmentLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityEnvL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryEnvironmentLight().SetActivePage(0u);
+
+        // Card #20: Rim Point / Point Light (2 tabs)
+        const OutlinerSlotToken ParityPtL = AppendEntry(Outliner, "Rim Point", "Point Light", "light:point", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityPtL)) Rec->VisibilityEnabled = true;
+        auto& PtInst = Reg.AccessPointLight(ParityPtL, Bundle.Scene);
+        PtInst.IntensityCandela = 22.0f;
+        PtInst.ReachMeters      = 30.0f;
+        PtInst.DecayExponent    = 2.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "PointLight-01-Overview.png", "PointLight-02-Source.png" }};
+            Inspectors.QueryPointLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityPtL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryPointLight().SetActivePage(0u);
+
+        // Card #21: Key Spot / Spot Light (2 tabs)
+        const OutlinerSlotToken ParitySpL = AppendEntry(Outliner, "Key Spot", "Spot Light", "light:spot", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParitySpL))
+        {
+            Rec->VisibilityEnabled = true;
+            Rec->PositionX = -6.0f; Rec->PositionY = 8.5f; Rec->PositionZ = 5.0f;
+            Rec->RotationX = -53.202f; Rec->RotationY = -39.289f; Rec->RotationZ = 0.0f;
+        }
+        auto& SpInst = Reg.AccessSpotLight(ParitySpL, Bundle.Scene);
+        SpInst.IntensityCandela = 90.0f;
+        SpInst.FullConeDegrees  = 22.0f;
+        SpInst.Penumbra         = 0.42f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "SpotLight-01-Overview.png", "SpotLight-02-Source.png" }};
+            Inspectors.QuerySpotLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParitySpL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QuerySpotLight().SetActivePage(0u);
+
+        // Card #22: ECE Low Beam / IES Photometric Light (2 tabs)
+        const OutlinerSlotToken ParityIesL = AppendEntry(Outliner, "ECE Low Beam", "IES Photometric", "light:ies", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityIesL))
+        {
+            Rec->VisibilityEnabled = true;
+            auto& IesInst = Reg.AccessIesLight(ParityIesL, *Rec);
+            IesInst.LuminousFlux       = 1650.0f;
+            IesInst.ProfileMultiplier  = 1.0f;
+            IesInst.ProfilePresetIndex = 3u;
+            IesInst.FieldAngleDegrees  = 58.0f;
+        }
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "IesLight-01-Overview.png", "IesLight-02-Source.png" }};
+            Inspectors.QueryIesLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityIesL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryIesLight().SetActivePage(0u);
+
+        // Card #23: Area Light (2 tabs)
+        const OutlinerSlotToken ParityAreaL = AppendEntry(Outliner, "Area Light", "Area Light", "light:area", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityAreaL)) Rec->VisibilityEnabled = true;
+        auto& AreaInst = Reg.AccessAreaLight(ParityAreaL, Bundle.Scene);
+        AreaInst.LuminousFlux      = 2400.0f;
+        AreaInst.ApertureFormIndex = 0u;
+        AreaInst.WidthMeters       = 2.0f;
+        AreaInst.HeightMeters      = 1.0f;
+        AreaInst.SpreadDegrees     = 120.0f;
+        AreaInst.TwoSidedRadiator  = false;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "AreaLight-01-Overview.png", "AreaLight-02-Source.png" }};
+            Inspectors.QueryAreaLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityAreaL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryAreaLight().SetActivePage(0u);
+
+        // Card #24: Studio Tube / Tube Light (2 tabs)
+        const OutlinerSlotToken ParityTubeL = AppendEntry(Outliner, "Studio Tube", "Tube Light", "light:tube", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityTubeL))
+        {
+            Rec->VisibilityEnabled = true;
+            Rec->PositionX = -3.0f; Rec->PositionY = 3.2f; Rec->PositionZ = -2.0f;
+            Rec->RotationX = 0.0f; Rec->RotationY = 0.0f; Rec->RotationZ = 20.0f;
+        }
+        auto& TubeInst = Reg.AccessTubeLight(ParityTubeL);
+        TubeInst.LuminousFlux     = 1800.0f;
+        TubeInst.LengthMeters     = 1.5f;
+        TubeInst.TubeRadiusMeters = 0.04f;
+        TubeInst.ReachMeters      = 24.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "TubeLight-01-Overview.png", "TubeLight-02-Source.png" }};
+            Inspectors.QueryTubeLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityTubeL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryTubeLight().SetActivePage(0u);
+
+        // Card #25: LED Emitter (2 tabs)
+        const OutlinerSlotToken ParityLedL = AppendEntry(Outliner, "LED Emitter", "LED Emitter", "light:led", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityLedL))
+        {
+            Rec->VisibilityEnabled = true;
+            Rec->PositionX = 2.6f; Rec->PositionY = 2.4f; Rec->PositionZ = 3.4f;
+        }
+        auto& LedInst = Reg.AccessLedLight(ParityLedL);
+        LedInst.DriverWatts       = 10.0f;
+        LedInst.EfficacyLmPerW    = 110.0f;
+        LedInst.Dimmer            = 1.0f;
+        LedInst.KelvinTemperature = 4000.0f;
+        LedInst.PackageDiameterMm = 40.0f;
+        LedInst.OpticAngleDeg     = 120.0f;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "LedLight-01-Overview.png", "LedLight-02-Source.png" }};
+            Inspectors.QueryLedLight().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityLedL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryLedLight().SetActivePage(0u);
+
+        // Card #26: LED Strip (2 tabs)
+        const OutlinerSlotToken ParityStripL = AppendEntry(Outliner, "LED Strip", "LED Strip", "light:led-strip", ConstructSlotCategory::PointLuminaire, LightFolder);
+        if (OutlinerRecordEntry* Rec = Outliner.AccessEntry(ParityStripL)) Rec->VisibilityEnabled = true;
+        auto& StripInst = Reg.AccessLedStrip(ParityStripL);
+        StripInst.LumensPerMetre = 1000.0f;
+        StripInst.WattsPerMetre  = 14.4f;
+        StripInst.Dimmer         = 1.0f;
+        StripInst.LengthMeters   = 2.4f;
+        StripInst.DiodesPerMetre = 60.0f;
+        StripInst.SupplyVolts    = 24.0f;
+        StripInst.OpalDiffuser   = false;
+        for (uint32_t PageIdx = 0u; PageIdx < 2u; ++PageIdx)
+        {
+            static constexpr std::array<const char*, 2u> Names = {{ "LedStrip-01-Overview.png", "LedStrip-02-Source.png" }};
+            Inspectors.QueryLedStrip().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityStripL, ParityDir / Names[PageIdx]), Names[PageIdx]);
+        }
+        Inspectors.QueryLedStrip().SetActivePage(0u);
     }
 
     TypographyRepository::AssignCurrent(nullptr);

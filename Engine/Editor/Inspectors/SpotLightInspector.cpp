@@ -1,9 +1,10 @@
 /*============================================================================================================================================
                                                          SPOTLIGHTINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of standalone multi-instance SpotLightInspector with own retained beam-envelope diagram
+// 🧩 Brand-new 1:1 HTML parity port of Spot Light Inspector (2 tabs: Overview, Source)
 
 #include "Engine/Editor/Inspectors/SpotLightInspector.h"
+#include "Engine/Editor/Inspectors/LightInspectorShared.h"
 
 #include <algorithm>
 #include <array>
@@ -15,116 +16,62 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
-
-inline uint8_t ToneSrgb8(float Hdr) noexcept
+[[nodiscard]] uint8_t ClampByteSp(float V) noexcept
 {
-    const float M = std::clamp(Hdr / (1.0f + std::max(0.0f, Hdr)), 0.0f, 1.0f);
-    const float S = (M <= 0.0031308f) ? (M * 12.92f) : (1.055f * std::pow(M, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
+    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 } // namespace
 
 void SpotLightInspector::UpdateEnvelopeSurface(const SpotLightData& Instance)
 {
-    uint64_t Sig = 0x1B010001ull;
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.IntensityCandela);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.KelvinTemperature);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.R);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.G);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.RadiantTint.B);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.FullConeDegrees);
-    Sig = InspectorPrimitives::MixRevisionFloat(Sig, Instance.Penumbra);
+    uint64_t Key = 0x11020001ull;
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.FullConeDegrees);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.Penumbra);
+    Key = InspectorPrimitives::MixRevisionFloat(Key, Instance.IntensityCandela);
 
-    const uint32_t W = 240u, H = 152u;
-    EnvelopePreview.EnsureUpdated(Sig, W, H, [&](std::vector<uint8_t>& Pixels)
+    const uint32_t W = 524u, H = 376u;
+    EnvelopePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
     {
-        const auto K = InspectorPrimitives::ComputeKelvinRgb(Instance.KelvinTemperature);
-        const float TR = Instance.RadiantTint.R * K.R;
-        const float TG = Instance.RadiantTint.G * K.G;
-        const float TB = Instance.RadiantTint.B * K.B;
-        const float CX = static_cast<float>(W) * 0.5f;
-        const float ApexY = 30.0f;
-        const float ConeH = 108.0f;
-        const float HalfBottom = std::clamp(std::tan(Instance.FullConeDegrees * PiF / 360.0f) * ConeH * 1.45f, 12.0f, 96.0f);
-        const float InnerScale = std::clamp(1.0f - Instance.Penumbra, 0.05f, 1.0f);
-        const float Gain = std::clamp(Instance.IntensityCandela / 90.0f, 0.25f, 2.0f);
+        const float Cx = static_cast<float>(W) * 0.5f;
+        const float ApexY = 82.0f, BaseY = 304.0f;
+        const float HalfSpan = std::clamp(std::tan(Instance.FullConeDegrees * 0.5f * 0.01745329f) * 290.0f, 34.0f, 160.0f);
+        const float InnerFrac = std::clamp(1.0f - Instance.Penumbra, 0.15f, 0.92f);
 
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
-            const float FY = static_cast<float>(Y) + 0.5f;
             for (uint32_t X = 0u; X < W; ++X)
             {
-                const float DX = static_cast<float>(X) + 0.5f - CX;
-                const float AX = std::fabs(DX);
-                float R = 0.017f, G = 0.018f, B = 0.021f;
-
-                // Subtle apex glow / fixture head at top
-                const float ApexDist = std::sqrt(DX * DX + (FY - ApexY) * (FY - ApexY));
-                if (ApexDist < 10.0f)
+                float R = 24.0f, G = 24.0f, B = 25.0f;
+                const float DX = std::fabs(static_cast<float>(X) - Cx);
+                if (Y >= ApexY && Y <= BaseY)
                 {
-                    const float Glow = std::exp(-ApexDist * ApexDist / 26.0f);
-                    R += TR * Glow * 0.85f + Glow * 0.25f;
-                    G += TG * Glow * 0.85f + Glow * 0.25f;
-                    B += TB * Glow * 0.85f + Glow * 0.25f;
+                    const float T = (static_cast<float>(Y) - ApexY) / (BaseY - ApexY);
+                    const float WOuter = HalfSpan * T;
+                    const float WInner = WOuter * InnerFrac;
+                    if (DX <= WOuter)
+                    {
+                        const float Soft = (DX <= WInner) ? 1.0f : std::clamp(1.0f - (DX - WInner) / std::max(1.0f, WOuter - WInner), 0.0f, 1.0f);
+                        const float Fill = (24.0f + 16.0f * Soft) * (0.65f + 0.35f * (1.0f - T));
+                        R += Fill; G += Fill; B += Fill * 0.96f;
+                    }
+                    if (std::fabs(DX - WOuter) < 1.3f) { R = 148.0f; G = 148.0f; B = 146.0f; }
+                    if (std::fabs(DX - WInner) < 1.1f && ((Y / 8u) % 2u == 0u)) { R = 136.0f; G = 136.0f; B = 134.0f; }
                 }
-
-                // Beam envelope cone
-                if (FY > ApexY && FY <= ApexY + ConeH)
+                if (std::fabs(static_cast<float>(Y) - BaseY) < 1.3f && DX <= HalfSpan)
                 {
-                    const float T = (FY - ApexY) / ConeH;
-                    const float OuterW = std::max(2.0f, HalfBottom * T);
-                    const float InnerW = OuterW * InnerScale;
-                    if (AX <= OuterW)
-                    {
-                        float Soft = 1.0f;
-                        if (AX > InnerW && OuterW > InnerW)
-                        {
-                            const float U = (AX - InnerW) / (OuterW - InnerW);
-                            Soft = (1.0f - U) * (1.0f - U);
-                        }
-                        const float DepthFade = (0.14f + 0.50f * (1.0f - 0.55f * T)) * Gain * 0.42f;
-                        R += TR * DepthFade * Soft;
-                        G += TG * DepthFade * Soft;
-                        B += TB * DepthFade * Soft;
-
-                        // Outer solid cone edge
-                        if (std::fabs(AX - OuterW) < 1.0f)
-                        {
-                            R += TR * 0.28f; G += TG * 0.28f; B += TB * 0.28f;
-                        }
-                        // Inner dashed penumbra edge
-                        const bool Dash = (static_cast<int>(FY) % 7) < 4;
-                        if (Dash && std::fabs(AX - InnerW) < 0.95f && Instance.Penumbra > 0.02f)
-                        {
-                            R += TR * 0.42f; G += TG * 0.42f; B += TB * 0.42f;
-                        }
-                    }
-                    // Center optical axis dashed line
-                    if (AX < 0.65f && (static_cast<int>(FY) % 8) < 4)
-                    {
-                        R += 0.09f; G += 0.09f; B += 0.10f;
-                    }
+                    R = 148.0f; G = 148.0f; B = 146.0f;
                 }
-
-                // Illuminated floor pool ellipse at bottom of cone
-                const float Ey = (FY - (ApexY + ConeH)) / 7.5f;
-                const float Ex = DX / std::max(10.0f, HalfBottom);
-                const float Er2 = Ex * Ex + Ey * Ey;
-                if (Er2 < 1.25f)
+                // Lamp head capsule at top
+                if (Y >= 46u && Y <= 80u && DX <= 26.0f)
                 {
-                    const float Pool = std::exp(-Er2 * 2.2f) * 0.16f * Gain;
-                    R += TR * Pool; G += TG * Pool; B += TB * Pool;
-                    const float Ring = std::fabs(std::sqrt(Er2) - 1.0f);
-                    if (Ring < 0.055f)
-                    {
-                        const float Edge = (1.0f - Ring / 0.055f) * 0.22f;
-                        R += TR * Edge; G += TG * Edge; B += TB * Edge;
-                    }
+                    R = 72.0f; G = 75.0f; B = 70.0f;
+                    if (Y <= 48u || Y >= 78u || DX >= 24.0f) { R = 152.0f; G = 154.0f; B = 146.0f; }
                 }
-
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ToneSrgb8(R); Pixels[Off + 1u] = ToneSrgb8(G); Pixels[Off + 2u] = ToneSrgb8(B); Pixels[Off + 3u] = 255u;
+                Pixels[Off + 0u] = ClampByteSp(R);
+                Pixels[Off + 1u] = ClampByteSp(G);
+                Pixels[Off + 2u] = ClampByteSp(B);
+                Pixels[Off + 3u] = 255u;
             }
         }
     });
@@ -135,117 +82,99 @@ float SpotLightInspector::Construct(
     OutlinerRecordEntry& Entry, SpotLightData& Instance,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
+    const float WideX = LeftX - 20.0f;
+    const float WideW = InnerWidth + 40.0f;
     static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Source" }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX = InspectorMetrics::SectionPadX, BodyW = InnerWidth - PadX * 2.0f;
-
-    const float BeamDiam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * PiF / 360.0f);
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = 25.0f;
+    const float BodyX = WideX + PadX;
+    const float BodyW = WideW - PadX * 2.0f;
 
     if (ActivePage == 0u)
     {
         UpdateEnvelopeSurface(Instance);
-        const Rectangle2D PrevSec { LeftX, CursorY, InnerWidth, 342.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, PrevSec, "Beam envelope");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 26.0f;
+        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        const long WholeCd = static_cast<long>(std::floor(Instance.IntensityCandela));
-        const int  FracCd  = static_cast<int>(std::lround((Instance.IntensityCandela - static_cast<float>(WholeCd)) * 10.0f)) % 10;
-        char WholeBuf[24]{}, FracBuf[8]{};
-        std::snprintf(WholeBuf, sizeof(WholeBuf), "%ld", WholeCd);
-        std::snprintf(FracBuf,  sizeof(FracBuf),  ".%d", FracCd);
-        Y = InspectorPrimitives::ConstructSplitMetricReadout(Surface, LeftX + PadX, Y, WholeBuf, FracBuf, "cd", "Authored luminous intensity");
+        Surface.StrokeRectangle({ BodyX + 2.0f, Card.Y + 24.0f, 16.0f, 16.0f }, ColorRgba{ 140u, 134u, 118u, 220u }, 3.0f, 1.2f);
+        Surface.FillCircle({ BodyX + 10.0f, Card.Y + 32.0f }, 4.5f, ColorRgba{ 246u, 232u, 198u, 255u });
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Beam envelope");
 
-        Surface.StrokeLine({ LeftX + PadX, Y + 4.0f }, { LeftX + PadX + BodyW, Y + 4.0f }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
-        Y += 14.0f;
+        float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.IntensityCandela, "cd", "Authored luminous intensity");
+        Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
+        Y += 16.0f;
 
-        char CapBuf[72]{};
-        std::snprintf(CapBuf, sizeof(CapBuf), "%.1f\xC2\xB0 cone / penumbra %.0f%% / reach %.0f m",
-            Instance.FullConeDegrees, Instance.Penumbra * 100.0f, Instance.ReachMeters);
-        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { LeftX + PadX, Y }, BodyW, 10.5f, ColorRgba{ 204u, 208u, 214u, 255u }, CapBuf);
-        Y += 20.0f;
+        char SumBuf[48]{};
+        std::snprintf(SumBuf, sizeof(SumBuf), "%.0f\xC2\xB0 cone / %.0f%% soft edge", Instance.FullConeDegrees, Instance.Penumbra * 100.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
+        Y += 26.0f;
 
-        const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 166.0f };
-        EnvelopePreview.Present(Surface, Stage, 10.0f);
-        char PenTag[28]{}, DecTag[24]{};
-        std::snprintf(PenTag, sizeof(PenTag), "PENUMBRA %.0f%%", Instance.Penumbra * 100.0f);
-        std::snprintf(DecTag, sizeof(DecTag), "REACH %.0f M", Instance.ReachMeters);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.X + 8.0f, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, PenTag);
-        const float DTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, DecTag);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Stage.Right() - 8.0f - DTW, Stage.Y + 8.0f }, 8.4f, ColorRgba{ 126u, 130u, 138u, 255u }, DecTag);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
+        EnvelopePreview.Present(Surface, ImgBox, 8.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, "PENUMBRA");
+        char PenBuf[16]{};
+        std::snprintf(PenBuf, sizeof(PenBuf), "%.0f %%", Instance.Penumbra * 100.0f);
+        const float PW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, PenBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - PW - 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, PenBuf);
+        char CapBuf[32]{};
+        std::snprintf(CapBuf, sizeof(CapBuf), "%.0f\xC2\xB0 FULL CONE", Instance.FullConeDegrees);
+        const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, CapBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.4f, InspectorMetrics::DimInk, CapBuf);
 
-        // Bottom full-cone bracket caliper
-        const float HalfSpan = std::clamp(std::tan(Instance.FullConeDegrees * PiF / 360.0f) * 108.0f * 1.45f, 18.0f, BodyW * 0.38f);
-        const float CalY = Stage.Bottom() - 12.0f;
-        const float MidX = Stage.Center().X;
-        const ColorRgba CalStroke { 142u, 146u, 154u, 170u };
-        Surface.StrokeLine({ MidX - HalfSpan, CalY - 3.0f }, { MidX - HalfSpan, CalY + 3.0f }, CalStroke, 1.0f);
-        Surface.StrokeLine({ MidX + HalfSpan, CalY - 3.0f }, { MidX + HalfSpan, CalY + 3.0f }, CalStroke, 1.0f);
-        Surface.StrokeLine({ MidX - HalfSpan, CalY }, { MidX - 44.0f, CalY }, CalStroke, 1.0f);
-        Surface.StrokeLine({ MidX + 44.0f, CalY }, { MidX + HalfSpan, CalY }, CalStroke, 1.0f);
-        char ConeFoot[32]{};
-        std::snprintf(ConeFoot, sizeof(ConeFoot), "%.1f\xC2\xB0 FULL CONE", Instance.FullConeDegrees);
-        const float CFW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.4f, ConeFoot);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { MidX - CFW * 0.5f, CalY - 5.0f }, 8.4f, ColorRgba{ 168u, 172u, 180u, 255u }, ConeFoot);
-        CursorY = PrevSec.Bottom() + InspectorMetrics::SectionGap;
-
-        const std::array<InspectorQuickSwitchSpec, 3u> Quick = {{
-            { "Visible",      InspectorSwitchSymbol::Eye, Entry.VisibilityEnabled, false },
-            { "Cast shadows", InspectorSwitchSymbol::Shadow,  Entry.CastShadows,       false },
-            { "Show cone",    InspectorSwitchSymbol::Sun,     Instance.ShowCone,       false },
-        }};
-        int32_t Clicked = -1;
-        CursorY = InspectorPrimitives::ConstructQuickSwitchSection(Surface, LeftX, CursorY, InnerWidth, Quick, Input, Clicked);
-        if (Clicked == 0) { Entry.VisibilityEnabled = !Entry.VisibilityEnabled; OutMutated = true; }
-        else if (Clicked == 1) { Entry.CastShadows = !Entry.CastShadows; OutMutated = true; }
-        else if (Clicked == 2) { Instance.ShowCone = !Instance.ShowCone; OutMutated = true; }
-
-        static constexpr std::array<const char*, 1u> Tags = {{ "lighting" }};
-        CursorY = InspectorPrimitives::ConstructTagsSection(Surface, LeftX, CursorY, InnerWidth, Tags);
-        CursorY = InspectorPrimitives::ConstructNotesSection(Surface, LeftX, CursorY, InnerWidth, Entry.AuthorNotes);
+        char ConeVal[16]{}, SoftVal[16]{};
+        std::snprintf(ConeVal, sizeof(ConeVal), "%.0f\xC2\xB0", Instance.FullConeDegrees);
+        std::snprintf(SoftVal, sizeof(SoftVal), "%.0f %%", Instance.Penumbra * 100.0f);
+        LightUi::ConstructStudyTilesAndFooter(
+            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
+            "Source study \xC2\xB7 HTML authoring",
+            "Full cone", ConeVal, nullptr,
+            "Soft edge", SoftVal, nullptr,
+            "Source & colour", "Intensity");
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        const Rectangle2D S1 { LeftX, CursorY, InnerWidth, 354.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S1, "Source & colour");
-        float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char CdBuf[20]{}; std::snprintf(CdBuf, sizeof(CdBuf), "%.1f", Instance.IntensityCandela);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, CdBuf, "cd", "Authored luminous intensity");
-        const float HalfW = (BodyW - 8.0f) * 0.5f;
-        char ConeBuf[20]{}, SoftBuf[20]{};
-        std::snprintf(ConeBuf, sizeof(ConeBuf), "%.1f\xC2\xB0", Instance.FullConeDegrees);
-        std::snprintf(SoftBuf, sizeof(SoftBuf), "%.0f %%", Instance.Penumbra * 100.0f);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX, Y, HalfW, 50.0f }, "FULL CONE", ConeBuf);
-        InspectorPrimitives::ConstructStatTile(Surface, { LeftX + PadX + HalfW + 8.0f, Y, HalfW, 50.0f }, "SOFT EDGE", SoftBuf);
-        Y += 58.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8210u, "Intensity", "cd", "%.1f", 0.0f, 200.0f, Instance.IntensityCandela, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8211u, "Colour temperature", "K", "%.0f", 1800.0f, 12000.0f, Instance.KelvinTemperature, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructColourFieldRow(Surface, LeftX + PadX, Y, BodyW, 8212u, "Emission tint", Instance.RadiantTint, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S1.Bottom() + InspectorMetrics::SectionGap;
+        // TAB 2: SOURCE — Beam shaping (h = 382) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 382.0f };
+        LightUi::ConstructDarkLuminaireCard(Surface, Card);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Beam shaping");
+        const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - OW, Card.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "OPTICS");
 
-        const Rectangle2D S2 { LeftX, CursorY, InnerWidth, 386.0f };
-        InspectorPrimitives::ConstructSectionSurface(Surface, S2, "Beam shaping", "OPTICS");
-        Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
-        char DiamBuf[20]{}; std::snprintf(DiamBuf, sizeof(DiamBuf), "%.2f", BeamDiam5m);
-        Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, DiamBuf, "m", "Beam diameter on a perpendicular plane at 5 m");
-        std::array<float, 32u> BeamCurve {};
-        const float InnerFrac = std::clamp(1.0f - Instance.Penumbra, 0.05f, 1.0f);
-        for (std::size_t I = 0u; I < BeamCurve.size(); ++I)
+        const float Diam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * 0.5f * 0.01745329f);
+        char DiamBuf[24]{};
+        std::snprintf(DiamBuf, sizeof(DiamBuf), "%.2f m", Diam5m);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 58.0f }, 36.0f, ColorRgba{ 244u, 244u, 244u, 255u }, DiamBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 108.0f }, 11.0f, InspectorMetrics::MutedInk, "Beam diameter on a perpendicular plane at 5 m");
+
+        // Top-hat angular beam profile (-90°..90°)
+        const Rectangle2D Plot { BodyX, Card.Y + 138.0f, BodyW, 88.0f };
+        LightUi::ConstructMinimalOpticGrid(Surface, Plot, "\xE2\x88\x92""90\xC2\xB0", "90\xC2\xB0");
+        const float HalfDeg  = std::max(2.0f, Instance.FullConeDegrees * 0.5f);
+        const float InnerDeg = HalfDeg * std::clamp(1.0f - Instance.Penumbra, 0.1f, 0.95f);
+        const int Segs = 80;
+        Point2D Prev {};
+        for (int I = 0; I <= Segs; ++I)
         {
-            const float U = std::fabs((static_cast<float>(I) / 31.0f) * 2.0f - 1.0f);
-            BeamCurve[I] = (U <= InnerFrac) ? 1.0f : std::clamp(1.0f - (U - InnerFrac) / std::max(0.05f, 1.0f - InnerFrac), 0.0f, 1.0f);
+            const float T   = static_cast<float>(I) / static_cast<float>(Segs);
+            const float Deg = std::fabs(-90.0f + T * 180.0f);
+            float Amp = 0.0f;
+            if (Deg <= InnerDeg) Amp = 1.0f;
+            else if (Deg < HalfDeg)
+            {
+                const float U = (Deg - InnerDeg) / std::max(0.1f, HalfDeg - InnerDeg);
+                Amp = 0.5f * (1.0f + std::cos(U * 3.14159265f));
+            }
+            const Point2D P { Plot.X + T * Plot.Width, (Plot.Bottom() - 16.0f) - Amp * (Plot.Height - 20.0f) };
+            if (I > 0) Surface.StrokeLine(Prev, P, ColorRgba{ 212u, 206u, 192u, 255u }, 1.5f);
+            Prev = P;
         }
-        InspectorPrimitives::ConstructCurvePlot(
-            Surface, { LeftX + PadX, Y, BodyW, 60.0f }, BeamCurve,
-            ColorRgba{ 246u, 206u, 128u, 255u }, ColorRgba{ 246u, 206u, 128u, 36u }, "-cone/2", "+cone/2");
-        Y += 72.0f;
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8220u, "Full cone angle", "deg", "%.1f", 2.0f, 80.0f, Instance.FullConeDegrees, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8221u, "Penumbra", "", "%.2f", 0.0f, 1.0f, Instance.Penumbra, ActiveDragId, Input, OutMutated, Entry.Locked);
-        Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8222u, "Reach", "m", "%.0f", 1.0f, 150.0f, Instance.ReachMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8223u, "Lens radius", "m", "%.2f", 0.02f, 0.8f, Instance.SourceRadiusMeters, ActiveDragId, Input, OutMutated, Entry.Locked);
-        CursorY = S2.Bottom() + InspectorMetrics::SectionGap;
 
-        CursorY = InspectorPrimitives::ConstructTransformSections(Surface, LeftX, CursorY, InnerWidth, Entry, 8240u, ActiveDragId, Input, OutMutated);
-        CursorY = InspectorPrimitives::ConstructLuminaireShadowsSection(Surface, LeftX, CursorY, InnerWidth, Entry, true, "Show cone", Instance.ShowCone, Input, OutMutated);
+        float FY = Plot.Bottom() + 18.0f;
+        FY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8611u, "Full cone angle", "\xC2\xB0", "%.0f", 5.0f, 120.0f, Instance.FullConeDegrees, ActiveDragId, Input, OutMutated);
+        (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FY, BodyW, 8612u, "Penumbra", "", "%.2g", 0.0f, 1.0f, Instance.Penumbra, ActiveDragId, Input, OutMutated);
+        CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
+        CursorY = LightUi::ConstructTransformCard(Surface, WideX, CursorY, WideW, Entry);
     }
 
     return CursorY;

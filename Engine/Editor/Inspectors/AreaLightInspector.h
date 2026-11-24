@@ -15,7 +15,7 @@ class AreaLightInspector
 {
 public:
     AreaLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Area / softbox · LTC emitter"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Light"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

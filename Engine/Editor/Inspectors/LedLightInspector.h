@@ -15,7 +15,7 @@ class LedLightInspector
 {
 public:
     LedLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "LED emitter · solid-state COB"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "LED emitter \xC2\xB7 HTML authoring"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

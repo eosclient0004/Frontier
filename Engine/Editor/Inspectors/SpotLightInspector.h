@@ -15,7 +15,7 @@ class SpotLightInspector
 {
 public:
     SpotLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Spot light · conical beam"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "Spot light \xC2\xB7 HTML authoring"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

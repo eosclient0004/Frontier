@@ -15,7 +15,7 @@ class IesLightInspector
 {
 public:
     IesLightInspector() noexcept = default;
-    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "IES photometric · polar candela"; }
+    [[nodiscard]] static const char* QuerySubtitle() noexcept { return "IES photometric \xC2\xB7 HTML authoring"; }
 
     [[nodiscard]] float Construct(
         PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,

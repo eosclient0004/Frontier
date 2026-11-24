@@ -98,6 +98,30 @@ PARITY_CASES = [
     ("CameraSettings", "3-GI",       "camera-camera-settings__2-render-camera-sdf_gi.png",       "CameraSettings-03-GI.png",       "CameraSettings-03-GI-Proof.png",       0.85, 0.75),
     ("CameraSettings", "4-AO",       "camera-camera-settings__3-render-camera-sdf_ao.png",       "CameraSettings-04-AO.png",       "CameraSettings-04-AO-Proof.png",       0.85, 0.75),
     ("CameraSettings", "5-Output",   "camera-camera-settings__4-render-camera-sdf_output.png",   "CameraSettings-05-Output.png",   "CameraSettings-05-Output-Proof.png",   0.85, 0.75),
+    # Card 19: Environment Light
+    ("EnvironmentLight", "1-Overview", "environment-light__0-environment-light_overview.png", "EnvironmentLight-01-Overview.png", "EnvironmentLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("EnvironmentLight", "2-Settings", "environment-light__1-environment-light_settings.png", "EnvironmentLight-02-Settings.png", "EnvironmentLight-02-Settings-Proof.png", 0.85, 0.75),
+    # Card 20: Point Light
+    ("PointLight", "1-Overview", "reference-rim-point__0-light_overview.png", "PointLight-01-Overview.png", "PointLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("PointLight", "2-Source",   "reference-rim-point__1-light_source.png",   "PointLight-02-Source.png",   "PointLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 21: Spot Light
+    ("SpotLight", "1-Overview", "reference-key-spot__0-light_overview.png", "SpotLight-01-Overview.png", "SpotLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("SpotLight", "2-Source",   "reference-key-spot__1-light_source.png",   "SpotLight-02-Source.png",   "SpotLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 22: IES Photometric Light
+    ("IesLight", "1-Overview", "reference-ece-low-beam__0-light_overview.png", "IesLight-01-Overview.png", "IesLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("IesLight", "2-Source",   "reference-ece-low-beam__1-light_source.png",   "IesLight-02-Source.png",   "IesLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 23: Area Light
+    ("AreaLight", "1-Overview", "light__0-light_overview.png", "AreaLight-01-Overview.png", "AreaLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("AreaLight", "2-Source",   "light__1-light_source.png",   "AreaLight-02-Source.png",   "AreaLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 24: Tube Light
+    ("TubeLight", "1-Overview", "reference-studio-tube__0-light_overview.png", "TubeLight-01-Overview.png", "TubeLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("TubeLight", "2-Source",   "reference-studio-tube__1-light_source.png",   "TubeLight-02-Source.png",   "TubeLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 25: LED Light
+    ("LedLight", "1-Overview", "reference-led__0-light_overview.png", "LedLight-01-Overview.png", "LedLight-01-Overview-Proof.png", 0.85, 0.75),
+    ("LedLight", "2-Source",   "reference-led__1-light_source.png",   "LedLight-02-Source.png",   "LedLight-02-Source-Proof.png",   0.85, 0.75),
+    # Card 26: LED Strip
+    ("LedStrip", "1-Overview", "reference-led-strip__0-light_overview.png", "LedStrip-01-Overview.png", "LedStrip-01-Overview-Proof.png", 0.85, 0.75),
+    ("LedStrip", "2-Source",   "reference-led-strip__1-light_source.png",   "LedStrip-02-Source.png",   "LedStrip-02-Source-Proof.png",   0.85, 0.75),
 ]
 
 
