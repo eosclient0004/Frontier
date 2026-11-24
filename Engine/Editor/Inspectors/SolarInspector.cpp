@@ -154,14 +154,9 @@ float SolarInspector::Construct(
     }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     auto& Solar   = Instance.Solar;
-    // HTML Sun cards span x=30..310 (w=280, +4px each side relative to standard 272px card)
-    const float CardX = LeftX - 4.0f;
-    const float CardW = InnerWidth + 8.0f;
-    LeftX      = CardX;
-    InnerWidth = CardW;
-    const float PadX  = 25.0f;
+    const float PadX  = std::clamp(InnerWidth * 0.065f, 14.0f, 22.0f);
     const float BodyX = LeftX + PadX;
-    const float BodyW = InnerWidth - PadX * 2.0f;
+    const float BodyW = std::max(100.0f, InnerWidth - PadX * 2.0f);
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
     if (ActivePage == 0u)
@@ -172,7 +167,7 @@ float SolarInspector::Construct(
         InspectorPrimitives::ConstructSectionSurface(Surface, NowCard, "Sun now");
 
         const Rectangle2D SkyBox { BodyX, NowCard.Y + 60.0f, BodyW, 184.0f };
-        SunNowPreview.Present(Surface, SkyBox, 14.0f);
+        SunNowPreview.Present(Surface, SkyBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         // Large time readout "15:30" + "34° up, facing west"
         const int HH = static_cast<int>(std::floor(Solar.LocalHours)) % 24;
@@ -247,8 +242,8 @@ float SolarInspector::Construct(
 
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, TempCard.Y + 132.0f }, 11.4f, InspectorMetrics::MutedInk, "Colour source");
         const Rectangle2D Drop { BodyX, TempCard.Y + 150.0f, BodyW, 34.0f };
-        Surface.FillRectangle(Drop, ColorRgba{ 12u, 12u, 12u, 255u }, 17.0f);
-        Surface.StrokeRectangle(Drop, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        Surface.FillRectangle(Drop, ColorRgba{ 12u, 12u, 12u, 255u }, InspectorMetrics::ControlRadius);
+        Surface.StrokeRectangle(Drop, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Drop.X + 16.0f, Drop.Y + 10.5f }, 12.2f, InspectorMetrics::HeadingInk, IsKelvin ? "Kelvin temperature" : "RGB tint");
         const Point2D Ch { Drop.Right() - 16.0f, Drop.Center().Y };
         Surface.StrokeLine({ Ch.X - 4.0f, Ch.Y - 2.0f }, { Ch.X, Ch.Y + 2.5f }, InspectorMetrics::HeadingInk, 1.5f);
@@ -327,8 +322,8 @@ float SolarInspector::Construct(
         // Appearance dropdown
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FY }, 11.4f, InspectorMetrics::MutedInk, "Appearance");
         const Rectangle2D AppDrop { BodyX, FY + 18.0f, BodyW, 34.0f };
-        Surface.FillRectangle(AppDrop, ColorRgba{ 12u, 12u, 12u, 255u }, 17.0f);
-        Surface.StrokeRectangle(AppDrop, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        Surface.FillRectangle(AppDrop, ColorRgba{ 12u, 12u, 12u, 255u }, InspectorMetrics::ControlRadius);
+        Surface.StrokeRectangle(AppDrop, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
         const bool IsRadiant = (Solar.AppearanceMode == GeometricRaster::SolarAppearanceMode::Radiant);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { AppDrop.X + 16.0f, AppDrop.Y + 10.5f }, 12.2f, InspectorMetrics::HeadingInk, IsRadiant ? "Radiant glare" : "Muted disc");
         const Point2D Ch { AppDrop.Right() - 16.0f, AppDrop.Center().Y };

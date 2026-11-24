@@ -414,7 +414,7 @@ float HeightFogInspector::Construct(
             254.0f * SX,
             154.0f * SY,
         };
-        LayerPreview.Present(Surface, SceneRect, 10.0f * SX);
+        LayerPreview.Present(Surface, SceneRect, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         // Y-axis ticks (0 m, 100 m, 500 m, 1 km, 3 km)
         static constexpr std::array<float, 5u> Ticks = {{ 0.0f, 100.0f, 500.0f, 1000.0f, 3000.0f }};

@@ -167,15 +167,21 @@ bool EditorLifecycle::Initialize(const EditorStartupConfiguration& Configuration
     if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
     {
         std::vector<OutlinerConstructTemplate> Templates;
-        Templates.reserve(8u);
-        Templates.push_back({ "Add Box Geometry",      "Box Specimen",      "Geometry", "Box · OpenPBR Surface",      ConstructSlotCategory::GeometryVolume   });
-        Templates.push_back({ "Add Sphere Geometry",   "Sphere Specimen",   "Geometry", "Sphere · OpenPBR Surface",   ConstructSlotCategory::GeometryVolume   });
-        Templates.push_back({ "Add Cylinder Geometry", "Cylinder Specimen", "Geometry", "Cylinder · OpenPBR Surface", ConstructSlotCategory::GeometryVolume   });
-        Templates.push_back({ "Add Cone Geometry",     "Cone Specimen",     "Geometry", "Cone · OpenPBR Surface",     ConstructSlotCategory::GeometryVolume   });
-        Templates.push_back({ "Add Torus Geometry",    "Torus Specimen",    "Geometry", "Torus · OpenPBR Surface",    ConstructSlotCategory::GeometryVolume   });
-        Templates.push_back({ "Add Area Light",        "Area Quad Light",   "Lighting", "LTC Polygonal Quad Light",   ConstructSlotCategory::PointLuminaire   });
-        Templates.push_back({ "Add Scene Camera",      "Scene Camera",      "Camera",   "Perspective Optical Camera", ConstructSlotCategory::OpticsCamera     });
-        Templates.push_back({ "Generate Apocalyptic City Level", "Apocalyptic City Level", "WorldGenerator", "Procedural Ruined Warzone Racing Level", ConstructSlotCategory::LayerGroup });
+        Templates.reserve(15u);
+        Templates.push_back({ "Add Box Geometry",      "Box Specimen",      "Geometry",    "Box · OpenPBR Surface",      ConstructSlotCategory::GeometryVolume, "geom:primitive"     });
+        Templates.push_back({ "Add Sphere Geometry",   "Sphere Specimen",   "Geometry",    "Sphere · OpenPBR Surface",   ConstructSlotCategory::GeometryVolume, "geom:primitive"     });
+        Templates.push_back({ "Add Cylinder Geometry", "Cylinder Specimen", "Geometry",    "Cylinder · OpenPBR Surface", ConstructSlotCategory::GeometryVolume, "geom:primitive"     });
+        Templates.push_back({ "Add Cone Geometry",     "Cone Specimen",     "Geometry",    "Cone · OpenPBR Surface",     ConstructSlotCategory::GeometryVolume, "geom:primitive"     });
+        Templates.push_back({ "Add Torus Geometry",    "Torus Specimen",    "Geometry",    "Torus · OpenPBR Surface",    ConstructSlotCategory::GeometryVolume, "geom:primitive"     });
+        Templates.push_back({ "Add Point Light",       "Point Light",       "Lighting",    "Omnidirectional Luminaire",  ConstructSlotCategory::PointLuminaire, "light:point"        });
+        Templates.push_back({ "Add Spot Light",        "Spot Light",        "Lighting",    "Focused Cone Spotlight",     ConstructSlotCategory::PointLuminaire, "light:spot"         });
+        Templates.push_back({ "Add Area Light",        "Area Quad Light",   "Lighting",    "LTC Polygonal Quad Light",   ConstructSlotCategory::PointLuminaire, "light:area"         });
+        Templates.push_back({ "Add Scene Camera",      "Scene Camera",      "Camera",      "Perspective Optical Camera", ConstructSlotCategory::OpticsCamera,   "camera:perspective" });
+        Templates.push_back({ "Add Atmosphere",        "Atmosphere",        "Environment", "Rayleigh / Mie / Ozone Sky", ConstructSlotCategory::LayerGroup,     "env:atmosphere"     });
+        Templates.push_back({ "Add Sun",               "Sun",               "Environment", "Solar Ephemeris & Direct",   ConstructSlotCategory::PointLuminaire, "env:sun"            });
+        Templates.push_back({ "Add Moon",              "Moon",              "Environment", "Celestial Lunar Body",       ConstructSlotCategory::LayerGroup,     "env:moon"           });
+        Templates.push_back({ "Add Clouds",            "Volumetric Clouds", "Weather",     "Volumetric Cloud Deck",      ConstructSlotCategory::LayerGroup,     "env:clouds"         });
+        Templates.push_back({ "Generate Apocalyptic City Level", "Apocalyptic City Level", "WorldGenerator", "Procedural Ruined Warzone Racing Level", ConstructSlotCategory::LayerGroup, "" });
         Panes->Outliner.ConfigureConstructTemplates(std::move(Templates));
 
         Panes->Viewport.ConfigureOpenContentBrowserCallback(
@@ -3018,7 +3024,7 @@ bool EditorLifecycle::QueryRequiresContinuousRefresh() noexcept
     {
         return true;
     }
-    if (ContentBrowserDrawer.QueryPanel().QueryShelfAnimating())
+    if (ContentBrowserDrawer.QueryPanel().QueryShelfAnimating() || Inspectors.QueryScrollAnimating())
     {
         return true;
     }

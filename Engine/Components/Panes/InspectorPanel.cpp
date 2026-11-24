@@ -1701,15 +1701,23 @@ void InspectorPanel::Render(
 
         const float       InnerW = std::max(100.0f, ScrollViewport.Width - 52.0f);
         const Rectangle2D BatchSection{ LeftX, TopY + 96.0f, InnerW, 32.0f + static_cast<float>(std::min<std::size_t>(Selected.size(), 8u)) * 30.0f };
-        Surface.FillRectangle(BatchSection, WorkspaceSurfaceColors::GenericSurface, 20.0f);
-        Surface.StrokeRectangle(BatchSection, WorkspaceSurfaceColors::HairlineLight, 20.0f, 1.0f);
+        Surface.FillRectangle(BatchSection, WorkspaceSurfaceColors::GenericSurface, 12.0f);
+        Surface.StrokeRectangle(BatchSection, WorkspaceSurfaceColors::HairlineLight, 12.0f, 1.0f);
 
         float RowY = BatchSection.Y + 16.0f;
         for (std::size_t Idx = 0u; Idx < std::min<std::size_t>(Selected.size(), 8u); ++Idx)
         {
             if (const OutlinerRecordEntry* SubEntry = AttachedOutliner->FindEntry(Selected[Idx]))
             {
-                WorkspaceAppearance::ConstructSlotCategoryIcon(Surface, SubEntry->Category, { BatchSection.X + 16.0f, RowY + 2.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
+                const EnvironmentSymbolCategory EnvSymbol = WorkspaceAppearance::ResolveEnvironmentSymbolFromTag(SubEntry->DomainTag);
+                if (EnvSymbol != EnvironmentSymbolCategory::None)
+                {
+                    WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvSymbol, { BatchSection.X + 16.0f, RowY + 2.0f }, 18.0f, 1.0f);
+                }
+                else
+                {
+                    WorkspaceAppearance::ConstructSlotCategoryIcon(Surface, SubEntry->Category, { BatchSection.X + 16.0f, RowY + 2.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
+                }
                 WorkspaceAppearance::ConstructTruncatedText(
                     Surface,
                     FontWeightClass::Regular,

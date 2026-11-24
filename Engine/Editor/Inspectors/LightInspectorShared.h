@@ -25,8 +25,8 @@ inline constexpr ColorRgba DividerInk   { 255u, 255u, 255u, 18u };
 
 inline void ConstructDarkLuminaireCard(PixelSpace& Surface, const Rectangle2D& Card) noexcept
 {
-    Surface.FillRectangle(Card, CardFill, 25.0f);
-    Surface.StrokeRectangle(Card, CardBorder, 25.0f, 1.0f);
+    Surface.FillRectangle(Card, CardFill, InspectorMetrics::SectionRadius);
+    Surface.StrokeRectangle(Card, CardBorder, InspectorMetrics::SectionRadius, 1.0f);
 }
 
 inline void FormatWithCommas(double Value, char* OutBuf, std::size_t BufSize) noexcept

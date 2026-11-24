@@ -374,8 +374,8 @@ float LocalFogInspector::Construct(
         // Shape dropdown pill at S.Y + 62 (label) / S.Y + 84 (black pill h=34)
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, S.Y + 62.0f }, 12.0f, InspectorMetrics::MutedInk, "Shape");
         const Rectangle2D DropRect { BodyX, S.Y + 84.0f, BodyW, 34.0f };
-        Surface.FillRectangle(DropRect, ColorRgba{ 2u, 2u, 2u, 255u }, 17.0f);
-        Surface.StrokeRectangle(DropRect, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        Surface.FillRectangle(DropRect, ColorRgba{ 2u, 2u, 2u, 255u }, InspectorMetrics::ControlRadius);
+        Surface.StrokeRectangle(DropRect, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { DropRect.X + 16.0f, DropRect.Y + 10.5f }, 12.2f, ColorRgba{ 230u, 232u, 232u, 255u }, ShapeOptionLabel(Vol.Shape));
         // Down chevron on right
         const float Cx = DropRect.Right() - 16.0f, Cy = DropRect.Center().Y;

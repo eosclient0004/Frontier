@@ -138,8 +138,8 @@ float MotionBlurInspector::Construct(
 
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, AfterAng }, 11.4f, InspectorMetrics::MutedInk, "Reference rate");
         const Rectangle2D Drop { BodyX, AfterAng + 18.0f, BodyW, 34.0f };
-        Surface.FillRectangle(Drop, ColorRgba{ 12u, 12u, 12u, 255u }, 17.0f);
-        Surface.StrokeRectangle(Drop, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        Surface.FillRectangle(Drop, ColorRgba{ 12u, 12u, 12u, 255u }, InspectorMetrics::ControlRadius);
+        Surface.StrokeRectangle(Drop, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Drop.X + 16.0f, Drop.Y + 10.5f }, 12.2f, InspectorMetrics::HeadingInk, FpsNames[std::min(FrameRateIdx, 2u)]);
         const Point2D Ch { Drop.Right() - 16.0f, Drop.Center().Y };
         Surface.StrokeLine({ Ch.X - 4.0f, Ch.Y - 2.0f }, { Ch.X, Ch.Y + 2.5f }, InspectorMetrics::HeadingInk, 1.5f);

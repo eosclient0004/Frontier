@@ -81,39 +81,45 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
     float V = (float(Tid.y) + 0.5) / float(H);
     float3 Col = float3(0.08, 0.08, 0.09);
 
-    if (Mode == 0u) // Atmosphere Limb / Horizon preview
+    if (Mode == 0u) // Atmosphere Limb / Planetary Horizon preview (curved limb matching CPU fallback, 1:1 circular!)
     {
-        float Ray = Params.ParamA.x;
-        float Mie = Params.ParamA.y;
-        float Oz  = Params.ParamA.z;
+        float Ray  = clamp(Params.ParamA.x, 0.2, 2.5);
+        float Mie  = clamp(Params.ParamA.y, 0.0, 2.5);
+        float Oz   = clamp(Params.ParamA.z, 0.0, 2.5);
         float SunE = Params.ParamA.w;
-        if (V < 0.72)
+        float Aspect = float(W) / float(H);
+        float2 P = float2((U - 0.5) * Aspect, V - 2.18);
+        float PlanetR = 1.62;
+        float Dist = length(P) - PlanetR;
+        if (Dist < 0.0)
         {
-            float Elev = (0.72 - V) / 0.72;
-            Col = EvaluateSkyGradient(Elev, Ray, Mie, Oz, SunE);
-            float SunX = 0.52;
-            float SunY = clamp(0.72 - (SunE / 75.0) * 0.62, 0.08, 0.70);
-            float D = length(float2((U - SunX) * 1.6, V - SunY));
-            Col += float3(1.0, 0.88, 0.68) * exp(-D * D / 0.018) * (0.45 + 0.25 * Mie);
-            Col += float3(1.0, 0.96, 0.88) * exp(-D * D / 0.0008);
+            float Depth = saturate(-Dist / 0.36);
+            Col = lerp(float3(0.28, 0.31, 0.37), float3(0.16, 0.19, 0.24), Depth);
         }
         else
         {
-            float T = (V - 0.72) / 0.28;
-            Col = lerp(float3(0.14, 0.16, 0.18), float3(0.05, 0.06, 0.07), T);
+            float Warm = saturate(1.0 - abs(SunE - 6.0) / 28.0);
+            float RimGlow = exp(-Dist * 14.0);
+            float UpperRayleigh = exp(-Dist * 4.2) * Ray;
+            float3 SpaceBg = float3(0.065, 0.070, 0.085);
+            float3 RimCol  = lerp(float3(0.45, 0.72, 1.0), float3(0.95, 0.80, 0.70), Warm) * (0.75 + 0.20 * Mie);
+            float3 SkyCol  = float3(0.22, 0.42, 0.76) * (1.0 - 0.12 * Oz);
+            Col = SpaceBg + SkyCol * UpperRayleigh * 0.42 + RimCol * RimGlow * 0.85;
+            Col = saturate(Col);
         }
     }
-    else if (Mode == 1u) // Atmosphere Outer-Space Globe
+    else if (Mode == 1u) // Atmosphere Outer-Space Globe (1:1 circular sphere + full Rayleigh halo with safe margin)
     {
-        float2 P = float2((U - 0.5) * (float(W) / float(H)), V - 0.5) * 2.25;
+        float2 P = float2((U - 0.5) * (float(W) / float(H)), V - 0.5) * 2.15;
         float R = length(P);
         Col = float3(0.02, 0.025, 0.04);
-        float Halo = exp(-max(0.0, R - 0.74) * 14.0) * 0.85;
+        float PlanetR = 0.62;
+        float Halo = exp(-max(0.0, R - PlanetR) * 11.0) * 0.85;
         Col += float3(0.28, 0.58, 0.98) * Halo * clamp(Params.ParamA.x, 0.2, 2.5);
-        if (R < 0.74)
+        if (R < PlanetR)
         {
-            float Z = sqrt(max(0.0, 0.74 * 0.74 - R * R)) / 0.74;
-            float3 N = normalize(float3(P.x / 0.74, -P.y / 0.74, Z));
+            float Z = sqrt(max(0.0, PlanetR * PlanetR - R * R)) / PlanetR;
+            float3 N = normalize(float3(P.x / PlanetR, -P.y / PlanetR, Z));
             float3 L = normalize(float3(0.68, 0.36, 0.64));
             float NdotL = max(0.0, dot(N, L));
             float Limb = pow(1.0 - Z, 2.8);

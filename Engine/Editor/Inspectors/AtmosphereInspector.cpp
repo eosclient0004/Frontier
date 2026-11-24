@@ -299,43 +299,54 @@ float AtmosphereInspector::Construct(
     }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     auto& Medium  = Instance.Medium;
-    const float PadX  = 25.0f;
+    const float PadX  = std::clamp(InnerWidth * 0.065f, 14.0f, 22.0f);
     const float BodyX = LeftX + PadX;
-    const float BodyW = InnerWidth - PadX * 2.0f;
+    const float BodyW = std::max(100.0f, InnerWidth - PadX * 2.0f);
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
     if (ActivePage == 0u)
     {
-        // TAB 1: OVERVIEW — Atmosphere overview (y=198, h=293), Quick controls (Visible, Line at civil only, Orbital view), Tags, Notes
-        CursorY += 10.0f;
+        // TAB 1: OVERVIEW — Atmosphere overview (aspect-preserved limb + 60 km arc + responsive Sun-at-limb slider)
+        CursorY += 6.0f;
         UpdateLimbSurface(Medium, Instance.SunAtLimbDeg);
-        const Rectangle2D OverCard { LeftX, CursorY, InnerWidth, 293.0f };
+        const float ImgH = std::clamp(BodyW * 0.72f, 132.0f, 212.0f);
+        const Rectangle2D OverCard { LeftX, CursorY, InnerWidth, 52.0f + ImgH + 46.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, OverCard, "Atmosphere overview");
 
-        const Rectangle2D ImgBox { BodyX, OverCard.Y + 52.0f, BodyW, 193.0f };
-        LimbPreview.Present(Surface, ImgBox, 12.0f);
+        const Rectangle2D ImgBox { BodyX, OverCard.Y + 50.0f, BodyW, ImgH };
+        LimbPreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
-        // Dashed 60 km altitude arc & white handle dot on limb preview
-        const float ArcY0 = ImgBox.Y + 86.0f;
+        // Lock the 60 km altitude arc & white handle dot to the visible Cover-cropped limb (zero stretch, zero sidebars)
+        const float ArcY0  = ImgBox.Y + ImgBox.Height * 0.445f;
+        const float ArcSag = ImgBox.Height * 0.085f;
+        Surface.PushClip(ImgBox);
         for (int I = 0; I < 24; ++I)
         {
-            const float T0 = static_cast<float>(I) / 24.0f;
-            const float T1 = (static_cast<float>(I) + 0.45f) / 24.0f;
-            const float X0 = ImgBox.X + T0 * ImgBox.Width;
-            const float X1 = ImgBox.X + T1 * ImgBox.Width;
+            const float T0  = static_cast<float>(I) / 24.0f;
+            const float T1  = (static_cast<float>(I) + 0.45f) / 24.0f;
+            const float X0  = ImgBox.X + T0 * ImgBox.Width;
+            const float X1  = ImgBox.X + T1 * ImgBox.Width;
             const float Dx0 = (T0 - 0.5f) * 2.0f, Dx1 = (T1 - 0.5f) * 2.0f;
-            Surface.StrokeLine({ X0, ArcY0 + Dx0 * Dx0 * 16.0f }, { X1, ArcY0 + Dx1 * Dx1 * 16.0f }, ColorRgba{ 225u, 232u, 240u, 115u }, 1.0f);
+            Surface.StrokeLine({ X0, ArcY0 + Dx0 * Dx0 * ArcSag }, { X1, ArcY0 + Dx1 * Dx1 * ArcSag }, ColorRgba{ 225u, 232u, 240u, 115u }, 1.0f);
         }
         Surface.FillCircle({ ImgBox.Center().X, ArcY0 }, 4.0f, ColorRgba{ 246u, 248u, 250u, 255u });
         char KmBuf[24]{};
         std::snprintf(KmBuf, sizeof(KmBuf), "%.0f km", Medium.AtmosphereThicknessMeters * 0.001f);
         const float KmW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, KmBuf);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - KmW * 0.5f, ArcY0 - 18.0f }, 10.0f, ColorRgba{ 196u, 204u, 212u, 235u }, KmBuf);
+        Surface.PopClip();
 
-        // Bottom "Sun at the limb" warm-to-blue slider row
+        // Bottom "Sun at the limb" warm-to-blue slider row (responsive width so narrow/Android panes never collide)
         const float RowY = ImgBox.Bottom() + 14.0f;
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, RowY }, 10.6f, InspectorMetrics::MutedInk, "Sun at the limb");
-        const Rectangle2D Bar { BodyX + 82.0f, RowY + 4.5f, 94.0f, 4.0f };
+        char DegBuf[16]{};
+        std::snprintf(DegBuf, sizeof(DegBuf), "%.1f\xC2\xB0", Instance.SunAtLimbDeg);
+        const float DegW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, DegBuf);
+        const char* LimbCap = (BodyW < 185.0f) ? "Sun limb" : "Sun at the limb";
+        const float CapW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, LimbCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, RowY }, 10.6f, InspectorMetrics::MutedInk, LimbCap);
+        const float BarX = BodyX + CapW + 10.0f;
+        const float BarW = std::max(34.0f, (BodyX + BodyW - DegW - 10.0f) - BarX);
+        const Rectangle2D Bar { BarX, RowY + 4.5f, BarW, 4.0f };
         for (int Seg = 0; Seg < 18; ++Seg)
         {
             const float T = static_cast<float>(Seg) / 17.0f;
@@ -350,9 +361,6 @@ float AtmosphereInspector::Construct(
         const Point2D SunKnob { Bar.X + SunT * Bar.Width, Bar.Center().Y };
         Surface.FillCircle(SunKnob, 6.2f, ColorRgba{ 242u, 242u, 242u, 255u });
         Surface.StrokeCircle(SunKnob, 6.2f, ColorRgba{ 20u, 20u, 20u, 220u }, 1.2f);
-        char DegBuf[16]{};
-        std::snprintf(DegBuf, sizeof(DegBuf), "%.1f\xC2\xB0", Instance.SunAtLimbDeg);
-        const float DegW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, DegBuf);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - DegW, RowY }, 10.6f, InspectorMetrics::HeadingInk, DegBuf);
 
         CursorY = OverCard.Bottom() + InspectorMetrics::SectionGap;
@@ -477,7 +485,7 @@ float AtmosphereInspector::Construct(
         Surface.StrokeLine({ PopC.X + 3.5f, PopC.Y - 3.5f }, { PopC.X + 3.5f, PopC.Y + 1.0f }, ColorRgba{ 210u, 210u, 210u, 255u }, 1.3f);
 
         const Rectangle2D GlobeBox { BodyX, SpaceCard.Y + 73.0f, BodyW, 142.7f };
-        SpaceGlobePreview.Present(Surface, GlobeBox, 12.0f);
+        SpaceGlobePreview.Present(Surface, GlobeBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain);
 
         (void)InspectorPrimitives::ConstructWrappedParagraph(
             Surface, BodyX, GlobeBox.Bottom() + 14.0f, BodyW, 8.8f, 12.5f, InspectorMetrics::MutedInk,
@@ -557,9 +565,9 @@ float AtmosphereInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BakedPill.X + 14.0f, BakedPill.Y + 6.0f }, 10.4f, ColorRgba{ 126u, 228u, 156u, 255u }, "Baked");
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BakedPill.Right() + 10.0f, BakedPill.Y + 6.0f }, 10.4f, InspectorMetrics::MutedInk, "1024 \xC3\x97 512");
 
-        // SkyView equirectangular image (x = BodyX + 34, w = 188, h = 94) + Y/X degree ticks
-        const Rectangle2D SkyImg { BodyX + 34.0f, BakeCard.Y + 247.0f, BodyW - 34.0f, 94.0f };
-        SkyViewLut.Present(Surface, SkyImg, 10.0f);
+        // SkyView equirectangular image (x = BodyX + 34, w = BodyW - 34, h = 94) + Y/X degree ticks
+        const Rectangle2D SkyImg { BodyX + 34.0f, BakeCard.Y + 247.0f, std::max(80.0f, BodyW - 34.0f), 94.0f };
+        SkyViewLut.Present(Surface, SkyImg, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         static constexpr std::array<const char*, 5u> YLabels = {{ "90\xC2\xB0", "45\xC2\xB0", "0\xC2\xB0", "-45\xC2\xB0", "-90\xC2\xB0" }};
         for (std::size_t I = 0u; I < 5u; ++I)

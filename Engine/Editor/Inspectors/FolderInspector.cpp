@@ -89,8 +89,8 @@ float FolderInspector::Construct(
     // Card 1: Collection contents (h = 260)
     {
         const Rectangle2D Card { WideX, CursorY, WideW, 260.0f };
-        Surface.FillRectangle(Card, ColorRgba{ 28u, 28u, 29u, 255u }, 25.0f);
-        Surface.StrokeRectangle(Card, ColorRgba{ 255u, 255u, 255u, 18u }, 25.0f, 1.0f);
+        Surface.FillRectangle(Card, ColorRgba{ 28u, 28u, 29u, 255u }, InspectorMetrics::SectionRadius);
+        Surface.StrokeRectangle(Card, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::SectionRadius, 1.0f);
 
         // Vertical sage accent bar + "Collection contents"
         Surface.FillRectangle({ BodyX, Card.Y + 26.0f, 3.0f, 16.0f }, ColorRgba{ 162u, 182u, 198u, 255u }, 1.5f);
@@ -134,8 +134,8 @@ float FolderInspector::Construct(
         const auto DrawKpi = [&](float X, ColorRgba Dot, const char* Label, const char* Val)
         {
             const Rectangle2D K { X, CursorY, HalfW, 114.0f };
-            Surface.FillRectangle(K, ColorRgba{ 28u, 28u, 29u, 255u }, 22.0f);
-            Surface.StrokeRectangle(K, ColorRgba{ 255u, 255u, 255u, 18u }, 22.0f, 1.0f);
+            Surface.FillRectangle(K, ColorRgba{ 28u, 28u, 29u, 255u }, InspectorMetrics::SectionRadius);
+            Surface.StrokeRectangle(K, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::SectionRadius, 1.0f);
             Surface.FillCircle({ K.X + 24.0f, K.Y + 26.0f }, 4.0f, Dot);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 36.0f, K.Y + 19.5f }, 11.4f, InspectorMetrics::MutedInk, Label);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 20.0f, K.Y + 56.0f }, 32.0f, InspectorMetrics::HeadingInk, Val);
@@ -148,8 +148,8 @@ float FolderInspector::Construct(
     // Card 3: Composition (h = 160) with pastel segmented bar + 2-column type list
     {
         const Rectangle2D Card { WideX, CursorY, WideW, 160.0f };
-        Surface.FillRectangle(Card, ColorRgba{ 28u, 28u, 29u, 255u }, 25.0f);
-        Surface.StrokeRectangle(Card, ColorRgba{ 255u, 255u, 255u, 18u }, 25.0f, 1.0f);
+        Surface.FillRectangle(Card, ColorRgba{ 28u, 28u, 29u, 255u }, InspectorMetrics::SectionRadius);
+        Surface.StrokeRectangle(Card, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::SectionRadius, 1.0f);
 
         Surface.FillRectangle({ BodyX, Card.Y + 26.0f, 3.0f, 16.0f }, ColorRgba{ 216u, 194u, 126u, 255u }, 1.5f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 12.0f, Card.Y + 25.0f }, 14.2f, InspectorMetrics::HeadingInk, "Composition");

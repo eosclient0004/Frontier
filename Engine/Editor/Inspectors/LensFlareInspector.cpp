@@ -217,7 +217,7 @@ float LensFlareInspector::Construct(
         (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, CompCard.Y + 62.0f, GainBuf, "\xC3\x97", nullptr, 36.0f);
 
         const Rectangle2D ImgBox { BodyX, CompCard.Y + 122.5f, BodyW, 196.0f };
-        FlareComposite.Present(Surface, ImgBox, 12.0f);
+        FlareComposite.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         (void)InspectorPrimitives::ConstructWrappedParagraph(
             Surface, BodyX, CompCard.Y + 338.5f, BodyW, 11.4f, 16.5f, InspectorMetrics::MutedInk,

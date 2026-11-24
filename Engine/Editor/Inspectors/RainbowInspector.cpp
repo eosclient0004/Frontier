@@ -106,7 +106,7 @@ float RainbowInspector::Construct(
         InspectorPrimitives::ConstructSectionSurface(Surface, PrevCard, "Optical preview");
 
         const Rectangle2D Box { BodyX, PrevCard.Y + 66.0f, BodyW, 208.0f };
-        RainbowPreview.Present(Surface, Box, 14.0f);
+        RainbowPreview.Present(Surface, Box, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         (void)InspectorPrimitives::ConstructWrappedParagraph(
             Surface, BodyX, PrevCard.Y + 292.0f, BodyW, 11.8f, 16.5f, InspectorMetrics::MutedInk,

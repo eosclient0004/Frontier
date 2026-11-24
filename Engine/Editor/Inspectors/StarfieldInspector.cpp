@@ -117,7 +117,7 @@ float StarfieldInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FieldCard.Y + 116.5f }, 11.4f, InspectorMetrics::MutedInk, "Higher values reveal fainter stars");
 
         const Rectangle2D ChartBox { BodyX, FieldCard.Y + 154.0f, BodyW, 106.0f };
-        StarChart.Present(Surface, ChartBox, 12.0f);
+        StarChart.Present(Surface, ChartBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, FieldCard.Y + 283.5f, BodyW, 7901u, "Limiting magnitude", "mag", "%.1f", 0.0f, 8.0f, Stars.LimitingMagnitude, ActiveDragId, Input, OutMutated);
         (void)InspectorPrimitives::ConstructWrappedParagraph(

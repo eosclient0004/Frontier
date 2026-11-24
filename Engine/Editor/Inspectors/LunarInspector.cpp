@@ -212,8 +212,9 @@ float LunarInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, PhaseCard.Y + 116.5f }, 11.4f, InspectorMetrics::MutedInk, IllumBuf);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, PhaseCard.Y + 147.0f }, 11.4f, InspectorMetrics::MutedInk, "Position in the 29.53-day synodic cycle");
 
-        const Rectangle2D GlobeBox { PhaseCard.Center().X - 76.0f, PhaseCard.Y + 178.0f, 152.0f, 152.0f };
-        PhaseGlobe.Present(Surface, GlobeBox, 0.0f);
+        const float GlobeD = std::clamp(BodyW - 12.0f, 96.0f, 152.0f);
+        const Rectangle2D GlobeBox { PhaseCard.Center().X - GlobeD * 0.5f, PhaseCard.Y + 178.0f + (152.0f - GlobeD) * 0.5f, GlobeD, GlobeD };
+        PhaseGlobe.Present(Surface, GlobeBox, 0.0f, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain);
 
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, PhaseCard.Y + 350.0f, BodyW, 7801u, "Phase", "", "%.2f", 0.0f, 1.0f, Moon.SynodicPhaseFraction, ActiveDragId, Input, OutMutated);
         CursorY = PhaseCard.Bottom() + InspectorMetrics::SectionGap;
@@ -297,9 +298,9 @@ float LunarInspector::Construct(
         InspectorPrimitives::ConstructSectionSurface(Surface, PosCard, "Lunar position");
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, PosCard.Y + 68.0f }, 11.4f, InspectorMetrics::MutedInk, "Position in the sky \xC2\xB7 drag the spherical dial");
 
-        // Centered spherical sky hemisphere dial matching moon__2
+        // Centered spherical sky hemisphere dial matching moon__2 (responsive radius so narrow panes never clip)
         const Point2D DialC { PosCard.Center().X, PosCard.Y + 168.0f };
-        const float R = 54.0f;
+        const float R = std::clamp(BodyW * 0.25f, 34.0f, 54.0f);
         Surface.FillCircle(DialC, R, ColorRgba{ 28u, 34u, 44u, 255u });
         Surface.StrokeCircle(DialC, R, ColorRgba{ 118u, 134u, 156u, 140u }, 1.2f);
         Surface.StrokeCircle(DialC, R + 12.0f, ColorRgba{ 255u, 255u, 255u, 22u }, 1.0f);

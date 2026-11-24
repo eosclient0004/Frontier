@@ -166,6 +166,7 @@ OutlinerSlotToken OutlinerPanel::ConstructFromTemplate(uint32_t TemplateIndex, O
     Created.Title             = GenerateUniqueTitle(Preset.DefaultTitle);
     Created.CategoryLabel     = Preset.CategoryTitle;
     Created.Subtitle          = Preset.DefaultDetail;
+    Created.DomainTag         = Preset.DomainTag;
     Created.VisibilityEnabled = true;
     Created.Expanded          = true;
 

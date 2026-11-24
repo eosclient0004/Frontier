@@ -225,10 +225,10 @@ void ConstructOverviewInstruments(
     const float Optical  = std::max(0.0f, Extinction * 3.0f);
     const int   SunDatum = std::clamp(static_cast<int>(std::lround(100.0f * std::exp(-Cov * 1.35f))), 5, 100);
 
-    // 1. Satellite Swath / Local Volume Schematic hero (x=34, y=188, w=272, h=168, r=18)
+    // 1. Satellite Swath / Local Volume Schematic hero (subtle radius, aspect-preserved Cover)
     const Rectangle2D Hero { LeftX, InOutCursorY, InnerWidth, 168.0f };
-    SwathPreview.Present(Surface, Hero, 18.0f);
-    Surface.StrokeRectangle(Hero, ColorRgba{ 255u, 255u, 255u, 16u }, 18.0f, 1.0f);
+    SwathPreview.Present(Surface, Hero, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
+    Surface.StrokeRectangle(Hero, ColorRgba{ 255u, 255u, 255u, 16u }, InspectorMetrics::PreviewRadius, 1.0f);
 
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 10.0f, Hero.Y + 8.0f }, 9.2f, ColorRgba{ 138u, 152u, 164u, 210u }, "N");
     const char* TopTag = IsLocal ? "LOCAL VOLUME \xC2\xB7 SCHEMATIC" : "12 km SWATH";
@@ -309,8 +309,8 @@ void ConstructCoverageHistogramCard(
 {
     const float Cov = std::clamp(Coverage01, 0.0f, 1.0f);
     const Rectangle2D S { LeftX, InOutCursorY, InnerWidth, 246.0f };
-    Surface.FillRectangle(S, ColorRgba{ 27u, 27u, 27u, 255u }, 20.0f);
-    Surface.StrokeRectangle(S, InspectorMetrics::SectionBorder, 20.0f, 1.0f);
+    Surface.FillRectangle(S, ColorRgba{ 27u, 27u, 27u, 255u }, InspectorMetrics::SectionRadius);
+    Surface.StrokeRectangle(S, InspectorMetrics::SectionBorder, InspectorMetrics::SectionRadius, 1.0f);
 
     const float AX = LeftX + 16.0f;
     const float AW = InnerWidth - 32.0f;
@@ -425,7 +425,7 @@ float CloudInspector::Construct(
         CloudVisualPrimitives::ConstructCoverageHistogramCard(Surface, LeftX, CursorY, InnerWidth, Cl.CloudFraction);
 
         const Rectangle2D SliderCard { LeftX, CursorY, InnerWidth, 70.0f };
-        Surface.FillRectangle(SliderCard, ColorRgba{ 27u, 27u, 27u, 255u }, 18.0f);
+        Surface.FillRectangle(SliderCard, ColorRgba{ 27u, 27u, 27u, 255u }, InspectorMetrics::SectionRadius);
         float Pct = Cl.CloudFraction * 100.0f;
         bool PctChanged = false;
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + 16.0f, SliderCard.Y + 10.0f, InnerWidth - 32.0f, 6501u, "Coverage", "%", "%.0f", 0.0f, 100.0f, Pct, ActiveDragId, Input, PctChanged);
@@ -503,8 +503,8 @@ float CloudInspector::Construct(
         // Type dropdown pill at FY
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FY }, 11.0f, InspectorMetrics::MutedInk, "Type");
         const Rectangle2D DropRect { BodyX, FY + 20.0f, BodyW, 34.0f };
-        Surface.FillRectangle(DropRect, ColorRgba{ 2u, 2u, 2u, 255u }, 17.0f);
-        Surface.StrokeRectangle(DropRect, ColorRgba{ 255u, 255u, 255u, 18u }, 17.0f, 1.0f);
+        Surface.FillRectangle(DropRect, ColorRgba{ 2u, 2u, 2u, 255u }, InspectorMetrics::ControlRadius);
+        Surface.StrokeRectangle(DropRect, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { DropRect.X + 16.0f, DropRect.Y + 10.5f }, 12.2f, ColorRgba{ 230u, 232u, 232u, 255u }, CloudCategoryLabel(Cl.Category));
         const float Cx = DropRect.Right() - 16.0f, Cy = DropRect.Center().Y;
         Surface.StrokeLine({ Cx - 4.0f, Cy - 2.0f }, { Cx, Cy + 2.5f }, ColorRgba{ 216u, 218u, 218u, 255u }, 1.6f);

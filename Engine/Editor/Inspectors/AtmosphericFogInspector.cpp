@@ -192,7 +192,7 @@ float AtmosphericFogInspector::Construct(
         const float SX = PlotBox.Width  / 300.0f;
         const float SY = PlotBox.Height / 186.0f;
         const Rectangle2D SceneRect { PlotBox.X, PlotBox.Y, 300.0f * SX, 150.0f * SY };
-        RidgePreview.Present(Surface, SceneRect, 12.0f * SX);
+        RidgePreview.Present(Surface, SceneRect, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         // 5 right-aligned ridge transmission labels
         for (const auto& Spec : RidgeSpecs)

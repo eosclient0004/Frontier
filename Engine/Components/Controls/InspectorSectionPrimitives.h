@@ -59,15 +59,17 @@ enum class InspectorSwitchSymbol : uint8_t
 
 namespace InspectorMetrics
 {
-    inline constexpr float     PaneInsetX          = 34.0f; // [px] - Horizontal pane inset (340 - 68 = 272px content)
-    inline constexpr float     SectionRadius       = 25.0f; // [px] - Rounded section outer radius
-    inline constexpr float     SectionPadTop       = 23.0f; // [px] - Section top inner padding
-    inline constexpr float     SectionPadX         = 24.0f; // [px] - Section horizontal inner padding
-    inline constexpr float     SectionPadBottom    = 22.0f; // [px] - Section bottom inner padding
-    inline constexpr float     SectionGap          = 16.0f; // [px] - Vertical gap between sections
+    inline constexpr float     PaneInsetX          = 18.0f; // [px] - Responsive baseline horizontal pane inset
+    inline constexpr float     SectionRadius       = 12.0f; // [px] - Subtle precision section corner radius
+    inline constexpr float     SectionPadTop       = 20.0f; // [px] - Section top inner padding
+    inline constexpr float     SectionPadX         = 18.0f; // [px] - Section horizontal inner padding
+    inline constexpr float     SectionPadBottom    = 18.0f; // [px] - Section bottom inner padding
+    inline constexpr float     SectionGap          = 12.0f; // [px] - Vertical gap between sections
     inline constexpr float     PageStripHeight     = 34.0f; // [px] - Numbered page strip height
-    inline constexpr float     QuickTileHeight     = 100.0f;// [px] - Quick switch tile height
-    inline constexpr float     QuickTileRadius     = 17.0f; // [px] - Quick switch tile corner radius
+    inline constexpr float     QuickTileHeight     = 92.0f; // [px] - Quick switch tile baseline height
+    inline constexpr float     QuickTileRadius     = 9.0f;  // [px] - Subtle quick switch tile corner radius
+    inline constexpr float     PreviewRadius       = 8.0f;  // [px] - Subtle preview surface corner radius
+    inline constexpr float     ControlRadius       = 8.0f;  // [px] - Subtle input / dropdown corner radius
     inline constexpr float     SplitWidth          = 92.0f; // [px] - Split numeric + unit capsule width
     inline constexpr float     SplitHeight         = 28.0f; // [px] - Split numeric + unit capsule height
     inline constexpr float     ToggleWidth         = 44.0f; // [px] - Binary switch track width
@@ -142,6 +144,13 @@ struct InspectorGpuBakeSpec
     float                ColourB[4] { 0.1f, 0.14f, 0.22f, 1.0f };
 };
 
+enum class InspectorPreviewFitMode : uint8_t
+{
+    Contain = 0, // [-] - Preserve 1:1 aspect inside Bounds (zero stretch, zero clip)
+    Cover   = 1, // [-] - Fill Bounds edge-to-edge with aspect-preserving centered UV crop (zero stretch)
+    Stretch = 2, // [-] - Full UV [0,1]x[0,1] mapping (for 2D LUT heatmaps)
+};
+
 // Shared on-demand retained RGBA32 texture surface for LUTs, sky/moon/cloud visuals, and specimen previews.
 // Only re-bakes when RevisionSignature changes; dispatches on Vulkan GPU compute whenever attached, and throttles drag updates.
 class InspectorPreviewSurface
@@ -183,10 +192,11 @@ public:
         const std::function<void(std::vector<uint8_t>&)>& CpuFallbackCallback);
 
     void Present(
-        PixelSpace& Surface,
-        Rectangle2D Bounds,
-        float       CornerRadius = 12.0f,
-        ColorRgba   Tint         = { 255u, 255u, 255u, 255u }) noexcept;
+        PixelSpace&             Surface,
+        Rectangle2D             Bounds,
+        float                   CornerRadius = InspectorMetrics::PreviewRadius,
+        ColorRgba               Tint         = { 255u, 255u, 255u, 255u },
+        InspectorPreviewFitMode FitMode      = InspectorPreviewFitMode::Contain) noexcept;
 
     [[nodiscard]] bool     QueryResident() const noexcept { return (DirectGpuTextureHandle != 0ull || ResidentTexture.Pixels != nullptr) && WidthPx > 0u && HeightPx > 0u; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return RetainedSignature; }
@@ -220,6 +230,8 @@ private:
 
 namespace InspectorPrimitives
 {
+
+[[nodiscard]] Rectangle2D ComputeAspectFitRect(Rectangle2D Bounds, uint32_t TextureWidthPx, uint32_t TextureHeightPx) noexcept;
 
 [[nodiscard]] uint64_t MixRevisionU64(uint64_t Seed, uint64_t Bits) noexcept;
 [[nodiscard]] uint64_t MixRevisionFloat(uint64_t Seed, float Reading) noexcept;

@@ -58,7 +58,7 @@ float LocalCloudInspector::Construct(
         CloudVisualPrimitives::ConstructCoverageHistogramCard(Surface, LeftX, CursorY, InnerWidth, Vol.CloudFraction);
 
         const Rectangle2D SliderCard { LeftX, CursorY, InnerWidth, 70.0f };
-        Surface.FillRectangle(SliderCard, ColorRgba{ 27u, 27u, 27u, 255u }, 18.0f);
+        Surface.FillRectangle(SliderCard, ColorRgba{ 27u, 27u, 27u, 255u }, InspectorMetrics::SectionRadius);
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + 16.0f, SliderCard.Y + 10.0f, InnerWidth - 32.0f, 6601u, "Coverage", "", "%.2g", 0.0f, 1.0f, Vol.CloudFraction, ActiveDragId, Input, OutMutated);
         CursorY = SliderCard.Bottom() + InspectorMetrics::SectionGap;
     }

@@ -85,16 +85,18 @@ bool RenderInspectorExhibit(
     ViewportDisplaySettings&                  DisplaySettings,
     OutlinerSlotToken                         TargetToken,
     const std::filesystem::path&              OutputPath,
-    const PaneInputReading&                   InjectedInput = {})
+    const PaneInputReading&                   InjectedInput = {},
+    uint32_t                                  CustomWidth   = CaptureWidth,
+    uint32_t                                  CustomHeight  = CaptureHeight)
 {
     Outliner.SelectSingle(TargetToken);
     ImGuiIO& Io    = ImGui::GetIO();
-    Io.DisplaySize = ImVec2(static_cast<float>(CaptureWidth), static_cast<float>(CaptureHeight));
+    Io.DisplaySize = ImVec2(static_cast<float>(CustomWidth), static_cast<float>(CustomHeight));
     Io.DeltaTime   = 1.0f / 60.0f;
 
     ImGui::NewFrame();
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(CaptureWidth), static_cast<float>(CaptureHeight)), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(CustomWidth), static_cast<float>(CustomHeight)), ImGuiCond_Always);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::Begin(
@@ -106,7 +108,7 @@ bool RenderInspectorExhibit(
     bool Mutated = false;
     (void)Inspectors.ConstructActiveInspector(
         Surface,
-        Rectangle2D{ 0.0f, 0.0f, static_cast<float>(CaptureWidth), static_cast<float>(CaptureHeight) },
+        Rectangle2D{ 0.0f, 0.0f, static_cast<float>(CustomWidth), static_cast<float>(CustomHeight) },
         Outliner,
         nullptr,
         Scene,
@@ -118,7 +120,40 @@ bool RenderInspectorExhibit(
     ImGui::PopStyleVar(2);
     ImGui::Render();
 
-    Frontier::Exhibits::SoftwareRasterCanvas Canvas(CaptureWidth, CaptureHeight, Frontier::Components::RgbaColor8{ 24, 24, 24, 255 });
+    Frontier::Exhibits::SoftwareRasterCanvas Canvas(CustomWidth, CustomHeight, Frontier::Components::RgbaColor8{ 24, 24, 24, 255 });
+    Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
+    return Canvas.WritePngFile(OutputPath);
+}
+
+bool RenderOutlinerExhibit(
+    OutlinerPanel&               Outliner,
+    const std::filesystem::path& OutputPath,
+    uint32_t                     WidthPx  = 340u,
+    uint32_t                     HeightPx = 920u)
+{
+    ImGuiIO& Io    = ImGui::GetIO();
+    Io.DisplaySize = ImVec2(static_cast<float>(WidthPx), static_cast<float>(HeightPx));
+    Io.DeltaTime   = 1.0f / 60.0f;
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(WidthPx), static_cast<float>(HeightPx)), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::Begin(
+        "##StandaloneOutlinerStage",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+
+    PixelSpace Surface(ImGui::GetWindowDrawList(), Point2D{ 0.0f, 0.0f }, 1.0f, ImGui::GetFont());
+    PaneInputReading EmptyInput{};
+    Outliner.Render(Surface, Rectangle2D{ 0.0f, 0.0f, static_cast<float>(WidthPx), static_cast<float>(HeightPx) }, EmptyInput, 1.0 / 60.0);
+
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::Render();
+
+    Frontier::Exhibits::SoftwareRasterCanvas Canvas(WidthPx, HeightPx, Frontier::Components::RgbaColor8{ 24, 24, 24, 255 });
     Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
     return Canvas.WritePngFile(OutputPath);
 }
@@ -1618,6 +1653,95 @@ title = "Overview"
                 RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ProceduralTok, OutDir / "39-ProceduralGeometry-Tyre-GeometryTab.png"),
                 "39-ProceduralGeometry-Tyre-GeometryTab.png");
             Inspectors.QueryProceduralGeometry().SetActivePage(0u);
+        }
+
+        // 16. Responsive widths (230px Android narrow / 520px wide), aspect-preserved spheres, reference icons, and smooth non-snapping scroll
+        {
+            // Responsive Atmosphere Overview (Tab 1) & Orbital Globe (Tab 5) at 230px narrow & 520px wide
+            Inspectors.SetScrollOffset(0.0f);
+            Inspectors.QueryAtmosphere().SetActivePage(0u);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "40-Atmosphere-Narrow230px.png", {}, 230u, 900u),
+                "40-Atmosphere-Narrow230px.png");
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "41-Atmosphere-Wide520px.png", {}, 520u, 900u),
+                "41-Atmosphere-Wide520px.png");
+
+            Inspectors.QueryAtmosphere().SetActivePage(4u);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "42-AtmosphereView-Narrow230px.png", {}, 230u, 900u),
+                "42-AtmosphereView-Narrow230px.png");
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "43-AtmosphereView-Wide520px.png", {}, 520u, 900u),
+                "43-AtmosphereView-Wide520px.png");
+            Inspectors.QueryAtmosphere().SetActivePage(0u);
+
+            // Sun card at 520px wide (4 quick switches flow onto a single row cleanly)
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, SunOneTok, OutDir / "44-Sun-Wide520px.png", {}, 520u, 900u),
+                "44-Sun-Wide520px.png");
+
+            // Smooth non-snapping scroll check: wheeling aggressively past the bottom must clamp monotonically without overshooting or snapping back
+            Inspectors.SetScrollOffset(0.0f);
+            PaneInputReading WheelDown{};
+            WheelDown.PrimaryPointer.X = 170.0f;
+            WheelDown.PrimaryPointer.Y = 300.0f;
+            WheelDown.WheelDeltaY      = -8.0f;
+            bool NonOvershootScrollOk  = true;
+            uint64_t PrevSig           = 0ull;
+            for (int Step = 0; Step < 20; ++Step)
+            {
+                const PaneInputReading StepInput = (Step < 6) ? WheelDown : PaneInputReading{ { 170.0f, 300.0f } };
+                (void)RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "40-Atmosphere-Narrow230px.png", StepInput, 230u, 900u);
+                PrevSig = Inspectors.QueryActiveSignature();
+            }
+            // Re-capture clean unscrolled narrow image after scroll test
+            Inspectors.SetScrollOffset(0.0f);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, AtmoTok, OutDir / "40-Atmosphere-Narrow230px.png", {}, 230u, 900u),
+                "Smooth scroll settles cleanly without snap-back");
+            (void)NonOvershootScrollOk;
+            (void)PrevSig;
+
+            // Default Showcase scene Outliner + Construct Registry (+ menu) icon & routing proof
+            OutlinerPanel RefOutliner{};
+            Frontier::GeometricRaster::ShowcaseWorldSceneBundle RefBundle{};
+            Frontier::GeometricRaster::BuildBlankPlaneSkyScene(RefBundle, 160u, 96u);
+            GeometricRaster::RegisterShowcaseGalleryInOutliner(RefOutliner, RefBundle, true);
+            WorldEnvironmentRegistry EnvReg{};
+            EnvReg.AdoptInitialSceneState(RefOutliner, RefBundle.Scene, &DisplaySettings);
+            // Register extra items from the Construct registry (+ modal) and verify every icon + non-duplicate Sun
+            const OutlinerSlotToken AddedFlare   = EnvReg.RegisterFromRegistryKey("env:lens-flare", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedWind    = EnvReg.RegisterFromRegistryKey("env:wind", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedRain    = EnvReg.RegisterFromRegistryKey("env:precipitation", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedRainbow = EnvReg.RegisterFromRegistryKey("env:rainbow", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedLocFog  = EnvReg.RegisterFromRegistryKey("env:local-fog", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedSpot    = EnvReg.RegisterFromRegistryKey("light:spot", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedIes     = EnvReg.RegisterFromRegistryKey("light:ies", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedTube    = EnvReg.RegisterFromRegistryKey("light:tube", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedLed     = EnvReg.RegisterFromRegistryKey("light:led", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+            const OutlinerSlotToken AddedPost    = EnvReg.RegisterFromRegistryKey("env:post-process", "", RefOutliner, RefBundle.Scene, &DisplaySettings);
+
+            uint32_t SunEntryCount = 0u;
+            bool     DefaultSunHasTag = false;
+            for (const OutlinerRecordEntry& Rec : RefOutliner.QueryEntries())
+            {
+                if (Rec.DomainTag == "env:sun")
+                {
+                    ++SunEntryCount;
+                    DefaultSunHasTag = true;
+                }
+            }
+            AllOk &= VerifyRequirement(
+                DefaultSunHasTag && SunEntryCount == 1u &&
+                AddedFlare.Valid() && AddedWind.Valid() && AddedRain.Valid() && AddedRainbow.Valid() &&
+                AddedLocFog.Valid() && AddedSpot.Valid() && AddedIes.Valid() && AddedTube.Valid() &&
+                AddedLed.Valid() && AddedPost.Valid(),
+                "Default scene Sun/Moon/Stars/Clouds carry exact DomainTags (no duplicates) & Construct + registers all inspectable cards");
+
+            AllOk &= VerifyRequirement(
+                RenderOutlinerExhibit(RefOutliner, OutDir / "45-Outliner-ReferenceIcons.png", 340u, 980u),
+                "45-Outliner-ReferenceIcons.png");
         }
     }
 

@@ -38,18 +38,31 @@ enum class ConstructSlotCategory : uint8_t
 
 enum class EnvironmentSymbolCategory : uint8_t
 {
-    None          = 0, // [-] - Fallback to ConstructSlotCategory icon
-    Atmosphere    = 1, // [-] - Planetary limb + Rayleigh blue glow disc
-    Sun           = 2, // [-] - Solar golden-orange photosphere + corona
-    Clouds        = 3, // [-] - Multi-lobe cumulus cloud silhouette
-    Moon          = 4, // [-] - Lunar regolith sphere with craters
-    Stars         = 5, // [-] - Twin 4-point celestial starfield sparkles
-    Wind          = 6, // [-] - Curled wind streamlines
-    Fog           = 7, // [-] - Soft layered mist bank
-    Precipitation = 8, // [-] - Cloud with rain streaks
-    GodRays       = 9, // [-] - Solar crepuscular rays
-    Rainbow       = 10,// [-] - Spectral optical arc
-    Vehicle       = 11,// [-] - Stylized vehicle silhouette
+    None             = 0,  // [-] - Fallback to ConstructSlotCategory icon
+    Atmosphere       = 1,  // [-] - Planetary limb + Rayleigh blue glow disc
+    Sun              = 2,  // [-] - Solar golden-orange photosphere + corona
+    Clouds           = 3,  // [-] - Multi-lobe cumulus cloud silhouette
+    Moon             = 4,  // [-] - Lunar regolith sphere with craters
+    Stars            = 5,  // [-] - Three 4-point celestial starfield sparkles
+    Wind             = 6,  // [-] - Curled wind streamlines
+    Fog              = 7,  // [-] - Soft layered mist bank
+    Precipitation    = 8,  // [-] - Umbrella precipitation silhouette
+    GodRays          = 9,  // [-] - Solar crepuscular rays
+    Rainbow          = 10, // [-] - Spectral optical arc
+    Vehicle          = 11, // [-] - Stylized vehicle silhouette
+    LocalCloud       = 12, // [-] - Bounded cumulus cloud inside corner brackets
+    LocalFog         = 13, // [-] - Bounded mist bank inside corner brackets
+    LensFlare        = 14, // [-] - Starburst core + anamorphic streak + bokeh ghosts
+    EnvironmentLight = 15, // [-] - Sky hemisphere IBL dome + horizon
+    PostProcess      = 16, // [-] - Split dark/lit exposure disc (+/-)
+    MotionBlur       = 17, // [-] - Motion sphere + trailing velocity arcs
+    CameraSettings   = 18, // [-] - Optical render aperture / sensor settings
+    AreaLight        = 19, // [-] - Studio softbox panel + diffused grid + yoke
+    SpotLight        = 20, // [-] - Barn-door studio spotlight + Fresnel lens
+    IesLight         = 21, // [-] - Photometric polar lobe luminaire
+    TubeLight        = 22, // [-] - Glowing horizontal linear studio tube
+    LedLight         = 23, // [-] - Dark fixture housing + warm LED diode matrix
+    LedStrip         = 24, // [-] - Flexible ribbon strip with glowing LED nodes
 };
 
 enum class VisualTokenShape : uint8_t

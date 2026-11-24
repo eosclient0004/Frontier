@@ -165,9 +165,33 @@ enum class ResolvedInspectorTarget : uint8_t
         return ResolvedInspectorTarget::CameraSettings;
     if (Tag == "env:environment-light") return ResolvedInspectorTarget::EnvironmentLight;
     if (Tag == "env:post-process")      return ResolvedInspectorTarget::PostProcess;
+    if (Tag == "camera:perspective")    return ResolvedInspectorTarget::Camera;
     if (Tag.rfind("light:", 0u) == 0u)  return ClassifyLuminaireEntry(Entry);
-    if (ContainsCaseFold(Entry.Title, "camera settings") || ContainsCaseFold(Entry.Title, "render engine"))
-        return ResolvedInspectorTarget::CameraSettings;
+    if (Tag.rfind("geom:", 0u) == 0u)   return ClassifyGeometryEntry(Entry);
+
+    // Fallback title / category classifier so even legacy untagged Outliner items route to their exact Inspector card
+    const auto MatchAny = [&](std::string_view Needle) noexcept -> bool
+    {
+        return ContainsCaseFold(Entry.Title, Needle) || ContainsCaseFold(Entry.CategoryLabel, Needle);
+    };
+    if (MatchAny("camera settings") || MatchAny("render engine")) return ResolvedInspectorTarget::CameraSettings;
+    if (MatchAny("atmosphere"))                                   return ResolvedInspectorTarget::Atmosphere;
+    if (MatchAny("lens flare"))                                   return ResolvedInspectorTarget::LensFlare;
+    if (MatchAny("motion blur"))                                  return ResolvedInspectorTarget::MotionBlur;
+    if (MatchAny("post process"))                                 return ResolvedInspectorTarget::PostProcess;
+    if (MatchAny("environment light") || MatchAny("sky dome"))    return ResolvedInspectorTarget::EnvironmentLight;
+    if (MatchAny("local cloud"))                                  return ResolvedInspectorTarget::LocalCloud;
+    if (MatchAny("cloud"))                                        return ResolvedInspectorTarget::Cloud;
+    if (MatchAny("local fog"))                                    return ResolvedInspectorTarget::LocalFog;
+    if (MatchAny("atmospheric fog") || MatchAny("aerial fog"))    return ResolvedInspectorTarget::AtmosphericFog;
+    if (MatchAny("height fog") || MatchAny("fog"))                return ResolvedInspectorTarget::HeightFog;
+    if (MatchAny("god ray"))                                      return ResolvedInspectorTarget::GodRays;
+    if (MatchAny("precipitation") || MatchAny("rain") || MatchAny("snow")) return ResolvedInspectorTarget::Precipitation;
+    if (MatchAny("rainbow"))                                      return ResolvedInspectorTarget::Rainbow;
+    if (MatchAny("wind"))                                         return ResolvedInspectorTarget::Wind;
+    if (MatchAny("star"))                                         return ResolvedInspectorTarget::Starfield;
+    if (MatchAny("moon") || MatchAny("luna"))                     return ResolvedInspectorTarget::Lunar;
+    if (MatchAny("sun") || MatchAny("solar"))                     return ResolvedInspectorTarget::Solar;
 
     switch (Entry.Category)
     {
@@ -250,8 +274,13 @@ bool InspectorRegistry::ConstructActiveInspector(
 
     if (Entry->Token.Identifier != LastEntryId)
     {
-        LastEntryId   = Entry->Token.Identifier;
-        ScrollOffsetY = 0.0f;
+        LastEntryId        = Entry->Token.Identifier;
+        ScrollOffsetY      = 0.0f;
+        TargetScrollOffsetY = 0.0f;
+        CachedMaxScrollY   = 0.0f;
+        LastContentHeightPx = 0.0f;
+        HasCachedMaxScroll = false;
+        ScrollAnimating    = false;
         ++ActivePanelRevision;
     }
 
@@ -276,14 +305,62 @@ bool InspectorRegistry::ConstructActiveInspector(
     const Rectangle2D FooterRect { PaneBounds.X, ScrollClip.Bottom(), PaneBounds.Width, FooterH };
 
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    if (ScrollClip.Contains(Cursor) && std::fabs(Input.WheelDeltaY) > 0.01f)
+    const auto    Now = std::chrono::steady_clock::now();
+    float         DtSeconds = 1.0f / 60.0f;
+    if (LastScrollTickTime.time_since_epoch().count() != 0)
     {
-        ScrollOffsetY = std::max(0.0f, ScrollOffsetY - Input.WheelDeltaY * 36.0f);
+        const float RawDt = std::chrono::duration<float>(Now - LastScrollTickTime).count();
+        DtSeconds = std::clamp(RawDt, 1.0f / 240.0f, 1.0f / 20.0f);
+    }
+    LastScrollTickTime = Now;
+
+    if (std::fabs(PaneBounds.Width - LastPaneWidthPx) > 0.5f)
+    {
+        LastPaneWidthPx = PaneBounds.Width;
+        // Keep current scroll clamped safely without snapping on resize
     }
 
-    const float PadX       = std::min(InspectorMetrics::PaneInsetX, std::max(12.0f, (PaneBounds.Width - 272.0f) * 0.5f));
+    if (ScrollClip.Contains(Cursor) && std::fabs(Input.WheelDeltaY) > 0.001f)
+    {
+        TargetScrollOffsetY -= Input.WheelDeltaY * 42.0f;
+        if (HasCachedMaxScroll)
+        {
+            TargetScrollOffsetY = std::clamp(TargetScrollOffsetY, 0.0f, CachedMaxScrollY);
+        }
+        else
+        {
+            TargetScrollOffsetY = std::max(0.0f, TargetScrollOffsetY);
+        }
+    }
+
+    // Critically-damped smooth scroll micro-animation with strict pre-draw clamping (zero overshoot, zero snap-back!)
+    if (HasCachedMaxScroll)
+    {
+        TargetScrollOffsetY = std::clamp(TargetScrollOffsetY, 0.0f, CachedMaxScrollY);
+    }
+    const float ScrollAlpha = 1.0f - std::exp(-16.0f * DtSeconds);
+    ScrollOffsetY += (TargetScrollOffsetY - ScrollOffsetY) * ScrollAlpha;
+    if (std::fabs(TargetScrollOffsetY - ScrollOffsetY) < 0.25f)
+    {
+        ScrollOffsetY   = TargetScrollOffsetY;
+        ScrollAnimating = false;
+    }
+    else
+    {
+        ScrollAnimating = true;
+    }
+    if (HasCachedMaxScroll)
+    {
+        ScrollOffsetY = std::clamp(ScrollOffsetY, 0.0f, CachedMaxScrollY);
+    }
+    else
+    {
+        ScrollOffsetY = std::max(0.0f, ScrollOffsetY);
+    }
+
+    const float PadX       = std::clamp(PaneBounds.Width * 0.055f, 10.0f, InspectorMetrics::PaneInsetX);
     const float InnerLeft  = PaneBounds.X + PadX;
-    const float InnerWidth = std::max(180.0f, PaneBounds.Width - PadX * 2.0f);
+    const float InnerWidth = std::max(140.0f, PaneBounds.Width - PadX * 2.0f);
 
     Surface.PushClip(ScrollClip);
     float CursorY = PaneBounds.Y + 32.0f - ScrollOffsetY;
@@ -408,7 +485,11 @@ bool InspectorRegistry::ConstructActiveInspector(
 
     if (PageSwitched)
     {
-        ScrollOffsetY = 0.0f;
+        ScrollOffsetY       = 0.0f;
+        TargetScrollOffsetY = 0.0f;
+        CachedMaxScrollY    = 0.0f;
+        HasCachedMaxScroll  = false;
+        ScrollAnimating     = false;
         ++ActivePanelRevision;
     }
 
@@ -421,7 +502,18 @@ bool InspectorRegistry::ConstructActiveInspector(
 
     const float ContentHeight = (CursorY + ScrollOffsetY) - PaneBounds.Y + 24.0f;
     const float MaxScroll     = std::max(0.0f, ContentHeight - ScrollClip.Height);
-    ScrollOffsetY = std::clamp(ScrollOffsetY, 0.0f, MaxScroll);
+    LastContentHeightPx       = ContentHeight;
+    CachedMaxScrollY          = MaxScroll;
+    HasCachedMaxScroll        = true;
+    TargetScrollOffsetY       = std::clamp(TargetScrollOffsetY, 0.0f, MaxScroll);
+    ScrollOffsetY             = std::clamp(ScrollOffsetY, 0.0f, MaxScroll);
+    if (std::fabs(TargetScrollOffsetY - ScrollOffsetY) < 0.25f)
+    {
+        ScrollOffsetY   = TargetScrollOffsetY;
+        ScrollAnimating = false;
+    }
+
+    WorkspaceAppearance::ConstructVerticalScrollIndicator(Surface, ScrollClip, ContentHeight, ScrollOffsetY, Cursor);
 
     Surface.PopClip();
     InspectorPrimitives::ConstructInspectorFooter(Surface, FooterRect, ActiveSubtitle, "F11");
@@ -434,6 +526,12 @@ uint64_t InspectorRegistry::QueryActiveSignature() const noexcept
     uint64_t Sig = RetainedCanvasCache::MixHash(0x51A7C0DE1337BEEFull, ActivePanelRevision);
     Sig = RetainedCanvasCache::MixHash(Sig, LastEntryId);
     Sig = RetainedCanvasCache::MixHash(Sig, static_cast<uint64_t>(std::llround(ScrollOffsetY * 4.0f)));
+    Sig = RetainedCanvasCache::MixHash(Sig, static_cast<uint64_t>(std::llround(TargetScrollOffsetY * 4.0f)));
+    if (ScrollAnimating)
+    {
+        const uint64_t Tick = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count() >> 14);
+        Sig = RetainedCanvasCache::MixHash(Sig, Tick);
+    }
     return Sig;
 }
 

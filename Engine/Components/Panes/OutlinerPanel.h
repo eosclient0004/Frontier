@@ -86,8 +86,9 @@ struct OutlinerConstructTemplate
     std::string          DropdownLabel {};                                           // [-] - Construct sheet label (e.g. "Add Item 1")
     std::string          DefaultTitle  {};                                           // [-] - Initial name assigned to created entry
     std::string          CategoryTitle {};                                           // [-] - Inspector breadcrumb category label
-    std::string           DefaultDetail {};                                         // [-] - Secondary row summary caption
-    ConstructSlotCategory Category      = ConstructSlotCategory::GeometryVolume;    // [-] - Visual icon and filter category
+    std::string          DefaultDetail {};                                           // [-] - Secondary row summary caption
+    ConstructSlotCategory Category      = ConstructSlotCategory::GeometryVolume;     // [-] - Visual icon and filter category
+    std::string          DomainTag     {};                                           // [-] - Optional inspector & icon domain tag (e.g. "env:sun", "light:area")
 };
 
 struct OutlinerRecordEntry
