@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Components/VectorIcons/EditorIconAtlas.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Input/InputExtension.h"
 
@@ -733,6 +734,10 @@ void ConstructShowcaseFolderIcon(
     {
         return;
     }
+    if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::FolderWorld, TopLeft, Extent, Opacity))
+    {
+        return;
+    }
 
     const auto ProjectX = [&](float SvgX) noexcept -> float { return TopLeft.X + (SvgX / 256.0f) * Extent; };
     const auto ProjectY = [&](float SvgY) noexcept -> float { return TopLeft.Y + (SvgY / 256.0f) * Extent; };
@@ -827,6 +832,10 @@ void ConstructGenericFolderIcon(
     {
         return;
     }
+    if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::FolderGeneric, TopLeft, Extent, Opacity))
+    {
+        return;
+    }
 
     const auto ProjectX = [&](float SvgX) noexcept -> float { return TopLeft.X + (SvgX / 256.0f) * Extent; };
     const auto ProjectY = [&](float SvgY) noexcept -> float { return TopLeft.Y + (SvgY / 256.0f) * Extent; };
@@ -874,6 +883,10 @@ void ConstructCameraIcon(
     float       Opacity) noexcept
 {
     if (Extent <= 2.0f || Opacity <= 0.0f)
+    {
+        return;
+    }
+    if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::Camera, TopLeft, Extent, Opacity))
     {
         return;
     }
@@ -935,6 +948,10 @@ void ConstructSlotCategoryIcon(
 
         case ConstructSlotCategory::GeometryVolume:
         {
+            if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::Primitive, TopLeft, Extent, Opacity))
+            {
+                break;
+            }
             // Workspace editor-cube: #174B88 filled hexagon + #389CFF bold isometric edges
             const std::array<Point2D, 6> Hex = {{
                 { ProjectX(128.0f), ProjectY(40.0f)  },
@@ -965,6 +982,10 @@ void ConstructSlotCategoryIcon(
 
         case ConstructSlotCategory::LayerGroup:
         {
+            if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::Collection, TopLeft, Extent, Opacity))
+            {
+                break;
+            }
             // Workspace collection-stacked-layers (scale 5.3333 in 256x256 space)
             const auto Slab = [&](float CenterY, ColorRgba Fill, ColorRgba Edge)
             {
@@ -986,6 +1007,10 @@ void ConstructSlotCategoryIcon(
 
         case ConstructSlotCategory::PointLuminaire:
         {
+            if (EditorIconAtlas::DrawSymbolIcon(Surface, EnvironmentSymbolCategory::PointLight, TopLeft, Extent, Opacity))
+            {
+                break;
+            }
             // Workspace editor-point-light: #F0AD22 filled core + #FFCD38 stroke & 8 rays
             const Point2D   Center{ ProjectX(128.0f), ProjectY(128.0f) };
             const float     CoreR  = (32.0f / 256.0f) * Extent;
@@ -1025,8 +1050,9 @@ EnvironmentSymbolCategory ResolveEnvironmentSymbolFromTag(std::string_view Domai
     if (DomainTag == "env:moon")                return EnvironmentSymbolCategory::Moon;
     if (DomainTag == "env:stars")               return EnvironmentSymbolCategory::Stars;
     if (DomainTag == "env:wind" || DomainTag == "weather:wind") return EnvironmentSymbolCategory::Wind;
+    if (DomainTag == "env:aerial-fog" || DomainTag == "env:atmospheric-fog") return EnvironmentSymbolCategory::AtmosphericFog;
     if (DomainTag == "env:fog" || DomainTag == "weather:fog" ||
-        DomainTag == "env:height-fog" || DomainTag == "env:aerial-fog") return EnvironmentSymbolCategory::Fog;
+        DomainTag == "env:height-fog") return EnvironmentSymbolCategory::Fog;
     if (DomainTag == "env:local-fog")           return EnvironmentSymbolCategory::LocalFog;
     if (DomainTag == "env:precipitation" || DomainTag == "weather:precipitation") return EnvironmentSymbolCategory::Precipitation;
     if (DomainTag == "env:god-rays" || DomainTag == "weather:god-rays") return EnvironmentSymbolCategory::GodRays;
@@ -1037,13 +1063,27 @@ EnvironmentSymbolCategory ResolveEnvironmentSymbolFromTag(std::string_view Domai
     if (DomainTag == "env:motion-blur")         return EnvironmentSymbolCategory::MotionBlur;
     if (DomainTag == "env:camera-settings" || DomainTag == "env:render-engine" ||
         DomainTag == "camera:settings" || DomainTag == "render:settings") return EnvironmentSymbolCategory::CameraSettings;
+    if (DomainTag == "camera:perspective" || DomainTag == "camera:editor" || DomainTag == "camera") return EnvironmentSymbolCategory::Camera;
     if (DomainTag == "env:vehicle" || DomainTag == "vehicle:sedan") return EnvironmentSymbolCategory::Vehicle;
-    if (DomainTag == "light:area" || DomainTag == "arealight") return EnvironmentSymbolCategory::AreaLight;
-    if (DomainTag == "light:spot" || DomainTag == "spotlight") return EnvironmentSymbolCategory::SpotLight;
-    if (DomainTag == "light:ies"  || DomainTag == "ieslight")  return EnvironmentSymbolCategory::IesLight;
-    if (DomainTag == "light:tube" || DomainTag == "tubelight") return EnvironmentSymbolCategory::TubeLight;
-    if (DomainTag == "light:led"  || DomainTag == "ledlight")  return EnvironmentSymbolCategory::LedLight;
+    if (DomainTag == "light:point" || DomainTag == "pointlight") return EnvironmentSymbolCategory::PointLight;
+    if (DomainTag == "light:area"  || DomainTag == "arealight")  return EnvironmentSymbolCategory::AreaLight;
+    if (DomainTag == "light:spot"  || DomainTag == "spotlight")  return EnvironmentSymbolCategory::SpotLight;
+    if (DomainTag == "light:ies"   || DomainTag == "ieslight")   return EnvironmentSymbolCategory::IesLight;
+    if (DomainTag == "light:tube"  || DomainTag == "tubelight")  return EnvironmentSymbolCategory::TubeLight;
+    if (DomainTag == "light:led"   || DomainTag == "ledlight")   return EnvironmentSymbolCategory::LedLight;
     if (DomainTag == "light:led-strip" || DomainTag == "ledstrip") return EnvironmentSymbolCategory::LedStrip;
+    if (DomainTag == "geom:primitive")          return EnvironmentSymbolCategory::Primitive;
+    if (DomainTag == "geom:procedural")         return EnvironmentSymbolCategory::ProceduralMesh;
+    if (DomainTag == "geom:native")             return EnvironmentSymbolCategory::NativeMesh;
+    if (DomainTag == "geom:imported")           return EnvironmentSymbolCategory::ImportedAsset;
+    if (DomainTag == "folder:world" || DomainTag == "folder:environment") return EnvironmentSymbolCategory::FolderWorld;
+    if (DomainTag == "folder:water")            return EnvironmentSymbolCategory::FolderWater;
+    if (DomainTag == "folder:generic" || DomainTag == "folder") return EnvironmentSymbolCategory::FolderGeneric;
+    if (DomainTag == "collection")              return EnvironmentSymbolCategory::Collection;
+    if (DomainTag == "material")                return EnvironmentSymbolCategory::Material;
+    if (DomainTag == "forest")                  return EnvironmentSymbolCategory::Forest;
+    if (DomainTag == "fluid" || DomainTag == "water") return EnvironmentSymbolCategory::Fluid;
+    if (DomainTag == "earth" || DomainTag == "world") return EnvironmentSymbolCategory::Earth;
     return EnvironmentSymbolCategory::None;
 }
 
@@ -1055,6 +1095,12 @@ void ConstructEnvironmentSymbolIcon(
     float                     Opacity) noexcept
 {
     if (Extent <= 2.0f || Opacity <= 0.0f)
+    {
+        return;
+    }
+
+    // Prefer the official studio SVG icon from EngineContent/Icons/Editor/*.svg rasterized via ThorVG.
+    if (EditorIconAtlas::DrawSymbolIcon(Surface, Symbol, TopLeft, Extent, Opacity))
     {
         return;
     }
@@ -1489,7 +1535,44 @@ void ConstructEnvironmentSymbolIcon(
             break;
         }
 
+        case EnvironmentSymbolCategory::AtmosphericFog:
+        {
+            Surface.FillCircle({ Center.X - R * 0.20f, Center.Y - R * 0.08f }, R * 0.36f, ScaleAlpha({ 176, 188, 200, 185 }, Opacity));
+            Surface.FillCircle({ Center.X + R * 0.18f, Center.Y + R * 0.12f }, R * 0.34f, ScaleAlpha({ 146, 160, 178, 175 }, Opacity));
+            break;
+        }
+        case EnvironmentSymbolCategory::Camera:
+            ConstructCameraIcon(Surface, TopLeft, Extent, Opacity);
+            break;
+        case EnvironmentSymbolCategory::PointLight:
+            ConstructSlotCategoryIcon(Surface, ConstructSlotCategory::PointLuminaire, TopLeft, Extent, WorkspaceSurfaceColors::SageCollection, Opacity);
+            break;
+        case EnvironmentSymbolCategory::Primitive:
+        case EnvironmentSymbolCategory::ProceduralMesh:
+        case EnvironmentSymbolCategory::NativeMesh:
+        case EnvironmentSymbolCategory::ImportedAsset:
+            ConstructSlotCategoryIcon(Surface, ConstructSlotCategory::GeometryVolume, TopLeft, Extent, WorkspaceSurfaceColors::SageCollection, Opacity);
+            break;
+        case EnvironmentSymbolCategory::FolderWorld:
+        case EnvironmentSymbolCategory::FolderWater:
+            ConstructShowcaseFolderIcon(Surface, TopLeft, Extent, WorkspaceSurfaceColors::SageCollection, Opacity);
+            break;
+        case EnvironmentSymbolCategory::FolderGeneric:
+            ConstructGenericFolderIcon(Surface, TopLeft, Extent, { 185, 173, 149, 255 }, Opacity);
+            break;
+        case EnvironmentSymbolCategory::Collection:
+            ConstructSlotCategoryIcon(Surface, ConstructSlotCategory::LayerGroup, TopLeft, Extent, WorkspaceSurfaceColors::SageCollection, Opacity);
+            break;
+        case EnvironmentSymbolCategory::Material:
+        case EnvironmentSymbolCategory::Forest:
+        case EnvironmentSymbolCategory::Fluid:
+        case EnvironmentSymbolCategory::Earth:
+            Surface.FillCircle(Center, R * 0.62f, ScaleAlpha({ 120, 168, 212, 235 }, Opacity));
+            Surface.StrokeCircle(Center, R * 0.62f, ScaleAlpha({ 196, 224, 248, 220 }, Opacity), std::max(1.0f, Extent * 0.05f));
+            break;
+
         case EnvironmentSymbolCategory::None:
+        case EnvironmentSymbolCategory::Count:
         default:
             break;
     }

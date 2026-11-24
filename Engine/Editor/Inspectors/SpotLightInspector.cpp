@@ -99,12 +99,12 @@ float SpotLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateEnvelopeSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.StrokeRectangle({ BodyX + 2.0f, Card.Y + 24.0f, 16.0f, 16.0f }, ColorRgba{ 140u, 134u, 118u, 220u }, 3.0f, 1.2f);
-        Surface.FillCircle({ BodyX + 10.0f, Card.Y + 32.0f }, 4.5f, ColorRgba{ 246u, 232u, 198u, 255u });
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Beam envelope");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::SpotLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Beam envelope");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.IntensityCandela, "cd", "Authored luminous intensity");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -115,24 +115,24 @@ float SpotLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        EnvelopePreview.Present(Surface, ImgBox, 8.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, "PENUMBRA");
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        EnvelopePreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 6.0f }, 8.4f, InspectorMetrics::DimInk, "PENUMBRA");
         char PenBuf[16]{};
         std::snprintf(PenBuf, sizeof(PenBuf), "%.0f %%", Instance.Penumbra * 100.0f);
         const float PW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, PenBuf);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - PW - 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, PenBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - PW - 4.0f, ImgBox.Y + 6.0f }, 8.4f, InspectorMetrics::DimInk, PenBuf);
         char CapBuf[32]{};
         std::snprintf(CapBuf, sizeof(CapBuf), "%.0f\xC2\xB0 FULL CONE", Instance.FullConeDegrees);
         const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, CapBuf);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.4f, InspectorMetrics::DimInk, CapBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.4f, InspectorMetrics::DimInk, CapBuf);
 
         char ConeVal[16]{}, SoftVal[16]{};
         std::snprintf(ConeVal, sizeof(ConeVal), "%.0f\xC2\xB0", Instance.FullConeDegrees);
         std::snprintf(SoftVal, sizeof(SoftVal), "%.0f %%", Instance.Penumbra * 100.0f);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
             "Full cone", ConeVal, nullptr,
             "Soft edge", SoftVal, nullptr,
             "Source & colour", "Intensity");
@@ -140,8 +140,8 @@ float SpotLightInspector::Construct(
     }
     else
     {
-        // TAB 2: SOURCE — Beam shaping (h = 382) + Transform (WORLD SPACE)
-        const Rectangle2D Card { WideX, CursorY, WideW, 382.0f };
+        // TAB 2: SOURCE — Beam shaping (h = 416) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 416.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Beam shaping");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");

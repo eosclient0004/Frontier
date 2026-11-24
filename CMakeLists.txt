@@ -204,6 +204,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/PixelSpace.cpp
     Engine/Components/RetainedCanvasCache.cpp
     Engine/Components/VectorIcons/VectorIconRepository.cpp
+    Engine/Components/VectorIcons/EditorIconAtlas.cpp
     Engine/Components/Appearance/ThemeRepository.cpp
     Engine/Components/Appearance/TypographyRepository.cpp
     Engine/Components/Motion/SpringIntegrator.cpp

@@ -123,11 +123,12 @@ float IesLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdatePolarSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.FillCircle({ BodyX + 10.0f, Card.Y + 34.0f }, 8.0f, ColorRgba{ 118u, 174u, 224u, 220u });
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Photometric distribution");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::IesLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, BodyW - 28.0f, 16.4f, InspectorMetrics::HeadingInk, "Photometric distribution");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.LuminousFlux, "lm", "Profile source flux");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -138,24 +139,24 @@ float IesLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        PolarPreview.Present(Surface, ImgBox, 8.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 8.0f, ImgBox.Y + 10.0f }, 8.4f, ColorRgba{ 222u, 168u, 114u, 255u }, "C0");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 28.0f, ImgBox.Y + 10.0f }, 8.4f, ColorRgba{ 126u, 186u, 186u, 255u }, "C90");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 38.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 56.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - 5.0f, ImgBox.Bottom() - 22.0f }, 8.4f, InspectorMetrics::DimInk, "0\xC2\xB0");
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        PolarPreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 8.0f, ImgBox.Y + 6.0f }, 8.4f, ColorRgba{ 222u, 168u, 114u, 255u }, "C0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 28.0f, ImgBox.Y + 6.0f }, 8.4f, ColorRgba{ 126u, 186u, 186u, 255u }, "C90");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 28.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - 46.0f, ImgBox.Center().Y - 5.0f }, 8.4f, InspectorMetrics::DimInk, "90\xC2\xB0");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - 5.0f, ImgBox.Bottom() - 28.0f }, 8.4f, InspectorMetrics::DimInk, "0\xC2\xB0");
         const char* Cap = "NORMALIZED PRESET";
         const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, Cap);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 8.0f }, 8.4f, InspectorMetrics::DimInk, Cap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.4f, InspectorMetrics::DimInk, Cap);
 
         char ScaledBuf[32]{}, FieldBuf[16]{};
         LightUi::FormatWithCommas(Instance.LuminousFlux * Instance.ProfileMultiplier, ScaledBuf, sizeof(ScaledBuf));
         std::string ScaledStr = std::string(ScaledBuf) + " lm";
         std::snprintf(FieldBuf, sizeof(FieldBuf), "%.0f\xC2\xB0", Instance.FieldAngleDegrees);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Illustrative preset \xC2\xB7 no measured IES data",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Illustrative preset \xC2\xB7 polar photometry",
             "Scaled output", ScaledStr.c_str(), nullptr,
             "Field angle", FieldBuf, nullptr,
             "Source & colour", "Luminous flux");
@@ -164,7 +165,7 @@ float IesLightInspector::Construct(
     else
     {
         // TAB 2: SOURCE — Distribution profile curve editor + 4 pills + 4 KPIs + Name/Actions + Preset grid
-        const Rectangle2D Card { WideX, CursorY, WideW, 620.0f };
+        const Rectangle2D Card { WideX, CursorY, WideW, 602.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Distribution profile");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
@@ -230,14 +231,14 @@ float IesLightInspector::Construct(
             "ECE Low Beam preset \xC2\xB7 drag a point to start a custom profile from it.");
 
         // Name + Profile name input
-        const float NameY = KpiY + 120.0f;
+        const float NameY = KpiY + 100.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, NameY + 8.0f }, 11.2f, InspectorMetrics::MutedInk, "Name");
         const Rectangle2D NameBox { BodyX + 46.0f, NameY, BodyW - 46.0f, 30.0f };
         Surface.FillRectangle(NameBox, ColorRgba{ 14u, 14u, 15u, 255u }, 15.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { NameBox.X + 12.0f, NameBox.Y + 8.5f }, 11.2f, InspectorMetrics::DimInk, "Profile name");
 
         // 3 action buttons + Reset to preset
-        const float ActY = NameY + 42.0f;
+        const float ActY = NameY + 38.0f;
         const std::array<const char*, 3u> Acts = {{ "Save to library", "Export .ies", "Import .ies" }};
         const float AW = std::floor((BodyW - 12.0f) / 3.0f);
         for (uint32_t I = 0u; I < 3u; ++I)
@@ -246,16 +247,16 @@ float IesLightInspector::Construct(
             Surface.FillRectangle(B, ColorRgba{ 34u, 34u, 36u, 255u }, 14.0f);
             Surface.StrokeRectangle(B, ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
             const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, Acts[I]);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.Center().X - TW * 0.5f, B.Y + 8.5f }, 9.6f, InspectorMetrics::MutedInk, Acts[I]);
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { B.X + std::max(4.0f, (B.Width - TW) * 0.5f), B.Y + 8.5f }, B.Width - 8.0f, 9.6f, InspectorMetrics::MutedInk, Acts[I]);
         }
-        const Rectangle2D ResetBtn { BodyX, ActY + 36.0f, BodyW, 28.0f };
+        const Rectangle2D ResetBtn { BodyX, ActY + 34.0f, BodyW, 28.0f };
         Surface.FillRectangle(ResetBtn, ColorRgba{ 34u, 34u, 36u, 255u }, 14.0f);
         Surface.StrokeRectangle(ResetBtn, ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
         const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, "Reset to preset");
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ResetBtn.Center().X - RW * 0.5f, ResetBtn.Y + 8.0f }, 10.6f, InspectorMetrics::MutedInk, "Reset to preset");
 
         // Start from a preset 2x2 buttons
-        const float PreY = ResetBtn.Bottom() + 28.0f;
+        const float PreY = ResetBtn.Bottom() + 18.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, PreY }, 11.0f, InspectorMetrics::MutedInk, "Start from a preset");
         const float PreW = std::floor((BodyW - 8.0f) * 0.5f);
         for (uint32_t I = 0u; I < 4u; ++I)

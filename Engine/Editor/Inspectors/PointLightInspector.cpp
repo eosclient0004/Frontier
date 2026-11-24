@@ -105,13 +105,12 @@ float PointLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateFalloffSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        // Small orb icon + "Radial falloff"
-        Surface.FillCircle({ BodyX + 9.0f, Card.Y + 32.0f }, 8.0f, ColorRgba{ 46u, 42u, 36u, 255u });
-        Surface.FillCircle({ BodyX + 13.0f, Card.Y + 27.0f }, 3.5f, ColorRgba{ 238u, 198u, 128u, 255u });
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Radial falloff");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::PointLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Radial falloff");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.IntensityCandela, "cd", "Authored luminous intensity");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -122,27 +121,27 @@ float PointLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        FalloffPreview.Present(Surface, ImgBox, 8.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, "OMNIDIRECTIONAL");
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        FalloffPreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 6.0f }, 8.4f, InspectorMetrics::DimInk, "OMNIDIRECTIONAL");
         char DecBuf[24]{};
         std::snprintf(DecBuf, sizeof(DecBuf), "DECAY %.1f", Instance.DecayExponent);
         const float DW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.4f, DecBuf);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - DW - 4.0f, ImgBox.Y + 8.0f }, 8.4f, InspectorMetrics::DimInk, DecBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - DW - 4.0f, ImgBox.Y + 6.0f }, 8.4f, InspectorMetrics::DimInk, DecBuf);
         char RingBuf[48]{};
         std::snprintf(RingBuf, sizeof(RingBuf), "%.0f m  %.0f m  %.0f m  %.0f m",
             Instance.ReachMeters * 0.25f, Instance.ReachMeters * 0.50f, Instance.ReachMeters * 0.75f, Instance.ReachMeters);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X + 20.0f, ImgBox.Center().Y - 5.0f }, 7.8f, InspectorMetrics::DimInk, RingBuf);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X + 18.0f, ImgBox.Center().Y - 5.0f }, ImgBox.Width * 0.5f - 20.0f, 7.8f, InspectorMetrics::DimInk, RingBuf);
         const char* Cap = "Reach guides \xC2\xB7 free space";
         const float CW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.6f, Cap);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.6f, InspectorMetrics::DimInk, Cap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - CW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.6f, InspectorMetrics::DimInk, Cap);
 
         char LuxBuf[24]{}, ReachBuf[24]{};
         std::snprintf(LuxBuf, sizeof(LuxBuf), "%.2f lx", Lux5m);
         std::snprintf(ReachBuf, sizeof(ReachBuf), "%.0f m", Instance.ReachMeters);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
             "At 5 m \xC2\xB7 estimate", LuxBuf, nullptr,
             "Reach", ReachBuf, nullptr,
             "Source & colour", "Intensity");
@@ -150,8 +149,8 @@ float PointLightInspector::Construct(
     }
     else
     {
-        // TAB 2: SOURCE — Attenuation (h = 584)
-        const Rectangle2D Card { WideX, CursorY, WideW, 584.0f };
+        // TAB 2: SOURCE — Attenuation (h = 624)
+        const Rectangle2D Card { WideX, CursorY, WideW, 624.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Attenuation");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");

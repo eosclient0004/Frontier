@@ -97,12 +97,12 @@ float AreaLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateApertureSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.FillRectangle({ BodyX + 2.0f, Card.Y + 25.0f, 16.0f, 12.0f }, ColorRgba{ 238u, 226u, 198u, 240u }, 3.0f);
-        Surface.StrokeRectangle({ BodyX + 2.0f, Card.Y + 25.0f, 16.0f, 12.0f }, ColorRgba{ 120u, 118u, 114u, 220u }, 3.0f, 1.2f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Luminous surface");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::AreaLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Luminous surface");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.LuminousFlux, "lm", "Authored luminous flux");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -114,14 +114,14 @@ float AreaLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        AperturePreview.Present(Surface, ImgBox, 8.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, "APERTURE / FRONT ELEVATION");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, "FRONT FACE");
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        AperturePreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, "APERTURE / FRONT ELEVATION");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, "FRONT FACE");
         char SpBuf[24]{};
         std::snprintf(SpBuf, sizeof(SpBuf), "%.0f\xC2\xB0 SPREAD", Instance.SpreadDegrees);
         const float SW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, SpBuf);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - SW - 4.0f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, SpBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - SW - 4.0f, ImgBox.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, SpBuf);
         char WDim[16]{};
         std::snprintf(WDim, sizeof(WDim), "%.1f m", Instance.WidthMeters);
         const float WDW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, WDim);
@@ -130,17 +130,17 @@ float AreaLightInspector::Construct(
         char AreaBuf[24]{};
         std::snprintf(AreaBuf, sizeof(AreaBuf), "%.2g m\xC2\xB2", AreaM2);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
             "Aperture", AreaBuf, nullptr,
-            "Emission", Instance.TwoSidedRadiator ? "Two-" : "One-", "sided",
+            "Emission", Instance.TwoSidedRadiator ? "Two-sided" : "One-sided", nullptr,
             "Source & colour", "Luminous flux");
         CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        // TAB 2: SOURCE — Emitter dimensions (h = 540) + Transform (WORLD SPACE)
-        const Rectangle2D Card { WideX, CursorY, WideW, 540.0f };
+        // TAB 2: SOURCE — Emitter dimensions (h = 576) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 576.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Emitter dimensions");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");

@@ -574,19 +574,20 @@ float ConstructPageStrip(
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const float   StripH = InspectorMetrics::PageStripHeight; // 34px
     RegisterInteractiveRect({ LeftX, TopY, InnerWidth, StripH });
-    const float   StepW  = 26.0f;
+    const float   StepW  = 28.0f;
     const float   StepH  = 28.0f;
+    const float   StepR  = StepH * 0.5f; // Full circular pill step buttons
     const float   StepY  = TopY + (StripH - StepH) * 0.5f;
 
-    // 1. Left "<" step button (subtle 8px radius)
+    // 1. Left "<" circular pill button
     const Rectangle2D PrevBtn { LeftX, StepY, StepW, StepH };
     const bool        PrevDisabled = (InOutActivePage == 0u);
     const bool        PrevHov      = !PrevDisabled && PrevBtn.Contains(Cursor);
     Surface.FillRectangle(
         PrevBtn,
         PrevHov ? ColorRgba{ 41u, 41u, 45u, 255u } : InspectorMetrics::PageStepFill.ScaledAlpha(PrevDisabled ? 0.45f : 1.0f),
-        InspectorMetrics::ControlRadius);
-    Surface.StrokeRectangle(PrevBtn, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
+        StepR);
+    Surface.StrokeRectangle(PrevBtn, ColorRgba{ 255u, 255u, 255u, 18u }, StepR, 1.0f);
     {
         const ColorRgba ChevInk = PrevDisabled ? ColorRgba{ 95u, 98u, 104u, 255u } : ColorRgba{ 201u, 204u, 209u, 255u };
         const Point2D   C       = PrevBtn.Center();
@@ -603,7 +604,7 @@ float ConstructPageStrip(
         OutPageSwitched = true;
     }
 
-    // 2. Right counter ("1 / N") & ">" step button
+    // 2. Right counter ("1 / N") & ">" circular pill button
     char CounterBuf[24]{};
     std::snprintf(CounterBuf, sizeof(CounterBuf), "%u / %u", InOutActivePage + 1u, PageCount);
     const float CounterW  = std::max(28.0f, WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, CounterBuf));
@@ -617,8 +618,8 @@ float ConstructPageStrip(
     Surface.FillRectangle(
         NextBtn,
         NextHov ? ColorRgba{ 41u, 41u, 45u, 255u } : InspectorMetrics::PageStepFill.ScaledAlpha(NextDisabled ? 0.45f : 1.0f),
-        InspectorMetrics::ControlRadius);
-    Surface.StrokeRectangle(NextBtn, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::ControlRadius, 1.0f);
+        StepR);
+    Surface.StrokeRectangle(NextBtn, ColorRgba{ 255u, 255u, 255u, 18u }, StepR, 1.0f);
     {
         const ColorRgba ChevInk = NextDisabled ? ColorRgba{ 95u, 98u, 104u, 255u } : ColorRgba{ 201u, 204u, 209u, 255u };
         const Point2D   C       = NextBtn.Center();
@@ -635,12 +636,13 @@ float ConstructPageStrip(
         OutPageSwitched = true;
     }
 
-    // 3. Center tab rail (subtle 9px radius, height 34px, padding 3px)
+    // 3. Center tab rail — full pill (radius = StripH * 0.5)
     const float       RailX = PrevBtn.Right() + 6.0f;
     const float       RailW = std::max(56.0f, NextBtn.X - 6.0f - RailX);
+    const float       RailR = StripH * 0.5f;
     const Rectangle2D RailRect { RailX, TopY, RailW, StripH };
-    Surface.FillRectangle(RailRect, InspectorMetrics::PageRailFill, 9.0f);
-    Surface.StrokeRectangle(RailRect, ColorRgba{ 255u, 255u, 255u, 18u }, 9.0f, 1.0f);
+    Surface.FillRectangle(RailRect, InspectorMetrics::PageRailFill, RailR);
+    Surface.StrokeRectangle(RailRect, ColorRgba{ 255u, 255u, 255u, 18u }, RailR, 1.0f);
 
     const Rectangle2D RailInner { RailRect.X + 3.0f, RailRect.Y + 3.0f, std::max(24.0f, RailRect.Width - 6.0f), StripH - 6.0f };
     Surface.PushClip(RailInner);
@@ -672,16 +674,17 @@ float ConstructPageStrip(
 
         const bool Open = (Idx == InOutActivePage);
         const Rectangle2D TabRect { TabX, RailInner.Y, TabW, RailInner.Height };
+        const float TabPillR = TabRect.Height * 0.5f;
         const bool Hovered = RailInner.Contains(Cursor) && TabRect.Contains(Cursor);
 
         if (Open)
         {
-            Surface.FillRectangle(TabRect, InspectorMetrics::PageTabOpenFill, 7.0f);
-            Surface.StrokeRectangle(TabRect, ColorRgba{ 255u, 255u, 255u, 20u }, 7.0f, 1.0f);
+            Surface.FillRectangle(TabRect, InspectorMetrics::PageTabOpenFill, TabPillR);
+            Surface.StrokeRectangle(TabRect, ColorRgba{ 255u, 255u, 255u, 20u }, TabPillR, 1.0f);
         }
         else if (Hovered)
         {
-            Surface.FillRectangle(TabRect, ColorRgba{ 255u, 255u, 255u, 12u }, 7.0f);
+            Surface.FillRectangle(TabRect, ColorRgba{ 255u, 255u, 255u, 12u }, TabPillR);
         }
 
         // 18x18 circular number indicator

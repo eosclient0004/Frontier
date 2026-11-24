@@ -143,8 +143,8 @@ float EnvironmentLightInspector::Construct(
 
         // Dark sky-dome + compass well
         const Rectangle2D Well { BodyX - 3.0f, DomeCard.Y + 110.0f, BodyW + 6.0f, 160.0f };
-        HemispherePreview.Present(Surface, Well, 12.0f);
-        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, 12.0f, 1.0f);
+        HemispherePreview.Present(Surface, Well, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, ColorRgba{ 21u, 21u, 23u, 255u });
+        Surface.StrokeRectangle(Well, ColorRgba{ 255u, 255u, 255u, 14u }, InspectorMetrics::PreviewRadius, 1.0f);
         // Compass letters & captions matching environment-light__0
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 12.0f,  Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "W");
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Well.X + 44.0f,  Well.Bottom() - 15.0f }, 8.0f, InspectorMetrics::DimInk, "side view \xC2\xB7 looking north");

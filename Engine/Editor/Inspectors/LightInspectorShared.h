@@ -65,7 +65,18 @@ inline float ConstructGiantMetric(
     return Y + 82.0f;
 }
 
-// 1:1 HTML Source study 2-tile KPI row + "Source & colour" bottom teaser inside the Overview hero card
+inline float ComputeOverviewPreviewHeight(float BodyW) noexcept
+{
+    return std::clamp(std::round(BodyW * (320.0f / 444.0f)), 176.0f, 218.0f);
+}
+
+inline float ComputeOverviewCardHeight(float ImgHeight) noexcept
+{
+    // 196px header/metric/summary + ImgHeight + 24px gap + 156px study tiles & finished footer
+    return 196.0f + ImgHeight + 24.0f + 156.0f;
+}
+
+// Clean Source study 2-tile KPI row + finished single-row footer bar inside the Overview hero card
 inline void ConstructStudyTilesAndFooter(
     PixelSpace& Surface, float BodyX, float Y, float BodyW,
     const char* StudyCaption,
@@ -73,35 +84,46 @@ inline void ConstructStudyTilesAndFooter(
     const char* RightLabel, const char* RightValue, const char* RightValueLine2,
     const char* FooterHeading, const char* FooterField) noexcept
 {
-    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 10.6f, InspectorMetrics::DimInk, StudyCaption);
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface, FontWeightClass::Regular, { BodyX, Y }, BodyW, 10.6f, InspectorMetrics::DimInk, StudyCaption);
     const float TileY = Y + 18.0f;
     const float Gap   = 8.0f;
     const float TileW = std::floor((BodyW - Gap) * 0.5f);
-    const float TileH = 92.0f;
+    const float TileH = 82.0f;
+    const float Val1Px = (TileW < 128.0f) ? 17.5f : 20.0f;
+    const float Val2Px = (TileW < 128.0f) ? 15.5f : 17.5f;
 
     const auto DrawTile = [&](float TX, const char* Lbl, const char* V1, const char* V2)
     {
         const Rectangle2D T { TX, TileY, TileW, TileH };
-        Surface.FillRectangle(T, TileFill, 14.0f);
-        Surface.StrokeRectangle(T, TileBorder, 14.0f, 1.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 12.0f }, 10.6f, InspectorMetrics::DimInk, Lbl);
+        Surface.FillRectangle(T, TileFill, InspectorMetrics::QuickTileRadius);
+        Surface.StrokeRectangle(T, TileBorder, InspectorMetrics::QuickTileRadius, 1.0f);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 11.0f }, T.Width - 22.0f, 10.2f, InspectorMetrics::DimInk, Lbl);
         if (V2 && V2[0] != '\0')
         {
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 38.0f }, 22.0f, ColorRgba{ 244u, 244u, 244u, 255u }, V1);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 62.0f }, 22.0f, ColorRgba{ 244u, 244u, 244u, 255u }, V2);
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 33.0f }, T.Width - 22.0f, Val2Px, ColorRgba{ 244u, 244u, 244u, 255u }, V1);
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 54.0f }, T.Width - 22.0f, Val2Px, ColorRgba{ 244u, 244u, 244u, 255u }, V2);
         }
         else
         {
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 46.0f }, 24.0f, ColorRgba{ 244u, 244u, 244u, 255u }, V1);
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { T.X + 12.0f, T.Y + 42.0f }, T.Width - 22.0f, Val1Px, ColorRgba{ 244u, 244u, 244u, 255u }, V1);
         }
     };
     DrawTile(BodyX, LeftLabel, LeftValue, LeftValueLine2);
     DrawTile(BodyX + TileW + Gap, RightLabel, RightValue, RightValueLine2);
 
-    const float FootY = TileY + TileH + 22.0f;
+    const float FootY = TileY + TileH + 16.0f;
     Surface.StrokeLine({ BodyX, FootY }, { BodyX + BodyW, FootY }, DividerInk, 1.0f);
-    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FootY + 18.0f }, 12.4f, InspectorMetrics::MutedInk, FooterHeading);
-    WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, FootY + 48.0f }, 11.4f, InspectorMetrics::MutedInk, FooterField);
+    const float FieldW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.6f, FooterField);
+    const float HeadMaxW = std::max(40.0f, BodyW - FieldW - 12.0f);
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface, FontWeightClass::Regular, { BodyX, FootY + 13.0f }, HeadMaxW, 11.4f, InspectorMetrics::MutedInk, FooterHeading);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface, FontWeightClass::Regular, { BodyX + BodyW - FieldW, FootY + 14.0f }, 10.6f, InspectorMetrics::DimInk, FooterField);
 }
 
 // 1:1 HTML Tab 2 "Transform / WORLD SPACE" card matching Spot/Area/Tube/LED/Strip
@@ -111,9 +133,9 @@ inline float ConstructTransformCard(
 {
     const Rectangle2D Card { WideX, CursorY, WideW, 214.0f };
     ConstructDarkLuminaireCard(Surface, Card);
-    const float PadX  = 25.0f;
+    const float PadX  = std::clamp(WideW * 0.065f, 14.0f, 22.0f);
     const float BodyX = WideX + PadX;
-    const float BodyW = WideW - PadX * 2.0f;
+    const float BodyW = std::max(100.0f, WideW - PadX * 2.0f);
 
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Transform");
     const char* Tag = "WORLD SPACE";

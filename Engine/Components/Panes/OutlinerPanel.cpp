@@ -1568,6 +1568,19 @@ void OutlinerPanel::Render(
             {
                 WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvSymbol, IconOrigin, 24.0f, RowAlpha);
             }
+            else if (Entry->Category == ConstructSlotCategory::Folder)
+            {
+                EnvironmentSymbolCategory FolderSym = EnvironmentSymbolCategory::FolderGeneric;
+                if (Entry->Title == "World" || Entry->Title == "Environment" || Entry->Title == "Sky")
+                {
+                    FolderSym = EnvironmentSymbolCategory::FolderWorld;
+                }
+                else if (Entry->Title == "Water" || Entry->Title == "Ocean" || Entry->Title == "Fluids")
+                {
+                    FolderSym = EnvironmentSymbolCategory::FolderWater;
+                }
+                WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, FolderSym, IconOrigin, 24.0f, RowAlpha);
+            }
             else
             {
                 WorkspaceAppearance::ConstructSlotCategoryIcon(
@@ -1822,16 +1835,28 @@ void OutlinerPanel::Render(
         for (const auto& Preset : ConstructTemplates)
         {
             DropdownDirectiveEntry Row{};
-            Row.Label       = Preset.DropdownLabel.c_str();
-            Row.LeadingTint = WorkspaceAppearance::QueryCategoryAccent(Preset.Category, WorkspaceSurfaceColors::ShowcaseSage);
+            Row.Label = Preset.DropdownLabel.c_str();
+            EnvironmentSymbolCategory Sym = WorkspaceAppearance::ResolveEnvironmentSymbolFromTag(Preset.DomainTag);
+            if (Sym == EnvironmentSymbolCategory::None)
+            {
+                switch (Preset.Category)
+                {
+                    case ConstructSlotCategory::Folder:         Sym = EnvironmentSymbolCategory::FolderGeneric; break;
+                    case ConstructSlotCategory::GeometryVolume: Sym = EnvironmentSymbolCategory::Primitive;     break;
+                    case ConstructSlotCategory::LayerGroup:     Sym = EnvironmentSymbolCategory::Collection;    break;
+                    case ConstructSlotCategory::PointLuminaire: Sym = EnvironmentSymbolCategory::PointLight;    break;
+                    case ConstructSlotCategory::OpticsCamera:   Sym = EnvironmentSymbolCategory::Camera;        break;
+                }
+            }
+            Row.LeadingSymbol = static_cast<uint8_t>(Sym);
             SheetRows.push_back(Row);
         }
 
         DropdownDirectiveEntry FolderRow{};
-        FolderRow.Label        = "+ Add Folder";
-        FolderRow.ShortcutHint = "Ctrl+G";
-        FolderRow.LeadingTint  = WorkspaceSurfaceColors::ShowcaseSage;
-        FolderRow.DividerAbove = true;
+        FolderRow.Label         = "+ Add Folder";
+        FolderRow.ShortcutHint  = "Ctrl+G";
+        FolderRow.LeadingSymbol = static_cast<uint8_t>(EnvironmentSymbolCategory::FolderGeneric);
+        FolderRow.DividerAbove  = true;
         SheetRows.push_back(FolderRow);
 
         const float       SheetW = 216.0f;

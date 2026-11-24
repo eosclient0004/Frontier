@@ -104,15 +104,12 @@ float LedLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdatePackageSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.FillRectangle({ BodyX + 2.0f, Card.Y + 24.0f, 16.0f, 16.0f }, ColorRgba{ 88u, 76u, 54u, 255u }, 3.0f);
-        Surface.FillRectangle({ BodyX + 5.0f, Card.Y + 27.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
-        Surface.FillRectangle({ BodyX + 11.0f, Card.Y + 27.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
-        Surface.FillRectangle({ BodyX + 5.0f, Card.Y + 33.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
-        Surface.FillRectangle({ BodyX + 11.0f, Card.Y + 33.0f, 4.0f, 4.0f }, ColorRgba{ 246u, 212u, 152u, 255u }, 1.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "LED emitter");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::LedLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "LED emitter");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, EstLm, "lm", "Estimated luminous flux");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -123,8 +120,8 @@ float LedLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        PackagePreview.Present(Surface, ImgBox, 8.0f);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        PackagePreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
         char OptCap[24]{};
         std::snprintf(OptCap, sizeof(OptCap), "%.0f\xC2\xB0 OPTIC", Instance.OpticAngleDeg);
         const float OCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, OptCap);
@@ -132,14 +129,14 @@ float LedLightInspector::Construct(
         char PkgCap[28]{};
         std::snprintf(PkgCap, sizeof(PkgCap), "%.0f mm PACKAGE", Instance.PackageDiameterMm);
         const float PCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, PkgCap);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - PCW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, PkgCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - PCW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, PkgCap);
 
         char PwrBuf[16]{}, EffBuf[24]{};
         std::snprintf(PwrBuf, sizeof(PwrBuf), "%.0f W", Instance.DriverWatts);
         std::snprintf(EffBuf, sizeof(EffBuf), "%.0f lm/W", Instance.EfficacyLmPerW);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
             "Driver power", PwrBuf, nullptr,
             "Efficacy target", EffBuf, nullptr,
             "Driver & colour", "Driver power");
@@ -147,8 +144,8 @@ float LedLightInspector::Construct(
     }
     else
     {
-        // TAB 2: SOURCE — Package & optic (h = 394) + Transform (WORLD SPACE)
-        const Rectangle2D Card { WideX, CursorY, WideW, 394.0f };
+        // TAB 2: SOURCE — Package & optic (h = 426) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 426.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Package & optic");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");

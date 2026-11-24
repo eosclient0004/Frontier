@@ -98,11 +98,12 @@ float TubeLightInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateTubeSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.StrokeRectangle({ BodyX + 2.0f, Card.Y + 25.0f, 16.0f, 11.0f }, ColorRgba{ 168u, 162u, 146u, 220u }, 3.0f, 1.2f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Linear radiance");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::TubeLight, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Linear radiance");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, Instance.LuminousFlux, "lm", "Authored luminous flux");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -113,34 +114,35 @@ float TubeLightInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        TubePreview.Present(Surface, ImgBox, 8.0f);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        TubePreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
         char RadTop[24]{};
         std::snprintf(RadTop, sizeof(RadTop), "%.0f mm RADIUS", Instance.TubeRadiusMeters * 1000.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, RadTop);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, RadTop);
         const char* RadEm = "RADIAL EMISSION";
         const float REW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, RadEm);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - REW - 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, RadEm);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - REW - 4.0f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, RadEm);
         char LenCap[28]{};
         std::snprintf(LenCap, sizeof(LenCap), "%.1f m LENGTH", Instance.LengthMeters);
         const float LCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, LenCap);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - LCW * 0.5f, ImgBox.Bottom() - 12.0f }, 8.2f, InspectorMetrics::DimInk, LenCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - LCW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, LenCap);
 
         char LinBuf[24]{}, RadVal[24]{};
         LightUi::FormatWithCommas(LmPerM, LinBuf, sizeof(LinBuf));
+        std::string LinStr = std::string(LinBuf) + " lm/m";
         std::snprintf(RadVal, sizeof(RadVal), "%.0f mm", Instance.TubeRadiusMeters * 1000.0f);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
-            "Linear output", LinBuf, "lm/m",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
+            "Linear output", LinStr.c_str(), nullptr,
             "Tube radius", RadVal, nullptr,
             "Source & colour", "Luminous flux");
         CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        // TAB 2: SOURCE — Emitter dimensions (h = 446) + Transform (WORLD SPACE)
-        const Rectangle2D Card { WideX, CursorY, WideW, 446.0f };
+        // TAB 2: SOURCE — Emitter dimensions (h = 488) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 488.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Emitter dimensions");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");

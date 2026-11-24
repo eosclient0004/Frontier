@@ -98,11 +98,12 @@ float LedStripInspector::Construct(
     if (ActivePage == 0u)
     {
         UpdateRibbonSurface(Instance);
-        const Rectangle2D Card { WideX, CursorY, WideW, 690.0f };
+        const float ImgH = LightUi::ComputeOverviewPreviewHeight(BodyW);
+        const Rectangle2D Card { WideX, CursorY, WideW, LightUi::ComputeOverviewCardHeight(ImgH) };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
 
-        Surface.StrokeCircle({ BodyX + 8.0f, Card.Y + 30.0f }, 5.0f, ColorRgba{ 220u, 220u, 224u, 220u }, 1.2f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 26.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Ribbon light");
+        WorkspaceAppearance::ConstructEnvironmentSymbolIcon(Surface, EnvironmentSymbolCategory::LedStrip, { BodyX, Card.Y + 21.0f }, 20.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 28.0f, Card.Y + 23.0f }, 16.4f, InspectorMetrics::HeadingInk, "Ribbon light");
 
         float Y = LightUi::ConstructGiantMetric(Surface, BodyX, Card.Y + 64.0f, TotalLm, "lm", "Estimated luminous flux");
         Surface.StrokeLine({ BodyX, Y }, { BodyX + BodyW, Y }, LightUi::DividerInk, 1.0f);
@@ -113,25 +114,25 @@ float LedStripInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Y }, 11.8f, InspectorMetrics::MutedInk, SumBuf);
         Y += 26.0f;
 
-        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, 206.0f };
-        RibbonPreview.Present(Surface, ImgBox, 8.0f);
+        const Rectangle2D ImgBox { BodyX, Y + 8.0f, BodyW, ImgH };
+        RibbonPreview.Present(Surface, ImgBox, InspectorMetrics::PreviewRadius, ColorRgba{ 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, LightUi::CardFill);
         char VoltBuf[16]{};
         std::snprintf(VoltBuf, sizeof(VoltBuf), "%.0f V DC", Instance.SupplyVolts);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, VoltBuf);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.X + 4.0f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, VoltBuf);
         const char* PkgTxt = Instance.OpalDiffuser ? "OPAL DIFFUSER" : "EXPOSED PACKAGES";
         const float PTW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, PkgTxt);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - PTW - 4.0f, ImgBox.Y + 8.0f }, 8.2f, InspectorMetrics::DimInk, PkgTxt);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Right() - PTW - 4.0f, ImgBox.Y + 6.0f }, 8.2f, InspectorMetrics::DimInk, PkgTxt);
         char RunCap[40]{};
         std::snprintf(RunCap, sizeof(RunCap), "%.1f m RUN \xC2\xB7 %d EMITTERS", Instance.LengthMeters, LedCount);
         const float RCW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.2f, RunCap);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - RCW * 0.5f, ImgBox.Bottom() - 10.0f }, 8.2f, InspectorMetrics::DimInk, RunCap);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { ImgBox.Center().X - RCW * 0.5f, ImgBox.Bottom() - 14.0f }, 8.2f, InspectorMetrics::DimInk, RunCap);
 
         char LoadBuf[24]{}, CntBuf[24]{};
         std::snprintf(LoadBuf, sizeof(LoadBuf), "%.1f W", TotalW);
         std::snprintf(CntBuf,  sizeof(CntBuf),  "%d LEDs", LedCount);
         LightUi::ConstructStudyTilesAndFooter(
-            Surface, BodyX, ImgBox.Bottom() + 42.0f, BodyW,
-            "Source study \xC2\xB7 HTML authoring",
+            Surface, BodyX, ImgBox.Bottom() + 24.0f, BodyW,
+            "Source study \xC2\xB7 photometric summary",
             "Connected load", LoadBuf, nullptr,
             "Emitter count", CntBuf, nullptr,
             "Output per metre", "Flux per metre");
@@ -139,8 +140,8 @@ float LedStripInspector::Construct(
     }
     else
     {
-        // TAB 2: SOURCE — Layout & segments (h = 508) + Transform (WORLD SPACE)
-        const Rectangle2D Card { WideX, CursorY, WideW, 508.0f };
+        // TAB 2: SOURCE — Layout & segments (h = 542) + Transform (WORLD SPACE)
+        const Rectangle2D Card { WideX, CursorY, WideW, 542.0f };
         LightUi::ConstructDarkLuminaireCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Layout & segments");
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
