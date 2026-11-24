@@ -116,13 +116,13 @@ float EnvironmentLightInspector::Construct(
     ViewportDisplaySettings* /*DisplaySettings*/,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    const float WideX = LeftX - 20.0f;
-    const float WideW = InnerWidth + 40.0f;
+    const float WideX = LeftX;
+    const float WideW = InnerWidth;
     static constexpr std::array<const char*, 2u> Pages = {{ "Overview", "Settings" }};
-    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY - 18.0f, WideW, Pages, ActivePage, Input, OutPageSwitched);
-    const float PadX  = 25.0f;
+    float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, WideX, TopY, WideW, Pages, ActivePage, Input, OutPageSwitched);
+    const float PadX  = std::clamp(WideW * 0.065f, 14.0f, 22.0f);
     const float BodyX = WideX + PadX;
-    const float BodyW = WideW - PadX * 2.0f;
+    const float BodyW = std::max(100.0f, WideW - PadX * 2.0f);
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
     static constexpr std::array<const char*, 5u> SourceNames = {{

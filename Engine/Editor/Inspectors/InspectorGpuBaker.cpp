@@ -4,6 +4,7 @@
 // 🧩 Implementation of pure-GPU Vulkan compute Inspector & Thumbnail baker (zero-copy GPU direct ImGui images + persistent buffers)
 
 #include "Engine/Editor/Inspectors/InspectorGpuBaker.h"
+#include "Engine/GeometricRaster/Atmosphere/LunarStarfieldSequence.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
 
@@ -62,6 +63,8 @@ struct InspectorGpuBakerState
     uint64_t                                            OutputCapacityBytes = 0ull;
     GeometricRaster::DeviceBufferResource               DeviceDirectScratchBuffer {};
     uint64_t                                            DeviceDirectScratchCapacity = 0ull;
+    GeometricRaster::DeviceBufferResource               LunarAtlasBuffer {};
+    uint64_t                                            LunarAtlasBytes = 0ull;
     uint64_t                                            LastDirectTimelineSignal = 0ull;
     VkCommandBuffer                                     LastDirectCmdBuffer      = VK_NULL_HANDLE;
     std::unordered_map<uint64_t, DirectGpuSurfaceEntry> DirectSurfaces {};
@@ -106,6 +109,7 @@ void ReleaseStateResourcesLocked(InspectorGpuBakerState& S) noexcept
         S.Device->ReleaseBuffer(S.ThumbnailUniformBuffer);
         S.Device->ReleaseBuffer(S.OutputBuffer);
         S.Device->ReleaseBuffer(S.DeviceDirectScratchBuffer);
+        S.Device->ReleaseBuffer(S.LunarAtlasBuffer);
     }
     S.DirectSurfaces.clear();
     S.UniformBuffer               = {};
@@ -114,6 +118,37 @@ void ReleaseStateResourcesLocked(InspectorGpuBakerState& S) noexcept
     S.OutputCapacityBytes         = 0ull;
     S.DeviceDirectScratchBuffer   = {};
     S.DeviceDirectScratchCapacity = 0ull;
+    S.LunarAtlasBuffer            = {};
+    S.LunarAtlasBytes             = 0ull;
+}
+
+bool EnsureLunarAtlasBufferLocked(InspectorGpuBakerState& S)
+{
+    if (S.LunarAtlasBuffer.BufferHandle != VK_NULL_HANDLE && S.LunarAtlasBytes > 0ull)
+    {
+        return true;
+    }
+    if (S.Device == nullptr || !S.Device->Ready())
+    {
+        return false;
+    }
+    const auto& AtlasRgba = GeometricRaster::LunarStarfieldSequence::QueryLunarSurfaceAtlasRgba8();
+    const uint64_t Bytes  = static_cast<uint64_t>(AtlasRgba.size());
+    if (Bytes < 4ull)
+    {
+        return false;
+    }
+    S.LunarAtlasBuffer = S.Encoder.AllocateHostWritableBuffer(Bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    if (S.LunarAtlasBuffer.BufferHandle == VK_NULL_HANDLE || S.LunarAtlasBuffer.HostAddress == nullptr)
+    {
+        S.Device->ReleaseBuffer(S.LunarAtlasBuffer);
+        S.LunarAtlasBuffer = {};
+        S.LunarAtlasBytes  = 0ull;
+        return false;
+    }
+    std::memcpy(S.LunarAtlasBuffer.HostAddress, AtlasRgba.data(), static_cast<std::size_t>(Bytes));
+    S.LunarAtlasBytes = Bytes;
+    return true;
 }
 
 void SyncDirectHookLocked(InspectorGpuBakerState& S)
@@ -162,21 +197,26 @@ bool InspectorGpuBaker::AttachDevice(
         return false;
     }
 
-    const std::array<VkDescriptorType, 2u> SlotTypes {{
+    const std::array<VkDescriptorType, 3u> PreviewSlotTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    S.ProgramHandle = S.Encoder.RegisterProgram(SpvPath, SlotTypes, "ComputeEntry");
+    S.ProgramHandle = S.Encoder.RegisterProgram(SpvPath, PreviewSlotTypes, "ComputeEntry");
     if (S.ProgramHandle == UINT32_MAX)
     {
         S.Encoder.TeardownEncoder();
         return false;
     }
 
+    const std::array<VkDescriptorType, 2u> ThumbSlotTypes {{
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+    }};
     const std::filesystem::path ThumbSpvPath = ShaderDirectory / "ThumbnailSpecimenCompute.comp.spv";
     if (std::filesystem::exists(ThumbSpvPath))
     {
-        S.ThumbnailProgramHandle = S.Encoder.RegisterProgram(ThumbSpvPath, SlotTypes, "ComputeEntry");
+        S.ThumbnailProgramHandle = S.Encoder.RegisterProgram(ThumbSpvPath, ThumbSlotTypes, "ComputeEntry");
     }
 
     S.UniformBuffer = S.Encoder.AllocateHostWritableBuffer(sizeof(InspectorPreviewUniformStd140), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -365,6 +405,11 @@ bool InspectorGpuBaker::DispatchBakeDirectToImage(
     }
     std::memcpy(S.UniformBuffer.HostAddress, &Uni, sizeof(Uni));
 
+    if (!EnsureLunarAtlasBufferLocked(S))
+    {
+        return false;
+    }
+
     S.Encoder.ResetTransientDescriptors();
     VkCommandBuffer Cmd = S.Device->BeginSingleTimeCommands();
     if (Cmd == VK_NULL_HANDLE)
@@ -372,9 +417,10 @@ bool InspectorGpuBaker::DispatchBakeDirectToImage(
         return false;
     }
 
-    const std::array<GeometricRaster::ComputeSlotDescriptor, 2u> Slots {{
+    const std::array<GeometricRaster::ComputeSlotDescriptor, 3u> Slots {{
         { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, S.UniformBuffer.BufferHandle,             sizeof(InspectorPreviewUniformStd140) },
         { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, S.DeviceDirectScratchBuffer.BufferHandle, OutBytes },
+        { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, S.LunarAtlasBuffer.BufferHandle,          S.LunarAtlasBytes },
     }};
     const uint32_t GX = (WidthPx + 7u) / 8u;
     const uint32_t GY = (HeightPx + 7u) / 8u;
@@ -514,14 +560,21 @@ bool InspectorGpuBaker::DispatchBake(
     }
     std::memcpy(S.UniformBuffer.HostAddress, &Uni, sizeof(Uni));
 
+    if (!EnsureLunarAtlasBufferLocked(S))
+    {
+        S.CpuFallbackCount.fetch_add(1ull, std::memory_order_relaxed);
+        return false;
+    }
+
     bool Ok = false;
     S.Encoder.ResetTransientDescriptors();
     VkCommandBuffer Cmd = S.Device->BeginSingleTimeCommands();
     if (Cmd != VK_NULL_HANDLE)
     {
-        const std::array<GeometricRaster::ComputeSlotDescriptor, 2u> Slots {{
+        const std::array<GeometricRaster::ComputeSlotDescriptor, 3u> Slots {{
             { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, S.UniformBuffer.BufferHandle, sizeof(InspectorPreviewUniformStd140) },
             { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, S.OutputBuffer.BufferHandle,  OutBytes },
+            { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, S.LunarAtlasBuffer.BufferHandle, S.LunarAtlasBytes },
         }};
         const uint32_t GX = (WidthPx + 7u) / 8u;
         const uint32_t GY = (HeightPx + 7u) / 8u;

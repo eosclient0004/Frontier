@@ -425,12 +425,8 @@ float CameraSettingsInspector::Construct(
     ViewportDisplaySettings* DisplaySettings,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
-    // HTML .rs-inspector / .rs-card spans x=14..326 (w=312)
-    LeftX      -= 20.0f;
-    InnerWidth += 40.0f;
-    TopY       -= 4.0f;
-    const float PadX  = InspectorMetrics::SectionPadX;
-    const float BodyW = InnerWidth - PadX * 2.0f;
+    const float PadX  = std::clamp(InnerWidth * 0.065f, 14.0f, 22.0f);
+    const float BodyW = std::max(100.0f, InnerWidth - PadX * 2.0f);
     const Point2D Cur { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool Clicked = Input.PrimaryPointer.Pressed;
 
@@ -439,8 +435,8 @@ float CameraSettingsInspector::Construct(
     {
         const Rectangle2D Banner { LeftX, CursorY, InnerWidth, 62.0f };
         const bool Hov = Banner.Contains(Cur);
-        Surface.FillRectangle(Banner, Hov ? ColorRgba{ 26u, 27u, 31u, 255u } : ColorRgba{ 20u, 21u, 24u, 255u }, 14.0f);
-        Surface.StrokeRectangle(Banner, ColorRgba{ 255u, 255u, 255u, 18u }, 14.0f, 1.0f);
+        Surface.FillRectangle(Banner, Hov ? ColorRgba{ 26u, 27u, 31u, 255u } : ColorRgba{ 20u, 21u, 24u, 255u }, InspectorMetrics::SectionRadius);
+        Surface.StrokeRectangle(Banner, ColorRgba{ 255u, 255u, 255u, 18u }, InspectorMetrics::SectionRadius, 1.0f);
         InspectorPrimitives::ConstructSwitchSymbol(
             Surface, InspectorSwitchSymbol::CameraLens, { Banner.X + 24.0f, Banner.Center().Y }, 18.0f,
             ColorRgba{ 166u, 170u, 178u, 255u }, ColorRgba{ 20u, 21u, 24u, 255u });
@@ -642,9 +638,15 @@ float CameraSettingsInspector::Construct(
 
         // Dark glossy hero stage box containing sphere + bold title + subtitle + capability tag chips
         const Rectangle2D Stage { LeftX + PadX, Y, BodyW, 210.0f };
-        Surface.FillRectangle(Stage, ColorRgba{ 21u, 23u, 28u, 255u }, 14.0f);
-        Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, 14.0f, 1.0f);
-        RendererHeroPreview.Present(Surface, { Stage.X + 8.0f, Stage.Y + 8.0f, Stage.Width - 16.0f, 118.0f }, 10.0f);
+        Surface.FillRectangle(Stage, ColorRgba{ 21u, 23u, 28u, 255u }, InspectorMetrics::QuickTileRadius);
+        Surface.StrokeRectangle(Stage, ColorRgba{ 255u, 255u, 255u, 14u }, InspectorMetrics::QuickTileRadius, 1.0f);
+        RendererHeroPreview.Present(
+            Surface,
+            { Stage.X + 8.0f, Stage.Y + 8.0f, Stage.Width - 16.0f, 118.0f },
+            InspectorMetrics::PreviewRadius,
+            { 255u, 255u, 255u, 255u },
+            InspectorPreviewFitMode::Contain,
+            ColorRgba{ 0u, 0u, 0u, 0u });
 
         const float TitleW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.5f, HeroTitles[EIdx]);
         WorkspaceAppearance::ConstructWeightedText(

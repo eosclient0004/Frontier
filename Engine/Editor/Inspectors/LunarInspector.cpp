@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/LunarInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/GeometricRaster/Atmosphere/LunarStarfieldSequence.h"
 
 #include <algorithm>
 #include <array>
@@ -22,36 +23,48 @@ namespace
     return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
 }
 
-[[nodiscard]] float HashLu(int X, int Y, int Seed) noexcept
+void SampleLunarAtlasBilinear(
+    const std::vector<uint8_t>& Atlas,
+    uint32_t PresetIdx, float U, float V,
+    float& OutR, float& OutG, float& OutB) noexcept
 {
-    uint32_t H = static_cast<uint32_t>(X) * 374761393u + static_cast<uint32_t>(Y) * 668265263u + static_cast<uint32_t>(Seed) * 1442695041u;
-    H = (H ^ (H >> 13u)) * 1274126177u;
-    return static_cast<float>((H ^ (H >> 16u)) & 0xFFFFu) / 65535.0f;
-}
-
-[[nodiscard]] float SmoothNoiseLu(float X, float Y, int Seed) noexcept
-{
-    const int XI = static_cast<int>(std::floor(X));
-    const int YI = static_cast<int>(std::floor(Y));
-    const float FX = X - static_cast<float>(XI);
-    const float FY = Y - static_cast<float>(YI);
-    const float UX = FX * FX * (3.0f - 2.0f * FX);
-    const float UY = FY * FY * (3.0f - 2.0f * FY);
-    const float A = HashLu(XI, YI, Seed), B = HashLu(XI + 1, YI, Seed);
-    const float C = HashLu(XI, YI + 1, Seed), D = HashLu(XI + 1, YI + 1, Seed);
-    return A + (B - A) * UX + (C - A) * UY + (A - B - C + D) * UX * UY;
-}
-
-[[nodiscard]] float FbmLu(float X, float Y, int Seed) noexcept
-{
-    float Sum = 0.0f, Amp = 0.5f, Freq = 1.0f;
-    for (int I = 0; I < 4; ++I)
+    const uint32_t W = GeometricRaster::LunarStarfieldSequence::AtlasTileWidthPx;
+    const uint32_t H = GeometricRaster::LunarStarfieldSequence::AtlasTileHeightPx;
+    const uint32_t SafePreset = std::min(PresetIdx, GeometricRaster::LunarStarfieldSequence::AtlasPresetCount - 1u);
+    const std::size_t ExpectedSize = static_cast<std::size_t>(W) * H * GeometricRaster::LunarStarfieldSequence::AtlasPresetCount * 4u;
+    if (Atlas.size() < ExpectedSize)
     {
-        Sum += Amp * SmoothNoiseLu(X * Freq, Y * Freq, Seed + I * 31);
-        Freq *= 2.07f;
-        Amp *= 0.5f;
+        OutR = 200.0f; OutG = 196.0f; OutB = 188.0f;
+        return;
     }
-    return Sum;
+
+    const float WrappedU = U - std::floor(U);
+    const float ClampedV = std::clamp(V, 0.0f, 1.0f);
+    const float FX = WrappedU * static_cast<float>(W) - 0.5f;
+    const float FY = ClampedV * static_cast<float>(H) - 0.5f;
+    const int32_t X0 = ((static_cast<int32_t>(std::floor(FX)) % static_cast<int32_t>(W)) + static_cast<int32_t>(W)) % static_cast<int32_t>(W);
+    const int32_t X1 = (X0 + 1) % static_cast<int32_t>(W);
+    const int32_t Y0 = std::clamp(static_cast<int32_t>(std::floor(FY)), 0, static_cast<int32_t>(H) - 1);
+    const int32_t Y1 = std::min(Y0 + 1, static_cast<int32_t>(H) - 1);
+    const float TX = std::clamp(FX - std::floor(FX), 0.0f, 1.0f);
+    const float TY = std::clamp(FY - std::floor(FY), 0.0f, 1.0f);
+
+    const std::size_t TileRowOff = static_cast<std::size_t>(SafePreset) * H;
+    const auto Fetch = [&](int32_t X, int32_t Y, uint32_t C) noexcept -> float
+    {
+        return static_cast<float>(Atlas[((TileRowOff + static_cast<std::size_t>(Y)) * W + static_cast<std::size_t>(X)) * 4u + C]);
+    };
+
+    const auto Bilerp = [&](uint32_t C) noexcept -> float
+    {
+        const float Top = Fetch(X0, Y0, C) + (Fetch(X1, Y0, C) - Fetch(X0, Y0, C)) * TX;
+        const float Bot = Fetch(X0, Y1, C) + (Fetch(X1, Y1, C) - Fetch(X0, Y1, C)) * TX;
+        return Top + (Bot - Top) * TY;
+    };
+
+    OutR = Bilerp(0u);
+    OutG = Bilerp(1u);
+    OutB = Bilerp(2u);
 }
 
 } // namespace
@@ -62,15 +75,28 @@ void LunarInspector::RasterizeLunarGlobe(
     bool ApplyPhaseShadow, bool IncludeNightBackdrop, uint8_t OverridePresetIndex)
 {
     const uint8_t Preset = (OverridePresetIndex < 6u) ? OverridePresetIndex : static_cast<uint8_t>(Moon.SurfacePreset);
-    uint64_t Key = 0x104A0001ull ^ (static_cast<uint64_t>(Preset) << 8u) ^ (ApplyPhaseShadow ? 0x10ull : 0x0ull) ^ (IncludeNightBackdrop ? 0x20ull : 0x0ull);
+    const uint32_t BakeFlags = static_cast<uint32_t>(Preset & 7u) |
+                               (ApplyPhaseShadow ? 8u : 0u) |
+                               (IncludeNightBackdrop ? 16u : 0u);
+    uint64_t Key = 0x104A0002ull ^ (static_cast<uint64_t>(BakeFlags) << 8u);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Moon.SynodicPhaseFraction);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Moon.BrightnessMultiplier);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Moon.HaloGlowMultiplier);
     Key = InspectorPrimitives::MixRevisionFloat(Key, DiscRadiusPx);
 
-    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::LunarPhase, static_cast<uint32_t>(Preset), { Moon.SynodicPhaseFraction, Moon.BrightnessMultiplier, Moon.HaloGlowMultiplier, DiscRadiusPx } };
+    const float NormDiscR = DiscRadiusPx / std::max(1.0f, static_cast<float>(std::min(WidthPx, HeightPx)) * 0.5f);
+    const auto PresetTint = GeometricRaster::LunarStarfieldSequence::QueryPresetTint(static_cast<GeometricRaster::LunarSurfacePreset>(Preset));
+    InspectorGpuBakeSpec GpuSpec {
+        InspectorGpuBakeMode::LunarPhase,
+        BakeFlags,
+        { Moon.SynodicPhaseFraction, Moon.BrightnessMultiplier, Moon.HaloGlowMultiplier, NormDiscR },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+        { PresetTint.R, PresetTint.G, PresetTint.B, 1.0f },
+        { 0.04f, 0.06f, 0.12f, 1.0f }
+    };
     Target.EnsureUpdatedGpu(Key, WidthPx, HeightPx, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
+        const auto& Atlas = GeometricRaster::LunarStarfieldSequence::QueryLunarSurfaceAtlasRgba8();
         const float Cx = static_cast<float>(WidthPx) * 0.5f;
         const float Cy = static_cast<float>(HeightPx) * 0.5f;
         const float PhaseRad = (Moon.SynodicPhaseFraction - 0.5f) * 6.2831853f;
@@ -113,32 +139,23 @@ void LunarInspector::RasterizeLunarGlobe(
                     const float Ny = std::clamp(DY / std::max(1.0f, DiscRadiusPx), -1.0f, 1.0f);
                     const float Nz = std::sqrt(std::max(0.0f, 1.0f - Nx * Nx - Ny * Ny));
 
-                    // Realistic mare + highland crater texture
-                    const float Mare = FbmLu(Nx * 2.6f + 3.1f, Ny * 2.6f + 1.7f, 17);
-                    const float Fine = FbmLu(Nx * 8.5f + 9.2f, Ny * 8.5f + 5.4f, 53);
-                    const float Albedo = std::clamp(0.46f + (Mare - 0.45f) * 0.72f + (Fine - 0.5f) * 0.24f, 0.20f, 0.96f);
+                    // Sample real 2K Lunar Surface Atlas texture from EngineContent/Skies/LunarSurfaceAtlas.ImageSpace
+                    const float LonU = std::atan2(Nx, Nz) * (0.5f / 3.14159265f) + 0.5f;
+                    const float LatV = std::acos(std::clamp(-Ny, -1.0f, 1.0f)) / 3.14159265f;
+                    float TexR = 200.0f, TexG = 196.0f, TexB = 188.0f;
+                    SampleLunarAtlasBilinear(Atlas, Preset, LonU, LatV, TexR, TexG, TexB);
 
-                    float Light = 0.88f * std::pow(Nz, 0.28f);
+                    float Light = 0.96f * (0.58f + 0.42f * std::pow(Nz, 0.30f));
                     if (ApplyPhaseShadow)
                     {
                         const float NdotL = Nx * Lx + Ny * Ly + Nz * Lz;
-                        const float Lit   = std::clamp((NdotL + 0.14f) / 0.34f, 0.0f, 1.0f);
-                        Light = (0.14f + 0.86f * Lit) * (0.45f + 0.55f * std::pow(Nz, 0.35f));
+                        const float Lit   = std::clamp((NdotL + 0.10f) / 0.28f, 0.0f, 1.0f);
+                        Light = (0.09f + 0.96f * Lit) * (0.55f + 0.45f * std::pow(Nz, 0.32f));
                     }
 
-                    float MR = 216.0f, MG = 212.0f, MB = 204.0f;
-                    if (Preset == 1u) // Ember (Mars/volcanic)
-                    {
-                        MR = 224.0f; MG = 112.0f; MB = 64.0f;
-                    }
-                    else if (Preset == 2u) // Glacier
-                    {
-                        MR = 186.0f; MG = 214.0f; MB = 236.0f;
-                    }
-
-                    const float GR = MR * Albedo * Light;
-                    const float GG = MG * Albedo * Light;
-                    const float GB = MB * Albedo * Light;
+                    const float GR = TexR * Light;
+                    const float GG = TexG * Light;
+                    const float GB = TexB * Light;
                     if (IncludeNightBackdrop)
                     {
                         R = R * (1.0f - EdgeCov) + GR * EdgeCov;
@@ -170,9 +187,9 @@ float LunarInspector::Construct(
     static constexpr std::array<const char*, 3u> Pages = {{ "Overview", "Appearance", "Position" }};
     float CursorY = InspectorPrimitives::ConstructPageStrip(Surface, LeftX, TopY, InnerWidth, Pages, ActivePage, Input, OutPageSwitched);
     auto& Moon    = Instance.Moon;
-    const float PadX  = 25.0f;
+    const float PadX  = std::clamp(InnerWidth * 0.065f, 14.0f, 22.0f);
     const float BodyX = LeftX + PadX;
-    const float BodyW = InnerWidth - PadX * 2.0f;
+    const float BodyW = std::max(100.0f, InnerWidth - PadX * 2.0f);
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
 
     if (ActivePage == 0u)
@@ -214,7 +231,7 @@ float LunarInspector::Construct(
 
         const float GlobeD = std::clamp(BodyW - 12.0f, 96.0f, 152.0f);
         const Rectangle2D GlobeBox { PhaseCard.Center().X - GlobeD * 0.5f, PhaseCard.Y + 178.0f + (152.0f - GlobeD) * 0.5f, GlobeD, GlobeD };
-        PhaseGlobe.Present(Surface, GlobeBox, 0.0f, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain);
+        PhaseGlobe.Present(Surface, GlobeBox, 0.0f, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, ColorRgba{ 0u, 0u, 0u, 0u });
 
         (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, PhaseCard.Y + 350.0f, BodyW, 7801u, "Phase", "", "%.2f", 0.0f, 1.0f, Moon.SynodicPhaseFraction, ActiveDragId, Input, OutMutated);
         CursorY = PhaseCard.Bottom() + InspectorMetrics::SectionGap;
@@ -247,11 +264,11 @@ float LunarInspector::Construct(
             const bool Sel = (static_cast<uint32_t>(Moon.SurfacePreset) == I);
             if (Sel)
             {
-                Surface.FillRectangle(Tile, ColorRgba{ 36u, 38u, 42u, 255u }, 14.0f);
-                Surface.StrokeRectangle(Tile, ColorRgba{ 138u, 152u, 176u, 200u }, 14.0f, 1.2f);
+                Surface.FillRectangle(Tile, ColorRgba{ 36u, 38u, 42u, 255u }, InspectorMetrics::QuickTileRadius);
+                Surface.StrokeRectangle(Tile, ColorRgba{ 138u, 152u, 176u, 200u }, InspectorMetrics::QuickTileRadius, 1.2f);
             }
             const Rectangle2D Img { Tile.Center().X - 42.0f, Tile.Y + 8.0f, 84.0f, 84.0f };
-            (I == 0u ? LunaPreset : EmberPreset).Present(Surface, Img, 0.0f);
+            (I == 0u ? LunaPreset : EmberPreset).Present(Surface, Img, 0.0f, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Contain, ColorRgba{ 0u, 0u, 0u, 0u });
             const float NW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.4f, Names[I]);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Tile.Center().X - NW * 0.5f, Tile.Bottom() - 22.0f }, 11.4f, InspectorMetrics::HeadingInk, Names[I]);
             if (Tile.Contains(Cursor) && Input.PrimaryPointer.Pressed)
@@ -282,7 +299,7 @@ float LunarInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + ColW * 2.0f, KpiY + 22.0f }, 10.6f, InspectorMetrics::MutedInk, "atmosphere");
 
         const Rectangle2D NightBox { BodyX, LookCard.Y + 114.0f, BodyW, 156.0f };
-        NightPreview.Present(Surface, NightBox, 10.0f);
+        NightPreview.Present(Surface, NightBox, InspectorMetrics::PreviewRadius, { 255u, 255u, 255u, 255u }, InspectorPreviewFitMode::Cover);
 
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, NightBox.Bottom() + 18.0f }, 9.6f, InspectorMetrics::DimInk, "MOONLIGHT");
         float FY = NightBox.Bottom() + 42.0f;

@@ -14,6 +14,39 @@ struct InspectorPreviewUniforms
 
 [[vk::binding(0, 0)]] ConstantBuffer<InspectorPreviewUniforms> Params;
 [[vk::binding(1, 0)]] RWStructuredBuffer<uint>                 OutPixelsRgba8;
+[[vk::binding(2, 0)]] StructuredBuffer<uint>                   LunarSurfaceAtlasTexels;
+
+float3 UnpackRgb8(uint Packed)
+{
+    return float3(
+        float(Packed & 0xFFu),
+        float((Packed >> 8u) & 0xFFu),
+        float((Packed >> 16u) & 0xFFu)) / 255.0;
+}
+
+float3 SampleLunarAtlasGpu(uint PresetIdx, float U, float V)
+{
+    const uint TileW = 512u;
+    const uint TileH = 256u;
+    const uint SafePreset = min(PresetIdx, 5u);
+    float Wu = frac(U);
+    float Cv = clamp(V, 0.0, 1.0);
+    float Fx = Wu * float(TileW) - 0.5;
+    float Fy = Cv * float(TileH) - 0.5;
+    int X0 = int(floor(Fx));
+    X0 = ((X0 % int(TileW)) + int(TileW)) % int(TileW);
+    int X1 = (X0 + 1) % int(TileW);
+    int Y0 = clamp(int(floor(Fy)), 0, int(TileH) - 1);
+    int Y1 = min(Y0 + 1, int(TileH) - 1);
+    float Tx = clamp(Fx - floor(Fx), 0.0, 1.0);
+    float Ty = clamp(Fy - floor(Fy), 0.0, 1.0);
+    uint RowOff = SafePreset * TileH;
+    float3 C00 = UnpackRgb8(LunarSurfaceAtlasTexels[(RowOff + uint(Y0)) * TileW + uint(X0)]);
+    float3 C10 = UnpackRgb8(LunarSurfaceAtlasTexels[(RowOff + uint(Y0)) * TileW + uint(X1)]);
+    float3 C01 = UnpackRgb8(LunarSurfaceAtlasTexels[(RowOff + uint(Y1)) * TileW + uint(X0)]);
+    float3 C11 = UnpackRgb8(LunarSurfaceAtlasTexels[(RowOff + uint(Y1)) * TileW + uint(X1)]);
+    return lerp(lerp(C00, C10, Tx), lerp(C01, C11, Tx), Ty);
+}
 
 uint PackRgba8(float3 Rgb, float Alpha)
 {
@@ -80,6 +113,7 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
     float U = (float(Tid.x) + 0.5) / float(W);
     float V = (float(Tid.y) + 0.5) / float(H);
     float3 Col = float3(0.08, 0.08, 0.09);
+    float  OutAlpha = 1.0;
 
     if (Mode == 0u) // Atmosphere Limb / Planetary Horizon preview (curved limb matching CPU fallback, 1:1 circular!)
     {
@@ -167,20 +201,72 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
         float3 CCol = lerp(float3(0.42, 0.46, 0.54), float3(0.95, 0.96, 0.98), saturate(1.0 - V * 0.65));
         Col = lerp(Sky, CCol, saturate(Cloud * Den * 0.85));
     }
-    else if (Mode == 6u) // Lunar Phase Globe
+    else if (Mode == 6u) // Lunar Phase Globe (samples real EngineContent/Skies/LunarSurfaceAtlas.ImageSpace textures)
     {
-        float2 P = float2((U - 0.5) * (float(W) / float(H)), V - 0.5) * 2.3;
-        float R = length(P);
-        Col = float3(0.04, 0.05, 0.08);
-        if (R < 0.78)
+        uint Flags = Params.DimensionsAndMode.w;
+        uint Preset = Flags & 7u;
+        bool ApplyPhase = (Flags & 8u) != 0u;
+        bool NightBg    = (Flags & 16u) != 0u;
+
+        float MinDim = float(min(W, H));
+        float DiscR  = clamp(Params.ParamA.w, 0.15, 0.96) * (MinDim * 0.5);
+        float2 Delta = float2(float(Tid.x) - float(W) * 0.5, float(Tid.y) - float(H) * 0.5);
+        float D      = length(Delta);
+
+        if (NightBg)
         {
-            float Z = sqrt(max(0.0, 0.78 * 0.78 - R * R)) / 0.78;
-            float3 N = normalize(float3(P.x / 0.78, -P.y / 0.78, Z));
-            float PhaseRad = Params.ParamA.x * 6.2831853;
-            float3 L = normalize(float3(sin(PhaseRad), 0.14, cos(PhaseRad)));
-            float Lit = smoothstep(-0.08, 0.25, dot(N, L));
-            float Craters = 0.76 + 0.24 * Fbm2D(P * 5.5 + float2(2.3, 4.1));
-            Col = Params.ColourA.rgb * Craters * (0.06 + 0.94 * Lit);
+            Col = float3(11.0 + V * 14.0, 16.0 + V * 19.0, 30.0 + V * 28.0) / 255.0;
+            float Halo = exp(-D / max(1.0, DiscR * 1.45)) * (46.0 / 255.0) * clamp(Params.ParamA.z, 0.0, 2.5);
+            Col += float3(0.90, 0.94, 1.05) * Halo;
+            if (D > DiscR + 2.0)
+            {
+                uint Hs = (Tid.x * 73856093u) ^ (Tid.y * 19349663u);
+                if ((Hs & 2047u) < 3u)
+                {
+                    float Bri = (110.0 + float(Hs & 95u)) / 255.0;
+                    Col = max(Col, float3(Bri, Bri, Bri + 0.06));
+                }
+            }
+            OutAlpha = 1.0;
+        }
+        else
+        {
+            Col = float3(0.125, 0.125, 0.125);
+            OutAlpha = 0.0;
+        }
+
+        if (D <= DiscR + 1.0)
+        {
+            float EdgeCov = clamp(DiscR + 0.5 - D, 0.0, 1.0);
+            float Nx = clamp(Delta.x / max(1.0, DiscR), -1.0, 1.0);
+            float Ny = clamp(Delta.y / max(1.0, DiscR), -1.0, 1.0);
+            float Nz = sqrt(max(0.0, 1.0 - Nx * Nx - Ny * Ny));
+
+            float LonU = atan2(Nx, Nz) * (0.5 / 3.14159265) + 0.5;
+            float LatV = acos(clamp(-Ny, -1.0, 1.0)) / 3.14159265;
+            float3 TexRgb = SampleLunarAtlasGpu(Preset, LonU, LatV);
+
+            float Light = 0.96 * (0.58 + 0.42 * pow(Nz, 0.30));
+            if (ApplyPhase)
+            {
+                float PhaseRad = (Params.ParamA.x - 0.5) * 6.2831853;
+                float3 L = normalize(float3(sin(PhaseRad), -0.14, cos(PhaseRad)));
+                float NdotL = Nx * L.x + Ny * L.y + Nz * L.z;
+                float Lit = clamp((NdotL + 0.10) / 0.28, 0.0, 1.0);
+                Light = (0.09 + 0.96 * Lit) * (0.55 + 0.45 * pow(Nz, 0.32));
+            }
+
+            float3 GlobeRgb = TexRgb * Light;
+            if (NightBg)
+            {
+                Col = lerp(Col, GlobeRgb, EdgeCov);
+                OutAlpha = 1.0;
+            }
+            else
+            {
+                Col = GlobeRgb;
+                OutAlpha = EdgeCov;
+            }
         }
     }
     else if (Mode == 7u) // Starfield Chart / Star Sheet Bake
@@ -474,5 +560,5 @@ void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
         }
     }
 
-    OutPixelsRgba8[Tid.y * W + Tid.x] = PackRgba8(saturate(Col), 1.0);
+    OutPixelsRgba8[Tid.y * W + Tid.x] = PackRgba8(saturate(Col), OutAlpha);
 }

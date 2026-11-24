@@ -264,7 +264,8 @@ void InspectorPreviewSurface::Present(
     Rectangle2D             Bounds,
     float                   CornerRadius,
     ColorRgba               Tint,
-    InspectorPreviewFitMode FitMode) noexcept
+    InspectorPreviewFitMode FitMode,
+    ColorRgba               ChamberFill) noexcept
 {
     if (!InspectorPrimitives::QueryVisibleInScrollClip(Bounds))
     {
@@ -274,7 +275,10 @@ void InspectorPreviewSurface::Present(
     const float SafeRadius = std::min(CornerRadius, std::min(10.0f, std::min(Bounds.Width, Bounds.Height) * 0.5f));
     if (!QueryResident())
     {
-        Surface.FillRectangle(Bounds, InspectorMetrics::ChamberDark, SafeRadius);
+        if (ChamberFill.Alpha > 0u)
+        {
+            Surface.FillRectangle(Bounds, ChamberFill, SafeRadius);
+        }
         return;
     }
 
@@ -288,9 +292,9 @@ void InspectorPreviewSurface::Present(
         DrawRect = InspectorPrimitives::ComputeAspectFitRect(Bounds, WidthPx, HeightPx);
         const bool HasLetterbox = (std::fabs(DrawRect.Width - Bounds.Width) > 1.0f ||
                                    std::fabs(DrawRect.Height - Bounds.Height) > 1.0f);
-        if (HasLetterbox && SafeRadius > 0.25f)
+        if (HasLetterbox && SafeRadius > 0.25f && ChamberFill.Alpha > 0u)
         {
-            Surface.FillRectangle(Bounds, InspectorMetrics::ChamberDark, SafeRadius);
+            Surface.FillRectangle(Bounds, ChamberFill, SafeRadius);
             Surface.StrokeRectangle(Bounds, ColorRgba{ 255u, 255u, 255u, 14u }, SafeRadius, 1.0f);
             DrawRadius = std::min(SafeRadius, std::min(DrawRect.Width, DrawRect.Height) * 0.5f);
         }

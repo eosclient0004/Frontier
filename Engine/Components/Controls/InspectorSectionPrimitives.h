@@ -196,7 +196,8 @@ public:
         Rectangle2D             Bounds,
         float                   CornerRadius = InspectorMetrics::PreviewRadius,
         ColorRgba               Tint         = { 255u, 255u, 255u, 255u },
-        InspectorPreviewFitMode FitMode      = InspectorPreviewFitMode::Contain) noexcept;
+        InspectorPreviewFitMode FitMode      = InspectorPreviewFitMode::Contain,
+        ColorRgba               ChamberFill  = InspectorMetrics::ChamberDark) noexcept;
 
     [[nodiscard]] bool     QueryResident() const noexcept { return (DirectGpuTextureHandle != 0ull || ResidentTexture.Pixels != nullptr) && WidthPx > 0u && HeightPx > 0u; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return RetainedSignature; }
