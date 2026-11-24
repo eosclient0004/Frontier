@@ -915,8 +915,8 @@ static const float IgnSpatialScaleX               = 0.06711056; // [-]     - Jim
 static const float IgnSpatialScaleY               = 0.00583715; // [-]     - Jimenez interleaved gradient noise Y frequency
 static const float IgnOuterMultiplier             = 52.9829189; // [-]     - Jimenez interleaved gradient noise outer scale
 static const uint  UdfAoRayCount                  = 12u;        // [count] - Cosine-hemisphere UDF sphere-trace rays/pixel
-static const uint  UdfAoMaxMarchSteps             = 24u;        // [count] - Maximum sphere-tracing steps along each AO ray
-static const float UdfAoTraceRadiusMeters         = 0.85;       // [m]     - Physical ambient occlusion reach in world space
+static const uint  UdfAoMaxMarchSteps             = 28u;        // [count] - Maximum sphere-tracing steps along each AO ray
+static const float UdfAoTraceRadiusMeters         = 1.55;       // [m]     - Physical ambient occlusion reach in world space
 static const float UdfAoSurfaceBiasMeters         = 0.025;      // [m]     - Minimum normal lift preventing receiver self-hit
 static const float UdfAoCellLiftScale             = 0.65;       // [-]     - Origin normal lift in fine clipmap voxel units
 static const float UdfAoGeomLiftBlend             = 0.55;       // [-]     - Geometric normal weight in ray origin lift axis
@@ -929,9 +929,10 @@ static const float UdfAoHitCellScale              = 0.18;       // [-]     - Dir
 static const float UdfAoMinApproachCellScale      = 0.10;       // [-]     - Step denominator floor for approach gradient
 static const float UdfAoNearCellScale             = 0.45;       // [-]     - Near-surface cone floor in local voxel units
 static const float UdfAoNearConeExpansion         = 1.15;       // [-]     - Cone aperture growth per meter of march travel
-static const float UdfAoProximityStrength         = 0.82;       // [-]     - Soft proximity occlusion gain on approaching rays
+static const float UdfAoProximityStrength         = 0.88;       // [-]     - Soft proximity occlusion gain on approaching rays
 static const float UdfAoUnderRelaxation           = 0.75;       // [-]     - Under-relaxed UDF step factor guarding voxel seams
-static const float UdfAoMaxStepMeters             = 0.48;       // [m]     - Upper clamp on single UDF sphere-trace advance
+static const float UdfAoMaxStepMeters             = 0.55;       // [m]     - Upper clamp on single UDF sphere-trace advance
+static const float UdfAoContrastPower             = 1.50;       // [-]     - Physical cavity contrast exponent matching raytraced AO
 static const float UdfAoMinimumStepFloor          = 1.0e-5;     // [m]     - Step termination floor avoiding thin-wall skips
 static const uint  DenoiseFinalToneStackBit       = 1u;         // [mask]  - Final step tone-stack & display output bit
 static const uint  DenoiseSpatialAoBit            = 2u;         // [mask]  - Joint-bilateral UDF AO spatial filter bit
@@ -1306,7 +1307,10 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                 float  HitThreshold    = max(MinimumBoxHalfExtentMeters, LocalCellMeters * UdfAoHitCellScale);
                 if (FieldDistance < HitThreshold)
                 {
-                    RayOcclusion = UdfAoDirectHitOcclusion;
+                    // Smooth distance falloff over the 1.55 m hemisphere: strong dark occlusion under the entire
+                    // car chassis & wheel wells, smoothly feathering to 0 at max radius so open floor stays pure white.
+                    float HitRatio = saturate(TravelMeters / UdfAoTraceRadiusMeters);
+                    RayOcclusion = max(RayOcclusion, saturate(1.0 - HitRatio * HitRatio));
                     break;
                 }
 
@@ -1338,7 +1342,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
         OcclusionSum += RayOcclusion;
     }
 
-    float UnfilteredAo = saturate(1.0 - OcclusionSum / float(UdfAoRayCount));
+    float UnfilteredAo = pow(saturate(1.0 - OcclusionSum / float(UdfAoRayCount)), UdfAoContrastPower);
     float FinalWeight  = HasLocalInst ? 1.0 : CascadeWeight;
     return lerp(1.0, UnfilteredAo, FinalWeight);
 }
@@ -2657,25 +2661,29 @@ void ShadePrimarySurfaceDemod(
     float TransW          = saturate(Mat.CoatRoughnessOptics.y);
     OutDiffuseAlbedoMatte = Mat.DiffuseAlbedoRoughness.xyz * (1.0 - Metalness) * (1.0 - TransW);
 
-    // 5. Secondary Specular Reflection (Mirror BVH4 ray only for sharp metals/clearcoats; GDF Glossy Cone for rough GTX surfaces)
+    // 5. Secondary Specular Reflection (Matches HighEnd BVH4 dominant GGX lobe direction:
+    //    sharp metals/clearcoats use BVH4 mirror ray; glossy surfaces use GDF glossy cone along
+    //    Frostbite GGX DomDir; rough matte surfaces blend smoothly to sky DomDir * SpecAo so
+    //    grazing pavement NEVER projects a hard rectangular Fine-GDF box shadow onto the floor!)
     float CoatW = saturate(Mat.EdgeTintCoatWeight.w);
     if (IsReflectionsEnabled() && (Metalness > 0.20 || CoatW > 0.20 || OutSpecRough < 0.24 || EngineMode == 2u))
     {
         float3 ReflDir       = reflect(-ViewDir, N);
-        float3 EnvRad        = float3(0.0);
+        float  Alpha         = max(1.0e-3, OutSpecRough * OutSpecRough);
+        float3 DomDir        = normalize(lerp(N, ReflDir, (1.0 - Alpha) * (sqrt(max(0.0, 1.0 - Alpha)) + Alpha)));
+        float3 EnvRad        = EvaluateSkyDome(DomDir);
         bool   SharpSpecular = (OutSpecRough < 0.18) || (CoatW > 0.20 && Mat.CoatRoughnessOptics.x < 0.16);
+        float  GlossyConeW   = max(smoothstep(0.42, 0.18, OutSpecRough),
+                                   max(smoothstep(0.10, 0.25, Metalness), smoothstep(0.10, 0.25, CoatW)));
 
-        if (!SharpSpecular && IsGlobalDistanceFieldReady())
-        {
-            EnvRad = EvaluateGdfGlossyCone(Hit.Position, Hit.GeomNormal, ReflDir, OutSpecRough);
-        }
-        else if (SharpSpecular)
+        if (SharpSpecular)
         {
             EnvRad = ShadeSecondaryBounce(Hit.Position + Hit.GeomNormal * 3.0e-3, ReflDir);
         }
-        else
+        else if (GlossyConeW > 1.0e-3 && IsGlobalDistanceFieldReady())
         {
-            EnvRad = EvaluateSkyDome(ReflDir);
+            float3 ConeRad = EvaluateGdfGlossyCone(Hit.Position, Hit.GeomNormal, DomDir, OutSpecRough);
+            EnvRad = lerp(EnvRad, ConeRad, GlossyConeW);
         }
 
         if (OutSpecRough > 0.12)
