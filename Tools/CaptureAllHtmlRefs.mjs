@@ -151,22 +151,35 @@ async function main() {
       }, WIDTH);
       await page.waitForTimeout(60);
 
-      const tabs = await page.evaluate(() =>
-        Array.from(document.querySelectorAll("[data-tab-for]")).map((el, idx) => ({
-          index: idx,
-          key: el.getAttribute("data-tab-for"),
-          label: el.textContent?.replace(/\s+/g, " ").trim(),
-        }))
-      );
+      const tabs = await page.evaluate(() => {
+        const byAttr = Array.from(document.querySelectorAll("[data-tab-for]"));
+        if (byAttr.length > 0) {
+          return byAttr.map((el, idx) => ({
+            index: idx,
+            key: el.getAttribute("data-tab-for"),
+            byPill: false,
+            label: el.textContent?.replace(/\s+/g, " ").trim(),
+          }));
+        }
+        return Array.from(document.querySelectorAll(".pc-pill")).map((el, idx) => {
+          const txt = el.textContent?.replace(/\s+/g, " ").trim() || `tab_${idx}`;
+          const slug = txt.replace(/^\d+\s*/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+          return { index: idx, key: slug, byPill: true, label: txt };
+        });
+      });
 
       manifest[clicked] = [];
       const tabCount = Math.max(1, tabs.length);
 
       for (let t = 0; t < tabCount; t++) {
         if (tabs.length > 0 && tabs[t]) {
-          await page.evaluate((key) => {
-            document.querySelector(`[data-tab-for="${key}"]`)?.click();
-          }, tabs[t].key);
+          await page.evaluate((tab) => {
+            if (tab.byPill) {
+              document.querySelectorAll(".pc-pill")[tab.index]?.click();
+            } else {
+              document.querySelector(`[data-tab-for="${tab.key}"]`)?.click();
+            }
+          }, tabs[t]);
           await page.waitForTimeout(100);
         }
 

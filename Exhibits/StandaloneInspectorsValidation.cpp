@@ -1345,6 +1345,37 @@ title = "Overview"
             AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityStripL, ParityDir / Names[PageIdx]), Names[PageIdx]);
         }
         Inspectors.QueryLedStrip().SetActivePage(0u);
+
+        // Card #27: Folder (World — 13 entries matching world__0-default.png)
+        const OutlinerSlotToken SceneFolder = AppendEntry(Outliner, "Scene", "Folder", "folder", ConstructSlotCategory::Folder, {});
+        const OutlinerSlotToken ParityWorld = AppendEntry(Outliner, "World", "Folder", "folder", ConstructSlotCategory::Folder, SceneFolder);
+        for (uint32_t I = 0u; I < 13u; ++I)
+        {
+            char NameB[24]{};
+            std::snprintf(NameB, sizeof(NameB), "WorldItem%u", I);
+            (void)AppendEntry(Outliner, NameB, "Environment", "env:atmosphere", ConstructSlotCategory::LayerGroup, ParityWorld);
+        }
+        AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityWorld, ParityDir / "Folder-01-Overview.png"), "Folder-01-Overview.png");
+
+        // Cards #28–#31: Geometry 8-tab Cube parity (AnalyticPrimitive / NativeGeometry / ImportedGeometry / ProceduralGeometry)
+        const OutlinerSlotToken GeomFolder = AppendEntry(Outliner, "Geometry", "Folder", "folder", ConstructSlotCategory::Folder, {});
+        const OutlinerSlotToken ParityCube = AppendEntry(Outliner, "Cube", "Cube", "geom:primitive", ConstructSlotCategory::GeometryVolume, GeomFolder);
+        auto& CubeInst = Reg.AccessAnalyticPrimitive(ParityCube, *Outliner.FindEntry(ParityCube), Bundle.Scene);
+        CubeInst.FormIndex    = 1u; // Cube
+        CubeInst.RadiusMeters = 0.5f;
+        CubeInst.HeightMeters = 1.0f;
+        static constexpr std::array<const char*, 8u> CubeNames = {{
+            "Geometry-01-Overview.png",   "Geometry-02-Components.png",
+            "Geometry-03-Geometry.png",   "Geometry-04-Material.png",
+            "Geometry-05-UV.png",         "Geometry-06-Fracture.png",
+            "Geometry-07-SDF.png",        "Geometry-08-LOD.png",
+        }};
+        for (uint32_t PageIdx = 0u; PageIdx < 8u; ++PageIdx)
+        {
+            Inspectors.QueryAnalyticPrimitive().SetActivePage(PageIdx);
+            AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCube, ParityDir / CubeNames[PageIdx]), CubeNames[PageIdx]);
+        }
+        Inspectors.QueryAnalyticPrimitive().SetActivePage(0u);
     }
 
     TypographyRepository::AssignCurrent(nullptr);

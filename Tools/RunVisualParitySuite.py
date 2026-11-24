@@ -122,6 +122,17 @@ PARITY_CASES = [
     # Card 26: LED Strip
     ("LedStrip", "1-Overview", "reference-led-strip__0-light_overview.png", "LedStrip-01-Overview.png", "LedStrip-01-Overview-Proof.png", 0.85, 0.75),
     ("LedStrip", "2-Source",   "reference-led-strip__1-light_source.png",   "LedStrip-02-Source.png",   "LedStrip-02-Source-Proof.png",   0.85, 0.75),
+    # Card 27: Folder (World)
+    ("Folder",   "1-Overview", "world__0-default.png", "Folder-01-Overview.png", "Folder-01-Overview-Proof.png", 0.85, 0.75),
+    # Cards 28-31: Geometry (Cube 8 tabs shared across AnalyticPrimitive / Native / Imported / Procedural)
+    ("Geometry", "1-Overview",   "cube__0-overview.png",   "Geometry-01-Overview.png",   "Geometry-01-Overview-Proof.png",   0.85, 0.75),
+    ("Geometry", "2-Components", "cube__1-components.png", "Geometry-02-Components.png", "Geometry-02-Components-Proof.png", 0.85, 0.75),
+    ("Geometry", "3-Geometry",   "cube__2-geometry.png",   "Geometry-03-Geometry.png",   "Geometry-03-Geometry-Proof.png",   0.85, 0.75),
+    ("Geometry", "4-Material",   "cube__3-material.png",   "Geometry-04-Material.png",   "Geometry-04-Material-Proof.png",   0.85, 0.75),
+    ("Geometry", "5-UV",         "cube__4-uv.png",         "Geometry-05-UV.png",         "Geometry-05-UV-Proof.png",         0.85, 0.75),
+    ("Geometry", "6-Fracture",   "cube__5-fracture.png",   "Geometry-06-Fracture.png",   "Geometry-06-Fracture-Proof.png",   0.85, 0.75),
+    ("Geometry", "7-SDF",        "cube__6-sdf.png",        "Geometry-07-SDF.png",        "Geometry-07-SDF-Proof.png",        0.85, 0.75),
+    ("Geometry", "8-LOD",        "cube__7-lod.png",        "Geometry-08-LOD.png",        "Geometry-08-LOD-Proof.png",        0.85, 0.75),
 ]
 
 
