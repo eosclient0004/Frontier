@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Frontier Lighting &amp; Photometric (IES) Comparison Lab</title>
+<style>
+  :root {
+    --bg: #0c0d10;
+    --panel: #14151a;
+    --card: #1a1c22;
+    --card-border: rgba(255,255,255,0.08);
+    --ink: #eceff4;
+    --muted: #98a0ae;
+    --dim: #6c7382;
+    --accent: #4ec98b;
+    --accent2: #5aa9ff;
+    --warn: #f0a854;
+    --pill: #23262f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    font-size: 12px; -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    display: grid; grid-template-columns: 1fr 376px;
+    width: 100vw; height: 100vh;
+  }
+  .viewport-wrap {
+    position: relative; width: 100%; height: 100%;
+    background: #08090c; overflow: hidden; user-select: none;
+  }
+  canvas#gl {
+    width: 100%; height: 100%; display: block; cursor: grab;
+  }
+  canvas#gl:active { cursor: grabbing; }
+
+  /* HUD Overlays */
+  .hud-top {
+    position: absolute; top: 14px; left: 14px; right: 14px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; gap: 12px;
+  }
+  .hud-pill {
+    pointer-events: auto;
+    background: rgba(16, 18, 23, 0.84);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 14px; padding: 9px 14px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  }
+  .brand-title { font-weight: 600; font-size: 13px; letter-spacing: 0.2px; }
+  .brand-sub { color: var(--muted); font-size: 10.5px; margin-top: 1px; }
+  .stat-group { display: flex; gap: 14px; }
+  .stat { display: flex; flex-direction: column; }
+  .stat-v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-k { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .good { color: var(--accent); }
+  .info { color: var(--accent2); }
+  .warn { color: var(--warn); }
+
+  .hud-bottom {
+    position: absolute; bottom: 14px; left: 14px; right: 14px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    pointer-events: none;
+  }
+  .preset-bar {
+    pointer-events: auto;
+    display: flex; gap: 6px; flex-wrap: wrap;
+    background: rgba(16, 18, 23, 0.84);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 14px; padding: 6px;
+  }
+  .preset-btn {
+    border: 1px solid transparent; background: transparent; color: var(--muted);
+    padding: 6px 11px; border-radius: 9px; font-size: 11px; font-weight: 500;
+    cursor: pointer; transition: 0.14s ease;
+  }
+  .preset-btn:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
+  .preset-btn.active {
+    background: #eceff4; color: #101216; font-weight: 600;
+  }
+  .hint-pill {
+    background: rgba(16, 18, 23, 0.78);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 6px 10px; color: var(--muted); font-size: 10.5px;
+  }
+
+  /* Split Wipe Divider */
+  .split-line {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: rgba(255,255,255,0.85); pointer-events: none;
+    box-shadow: 0 0 12px rgba(0,0,0,0.9);
+    display: none;
+  }
+  .split-handle {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(20,22,28,0.92); border: 1.5px solid rgba(255,255,255,0.85);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; pointer-events: auto; cursor: ew-resize;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.65);
+  }
+  .split-tag {
+    position: absolute; top: 72px; padding: 5px 10px; border-radius: 8px;
+    background: rgba(12,14,18,0.84); border: 1px solid rgba(255,255,255,0.14);
+    font-size: 11px; font-weight: 600; pointer-events: none; display: none;
+  }
+  #tagA { left: 16px; color: var(--accent); }
+  #tagB { right: 16px; color: var(--accent2); }
+
+  /* Right Frontier Inspector */
+  .sidebar {
+    background: var(--panel);
+    border-left: 1px solid var(--card-border);
+    height: 100vh; overflow-y: auto; padding: 14px 14px 28px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 18px; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card-head {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-title { font-size: 13px; font-weight: 600; }
+  .card-tag {
+    font-size: 9.5px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.6px; background: var(--pill); padding: 3px 7px; border-radius: 99px;
+  }
+
+  .seg {
+    display: grid; gap: 4px; background: #101116; padding: 3px;
+    border-radius: 11px; border: 1px solid rgba(255,255,255,0.06);
+  }
+  .seg-2 { grid-template-columns: 1fr 1fr; }
+  .seg-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .seg-4 { grid-template-columns: repeat(4, 1fr); }
+  .seg button {
+    border: none; background: transparent; color: var(--muted);
+    padding: 6px 5px; border-radius: 8px; font-size: 10.5px; font-weight: 500;
+    cursor: pointer; transition: 0.12s;
+  }
+  .seg button.active { background: #e8ecf3; color: #111318; font-weight: 600; }
+
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .label { color: var(--muted); font-size: 11px; }
+  .val { font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 600; color: var(--ink); }
+
+  .slider-wrap { display: flex; flex-direction: column; gap: 4px; }
+  input[type=range] {
+    width: 100%; accent-color: #eceff4; height: 4px; cursor: pointer;
+    background: #2b2f3a; border-radius: 99px;
+  }
+  select {
+    width: 100%; background: #101116; color: var(--ink);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+    padding: 6px 9px; font-size: 11px; outline: none; cursor: pointer;
+  }
+
+  /* Luminaire Toggle List */
+  .light-list { display: flex; flex-direction: column; gap: 6px; }
+  .light-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; border-radius: 12px; background: #13151b;
+    border: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: 0.12s;
+  }
+  .light-item:hover { border-color: rgba(255,255,255,0.18); }
+  .light-item.selected { border-color: rgba(255,255,255,0.42); background: #1f222c; }
+  .light-left { display: flex; align-items: center; gap: 9px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .l-name { font-size: 11.5px; font-weight: 600; }
+  .l-sub { font-size: 9.8px; color: var(--dim); margin-top: 1px; }
+
+  .switch {
+    position: relative; width: 32px; height: 18px; border-radius: 99px;
+    background: #2c303c; border: none; cursor: pointer; transition: 0.15s; flex-shrink: 0;
+  }
+  .switch.on { background: var(--accent); }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    transition: 0.15s;
+  }
+  .switch.on::after { transform: translateX(14px); }
+
+  /* IES Polar Diagram */
+  .ies-well {
+    display: flex; align-items: center; gap: 12px;
+    background: #101116; border-radius: 12px; padding: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  canvas#iesPolar { width: 88px; height: 88px; border-radius: 8px; background: #0a0b0f; flex-shrink: 0; }
+  .ies-meta { font-size: 10.5px; color: var(--muted); line-height: 1.45; }
+  .ies-meta strong { color: var(--ink); display: block; margin-bottom: 2px; font-size: 11.5px; }
+
+  .note-box {
+    background: rgba(78, 201, 139, 0.08);
+    border: 1px solid rgba(78, 201, 139, 0.24);
+    border-radius: 12px; padding: 9px 11px;
+    font-size: 10.5px; line-height: 1.45; color: #cde8da;
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- LIVE 3D WEBGL2 VIEWPORT -->
+  <div class="viewport-wrap" id="vpWrap">
+    <canvas id="gl"></canvas>
+
+    <div class="hud-top">
+      <div class="hud-pill">
+        <div>
+          <div class="brand-title">Frontier Unified Lighting &amp; IES Lab</div>
+          <div class="brand-sub">Real-time WebGL2 OpenPBR + 7 Luminaires + SDF Soft Shadows + Many-Light Comparison</div>
+        </div>
+      </div>
+      <div class="hud-pill">
+        <div class="stat-group">
+          <div class="stat"><span class="stat-v good" id="stFps">60</span><span class="stat-k">FPS</span></div>
+          <div class="stat"><span class="stat-v" id="stMs">16.6</span><span class="stat-k">Frame ms</span></div>
+          <div class="stat"><span class="stat-v info" id="stLights">7</span><span class="stat-k">Lights</span></div>
+          <div class="stat"><span class="stat-v warn" id="stRays">4</span><span class="stat-k">Shadow/px</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="split-tag" id="tagA">LEFT A: SDF Soft Shadows (Top-K)</div>
+    <div class="split-tag" id="tagB">RIGHT B: Direct Unshadowed</div>
+    <div class="split-line" id="splitLine"><div class="split-handle" id="splitHandle">⇄</div></div>
+
+    <div class="hud-bottom">
+      <div class="preset-bar">
+        <button class="preset-btn active" data-preset="all7">All 7 Luminaires</button>
+        <button class="preset-btn" data-preset="auto">Automotive IES + Underglow</button>
+        <button class="preset-btn" data-preset="arch">Gallery IES Wall-Wash</button>
+        <button class="preset-btn" data-preset="many64">Stress: 48 Dynamic Lights</button>
+        <button class="preset-btn" data-preset="matcap">MatCap Comparison</button>
+      </div>
+      <div class="hint-pill">Drag to orbit · Scroll to zoom · Drag ⇄ to wipe-compare A | B</div>
+    </div>
+  </div>
+
+  <!-- RIGHT FRONTIER INSPECTOR SIDEBAR -->
+  <aside class="sidebar">
+    <!-- 1. COMPARISON & ENGINE MODE -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Comparison &amp; Shadow Strategy</span>
+        <span class="card-tag">A | B Live</span>
+      </div>
+      <div class="seg seg-2" id="viewModeSeg">
+        <button class="active" data-split="0">Single View</button>
+        <button data-split="1">Split Compare A | B</button>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:4px">Left / Primary Mode (A)</div>
+        <select id="modeA">
+          <option value="0" selected>OpenPBR + SDF Soft Shadows (Top-K Budget)</option>
+          <option value="1">OpenPBR + Full Shadowed (All Lights)</option>
+          <option value="2">OpenPBR Direct (Unshadowed Baseline)</option>
+          <option value="3">Stochastic 1-Ray Sample (Raw ReSTIR-DI Input)</option>
+          <option value="4">Cost / Active-Light Heatmap</option>
+          <option value="5">MatCap Studio (Pure Unlit Clay)</option>
+          <option value="6">MatCap Studio (Follow Key Light Dir)</option>
+        </select>
+      </div>
+      <div id="modeBWrap" style="display:none">
+        <div class="label" style="margin-bottom:4px">Right Compare Mode (B)</div>
+        <select id="modeB">
+          <option value="0">OpenPBR + SDF Soft Shadows (Top-K Budget)</option>
+          <option value="1">OpenPBR + Full Shadowed (All Lights)</option>
+          <option value="2" selected>OpenPBR Direct (Unshadowed Baseline)</option>
+          <option value="3">Stochastic 1-Ray Sample (Raw ReSTIR-DI Input)</option>
+          <option value="4">Cost / Active-Light Heatmap</option>
+          <option value="5">MatCap Studio (Pure Unlit Clay)</option>
+          <option value="6">MatCap Studio (Follow Key Light Dir)</option>
+        </select>
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Top-K Shadowed Lights / Pixel</span><span class="val" id="vTopK">3 rays</span></div>
+        <input type="range" id="sTopK" min="1" max="7" step="1" value="3" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Many-Light Swarm (Street/Neon Extras)</span><span class="val" id="vSwarm">0 extra</span></div>
+        <input type="range" id="sSwarm" min="0" max="48" step="4" value="0" />
+      </div>
+      <div class="row">
+        <span class="label">Animate Lights</span>
+        <button class="switch on" id="swAnim"></button>
+      </div>
+    </div>
+
+    <!-- 2. ALL 7 FRONTIER LUMINAIRES -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">7 Luminaire Types</span>
+        <span class="card-tag">Click to edit</span>
+      </div>
+      <div class="light-list" id="lightList"></div>
+    </div>
+
+    <!-- 3. SELECTED LUMINAIRE INSPECTOR -->
+    <div class="card" id="inspectorCard">
+      <div class="card-head">
+        <span class="card-title" id="selTitle">3 · IES Photometric Lamp</span>
+        <span class="card-tag" id="selBadge">LM-63 Type C</span>
+      </div>
+
+      <div id="iesControls">
+        <div class="ies-well">
+          <canvas id="iesPolar" width="176" height="176"></canvas>
+          <div class="ies-meta" id="iesMeta">
+            <strong>ECE R112 Low Beam</strong>
+            Sharp horizontal cutoff + asymmetric right shoulder hotspot. Zero shadow-map VRAM.
+          </div>
+        </div>
+        <div class="seg seg-4" id="iesSeg" style="margin-top:4px">
+          <button class="active" data-ies="0">ECE Beam</button>
+          <button data-ies="1">WallWash</button>
+          <button data-ies="2">Museum</button>
+          <button data-ies="3">Street</button>
+        </div>
+      </div>
+
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Intensity / Flux Gain</span><span class="val" id="vInt">1.00×</span></div>
+        <input type="range" id="sInt" min="0.0" max="3.0" step="0.05" value="1.0" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Color Temperature (Kelvin)</span><span class="val" id="vKelv">5600 K</span></div>
+        <input type="range" id="sKelv" min="1800" max="10000" step="100" value="5600" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label" id="lblParamA">Source Radius / Cone Angle</span><span class="val" id="vParamA">0.20</span></div>
+        <input type="range" id="sParamA" min="0.05" max="1.0" step="0.01" value="0.20" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label" id="lblParamB">Penumbra / Diffuser / Spread</span><span class="val" id="vParamB">0.45</span></div>
+        <input type="range" id="sParamB" min="0.0" max="1.0" step="0.01" value="0.45" />
+      </div>
+    </div>
+
+    <!-- 4. SURFACE & ENVIRONMENT CONTROLS -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Scene Surface &amp; Exposure</span>
+        <span class="card-tag">OpenPBR</span>
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Floor Roughness (Wet ↔ Matte)</span><span class="val" id="vRough">0.28</span></div>
+        <input type="range" id="sRough" min="0.06" max="0.88" step="0.02" value="0.28" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Ambient Sky Fill</span><span class="val" id="vAmb">0.12</span></div>
+        <input type="range" id="sAmb" min="0.0" max="0.8" step="0.02" value="0.12" />
+      </div>
+      <div class="slider-wrap">
+        <div class="row"><span class="label">Exposure (ACES Filmic)</span><span class="val" id="vExp">1.15×</span></div>
+        <input type="range" id="sExp" min="0.3" max="2.5" step="0.05" value="1.15" />
+      </div>
+      <div class="note-box">
+        <strong>Why No VSM &amp; No ReSTIR GI here:</strong><br/>
+        Toggle <b>Split Compare A | B</b> and compare <b>Top-K SDF Soft Shadows</b> against <b>Full Shadowed</b> &amp; <b>Stochastic 1-Ray</b>. SDF soft shadows give zero-VRAM contact-hardening penumbras with zero temporal ghosting — even with 48 moving lights!
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gl');
+  const gl = canvas.getContext('webgl2', { antialias: false, powerPreference: 'high-performance' });
+  if (!gl) {
+    document.body.innerHTML = '<div style="padding:32px;color:#fff">WebGL2 is required for this lighting lab.</div>';
+    return;
+  }
+
+  // ---- KELVIN TO LINEAR RGB (Tanner Helland / Planckian fit) ----
+  function kelvinToRgb(k) {
+    const t = Math.max(1000, Math.min(12000, k)) / 100.0;
+    let r, g, b;
+    if (t <= 66) {
+      r = 255;
+      g = 99.4708025861 * Math.log(t) - 161.1195681661;
+      b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+    } else {
+      r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+      g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+      b = 255;
+    }
+    const s2l = c => Math.pow(Math.max(0, Math.min(255, c)) / 255, 2.2);
+    return [s2l(r), s2l(g), s2l(b)];
+  }
+  function rgbCss(k) {
+    const [r,g,b] = kelvinToRgb(k);
+    const l2s = c => Math.round(Math.pow(Math.max(0, Math.min(1, c)), 1/2.2) * 255);
+    return `rgb(${l2s(r)},${l2s(g)},${l2s(b)})`;
+  }
+
+  // ---- 7 FRONTIER LUMINAIRES STATE ----
+  const LIGHTS = [
+    { id:0, name:'1 · Point Light',        sub:'Isotropic inverse-square sphere',      badge:'Point · cd',     on:true,  intensity:0.85, kelvin:3200, paramA:0.22, paramB:0.50, lblA:'Source Radius (m)',       lblB:'Reach Attenuation' },
+    { id:1, name:'2 · Spot Light',         sub:'Dual-cone beam + soft penumbra',       badge:'Spot · Cone',    on:true,  intensity:1.35, kelvin:5200, paramA:0.42, paramB:0.45, lblA:'Outer Cone Width',        lblB:'Penumbra Softness' },
+    { id:2, name:'3 · IES Photometric',    sub:'ANSI/IESNA LM-63 Type C candela LUT',  badge:'IES · LM-63',    on:true,  intensity:1.60, kelvin:6000, paramA:0.35, paramB:0.55, lblA:'Aim Elevation / Pitch',   lblB:'Azimuthal Spread' },
+    { id:3, name:'4 · Area Softbox (LTC)', sub:'Polygonal overhead studio softbox',    badge:'Area · LTC',     on:true,  intensity:1.15, kelvin:5600, paramA:0.65, paramB:0.50, lblA:'Softbox Width (m)',       lblB:'Softbox Depth (m)' },
+    { id:4, name:'5 · Linear Tube (MRP)',  sub:'Capsule emitter + linear reflection',  badge:'Tube · MRP',     on:true,  intensity:1.10, kelvin:7400, paramA:0.65, paramB:0.20, lblA:'Tube Length (m)',         lblB:'Tube Radius' },
+    { id:5, name:'6 · LED COB Package',    sub:'Compact die emitter + primary optic',  badge:'LED · COB',      on:true,  intensity:1.25, kelvin:4200, paramA:0.34, paramB:0.60, lblA:'Optic Beam Angle',        lblB:'Lens Sharpness' },
+    { id:6, name:'7 · LED Strip Ribbon',   sub:'Multi-diode underglow / cove strip',   badge:'Strip · SMD',    on:true,  intensity:1.30, kelvin:2200, paramA:0.80, paramB:0.25, lblA:'Strip Length',            lblB:'Opal Diffuser (0=Pearls)' },
+  ];
+
+  const IES_PROFILES = [
+    { name:'ECE R112 Low Beam', desc:'Sharp horizontal cutoff + asymmetric right shoulder hotspot. Zero shadow-map VRAM.' },
+    { name:'Architectural Wall-Wash', desc:'Asymmetric grazing multi-lobe scallop projection across vertical walls and floors.' },
+    { name:'Museum Narrow Spot', desc:'Tight 14° primary core with concentric secondary reflector rings.' },
+    { name:'Streetlamp Cobra-Head', desc:'Wide dual-wing butterfly roadway distribution minimizing glare.' },
+  ];
+
+  const state = {
+    selectedLight: 2,
+    iesProfile: 0,
+    splitMode: false,
+    splitX: 0.5,
+    modeA: 0,
+    modeB: 2,
+    topK: 3,
+    swarmCount: 0,
+    animate: true,
+    floorRoughness: 0.28,
+    ambient: 0.12,
+    exposure: 1.15,
+    yaw: -0.58,
+    pitch: 0.30,
+    dist: 6.4,
+    time: 0,
+    frame: 0,
+  };
+
+  // ---- GENERATE 128x32x4 IES PHOTOMETRIC LUT TEXTURE (RGBA8 packed 4 profiles in R,G,B,A) ----
+  function evalIesCpu(profile, theta, phi) {
+    // theta: 0 = forward/down axis, PI = back; phi: -PI..PI azimuth
+    const c = Math.cos(theta);
+    const s = Math.sin(theta);
+    if (profile === 0) {
+      // ECE R112 Automotive Low Beam: sharp cutoff at vertical angle y > 0 (phi near +PI/2)
+      const dy = s * Math.sin(phi);
+      const dx = s * Math.cos(phi);
+      if (c <= 0.0) return 0.0;
+      const horiz = Math.exp(-Math.pow(dx / 0.58, 2.0));
+      // Cutoff step: flat on left (dx<0), +15 deg rise on right shoulder (dx>0)
+      const cutLine = dx > 0.0 ? Math.min(0.22, dx * 0.28) : 0.0;
+      const cut = 1.0 / (1.0 + Math.exp((dy - cutLine) * 42.0));
+      const vert = Math.exp(-Math.pow((dy + 0.14) / 0.28, 2.0));
+      const hotspot = 0.65 * Math.exp(-Math.pow((dx - 0.14) / 0.18, 2.0) - Math.pow((dy + 0.04) / 0.10, 2.0));
+      return Math.min(1.0, (horiz * vert * 0.85 + hotspot) * cut);
+    } else if (profile === 1) {
+      // Architectural scalloped wall-washer (multi-petal lobes)
+      if (c <= 0.0) return 0.0;
+      const core = Math.pow(Math.max(0, c), 3.0);
+      const petals = 0.55 + 0.45 * Math.cos(phi * 4.0);
+      const ring = 0.45 * Math.exp(-Math.pow((theta - 0.52) / 0.16, 2.0)) * petals;
+      const asym = 0.65 + 0.35 * Math.cos(phi - 1.57);
+      return Math.min(1.0, (core * 0.72 + ring) * asym);
+    } else if (profile === 2) {
+      // Museum Narrow Spot + Fresnel reflector rings
+      if (c <= 0.0) return 0.0;
+      const core = Math.exp(-Math.pow(theta / 0.22, 2.0));
+      const ring1 = 0.34 * Math.exp(-Math.pow((theta - 0.44) / 0.055, 2.0));
+      const ring2 = 0.18 * Math.exp(-Math.pow((theta - 0.68) / 0.06, 2.0)) * (0.7 + 0.3 * Math.cos(phi * 6.0));
+      return Math.min(1.0, core + ring1 + ring2);
+    } else {
+      // Streetlamp Cobra-Head butterfly twin-wing road pattern
+      if (c <= 0.0) return 0.0;
+      const wing = Math.exp(-Math.pow((theta - 0.78) / 0.32, 2.0)) * (0.25 + 0.75 * Math.pow(Math.cos(phi), 2.0));
+      const nadir = 0.35 * Math.pow(c, 2.5);
+      return Math.min(1.0, wing * 1.15 + nadir);
+    }
+  }
+
+  function buildIesTexture() {
+    const W = 128, H = 64;
+    const data = new Uint8Array(W * H * 4);
+    for (let y = 0; y < H; y++) {
+      const phi = (y / (H - 1)) * Math.PI * 2.0 - Math.PI;
+      for (let x = 0; x < W; x++) {
+        const theta = (x / (W - 1)) * Math.PI;
+        const off = (y * W + x) * 4;
+        for (let p = 0; p < 4; p++) {
+          data[off + p] = Math.round(Math.max(0, Math.min(1, evalIesCpu(p, theta, phi))) * 255);
+        }
+      }
+    }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return tex;
+  }
+
+  function drawIesPolarCanvas() {
+    const c = document.getElementById('iesPolar');
+    const ctx = c.getContext('2d');
+    const w = c.width, h = c.height, cx = w * 0.5, cy = h * 0.24, rMax = w * 0.68;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0a0b0f'; ctx.fillRect(0, 0, w, h);
+    // Concentric polar grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.lineWidth = 1;
+    for (let k = 1; k <= 3; k++) {
+      ctx.beginPath(); ctx.arc(cx, cy, rMax * k / 3, 0, Math.PI); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + rMax); ctx.stroke();
+
+    // Filled polar lobe (vertical slice phi=0 and phi=PI)
+    const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, rMax);
+    grad.addColorStop(0, 'rgba(130, 225, 255, 0.90)');
+    grad.addColorStop(1, 'rgba(78, 165, 255, 0.14)');
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    for (let i = -90; i <= 90; i += 2) {
+      const ang = i * Math.PI / 180;
+      const theta = Math.abs(ang);
+      const phi = ang >= 0 ? 0.0 : Math.PI;
+      const val = evalIesCpu(state.iesProfile, theta, phi);
+      const px = cx + Math.sin(ang) * val * rMax;
+      const py = cy + Math.cos(ang) * val * rMax;
+      ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.strokeStyle = '#7ad4ff'; ctx.lineWidth = 2; ctx.stroke();
+
+    const meta = IES_PROFILES[state.iesProfile];
+    document.getElementById('iesMeta').innerHTML = `<strong>${meta.name}</strong>${meta.desc}`;
+  }
+
+  // ---- WEBGL2 SHADERS ----
+  const VS = `#version 300 es
+  out vec2 vUv;
+  void main() {
+    vec2 p = vec2((gl_VertexID & 1) << 2, (gl_VertexID & 2) << 1) - 1.0;
+    vUv = p * 0.5 + 0.5;
+    gl_Position = vec4(p, 0.0, 1.0);
+  }`;
+
+  const FS = `#version 300 es
+  precision highp float;
+  in vec2 vUv;
+  out vec4 FragColor;
+
+  uniform vec2  uRes;
+  uniform float uTime;
+  uniform float uFrame;
+  uniform vec3  uCamPos;
+  uniform vec3  uCamFwd;
+  uniform vec3  uCamRight;
+  uniform vec3  uCamUp;
+
+  uniform int   uSplitMode;
+  uniform float uSplitX;
+  uniform int   uModeA;
+  uniform int   uModeB;
+  uniform int   uTopK;
+  uniform int   uSwarmCount;
+  uniform int   uIesProfile;
+  uniform float uFloorRough;
+  uniform float uAmbient;
+  uniform float uExposure;
+
+  // 7 Hero Luminaires: On/Intensity/ParamA/ParamB + RGB
+  uniform vec4  uLightParams[7]; // x=enabled*intensity, y=paramA, z=paramB, w=unused
+  uniform vec3  uLightColor[7];
+  uniform sampler2D uIesTex;
+
+  const float PI = 3.14159265359;
+
+  // Hash for stochastic 1-ray mode (ReSTIR raw comparison)
+  float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+  }
+
+  // ---- SIGNED DISTANCE PRIMITIVES ----
+  float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+  }
+  float sdRoundBox(vec3 p, vec3 b, float r) {
+    vec3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+  }
+  float sdSphere(vec3 p, float r) { return length(p) - r; }
+  float sdCylinderX(vec3 p, float r, float h) {
+    vec2 d = abs(vec2(length(p.yz), p.x)) - vec2(r, h);
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+  }
+  float smin(float a, float b, float k) {
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * 0.25;
+  }
+
+  // Material IDs:
+  // 1=Floor, 2=Backdrop Wall, 3=Car Paint (Metallic Cobalt), 4=Car Glass,
+  // 5=Tyre Rubber, 6=Alloy Rim, 7=Chrome Sphere, 8=Ceramic Sphere, 9=Concrete Pillars
+  vec2 mapScene(vec3 p) {
+    // Ground floor (y = 0)
+    vec2 res = vec2(p.y, 1.0);
+
+    // Back architectural wall (z = -4.2) + right flank wall (x = 4.6) to catch IES scallops
+    float wallBack = sdBox(p - vec3(0.0, 2.4, -4.3), vec3(7.0, 2.4, 0.18));
+    float wallSide = sdBox(p - vec3(4.9, 2.4, 0.0), vec3(0.18, 2.4, 5.2));
+    float walls = min(wallBack, wallSide);
+    if (walls < res.x) res = vec2(walls, 2.0);
+
+    // Architectural pillars along back wall (show crisp shadow penumbras & IES scallops!)
+    for (int i = -1; i <= 1; i++) {
+      float px = float(i) * 2.45;
+      float pil = sdRoundBox(p - vec3(px, 1.8, -3.55), vec3(0.22, 1.8, 0.22), 0.03);
+      if (pil < res.x) res = vec2(pil, 9.0);
+    }
+
+    // ---- HERO SCULPTED COUPE CAR AT ORIGIN (oriented along -Z/+Z, nose facing +X/-Z? Nose faces +Z!) ----
+    vec3 cp = p - vec3(-0.2, 0.0, 0.0);
+    // Lower sleek wedge chassis
+    float lowerBody = sdRoundBox(cp - vec3(0.0, 0.50, 0.0), vec3(0.92, 0.26, 2.05), 0.14);
+    // Sculpted sloped cabin greenhouse
+    vec3 cabP = cp - vec3(0.0, 0.86, -0.18);
+    cabP.x /= (1.0 - clamp(cabP.y * 0.45, 0.0, 0.35));
+    float cabin = sdRoundBox(cabP, vec3(0.68, 0.26, 1.02), 0.18);
+    // Subtle rear haunch / fender flare
+    float body = smin(lowerBody, cabin, 0.14);
+    // Carve wheel arches out of body
+    vec3 wp = vec3(abs(cp.x) - 0.86, cp.y - 0.34, abs(cp.z) - 1.28);
+    float arch = sdCylinderX(wp, 0.39, 0.28);
+    body = max(body, -arch);
+    if (body < res.x) {
+      float matId = (cp.y > 0.76 && abs(cp.z + 0.16) < 0.92) ? 4.0 : 3.0;
+      res = vec2(body, matId);
+    }
+
+    // 4 Tyres & Alloy Rims
+    float tyre = sdCylinderX(wp, 0.34, 0.15);
+    float rim  = sdCylinderX(wp - vec3(0.03, 0.0, 0.0), 0.22, 0.155);
+    if (tyre < res.x) res = vec2(tyre, 5.0);
+    if (rim  < res.x) res = vec2(rim,  6.0);
+
+    // Reference spheres on right side (Chrome + Matte Ceramic) for clear specular / diffuse comparison
+    float sChrome = sdSphere(p - vec3(2.25, 0.55, 0.65), 0.55);
+    if (sChrome < res.x) res = vec2(sChrome, 7.0);
+    float sMatte  = sdSphere(p - vec3(2.35, 0.48, -1.25), 0.48);
+    if (sMatte < res.x) res = vec2(sMatte, 8.0);
+
+    return res;
+  }
+
+  vec3 calcNormal(vec3 p) {
+    vec2 e = vec2(0.0025, -0.0025);
+    return normalize(
+      e.xyy * mapScene(p + e.xyy).x +
+      e.yyx * mapScene(p + e.yyx).x +
+      e.yxy * mapScene(p + e.yxy).x +
+      e.xxx * mapScene(p + e.xxx).x);
+  }
+
+  // Frontier SDF Soft Shadow Cone (contact-hardening penumbra, 0 shadow-map VRAM!)
+  float traceSdfShadow(vec3 ro, vec3 rd, float maxT, float softness) {
+    float res = 1.0;
+    float t = 0.04;
+    float ph = 1e10;
+    for (int i = 0; i < 32; i++) {
+      if (t >= maxT) break;
+      float h = mapScene(ro + rd * t).x;
+      if (h < 0.002) return 0.0;
+      // Improved Aaltonen quadratic penumbra
+      float y = h * h / (2.0 * ph);
+      float d = sqrt(max(0.0, h * h - y * y));
+      res = min(res, d / max(0.0001, softness * max(0.0, t - y)));
+      ph = h;
+      t += clamp(h, 0.03, 0.45);
+    }
+    return clamp(res, 0.0, 1.0);
+  }
+
+  // Cheap 4-tap SDF AO for contact grounding
+  float calcSdfAo(vec3 p, vec3 n) {
+    float occ = 0.0;
+    float sca = 1.0;
+    for (int i = 1; i <= 4; i++) {
+      float h = 0.08 + 0.22 * float(i);
+      float d = mapScene(p + n * h).x;
+      occ += (h - d) * sca;
+      sca *= 0.65;
+    }
+    return clamp(1.0 - 1.15 * occ, 0.08, 1.0);
+  }
+
+  // ---- OPENPBR GGX MICROFACET BRDF ----
+  float D_GGX(float NoH, float a) {
+    float a2 = a * a;
+    float d = NoH * NoH * (a2 - 1.0) + 1.0;
+    return a2 / max(1e-5, PI * d * d);
+  }
+  float V_Smith(float NoV, float NoL, float a) {
+    float a2 = a * a;
+    float gV = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+    float gL = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+    return 0.5 / max(1e-5, gV + gL);
+  }
+  vec3 F_Schlick(float VoH, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - VoH, 0.0, 1.0), 5.0);
+  }
+
+  vec3 evalBrdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float rough, float metal, float specAreaBoost) {
+    float NoL = max(0.0, dot(N, L));
+    if (NoL <= 0.0) return vec3(0.0);
+    float NoV = max(0.001, dot(N, V));
+    vec3 H = normalize(V + L);
+    float NoH = max(0.0, dot(N, H));
+    float VoH = max(0.0, dot(V, H));
+    float a = clamp(rough * rough + specAreaBoost, 0.006, 1.0);
+    vec3 F0 = mix(vec3(0.04), albedo, metal);
+    float D = D_GGX(NoH, a);
+    float Vis = V_Smith(NoV, NoL, a);
+    vec3 F = F_Schlick(VoH, F0);
+    vec3 kD = (1.0 - F) * (1.0 - metal);
+    vec3 diff = kD * albedo / PI;
+    vec3 spec = D * Vis * F;
+    return (diff + spec) * NoL;
+  }
+
+  // Sample ANSI/IESNA LM-63 Type C LUT (4 profiles packed in RGBA)
+  float sampleIes(vec3 dirLocal, int prof) {
+    float theta = acos(clamp(dirLocal.z, -1.0, 1.0));
+    float phi = atan(dirLocal.y, dirLocal.x);
+    vec2 uv = vec2(theta / PI, phi / (2.0 * PI) + 0.5);
+    vec4 tex = texture(uIesTex, uv);
+    if (prof == 0) return tex.r;
+    if (prof == 1) return tex.g;
+    if (prof == 2) return tex.b;
+    return tex.a;
+  }
+
+  // Smooth Karis / UE4 distance reach window
+  float smoothAtten(float d, float reach) {
+    float r = clamp(1.0 - pow(d / reach, 4.0), 0.0, 1.0);
+    return (r * r) / (d * d + 0.12);
+  }
+
+  // ---- EVALUATE EACH OF THE 7 HERO LUMINAIRES ----
+  // Returns: outRadiance (unshadowed), outShadowDir, outShadowDist, outSoftness
+  void evalHeroLight(
+    int idx, vec3 P, vec3 N, vec3 V, vec3 albedo, float rough, float metal,
+    out vec3 outRad, out vec3 outSDir, out float outSDist, out float outSoft
+  ) {
+    outRad = vec3(0.0); outSDir = vec3(0,1,0); outSDist = 0.0; outSoft = 0.12;
+    float gain = uLightParams[idx].x;
+    if (gain <= 0.001) return;
+    float pA = uLightParams[idx].y;
+    float pB = uLightParams[idx].z;
+    vec3 col = uLightColor[idx];
+    float t = uTime;
+
+    if (idx == 0) {
+      // 1. POINT LIGHT (orbiting warm sphere beside front-left fender)
+      vec3 pos = vec3(-2.35 + sin(t * 0.7) * 0.65, 1.45 + cos(t * 0.9) * 0.25, 1.45 + cos(t * 0.7) * 0.55);
+      vec3 toL = pos - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      float srcR = mix(0.04, 0.45, pA);
+      float reach = mix(5.0, 14.0, pB);
+      float att = smoothAtten(d, reach);
+      float areaBoost = clamp(srcR / max(0.3, d), 0.0, 0.35);
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, areaBoost) * col * gain * 9.5 * att;
+      outSDir = L; outSDist = d - 0.08; outSoft = clamp(srcR * 0.55, 0.04, 0.32);
+    }
+    else if (idx == 1) {
+      // 2. SPOT LIGHT (overhead studio key spot aimed at car hood & ceramic sphere)
+      vec3 pos = vec3(2.85, 3.65, 2.35);
+      vec3 tgt = vec3(0.2 + sin(t * 0.5) * 0.7, 0.35, 0.15);
+      vec3 aim = normalize(tgt - pos);
+      vec3 toL = pos - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      float cosOuter = cos(mix(0.22, 0.85, pA));
+      float cosInner = cos(mix(0.22, 0.85, pA) * (1.0 - pB * 0.72));
+      float spot = smoothstep(cosOuter, cosInner, dot(-L, aim));
+      float att = smoothAtten(d, 15.0) * spot;
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, 0.03) * col * gain * 22.0 * att;
+      outSDir = L; outSDist = d - 0.08; outSoft = 0.09;
+    }
+    else if (idx == 2) {
+      // 3. IES PHOTOMETRIC LAMP (ANSI/IESNA LM-63 Type C)
+      vec3 pos, aim, upRef;
+      if (uIesProfile == 0) {
+        // ECE R112 Low Beam aimed across car & rear architectural wall so the sharp cutoff & shoulder hotspot are crystal clear
+        pos = vec3(-2.65, 1.15, 2.60);
+        aim = normalize(vec3(0.42 + sin(t * 0.4) * 0.18, mix(-0.32, 0.08, pA), -1.0));
+        upRef = vec3(0.0, 1.0, 0.0);
+      } else {
+        // Wall-washer / Museum / Streetlamp mounted near architectural wall & pillars
+        pos = vec3(0.0 + sin(t * 0.5) * 1.1, 3.15, -2.55);
+        aim = normalize(vec3(0.0, -0.78, -0.62 + (pA - 0.5) * 0.5));
+        upRef = vec3(0.0, 1.0, 0.0);
+      }
+      vec3 right = normalize(cross(aim, upRef));
+      vec3 up = cross(right, aim);
+      vec3 toL = pos - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      vec3 outDir = -L;
+      vec3 localDir = vec3(dot(outDir, right) / mix(0.65, 1.45, pB), dot(outDir, up), dot(outDir, aim));
+      localDir = normalize(localDir);
+      float ies = sampleIes(localDir, uIesProfile);
+      float att = smoothAtten(d, 16.0) * ies;
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, 0.02) * col * gain * 28.0 * att;
+      outSDir = L; outSDist = d - 0.08; outSoft = 0.06;
+    }
+    else if (idx == 3) {
+      // 4. AREA / SOFTBOX LIGHT (Overhead studio softbox via Karis MRP Quad + solid-angle diffuse)
+      vec3 center = vec3(-0.15, 3.25, 0.0);
+      float hw = mix(0.4, 2.2, pA);
+      float hh = mix(0.4, 2.2, pB);
+      vec3 lightN = vec3(0.0, -1.0, 0.0);
+      // Closest point on rectangle to reflection ray (MRP specular)
+      vec3 R = reflect(-V, N);
+      float tHit = (center.y - P.y) / (abs(R.y) > 0.001 ? R.y : 0.001);
+      vec3 hitP = (tHit > 0.0) ? (P + R * tHit) : vec3(P.x, center.y, P.z);
+      vec3 closestSpec = vec3(
+        clamp(hitP.x, center.x - hw, center.x + hw),
+        center.y,
+        clamp(hitP.z, center.z - hh, center.z + hh));
+      vec3 toSpec = closestSpec - P;
+      float dSpec = length(toSpec);
+      vec3 Lspec = toSpec / max(1e-4, dSpec);
+
+      // Closest point for diffuse
+      vec3 closestDiff = vec3(
+        clamp(P.x, center.x - hw, center.x + hw),
+        center.y,
+        clamp(P.z, center.z - hh, center.z + hh));
+      vec3 toDiff = closestDiff - P;
+      float dDiff = length(toDiff);
+      vec3 Ldiff = toDiff / max(1e-4, dDiff);
+
+      float facing = clamp(dot(-Ldiff, lightN), 0.0, 1.0);
+      float area = (2.0 * hw) * (2.0 * hh);
+      float solidAngle = (area * facing) / (dDiff * dDiff + area * 0.45);
+      vec3 kD = (1.0 - mix(vec3(0.04), albedo, metal)) * (1.0 - metal);
+      vec3 diff = kD * (albedo / PI) * max(0.0, dot(N, Ldiff)) * solidAngle;
+
+      // Specular lobe from MRP
+      float NoL = max(0.0, dot(N, Lspec));
+      float NoV = max(0.001, dot(N, V));
+      vec3 H = normalize(V + Lspec);
+      float a = clamp(rough * rough + 0.04, 0.01, 1.0);
+      vec3 F = F_Schlick(max(0.0, dot(V, H)), mix(vec3(0.04), albedo, metal));
+      vec3 spec = D_GGX(max(0.0, dot(N, H)), a) * V_Smith(NoV, NoL, a) * F * NoL * clamp(area / (dSpec * dSpec + 1.2), 0.0, 1.5);
+
+      outRad = (diff + spec * 0.55) * col * gain * 6.5;
+      outSDir = Ldiff; outSDist = dDiff - 0.1; outSoft = clamp(0.18 + hw * 0.12, 0.14, 0.48);
+    }
+    else if (idx == 4) {
+      // 5. LINEAR TUBE LIGHT (Karis Segment MRP — glossy side studio light bar)
+      float halfLen = mix(0.5, 2.4, pA);
+      vec3 aP = vec3(3.15, 1.25 + sin(t * 0.6) * 0.25, -halfLen);
+      vec3 bP = vec3(3.15, 1.25 + sin(t * 0.6) * 0.25,  halfLen);
+      vec3 R = reflect(-V, N);
+      vec3 L0 = aP - P;
+      vec3 Ld = bP - aP;
+      float RdotLd = dot(R, Ld);
+      float tSeg = (dot(R, L0) * RdotLd - dot(L0, Ld)) / max(1e-4, dot(Ld, Ld) - RdotLd * RdotLd);
+      vec3 closest = aP + Ld * clamp(tSeg, 0.0, 1.0);
+      vec3 toL = closest - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      float tubeR = mix(0.03, 0.24, pB);
+      float att = smoothAtten(d, 13.0) * (1.0 + halfLen * 0.35);
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, clamp(tubeR / max(0.3, d), 0.0, 0.25)) * col * gain * 8.5 * att;
+      outSDir = L; outSDist = d - 0.08; outSoft = 0.20;
+    }
+    else if (idx == 5) {
+      // 6. LED COB PACKAGE (Compact die + tight primary lens optic above chrome sphere)
+      vec3 pos = vec3(2.25, 2.65, 0.65);
+      vec3 aim = normalize(vec3(0.0, -1.0, 0.0));
+      vec3 toL = pos - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      float opticExp = mix(24.0, 2.2, pA);
+      float beam = pow(max(0.0, dot(-L, aim)), opticExp);
+      float att = smoothAtten(d, 11.0) * beam;
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, 0.015) * col * gain * 18.0 * att;
+      outSDir = L; outSDist = d - 0.06; outSoft = mix(0.03, 0.14, 1.0 - pB);
+    }
+    else if (idx == 6) {
+      // 7. LED STRIP RIBBON (Automotive side-sill underglow + cove strip with optional SMD pearls)
+      float halfLen = mix(0.6, 1.75, pA);
+      vec3 aP = vec3(0.75, 0.22, -halfLen);
+      vec3 bP = vec3(0.75, 0.22,  halfLen);
+      vec3 ab = bP - aP;
+      float uProj = clamp(dot(P - aP, ab) / max(1e-4, dot(ab, ab)), 0.0, 1.0);
+      vec3 closest = aP + ab * uProj;
+      vec3 toL = closest - P;
+      float d = length(toL);
+      vec3 L = toL / max(1e-4, d);
+      // Opal diffuser vs discrete SMD diode pearls along the strip!
+      float pearlWave = 0.55 + 0.45 * pow(0.5 + 0.5 * cos(uProj * 42.0), 4.0);
+      float diffuser = mix(pearlWave, 1.0, pB);
+      float att = smoothAtten(d, 6.5) * diffuser;
+      outRad = evalBrdf(N, V, L, albedo, rough, metal, 0.05) * col * gain * 5.2 * att;
+      outSDir = L; outSDist = d - 0.05; outSoft = 0.16;
+    }
+  }
+
+  // Extra dynamic swarm lights (for 48-light stress comparison!)
+  vec3 evalSwarmLight(int i, vec3 P, vec3 N, vec3 V, vec3 albedo, float rough, float metal, out float powerEst) {
+    float fi = float(i);
+    float ang = fi * 2.39996 + uTime * (0.25 + 0.15 * fract(fi * 0.37));
+    float rad = 1.6 + 3.4 * fract(fi * 0.618);
+    vec3 pos = vec3(cos(ang) * rad, 0.45 + 2.2 * fract(fi * 0.29), sin(ang) * rad - 0.6);
+    vec3 toL = pos - P;
+    float d2 = dot(toL, toL);
+    float reach = 3.2;
+    if (d2 > reach * reach) { powerEst = 0.0; return vec3(0.0); }
+    float d = sqrt(d2);
+    vec3 L = toL / max(1e-4, d);
+    float att = smoothAtten(d, reach);
+    vec3 col = 0.55 + 0.45 * cos(6.2831 * (fract(fi * 0.17) + vec3(0.0, 0.33, 0.67)));
+    vec3 contrib = evalBrdf(N, V, L, albedo, rough, metal, 0.04) * col * 3.8 * att;
+    powerEst = dot(contrib, vec3(0.299, 0.587, 0.114));
+    return contrib;
+  }
+
+  vec3 acesFilmic(vec3 x) {
+    float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+  }
+
+  vec3 heatColor(float t) {
+    t = clamp(t, 0.0, 1.0);
+    vec3 c0 = vec3(0.06, 0.10, 0.22);
+    vec3 c1 = vec3(0.10, 0.62, 0.72);
+    vec3 c2 = vec3(0.95, 0.80, 0.18);
+    vec3 c3 = vec3(0.95, 0.20, 0.14);
+    if (t < 0.33) return mix(c0, c1, t * 3.0);
+    if (t < 0.66) return mix(c1, c2, (t - 0.33) * 3.0);
+    return mix(c2, c3, (t - 0.66) * 3.0);
+  }
+
+  void main() {
+    int mode = (uSplitMode == 1 && vUv.x > uSplitX) ? uModeB : uModeA;
+
+    vec2 ndc = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
+    float aspect = uRes.x / max(1.0, uRes.y);
+    float fovScale = tan(0.46); // ~52 deg VFOV
+    vec3 rd = normalize(uCamFwd + ndc.x * aspect * fovScale * uCamRight + ndc.y * fovScale * uCamUp);
+
+    // Primary sphere trace
+    float t = 0.0;
+    float matId = -1.0;
+    for (int i = 0; i < 88; i++) {
+      vec2 h = mapScene(uCamPos + rd * t);
+      if (h.x < 0.002) { matId = h.y; break; }
+      t += h.x;
+      if (t > 28.0) break;
+    }
+
+    vec3 bg = mix(vec3(0.015, 0.018, 0.025), vec3(0.045, 0.055, 0.075), clamp(rd.y * 0.5 + 0.5, 0.0, 1.0)) * (0.4 + uAmbient * 2.5);
+    if (matId < 0.0) {
+      FragColor = vec4(pow(acesFilmic(bg * uExposure), vec3(1.0 / 2.2)), 1.0);
+      return;
+    }
+
+    vec3 P = uCamPos + rd * t;
+    vec3 N = calcNormal(P);
+    vec3 V = -rd;
+
+    // OpenPBR material lookup
+    vec3 albedo = vec3(0.5);
+    float rough = 0.4;
+    float metal = 0.0;
+    if (matId == 1.0) {
+      // Subtle micro-tile asphalt floor
+      float grid = smoothstep(0.02, 0.05, abs(fract(P.x * 0.5) - 0.5)) * smoothstep(0.02, 0.05, abs(fract(P.z * 0.5) - 0.5));
+      float micro = 0.92 + 0.08 * sin(P.x * 11.0) * cos(P.z * 11.0);
+      albedo = vec3(0.11, 0.115, 0.125) * mix(0.75, 1.0, grid) * micro;
+      rough = clamp(uFloorRough + (1.0 - grid) * 0.12, 0.05, 0.95);
+      metal = 0.0;
+    } else if (matId == 2.0) {
+      albedo = vec3(0.46, 0.47, 0.49); rough = 0.72; metal = 0.0;
+    } else if (matId == 3.0) {
+      // Metallic Cobalt Car Paint
+      albedo = vec3(0.08, 0.24, 0.62); rough = 0.14; metal = 0.65;
+    } else if (matId == 4.0) {
+      // Dark Tinted Coupe Glass
+      albedo = vec3(0.03, 0.04, 0.06); rough = 0.06; metal = 0.12;
+    } else if (matId == 5.0) {
+      // Vulcanized Tyre Rubber
+      albedo = vec3(0.035, 0.036, 0.04); rough = 0.78; metal = 0.0;
+    } else if (matId == 6.0) {
+      // Brushed Alloy Rim
+      albedo = vec3(0.76, 0.78, 0.82); rough = 0.20; metal = 0.92;
+    } else if (matId == 7.0) {
+      // Chrome Mirror Sphere
+      albedo = vec3(0.92, 0.93, 0.95); rough = 0.08; metal = 1.0;
+    } else if (matId == 8.0) {
+      // Matte Ceramic Reference Sphere
+      albedo = vec3(0.74, 0.72, 0.68); rough = 0.68; metal = 0.0;
+    } else {
+      // Concrete Architectural Pillars
+      albedo = vec3(0.38, 0.39, 0.41); rough = 0.64; metal = 0.0;
+    }
+
+    // ---- MATCAP MODES (5 = Pure Unlit, 6 = Follow Key Light) ----
+    if (mode == 5 || mode == 6) {
+      vec3 Vn = normalize(vec3(dot(N, uCamRight), dot(N, uCamUp), max(0.0, dot(N, -uCamFwd))));
+      vec3 keyDir = normalize(vec3(0.42, 0.62, 0.66));
+      if (mode == 6) {
+        // Rotate MatCap key vector toward active Spot/IES key light (0 extra light loop!)
+        vec3 wKey = normalize(vec3(2.85, 3.65, 2.35) - P);
+        keyDir = normalize(vec3(dot(wKey, uCamRight), dot(wKey, uCamUp), max(0.15, dot(wKey, -uCamFwd))));
+      }
+      float kd = max(0.0, dot(Vn, keyDir));
+      float fd = max(0.0, dot(Vn, normalize(vec3(-0.68, 0.25, 0.68))));
+      float rim = pow(clamp(1.0 - Vn.z, 0.0, 1.0), 2.5);
+      float sp = pow(max(0.0, dot(Vn, normalize(keyDir + vec3(0,0,1)))), 28.0);
+      vec3 clay = vec3(0.56, 0.54, 0.52) * (0.16 + 0.85 * kd + 0.28 * fd) + vec3(0.28) * sp + vec3(0.22, 0.25, 0.30) * rim;
+      FragColor = vec4(pow(acesFilmic(clay * uExposure), vec3(1.0 / 2.2)), 1.0);
+      return;
+    }
+
+    // ---- EVALUATE ALL 7 HERO LUMINAIRES (Rank by luminance for Top-K Shadow Budgeting!) ----
+    vec3  hRad[7];
+    vec3  hDir[7];
+    float hDist[7];
+    float hSoft[7];
+    float hLuma[7];
+    int   activeHero = 0;
+
+    for (int i = 0; i < 7; i++) {
+      evalHeroLight(i, P, N, V, albedo, rough, metal, hRad[i], hDir[i], hDist[i], hSoft[i]);
+      hLuma[i] = dot(hRad[i], vec3(0.299, 0.587, 0.114));
+      if (hLuma[i] > 0.002) activeHero++;
+    }
+
+    // ---- HEATMAP MODE (4) ----
+    if (mode == 4) {
+      int activeSwarm = 0;
+      for (int s = 0; s < 48; s++) {
+        if (s >= uSwarmCount) break;
+        float pe; evalSwarmLight(s, P, N, V, albedo, rough, metal, pe);
+        if (pe > 0.002) activeSwarm++;
+      }
+      float load = float(activeHero + activeSwarm) / 14.0;
+      vec3 hm = heatColor(load);
+      // Overlay subtle diffuse shading so 3D form remains readable
+      hm *= (0.45 + 0.55 * max(0.0, dot(N, normalize(vec3(0.4, 0.8, 0.4)))));
+      FragColor = vec4(hm, 1.0);
+      return;
+    }
+
+    vec3 totalHdr = vec3(0.0);
+    float ao = calcSdfAo(P, N);
+
+    if (mode == 0) {
+      // TOP-K BUDGETED SDF SOFT SHADOWS (Frontier Recommended Lean Stack!)
+      // Bitmask tracks the top uTopK brightest lights at this pixel (zero dynamic array indexing!)
+      int shadowMask = 0;
+      for (int k = 0; k < 7; k++) {
+        if (k >= uTopK) break;
+        int best = -1;
+        float bestL = 0.004;
+        for (int i = 0; i < 7; i++) {
+          if ((shadowMask & (1 << i)) == 0 && hLuma[i] > bestL) { bestL = hLuma[i]; best = i; }
+        }
+        if (best >= 0) shadowMask |= (1 << best);
+      }
+      for (int i = 0; i < 7; i++) {
+        if (hLuma[i] <= 0.0005) continue;
+        float vis = ((shadowMask & (1 << i)) != 0) ? traceSdfShadow(P + N * 0.012, hDir[i], hDist[i], hSoft[i]) : 1.0;
+        totalHdr += hRad[i] * vis;
+      }
+    }
+    else if (mode == 1) {
+      // FULL SHADOWED (Every active hero light traces an SDF shadow cone)
+      for (int i = 0; i < 7; i++) {
+        if (hLuma[i] <= 0.0005) continue;
+        float vis = traceSdfShadow(P + N * 0.012, hDir[i], hDist[i], hSoft[i]);
+        totalHdr += hRad[i] * vis;
+      }
+    }
+    else if (mode == 2) {
+      // DIRECT UNSHADOWED BASELINE
+      for (int i = 0; i < 7; i++) totalHdr += hRad[i];
+    }
+    else if (mode == 3) {
+      // STOCHASTIC 1-SAMPLE IMPORTANCE SAMPLING (Demonstrates raw 1-ray ReSTIR-DI candidate noise before temporal denoising)
+      float sumW = 0.0;
+      for (int i = 0; i < 7; i++) sumW += hLuma[i];
+      if (sumW > 0.0005) {
+        float xi = hash12(gl_FragCoord.xy + vec2(uFrame * 17.3, uFrame * 31.7)) * sumW;
+        float acc = 0.0;
+        bool picked = false;
+        for (int i = 0; i < 7; i++) {
+          acc += hLuma[i];
+          if (!picked && xi <= acc) {
+            picked = true;
+            float pdf = max(1e-4, hLuma[i] / sumW);
+            float vis = traceSdfShadow(P + N * 0.012, hDir[i], hDist[i], hSoft[i]);
+            totalHdr += (hRad[i] / pdf) * vis;
+          }
+        }
+      }
+    }
+
+    // Add optional Many-Light Swarm (culled by reach sphere — world-space grid behavior!)
+    for (int s = 0; s < 48; s++) {
+      if (s >= uSwarmCount) break;
+      float pe;
+      totalHdr += evalSwarmLight(s, P, N, V, albedo, rough, metal, pe);
+    }
+
+    // Subtle ambient hemisphere sky fill modulated by SDF AO
+    vec3 skyFill = mix(vec3(0.05, 0.055, 0.065), vec3(0.16, 0.22, 0.32), N.y * 0.5 + 0.5) * uAmbient;
+    vec3 kD = (1.0 - mix(vec3(0.04), albedo, metal)) * (1.0 - metal);
+    totalHdr += kD * albedo * skyFill * ao;
+    // Metallic environment reflection hint
+    vec3 R = reflect(-V, N);
+    vec3 envSpec = mix(vec3(0.03), vec3(0.14, 0.19, 0.28), clamp(R.y * 0.5 + 0.5, 0.0, 1.0)) * uAmbient;
+    totalHdr += F_Schlick(max(0.0, dot(N, V)), mix(vec3(0.04), albedo, metal)) * envSpec * ao;
+
+    // Subtle glowing emissive fixture visualization (so users see where Point / Softbox / Tube / LED Strip sit in 3D!)
+    // 1. Point bulb glow
+    if (uLightParams[0].x > 0.001) {
+      vec3 pPos = vec3(-2.35 + sin(uTime * 0.7) * 0.65, 1.45 + cos(uTime * 0.9) * 0.25, 1.45 + cos(uTime * 0.7) * 0.55);
+      float tProj = dot(pPos - uCamPos, rd);
+      if (tProj > 0.0 && tProj < t) {
+        float dRay = length(uCamPos + rd * tProj - pPos);
+        totalHdr += uLightColor[0] * uLightParams[0].x * exp(-dRay * dRay * 140.0) * 3.5;
+      }
+    }
+    // 2. Overhead Area Softbox visible panel
+    if (uLightParams[3].x > 0.001 && rd.y > 0.01) {
+      float tBox = (3.25 - uCamPos.y) / rd.y;
+      if (tBox > 0.0 && tBox < t) {
+        vec3 hp = uCamPos + rd * tBox;
+        float hw = mix(0.4, 2.2, uLightParams[3].y);
+        float hh = mix(0.4, 2.2, uLightParams[3].z);
+        if (abs(hp.x + 0.15) < hw && abs(hp.z) < hh) {
+          totalHdr = mix(totalHdr, uLightColor[3] * uLightParams[3].x * 2.2, 0.92);
+        }
+      }
+    }
+    // 3. Side Linear Tube visible glowing bar
+    if (uLightParams[4].x > 0.001) {
+      float hl = mix(0.5, 2.4, uLightParams[4].y);
+      float ty = 1.25 + sin(uTime * 0.6) * 0.25;
+      // Closest distance between camera ray and tube segment along Z at (3.15, ty)
+      vec3 aP = vec3(3.15, ty, -hl);
+      vec3 seg = vec3(0.0, 0.0, 2.0 * hl);
+      vec3 w0 = uCamPos - aP;
+      float b = dot(rd, seg);
+      float c = dot(seg, seg);
+      float d0 = dot(rd, w0);
+      float e0 = dot(seg, w0);
+      float den = max(1e-4, c - b * b);
+      float sc = max(0.0, (b * e0 - c * d0) / den);
+      float tc = clamp((e0 + b * sc) / max(1e-4, c), 0.0, 1.0);
+      if (sc < t) {
+        float dRay = length((uCamPos + rd * sc) - (aP + seg * tc));
+        totalHdr += uLightColor[4] * uLightParams[4].x * exp(-dRay * dRay * 240.0) * 3.0;
+      }
+    }
+    // 4. Automotive Side-Sill LED Strip visible ribbon
+    if (uLightParams[6].x > 0.001) {
+      float hl = mix(0.6, 1.75, uLightParams[6].y);
+      vec3 aP = vec3(0.75, 0.22, -hl);
+      vec3 seg = vec3(0.0, 0.0, 2.0 * hl);
+      vec3 w0 = uCamPos - aP;
+      float b = dot(rd, seg);
+      float c = dot(seg, seg);
+      float d0 = dot(rd, w0);
+      float e0 = dot(seg, w0);
+      float den = max(1e-4, c - b * b);
+      float sc = max(0.0, (b * e0 - c * d0) / den);
+      float tc = clamp((e0 + b * sc) / max(1e-4, c), 0.0, 1.0);
+      if (sc < t) {
+        float dRay = length((uCamPos + rd * sc) - (aP + seg * tc));
+        float pearl = mix(0.35 + 0.65 * pow(0.5 + 0.5 * cos(tc * 42.0), 4.0), 1.0, uLightParams[6].z);
+        totalHdr += uLightColor[6] * uLightParams[6].x * pearl * exp(-dRay * dRay * 750.0) * 3.8;
+      }
+    }
+
+    vec3 ldr = pow(acesFilmic(totalHdr * uExposure), vec3(1.0 / 2.2));
+    FragColor = vec4(ldr, 1.0);
+  }`;
+
+  function compile(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+      throw new Error(gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  const U = name => gl.getUniformLocation(prog, name);
+  const loc = {
+    res: U('uRes'), time: U('uTime'), frame: U('uFrame'),
+    camPos: U('uCamPos'), camFwd: U('uCamFwd'), camRight: U('uCamRight'), camUp: U('uCamUp'),
+    splitMode: U('uSplitMode'), splitX: U('uSplitX'), modeA: U('uModeA'), modeB: U('uModeB'),
+    topK: U('uTopK'), swarmCount: U('uSwarmCount'), iesProfile: U('uIesProfile'),
+    floorRough: U('uFloorRough'), ambient: U('uAmbient'), exposure: U('uExposure'),
+    iesTex: U('uIesTex'),
+    lParams: Array.from({length:7}, (_,i)=>U(`uLightParams[${i}]`)),
+    lColor:  Array.from({length:7}, (_,i)=>U(`uLightColor[${i}]`)),
+  };
+
+  const iesTex = buildIesTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, iesTex);
+  gl.uniform1i(loc.iesTex, 0);
+
+  // ---- UI BINDINGS ----
+  const lightListEl = document.getElementById('lightList');
+  function rebuildLightList() {
+    lightListEl.innerHTML = '';
+    LIGHTS.forEach((L, idx) => {
+      const div = document.createElement('div');
+      div.className = 'light-item' + (state.selectedLight === idx ? ' selected' : '');
+      div.innerHTML = `
+        <div class="light-left">
+          <div class="dot" style="background:${rgbCss(L.kelvin)};box-shadow:0 0 8px ${rgbCss(L.kelvin)}"></div>
+          <div>
+            <div class="l-name">${L.name}</div>
+            <div class="l-sub">${L.sub}</div>
+          </div>
+        </div>
+        <button class="switch ${L.on ? 'on' : ''}" data-tog="${idx}" title="Toggle light"></button>
+      `;
+      div.addEventListener('click', e => {
+        if (e.target.dataset.tog !== undefined) {
+          L.on = !L.on;
+          rebuildLightList();
+          return;
+        }
+        state.selectedLight = idx;
+        rebuildLightList();
+        syncInspectorPanel();
+      });
+      lightListEl.appendChild(div);
+    });
+  }
+
+  function syncInspectorPanel() {
+    const L = LIGHTS[state.selectedLight];
+    document.getElementById('selTitle').textContent = L.name;
+    document.getElementById('selBadge').textContent = L.badge;
+    document.getElementById('iesControls').style.display = (L.id === 2) ? 'block' : 'none';
+    document.getElementById('sInt').value = L.intensity;
+    document.getElementById('vInt').textContent = L.intensity.toFixed(2) + '×';
+    document.getElementById('sKelv').value = L.kelvin;
+    document.getElementById('vKelv').textContent = `${L.kelvin} K`;
+    document.getElementById('lblParamA').textContent = L.lblA;
+    document.getElementById('sParamA').value = L.paramA;
+    document.getElementById('vParamA').textContent = L.paramA.toFixed(2);
+    document.getElementById('lblParamB').textContent = L.lblB;
+    document.getElementById('sParamB').value = L.paramB;
+    document.getElementById('vParamB').textContent = L.paramB.toFixed(2);
+    if (L.id === 2) drawIesPolarCanvas();
+  }
+
+  document.getElementById('sInt').addEventListener('input', e => {
+    const L = LIGHTS[state.selectedLight]; L.intensity = parseFloat(e.target.value);
+    document.getElementById('vInt').textContent = L.intensity.toFixed(2) + '×';
+  });
+  document.getElementById('sKelv').addEventListener('input', e => {
+    const L = LIGHTS[state.selectedLight]; L.kelvin = parseInt(e.target.value, 10);
+    document.getElementById('vKelv').textContent = `${L.kelvin} K`;
+    rebuildLightList();
+  });
+  document.getElementById('sParamA').addEventListener('input', e => {
+    const L = LIGHTS[state.selectedLight]; L.paramA = parseFloat(e.target.value);
+    document.getElementById('vParamA').textContent = L.paramA.toFixed(2);
+  });
+  document.getElementById('sParamB').addEventListener('input', e => {
+    const L = LIGHTS[state.selectedLight]; L.paramB = parseFloat(e.target.value);
+    document.getElementById('vParamB').textContent = L.paramB.toFixed(2);
+  });
+
+  document.querySelectorAll('#iesSeg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.iesProfile = parseInt(btn.dataset.ies, 10);
+      document.querySelectorAll('#iesSeg button').forEach(b => b.classList.toggle('active', b === btn));
+      drawIesPolarCanvas();
+    });
+  });
+
+  const modeLabels = [
+    'SDF Soft Shadows (Top-K)', 'Full Shadowed (All)', 'Direct Unshadowed',
+    'Stochastic 1-Ray (Raw ReSTIR)', 'Active-Light Heatmap', 'MatCap Unlit', 'MatCap Key-Synced'
+  ];
+  function syncSplitUi() {
+    const line = document.getElementById('splitLine');
+    const tA = document.getElementById('tagA');
+    const tB = document.getElementById('tagB');
+    document.getElementById('modeBWrap').style.display = state.splitMode ? 'block' : 'none';
+    line.style.display = state.splitMode ? 'block' : 'none';
+    tA.style.display = state.splitMode ? 'block' : 'none';
+    tB.style.display = state.splitMode ? 'block' : 'none';
+    line.style.left = (state.splitX * 100) + '%';
+    tA.textContent = 'LEFT A: ' + modeLabels[state.modeA];
+    tB.textContent = 'RIGHT B: ' + modeLabels[state.modeB];
+  }
+  document.querySelectorAll('#viewModeSeg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.splitMode = btn.dataset.split === '1';
+      document.querySelectorAll('#viewModeSeg button').forEach(b => b.classList.toggle('active', b === btn));
+      syncSplitUi();
+    });
+  });
+  document.getElementById('modeA').addEventListener('change', e => { state.modeA = parseInt(e.target.value,10); syncSplitUi(); });
+  document.getElementById('modeB').addEventListener('change', e => { state.modeB = parseInt(e.target.value,10); syncSplitUi(); });
+  document.getElementById('sTopK').addEventListener('input', e => { state.topK = parseInt(e.target.value,10); document.getElementById('vTopK').textContent = `${state.topK} rays`; });
+  document.getElementById('sSwarm').addEventListener('input', e => { state.swarmCount = parseInt(e.target.value,10); document.getElementById('vSwarm').textContent = `${state.swarmCount} extra`; });
+  document.getElementById('swAnim').addEventListener('click', e => { state.animate = !state.animate; e.target.classList.toggle('on', state.animate); });
+  document.getElementById('sRough').addEventListener('input', e => { state.floorRoughness = parseFloat(e.target.value); document.getElementById('vRough').textContent = state.floorRoughness.toFixed(2); });
+  document.getElementById('sAmb').addEventListener('input', e => { state.ambient = parseFloat(e.target.value); document.getElementById('vAmb').textContent = state.ambient.toFixed(2); });
+  document.getElementById('sExp').addEventListener('input', e => { state.exposure = parseFloat(e.target.value); document.getElementById('vExp').textContent = state.exposure.toFixed(2)+'×'; });
+
+  // Presets
+  function applyPreset(key) {
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === key));
+    if (key === 'all7') {
+      LIGHTS.forEach(l => l.on = true);
+      state.swarmCount = 0; state.splitMode = false; state.modeA = 0; state.iesProfile = 0; state.ambient = 0.12;
+    } else if (key === 'auto') {
+      LIGHTS.forEach((l,i) => l.on = (i === 2 || i === 3 || i === 6));
+      state.iesProfile = 0; state.selectedLight = 2; state.swarmCount = 0; state.splitMode = true; state.modeA = 0; state.modeB = 2; state.ambient = 0.06;
+    } else if (key === 'arch') {
+      LIGHTS.forEach((l,i) => l.on = (i === 1 || i === 2 || i === 4));
+      state.iesProfile = 1; state.selectedLight = 2; state.swarmCount = 0; state.splitMode = true; state.modeA = 0; state.modeB = 2; state.ambient = 0.08;
+    } else if (key === 'many64') {
+      LIGHTS.forEach(l => l.on = true);
+      state.swarmCount = 48; state.splitMode = true; state.modeA = 0; state.modeB = 3; state.ambient = 0.05;
+    } else if (key === 'matcap') {
+      state.splitMode = true; state.modeA = 5; state.modeB = 6; state.swarmCount = 0;
+    }
+    document.getElementById('sSwarm').value = state.swarmCount;
+    document.getElementById('vSwarm').textContent = `${state.swarmCount} extra`;
+    document.getElementById('sAmb').value = state.ambient;
+    document.getElementById('vAmb').textContent = state.ambient.toFixed(2);
+    document.getElementById('modeA').value = state.modeA;
+    document.getElementById('modeB').value = state.modeB;
+    document.querySelectorAll('#viewModeSeg button').forEach(b => b.classList.toggle('active', (b.dataset.split === '1') === state.splitMode));
+    document.querySelectorAll('#iesSeg button').forEach(b => b.classList.toggle('active', parseInt(b.dataset.ies,10) === state.iesProfile));
+    rebuildLightList(); syncInspectorPanel(); syncSplitUi();
+  }
+  document.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
+
+  // ---- ORBIT CAMERA & SPLIT HANDLE ----
+  let draggingCam = false, draggingSplit = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('pointerdown', e => { draggingCam = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', e => {
+    if (!draggingCam) return;
+    state.yaw   -= (e.clientX - lastX) * 0.0065;
+    state.pitch  = Math.max(0.06, Math.min(1.25, state.pitch + (e.clientY - lastY) * 0.0055));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener('pointerup', () => draggingCam = false);
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    state.dist = Math.max(2.6, Math.min(13.5, state.dist * (1 + e.deltaY * 0.0008)));
+  }, { passive: false });
+
+  const splitHandle = document.getElementById('splitHandle');
+  const vpWrap = document.getElementById('vpWrap');
+  splitHandle.addEventListener('pointerdown', e => { draggingSplit = true; e.stopPropagation(); splitHandle.setPointerCapture(e.pointerId); });
+  window.addEventListener('pointermove', e => {
+    if (!draggingSplit) return;
+    const r = vpWrap.getBoundingClientRect();
+    state.splitX = Math.max(0.05, Math.min(0.95, (e.clientX - r.left) / r.width));
+    syncSplitUi();
+  });
+  window.addEventListener('pointerup', () => draggingSplit = false);
+
+  // ---- RENDER LOOP ----
+  let prevTs = performance.now(), fpsAcc = 0, fpsCount = 0;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.max(320, Math.floor(vpWrap.clientWidth * dpr));
+    const h = Math.max(240, Math.floor(vpWrap.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener('resize', resize);
+
+  function frame(ts) {
+    const dt = Math.min(0.1, (ts - prevTs) * 0.001);
+    prevTs = ts;
+    if (state.animate) state.time += dt;
+    state.frame++;
+    resize();
+
+    // Camera basis
+    const tgt = [0.2, 0.72, -0.35];
+    const cx = tgt[0] + Math.sin(state.yaw) * Math.cos(state.pitch) * state.dist;
+    const cy = tgt[1] + Math.sin(state.pitch) * state.dist;
+    const cz = tgt[2] + Math.cos(state.yaw) * Math.cos(state.pitch) * state.dist;
+    const fx = tgt[0] - cx, fy = tgt[1] - cy, fz = tgt[2] - cz;
+    const fl = Math.hypot(fx, fy, fz);
+    const fwd = [fx/fl, fy/fl, fz/fl];
+    // right = normalize(cross(fwd, up))
+    let rx = -fwd[2], ry = 0, rz = fwd[0];
+    const rl = Math.hypot(rx, ry, rz) || 1;
+    const right = [rx/rl, ry/rl, rz/rl];
+    const up = [
+      right[1]*fwd[2] - right[2]*fwd[1],
+      right[2]*fwd[0] - right[0]*fwd[2],
+      right[0]*fwd[1] - right[1]*fwd[0]
+    ];
+
+    gl.uniform2f(loc.res, canvas.width, canvas.height);
+    gl.uniform1f(loc.time, state.time);
+    gl.uniform1f(loc.frame, state.frame % 1024);
+    gl.uniform3fv(loc.camPos, [cx, cy, cz]);
+    gl.uniform3fv(loc.camFwd, fwd);
+    gl.uniform3fv(loc.camRight, right);
+    gl.uniform3fv(loc.camUp, up);
+    gl.uniform1i(loc.splitMode, state.splitMode ? 1 : 0);
+    gl.uniform1f(loc.splitX, state.splitX);
+    gl.uniform1i(loc.modeA, state.modeA);
+    gl.uniform1i(loc.modeB, state.modeB);
+    gl.uniform1i(loc.topK, state.topK);
+    gl.uniform1i(loc.swarmCount, state.swarmCount);
+    gl.uniform1i(loc.iesProfile, state.iesProfile);
+    gl.uniform1f(loc.floorRough, state.floorRoughness);
+    gl.uniform1f(loc.ambient, state.ambient);
+    gl.uniform1f(loc.exposure, state.exposure);
+
+    let activeCount = 0;
+    for (let i = 0; i < 7; i++) {
+      const L = LIGHTS[i];
+      if (L.on && L.intensity > 0.001) activeCount++;
+      gl.uniform4f(loc.lParams[i], L.on ? L.intensity : 0.0, L.paramA, L.paramB, 0.0);
+      gl.uniform3fv(loc.lColor[i], kelvinToRgb(L.kelvin));
+    }
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // Telemetry update every ~250ms
+    fpsAcc += dt; fpsCount++;
+    if (fpsAcc >= 0.25) {
+      const avgMs = (fpsAcc / fpsCount) * 1000;
+      document.getElementById('stFps').textContent = Math.round(1000 / Math.max(0.1, avgMs));
+      document.getElementById('stMs').textContent = avgMs.toFixed(1);
+      document.getElementById('stLights').textContent = activeCount + state.swarmCount;
+      const raysTxt = state.modeA === 0 ? Math.min(activeCount, state.topK)
+                    : state.modeA === 1 ? activeCount
+                    : state.modeA === 3 ? 1 : 0;
+      document.getElementById('stRays').textContent = raysTxt;
+      fpsAcc = 0; fpsCount = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  rebuildLightList();
+  syncInspectorPanel();
+  syncSplitUi();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
