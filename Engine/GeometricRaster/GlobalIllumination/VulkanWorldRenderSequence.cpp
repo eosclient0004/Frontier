@@ -5527,7 +5527,15 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     Uniforms.RenderTuningPacked0[2] =
         (std::clamp(Config.SmrtShadowRays, 1u, 8u) & 0xFFu) |
         ((std::clamp(Config.SmrtMarchSteps, 4u, 16u) & 0xFFu) << 8u);
-    Uniforms.RenderTuningPacked0[3] = 0u;
+    const uint32_t SdfAoRadQ   = static_cast<uint32_t>(std::clamp(std::lround(std::clamp(Config.SdfAoRadiusM, 0.35f, 3.50f) * 64.0f), 1l, 255l));
+    const uint32_t SdfAoConQ   = static_cast<uint32_t>(std::clamp(std::lround(std::clamp(Config.SdfAoContrast, 0.40f, 3.50f) * 64.0f), 1l, 255l));
+    const uint32_t MatcapChQ   = std::min<uint32_t>(Config.MatcapChannelIndex, 3u);
+    const uint32_t MatcapRimQ  = static_cast<uint32_t>(std::clamp(std::lround(std::clamp(Config.MatcapRimGain, 0.0f, 1.0f) * 255.0f), 0l, 255l));
+    Uniforms.RenderTuningPacked0[3] =
+        (SdfAoRadQ & 0xFFu) |
+        ((SdfAoConQ & 0xFFu) << 8u) |
+        ((MatcapChQ & 0xFu) << 16u) |
+        ((MatcapRimQ & 0xFFu) << 20u);
     Uniforms.RenderTuningPacked1[0] = std::clamp(Config.XeGtaoSearchRadiusM, 0.25f, 3.0f);
     Uniforms.RenderTuningPacked1[1] = std::clamp(Config.SdfGiIntensity, 0.0f, 2.5f);
     Uniforms.RenderTuningPacked1[2] = std::clamp(Config.SkyFillGain, 0.0f, 3.0f);

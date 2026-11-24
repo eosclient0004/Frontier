@@ -16,6 +16,7 @@
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/DistanceFieldSpace/LocalSignedDistanceVolume.h"
 #include "Engine/Editor/Inspectors/InspectorRegistry.h"
+#include "Engine/GeometrySpace/Procedural/ProceduralGeometry.h"
 #include "Engine/Editor/WorldEnvironmentRegistry.h"
 #include "Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
@@ -1555,6 +1556,68 @@ title = "Overview"
                 ThumbnailSheetRepository::QueryCpuBakedTileCount() == CpuBefore &&
                 !TilePixels.empty() && TilePixels[0] == 0xE4u,
                 "ThumbnailSheetRepository lazily bakes Geometry/Material tiles on GPU with 0 CPU raytracing");
+        }
+
+        // 15. Extensible ProceduralGeometry framework + CameraSettings live GPU parameter sync
+        {
+            const auto& ProcReg = GeometrySpace::ProceduralGeometryRegistry::Global();
+            bool All8Built = (ProcReg.GeneratorCount() >= 8u);
+            for (uint32_t Idx = 0u; Idx < 8u; ++Idx)
+            {
+                GeometrySpace::ProceduralGeometryAsset Asset {};
+                Asset.SyncCommonInspectorParameters(Idx, 42u + Idx, 3u, 1.8f, 1.2f, ProcReg);
+                const bool RebuiltFirst = Asset.EnsureUpToDate(true, ProcReg);
+                const bool CacheHit     = !Asset.EnsureUpToDate(true, ProcReg);
+                All8Built &= RebuiltFirst && CacheHit && Asset.IsValid() &&
+                             Asset.QueryOutput().TriangleCount > 0u &&
+                             !Asset.QueryOutput().SubParts.empty() &&
+                             Asset.HasClusterPyramid();
+            }
+            AllOk &= VerifyRequirement(
+                All8Built,
+                "ProceduralGeometryRegistry builds all 8 generators (incl. Tree, Building, Tyre) with Nanite ClusterPyramid & 0-work cache hit");
+
+            // Verify domain queries & extensibility for future Botanical / Architectural / Automotive generators
+            const auto Trees     = ProcReg.ListByDomain(GeometrySpace::ProceduralGeometryDomain::Botanical);
+            const auto Buildings = ProcReg.ListByDomain(GeometrySpace::ProceduralGeometryDomain::Architectural);
+            const auto Tyres     = ProcReg.ListByDomain(GeometrySpace::ProceduralGeometryDomain::Automotive);
+            AllOk &= VerifyRequirement(
+                !Trees.empty() && !Buildings.empty() && !Tyres.empty(),
+                "ProceduralGeometryRegistry categorizes Botanical (Trees), Architectural (Buildings), and Automotive (Tyres) domains");
+
+            // Verify CameraSettings live sync of newly exposed C++/.slang parameters + PBR-only XeGTAO guard in SDF mode
+            CameraSettingsData SdfSettings {};
+            SdfSettings.RendererIndex         = 1u; // SDF
+            SdfSettings.SdfAoRadiusM          = 2.10f;
+            SdfSettings.SdfAoContrast         = 1.85f;
+            SdfSettings.SdfFillGain           = 1.45f;
+            SdfSettings.XeGtaoEnabled         = true; // Must be suppressed in SDF mode
+            SdfSettings.ClusterForcedLodLevel = 2;
+            SdfSettings.MatcapChannelIndex    = 2u;
+            SdfSettings.MatcapRimGain         = 0.72f;
+            ViewportDisplaySettings SyncedDisp {};
+            InspectorInstanceRegister::SyncCameraSettingsToDisplay(SdfSettings, &SyncedDisp);
+            AllOk &= VerifyRequirement(
+                SyncedDisp.RenderEngineIndex == 2u &&
+                !SyncedDisp.XeGtaoEnabled &&
+                std::abs(SyncedDisp.SdfAoRadiusM - 2.10f) < 1e-3f &&
+                std::abs(SyncedDisp.SdfAoContrast - 1.85f) < 1e-3f &&
+                std::abs(SyncedDisp.SkyFillGain - 1.45f) < 1e-3f &&
+                SyncedDisp.ClusterForcedLodLevel == 2 &&
+                SyncedDisp.MatcapChannelIndex == 2u &&
+                std::abs(SyncedDisp.MatcapRimGain - 0.72f) < 1e-3f,
+                "CameraSettings syncs SdfAoRadius/Contrast, SdfFillGain, ClusterForcedLod, MatCap Channel/Rim & enforces PBR-only XeGTAO");
+
+            // Render visual proof of Procedural Tyre inspector Tab 3 (Geometry + Generator controls)
+            auto& TyreInst = Reg.AccessProceduralGeometry(ProceduralTok, *Outliner.FindEntry(ProceduralTok), Bundle.Scene);
+            TyreInst.GeneratorIndex     = 7u; // Automotive Procedural Tyre
+            TyreInst.FeatureScaleMeters = 0.68f;
+            TyreInst.AmplitudeMeters    = 0.26f;
+            Inspectors.QueryProceduralGeometry().SetActivePage(2u);
+            AllOk &= VerifyRequirement(
+                RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ProceduralTok, OutDir / "39-ProceduralGeometry-Tyre-GeometryTab.png"),
+                "39-ProceduralGeometry-Tyre-GeometryTab.png");
+            Inspectors.QueryProceduralGeometry().SetActivePage(0u);
         }
     }
 

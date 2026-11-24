@@ -2256,6 +2256,15 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
 
     ShowcaseBundle->EditorCamera.ViewportWidthPx  = UseGpuViewport ? TargetW : TraceW;
     ShowcaseBundle->EditorCamera.ViewportHeightPx = UseGpuViewport ? TargetH : TraceH;
+    // Live Camera Inspector optics binding (zero CPU overhead — pure focal/sensor FOV evaluation)
+    {
+        const float SafeFocal  = std::clamp(DisplayCfg.CameraFocalLengthMm, 12.0f, 200.0f);
+        const float SafeSensor = std::clamp(DisplayCfg.CameraSensorWidthMm, 12.0f, 70.0f);
+        const float Aspect     = static_cast<float>(std::max(1u, TargetW)) / static_cast<float>(std::max(1u, TargetH));
+        const float SensorH    = SafeSensor / std::max(0.5f, Aspect);
+        ShowcaseBundle->EditorCamera.VerticalFovRadians =
+            std::clamp(2.0f * std::atan(SensorH / (2.0f * SafeFocal)), 0.14f, 2.10f);
+    }
 
     const uint32_t QTier = std::min(4u, DisplayCfg.QualityTier);
 
@@ -2277,6 +2286,10 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     RenderConfig.XeGtaoSearchRadiusM    = std::clamp(DisplayCfg.XeGtaoSearchRadiusM, 0.25f, 3.0f);
     RenderConfig.SdfConeSteps           = std::clamp(DisplayCfg.SdfConeSteps, 3u, 12u);
     RenderConfig.SdfGiIntensity         = std::clamp(DisplayCfg.SdfGiIntensity, 0.0f, 2.5f);
+    RenderConfig.SdfAoRadiusM           = std::clamp(DisplayCfg.SdfAoRadiusM, 0.35f, 3.5f);
+    RenderConfig.SdfAoContrast          = std::clamp(DisplayCfg.SdfAoContrast, 0.40f, 3.5f);
+    RenderConfig.MatcapChannelIndex     = std::min(3u, DisplayCfg.MatcapChannelIndex);
+    RenderConfig.MatcapRimGain          = std::clamp(DisplayCfg.MatcapRimGain, 0.0f, 1.0f);
     RenderConfig.PathTraceSamples       = std::clamp(DisplayCfg.PathTraceBatchSpp, 1u, 8u);
     RenderConfig.PathTraceTargetSpp     = DisplayCfg.PathTraceTargetSpp;
     RenderConfig.PathTraceMaxBounces    = std::clamp(DisplayCfg.PathTraceMaxBounces, 1u, 8u);
@@ -2811,6 +2824,13 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 DisplayCfg.GiCandidateIndex != LastGiCandidate ||
                 DisplayCfg.SdfConeSteps != LastSdfConeSteps ||
                 std::abs(DisplayCfg.SdfGiIntensity - LastSdfGiIntensity) > 0.001f ||
+                std::abs(DisplayCfg.SdfAoRadiusM - LastSdfAoRadiusM) > 0.001f ||
+                std::abs(DisplayCfg.SdfAoContrast - LastSdfAoContrast) > 0.001f ||
+                DisplayCfg.MatcapChannelIndex != LastMatcapChannel ||
+                std::abs(DisplayCfg.MatcapRimGain - LastMatcapRimGain) > 0.001f ||
+                std::abs(DisplayCfg.CameraFocalLengthMm - LastCameraFocalMm) > 0.01f ||
+                std::abs(DisplayCfg.CameraSensorWidthMm - LastCameraSensorMm) > 0.01f ||
+                std::abs(DisplayCfg.CameraRollDegrees - LastCameraRollDeg) > 0.01f ||
                 DisplayCfg.PathTraceMaxBounces != LastPtMaxBounces ||
                 DisplayCfg.SmrtShadowRays != LastSmrtShadowRays ||
                 DisplayCfg.SmrtMarchSteps != LastSmrtMarchSteps ||
@@ -2849,6 +2869,13 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             LastGiCandidate        = DisplayCfg.GiCandidateIndex;
             LastSdfConeSteps       = DisplayCfg.SdfConeSteps;
             LastSdfGiIntensity     = DisplayCfg.SdfGiIntensity;
+            LastSdfAoRadiusM       = DisplayCfg.SdfAoRadiusM;
+            LastSdfAoContrast      = DisplayCfg.SdfAoContrast;
+            LastMatcapChannel      = DisplayCfg.MatcapChannelIndex;
+            LastMatcapRimGain      = DisplayCfg.MatcapRimGain;
+            LastCameraFocalMm      = DisplayCfg.CameraFocalLengthMm;
+            LastCameraSensorMm     = DisplayCfg.CameraSensorWidthMm;
+            LastCameraRollDeg      = DisplayCfg.CameraRollDegrees;
             LastPtMaxBounces       = DisplayCfg.PathTraceMaxBounces;
             LastSmrtShadowRays     = DisplayCfg.SmrtShadowRays;
             LastSmrtMarchSteps     = DisplayCfg.SmrtMarchSteps;

@@ -590,11 +590,16 @@ float CameraSettingsInspector::Construct(
         float NextY = OutSec.Bottom() + InspectorMetrics::SectionGap;
 
         // Cluster-LOD & Debug channel card
-        const Rectangle2D LodSec { LeftX, NextY, InnerWidth, 232.0f };
+        const Rectangle2D LodSec { LeftX, NextY, InnerWidth, 296.0f };
         InspectorPrimitives::ConstructSectionSurface(Surface, LodSec, "Cluster-LOD & debug");
         float LY = NextY + InspectorMetrics::SectionPadTop + 28.0f;
         LY = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, LY, BodyW, "Nanite cluster-LOD", Data.ClusterLodEnabled, Input, Local);
         LY = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, LY, BodyW, 8741u, "LOD pixel error", "px", "%.2f", 0.25f, 4.0f, Data.ClusterLodPixelError, ActiveDragId, Input, Local, !Data.ClusterLodEnabled);
+        static constexpr std::array<const char*, 5u> ForcedLodLabels = {{ "Auto", "L0", "L1", "L2", "L3" }};
+        const uint32_t ForcedLodIdx = static_cast<uint32_t>(std::clamp(Data.ClusterForcedLodLevel + 1, 0, 4));
+        int32_t PickLod = -1;
+        LY = InspectorPrimitives::ConstructSegmentTrack(Surface, LeftX + PadX, LY, BodyW, "FORCED LOD LEVEL", ForcedLodLabels, ForcedLodIdx, Input, PickLod);
+        if (PickLod >= 0 && PickLod <= 4) { Data.ClusterForcedLodLevel = PickLod - 1; Local = true; }
         LY = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, LY, BodyW, "Cluster wireframe", Data.ClusterWireframeOverlay, Input, Local);
         static constexpr std::array<const char*, 4u> DbgCh = {{ "Final", "Albedo", "Normal", "Shadows" }};
         static constexpr std::array<uint32_t, 4u>    DbgId = {{ 0u, 1u, 2u, 6u }};
@@ -717,10 +722,11 @@ float CameraSettingsInspector::Construct(
         static constexpr std::array<const char*, 4u> SumBig     = {{ "PBR", "SDF", "Ray traced", "MatCap" }};
         static constexpr std::array<const char*, 4u> SumTag     = {{ "Direct", "GTX GI", "BVH4 GI", "Clay" }};
         const float ScalePct = DisplaySettings ? DisplaySettings->RenderScalePercent : 100.0f;
-        char ShadowLine[48]{}, GiLine[48]{}, AoLine[48]{}, OutLine[48]{}, TracerLine[48]{};
+        char ShadowLine[48]{}, GiLine[48]{}, AoLine[48]{}, SdfAoLine[48]{}, OutLine[48]{}, TracerLine[48]{};
         std::snprintf(ShadowLine, sizeof(ShadowLine), "SMRT · %.0f rays · %.0f steps", Data.SmrtShadowRays, Data.SmrtMarchSteps);
         std::snprintf(GiLine,     sizeof(GiLine),     "Cone GI · %.0f cones", Data.SdfConeSteps);
         std::snprintf(AoLine,     sizeof(AoLine),     "XeGTAO · %.0f slices", Data.XeGtaoSliceCount);
+        std::snprintf(SdfAoLine,  sizeof(SdfAoLine),  "SDF AO · %.2f m · × %.2f", Data.SdfAoRadiusM, Data.SdfAoContrast);
         std::snprintf(OutLine,    sizeof(OutLine),    "%.0f%% · exposure × %.2f", ScalePct, Data.ExposureGain);
         std::snprintf(TracerLine, sizeof(TracerLine), "%s · %.0f spp", (Data.RayTracerIndex == 0u ? "BVH4 GI" : (Data.RayTracerIndex == 1u ? "PT Realtime" : "PT Final")), Data.PathTraceBatchSpp);
 
@@ -748,7 +754,7 @@ float CameraSettingsInspector::Construct(
             if (NavClick) { ActivePage = 1u; OutPageSwitched = true; }
             SY = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, SY, BodyW, "GI", GiLine, true, Input, NavClick);
             if (NavClick) { ActivePage = 2u; OutPageSwitched = true; }
-            SY = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, SY, BodyW, "AO", AoLine, true, Input, NavClick);
+            SY = InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, SY, BodyW, "AO", SdfAoLine, true, Input, NavClick);
             if (NavClick) { ActivePage = 3u; OutPageSwitched = true; }
             (void)InspectorPrimitives::ConstructNavigationRow(Surface, LeftX + PadX, SY, BodyW, "Output", OutLine, false, Input, NavClick);
             if (NavClick) { ActivePage = 4u; OutPageSwitched = true; }
@@ -955,19 +961,41 @@ float CameraSettingsInspector::Construct(
             std::snprintf(KpiBuf, sizeof(KpiBuf), "%.0f", Data.SdfConeSteps);
             std::snprintf(SubBuf, sizeof(SubBuf), "Bounce × %.2f · live .slang GDF clipmap", Data.SdfGiIntensity);
             Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, KpiBuf, "cones", SubBuf);
-            PaintConeGiStudyWell(Surface, { LeftX + PadX, Y, BodyW, 114.0f }, static_cast<uint32_t>(std::lround(Data.SdfConeSteps)), Data.PbrFillGain);
+            PaintConeGiStudyWell(Surface, { LeftX + PadX, Y, BodyW, 114.0f }, static_cast<uint32_t>(std::lround(Data.SdfConeSteps)), Data.SdfFillGain);
             Y += 128.0f;
 
             bool Local = false;
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8712u, "Cone directions",   "",  "%.0f", 3.0f, 12.0f, Data.SdfConeSteps,   ActiveDragId, Input, Local);
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8713u, "Bounce intensity",  "x", "%.2f", 0.0f, 2.5f,  Data.SdfGiIntensity, ActiveDragId, Input, Local);
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8714u, "Sky & ambient fill","x", "%.2f", 0.0f, 3.0f,  Data.PbrFillGain,    ActiveDragId, Input, Local);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8714u, "Sky & ambient fill","x", "%.2f", 0.0f, 3.0f,  Data.SdfFillGain,    ActiveDragId, Input, Local);
             if (Local) { OutMutated = true; SyncLiveNow(); }
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else if (ActivePage == 3u)
         {
-            CursorY = ConstructXeGtaoSection(CursorY);
+            // Dedicated GPU SDF Distance-Field Ambient Occlusion (XeGTAO is PBR/Ray only)
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 446.0f };
+            InspectorPrimitives::ConstructSectionSurface(Surface, S, "SDF Ambient occlusion");
+            InspectorPrimitives::ConstructTooltipTrigger(
+                Surface, { S.Right() - PadX - 18.0f, S.Y + InspectorMetrics::SectionPadTop },
+                "SDF UDF Ambient Occlusion (.slang)",
+                "Evaluates 12-ray local + global signed distance hemisphere occlusion in WorldViewportRadiometricCompute.slang (EvaluateGlobalDistanceAmbientOcclusion). Zero screen-space disocclusion artifacts.",
+                Input);
+            float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
+            char KpiBuf[16]{}, SubBuf[88]{};
+            std::snprintf(KpiBuf, sizeof(KpiBuf), "%.2f", Data.SdfAoRadiusM);
+            std::snprintf(SubBuf, sizeof(SubBuf), "Contrast × %.2f · Local + Global SDF clipmap", Data.SdfAoContrast);
+            Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, KpiBuf, "m reach", SubBuf);
+            const Rectangle2D Well { LeftX + PadX, Y, BodyW, 106.0f };
+            PaintAoStudyWell(Surface, Well, 6u);
+            Y = Well.Bottom() + 14.0f;
+
+            bool Local = false;
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8715u, "SDF AO reach",    "m", "%.2f", 0.35f, 3.50f, Data.SdfAoRadiusM,  ActiveDragId, Input, Local);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8716u, "SDF AO contrast", "x", "%.2f", 0.40f, 3.50f, Data.SdfAoContrast, ActiveDragId, Input, Local);
+            (void)InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Specular reflections", Data.PbrReflectionsEnabled, Input, Local);
+            if (Local) { OutMutated = true; SyncLiveNow(); }
+            CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }
         else
         {
@@ -996,7 +1024,7 @@ float CameraSettingsInspector::Construct(
             if (PickEng >= 0) { Data.RayTracerIndex = static_cast<uint32_t>(PickEng); Local = true; }
             Y = InspectorPrimitives::ConstructToggleFieldRow(Surface, LeftX + PadX, Y, BodyW, "Enable BVH4 raytracing", Data.RaytracingEnabled, Input, Local);
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8730u, "Samples / frame", "spp", "%.0f", 1.0f,  8.0f,    Data.PathTraceBatchSpp,   ActiveDragId, Input, Local);
-            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8731u, "Target samples",  "spp", "%.0f", 16.0f, 2048.0f, Data.PathTraceTargetSpp,  ActiveDragId, Input, Local);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8731u, "Target samples",  "spp", "%.0f", 0.0f,  2048.0f, Data.PathTraceTargetSpp,  ActiveDragId, Input, Local);
             (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8732u, "Max bounces",   "",    "%.0f", 1.0f,  8.0f,    Data.PathTraceMaxBounces, ActiveDragId, Input, Local);
             if (Local) { OutMutated = true; SyncLiveNow(); }
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
@@ -1057,7 +1085,7 @@ float CameraSettingsInspector::Construct(
     {
         if (ActivePage == 1u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 224.0f };
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 278.0f };
             InspectorPrimitives::ConstructSectionSurface(Surface, S, "MatCap studio");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             bool Local = false;
@@ -1065,7 +1093,8 @@ float CameraSettingsInspector::Construct(
             int32_t PickP = -1;
             Y = InspectorPrimitives::ConstructSegmentTrack(Surface, LeftX + PadX, Y, BodyW, "STUDIO SPHERE", Presets, std::min(Data.MatcapChannelIndex, 3u), Input, PickP);
             if (PickP >= 0) { Data.MatcapChannelIndex = static_cast<uint32_t>(PickP); Local = true; }
-            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8750u, "Exposure gain", "x", "%.2f", 0.1f, 4.0f, Data.ExposureGain, ActiveDragId, Input, Local);
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8751u, "Rim highlight",  "x", "%.2f", 0.0f, 1.0f, Data.MatcapRimGain, ActiveDragId, Input, Local);
+            (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8750u, "Exposure gain", "x", "%.2f", 0.1f, 4.0f, Data.ExposureGain,  ActiveDragId, Input, Local);
             if (Local) { OutMutated = true; SyncLiveNow(); }
             CursorY = S.Bottom() + InspectorMetrics::SectionGap;
         }

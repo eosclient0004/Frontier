@@ -141,6 +141,8 @@ struct CameraSettingsData
     uint32_t GiCandidateIndex        = 1u;     // [0..1] - 0=StokesContour, 1=SurfelRadiosity
     float    SdfConeSteps            = 6.0f;   // [cnt]  - GDF voxel cone GI march steps [3..12] (.slang EvaluateGdfVoxelConeGi)
     float    SdfGiIntensity          = 1.00f;  // [x]    - GDF voxel cone GI intensity [0..2.5]
+    float    SdfAoRadiusM            = 1.55f;  // [m]    - SDF UDF ambient occlusion reach [0.35..3.5]
+    float    SdfAoContrast           = 1.50f;  // [x]    - SDF UDF ambient occlusion contrast [0.40..3.5]
     float    SdfFillGain             = 1.00f;  // [x]    - Sky dome ambient fill [0..3]
 
     // Ray traced & Path Tracer settings (RealTimeGiHighEnd=3, PathTracerGameRealtime=4, PathTracerSceneFinalRender=5)
@@ -165,6 +167,7 @@ struct CameraSettingsData
     bool     SpatialAntiAliasing     = true;   // [-]    - Spatial bilateral shadow/AA filter
     bool     ClusterLodEnabled       = true;   // [-]    - View-dependent Cluster-LOD BVH cut
     float    ClusterLodPixelError    = 1.25f;  // [px]   - Screen-space LOD error budget [0.25..8.0]
+    int32_t  ClusterForcedLodLevel   = -1;     // [idx]  - -1=Auto, 0..3=Forced LOD tier
     bool     ClusterWireframeOverlay = false;  // [-]    - Analytical triangle edge wireframe overlay
     uint32_t DebugChannelIndex       = 0u;     // [0..22]- Shader debug inspection channel
 };

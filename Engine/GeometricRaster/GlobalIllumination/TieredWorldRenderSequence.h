@@ -78,6 +78,10 @@ struct WorldRenderConfiguration
     float                                 XeGtaoSearchRadiusM    = 0.85f; // [m]    - XeGTAO world-space search radius [0.25..3.0]
     uint32_t                              SdfConeSteps           = 6u;    // [cnt]  - GDF voxel cone GI march steps [3..12]
     float                                 SdfGiIntensity         = 1.0f;  // [x]    - GDF voxel cone GI indirect scale [0..2.5]
+    float                                 SdfAoRadiusM           = 1.55f; // [m]    - SDF UDF ambient occlusion reach [0.35..3.0]
+    float                                 SdfAoContrast          = 1.50f; // [x]    - SDF UDF ambient occlusion contrast exponent [0.40..3.0]
+    uint32_t                              MatcapChannelIndex     = 0u;    // [idx]  - MatCap channel: 0=Clay, 1=Ceramic, 2=Metallic, 3=Normal
+    float                                 MatcapRimGain          = 0.35f; // [0-1]  - MatCap grazing rim boost [0..1]
     uint32_t                              QualityTier            = 1u;    // [0..4] - Quality tier
     uint32_t                              PathTraceSamples       = 4u;    // [spp]  - Progressive/realtime sample batch when Order 3 is active
     uint32_t                              PathTraceTargetSpp     = 0u;    // [spp]  - Convergence target for progressive PT (0 = continuous, no cap)

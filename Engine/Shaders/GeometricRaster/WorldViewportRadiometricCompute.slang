@@ -1149,12 +1149,18 @@ float EvaluateGlobalDistanceAmbientOcclusion(
         CoarseAoInnerFadeRatio,
         max(CoarseOffset.x, max(CoarseOffset.y, CoarseOffset.z)));
 
+    uint  PackedAoTuning = WorldUniforms.RenderTuningPacked0.w;
+    uint  PackedAoRad    = PackedAoTuning & 0xFFu;
+    uint  PackedAoCon    = (PackedAoTuning >> 8u) & 0xFFu;
+    float AoTraceRadius  = (PackedAoRad != 0u) ? clamp(float(PackedAoRad) / 64.0, 0.35, 3.50) : UdfAoTraceRadiusMeters;
+    float AoContrastPow  = (PackedAoCon != 0u) ? clamp(float(PackedAoCon) / 64.0, 0.40, 3.50) : UdfAoContrastPower;
+
     // Track the closest overlapping non-ground Local SDF asset once per pixel (scalar register, zero array overhead).
     // Open ground far from assets keeps NearInst0 == 0xFFFFFFFFu and pays zero overhead inside the 12-ray march.
     uint  LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
     uint  ScanCap           = min(LocalSdfInstCount, 64u);
     uint  NearInst0         = 0xFFFFFFFFu;
-    float NearDist0         = UdfAoTraceRadiusMeters + 0.15;
+    float NearDist0         = AoTraceRadius + 0.15;
     float FineVoxMeters     = QueryFineGdfVoxelSize();
     float MinLocalCell      = FineVoxMeters;
 
@@ -1257,7 +1263,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
             RayDir.z < -UdfAoGroundRaySlopeFloor)
         {
             float GroundHitMeters = (GroundPlaneZ - SurfacePosition.z) / RayDir.z;
-            if (GroundHitMeters > 0.0 && GroundHitMeters < UdfAoTraceRadiusMeters)
+            if (GroundHitMeters > 0.0 && GroundHitMeters < AoTraceRadius)
             {
                 RayOcclusion = UdfAoDirectHitOcclusion;
             }
@@ -1273,7 +1279,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
             [loop]
             for (uint StepIndex = 0u; StepIndex < UdfAoMaxMarchSteps; ++StepIndex)
             {
-                if (TravelMeters >= UdfAoTraceRadiusMeters)
+                if (TravelMeters >= AoTraceRadius)
                 {
                     break;
                 }
@@ -1307,9 +1313,9 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                 float  HitThreshold    = max(MinimumBoxHalfExtentMeters, LocalCellMeters * UdfAoHitCellScale);
                 if (FieldDistance < HitThreshold)
                 {
-                    // Smooth distance falloff over the 1.55 m hemisphere: strong dark occlusion under the entire
+                    // Smooth distance falloff over the hemisphere radius: strong dark occlusion under the entire
                     // car chassis & wheel wells, smoothly feathering to 0 at max radius so open floor stays pure white.
-                    float HitRatio = saturate(TravelMeters / UdfAoTraceRadiusMeters);
+                    float HitRatio = saturate(TravelMeters / AoTraceRadius);
                     RayOcclusion = max(RayOcclusion, saturate(1.0 - HitRatio * HitRatio));
                     break;
                 }
@@ -1320,7 +1326,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                     : 0.0;
                 float NearRatio    = saturate(
                     FieldDistance / max(LocalCellMeters * UdfAoNearCellScale, TravelMeters * UdfAoNearConeExpansion));
-                float DistanceFade = saturate(1.0 - TravelMeters / UdfAoTraceRadiusMeters);
+                float DistanceFade = saturate(1.0 - TravelMeters / AoTraceRadius);
                 RayOcclusion = max(
                     RayOcclusion,
                     (1.0 - NearRatio) * ApproachRate * DistanceFade * UdfAoProximityStrength);
@@ -1328,7 +1334,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                 // ② Advance with under-relaxed unsigned distance without a fixed minimum step that could jump thin blockers
                 float StepLength = min(
                     FieldDistance * UdfAoUnderRelaxation,
-                    min(UdfAoMaxStepMeters, UdfAoTraceRadiusMeters - TravelMeters));
+                    min(UdfAoMaxStepMeters, AoTraceRadius - TravelMeters));
                 if (StepLength <= UdfAoMinimumStepFloor)
                 {
                     break;
@@ -1342,7 +1348,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
         OcclusionSum += RayOcclusion;
     }
 
-    float UnfilteredAo = pow(saturate(1.0 - OcclusionSum / float(UdfAoRayCount)), UdfAoContrastPower);
+    float UnfilteredAo = pow(saturate(1.0 - OcclusionSum / float(UdfAoRayCount)), AoContrastPow);
     float FinalWeight  = HasLocalInst ? 1.0 : CascadeWeight;
     return lerp(1.0, UnfilteredAo, FinalWeight);
 }
@@ -2556,6 +2562,15 @@ float3 EvaluateMatCapSurface(RayHitReading Hit)
     float3 CamFwd = WorldUniforms.CameraForwardHeight.xyz;
 
     float3 Vn = normalize(float3(dot(N, CamR), dot(N, CamU), max(0.0, dot(N, -CamFwd))));
+    uint  MatcapPacked = WorldUniforms.RenderTuningPacked0.w;
+    uint  MatcapChan   = (MatcapPacked >> 16u) & 0xFu;
+    float RimScale     = (MatcapPacked != 0u) ? (float((MatcapPacked >> 20u) & 0xFFu) / 255.0) : 0.35;
+
+    if (MatcapChan == 3u)
+    {
+        return saturate(Vn * 0.5 + 0.5);
+    }
+
     float3 KeyDir  = normalize(float3(0.42, 0.62, 0.66));
     float3 FillDir = normalize(float3(-0.68, 0.25, 0.68));
     float3 RimDir  = normalize(float3(0.0, 0.85, 0.52));
@@ -2563,14 +2578,15 @@ float3 EvaluateMatCapSurface(RayHitReading Hit)
     float SunVis   = SampleMatCapCheapShadow(Hit.Position, Hit.GeomNormal, N);
     float KeyDiff  = max(0.0, dot(Vn, KeyDir)) * (0.28 + 0.72 * SunVis);
     float FillDiff = max(0.0, dot(Vn, FillDir));
-    float RimGlow  = pow(saturate(1.0 - Vn.z), 2.6) * (0.35 + 0.65 * max(0.0, dot(Vn, RimDir)));
-    float SpecPow  = lerp(96.0, 6.0, clamp(Mat.SpecParams.x, 0.02, 1.0));
+    float RimGlow  = pow(saturate(1.0 - Vn.z), 2.6) * (0.35 + 0.65 * max(0.0, dot(Vn, RimDir))) * (RimScale * 2.85);
+    float Rough    = (MatcapChan == 1u) ? 0.14 : ((MatcapChan == 2u) ? 0.20 : clamp(Mat.SpecParams.x, 0.02, 1.0));
+    float SpecPow  = lerp(96.0, 6.0, Rough);
     float KeySpec  = pow(max(0.0, dot(Vn, normalize(KeyDir + float3(0.0, 0.0, 1.0)))), SpecPow) * (0.22 + 0.78 * SunVis);
-    float SpecGain = lerp(1.45, 0.18, saturate(Mat.SpecParams.x));
-    float Metal    = saturate(Mat.SpecParams.y);
+    float SpecGain = lerp(1.45, 0.18, saturate(Rough));
+    float Metal    = (MatcapChan == 2u) ? 0.90 : saturate(Mat.SpecParams.y);
     float StudioL  = 0.14 + 0.88 * KeyDiff + 0.34 * FillDiff;
 
-    float3 Base = Mat.DiffuseAlbedoRoughness.xyz;
+    float3 Base = (MatcapChan == 1u) ? float3(0.82, 0.80, 0.76) : ((MatcapChan == 2u) ? float3(0.68, 0.72, 0.78) : Mat.DiffuseAlbedoRoughness.xyz);
     return Base * (StudioL * (1.0 - Metal * 0.78) + KeySpec * SpecGain * Metal)
          + float3(KeySpec * SpecGain * (1.0 - Metal))
          + float3(0.26, 0.28, 0.32) * RimGlow

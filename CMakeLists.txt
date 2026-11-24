@@ -752,6 +752,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/GeometrySpace/Primitives/AnalyticPrimitives.cpp
     Engine/GeometrySpace/Primitives/RevolutionSweepPrimitives.cpp
     Engine/GeometrySpace/Primitives/WatertightSewing.cpp
+    Engine/GeometrySpace/Procedural/ProceduralGeometry.cpp
     Engine/GeometrySpace/Analysis/CurvatureAnalysis.cpp
     Engine/GeometrySpace/Analysis/StretchMeasurement.cpp
     Engine/GeometrySpace/Selection/ComponentSelectionMask.cpp

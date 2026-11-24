@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                         NATIVEGEOMETRYINSPECTOR.CPP
 ============================================================================================================================================*/
-// 🧩 Brand-new 1:1 HTML parity port of Category 2 Native Engine Geometry Inspector (8 tabs matching cube__0..7)
+// 🧩 Live Category 2 Native Engine Geometry Inspector (.GeometrySpace / ClusterPyramid / LocalSDF / OpenPBR)
 
 #include "Engine/Editor/Inspectors/NativeGeometryInspector.h"
 #include "Engine/Editor/Inspectors/GeometryInspectorShared.h"
@@ -36,15 +36,36 @@ void NativeGeometryInspector::UpdateSpecimenSurface(const NativeGeometryData& In
 float NativeGeometryInspector::Construct(
     PixelSpace& Surface, float LeftX, float TopY, float InnerWidth,
     OutlinerRecordEntry& Entry, NativeGeometryData& Instance,
-    GeometricRaster::WorldSceneSpecification& /*Scene*/,
+    GeometricRaster::WorldSceneSpecification& Scene,
     const PaneInputReading& Input, bool& OutMutated, bool& OutPageSwitched)
 {
     UpdateSpecimenSurface(Instance);
     GeometryUi::GeometrySummaryDesc Desc {};
-    Desc.ShapeName     = "Native Mesh";
-    Desc.TriangleCount = Instance.TriangleCount;
-    Desc.ClusterCount  = Instance.ClusterCount;
-    Desc.LodLevels     = std::max(1u, Instance.LodTierCount);
+    Desc.ShapeName      = "Native Mesh";
+    Desc.DomainLabel    = "Native .GeometrySpace";
+    Desc.TriangleCount  = Instance.TriangleCount;
+    Desc.ClusterCount   = Instance.ClusterCount;
+    Desc.LodLevels      = std::max(1u, Instance.LodTierCount);
+    Desc.HasLocalSdf    = Instance.LocalSdfEnabled;
+    Desc.SurfaceBinding = &Instance.Surface;
+    Desc.Scene          = &Scene;
+
+    Desc.ConstructCategoryCard = [&](PixelSpace& Srf, float WX, float CY, float WW, uint32_t& DragId, const PaneInputReading& Inp, bool& Mut) -> float
+    {
+        const float PadX = 25.0f;
+        const float BX   = WX + PadX;
+        const float BW   = WW - PadX * 2.0f;
+        const Rectangle2D Card { WX, CY, WW, 246.0f };
+        GeometryUi::ConstructGeomCard(Srf, Card);
+        WorkspaceAppearance::ConstructWeightedText(Srf, FontWeightClass::Regular, { BX, Card.Y + 24.0f }, 15.0f, InspectorMetrics::HeadingInk, "Native mesh settings");
+        float Y = Card.Y + 58.0f;
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Srf, BX, Y, BW, 8850u, "LOD pixel error", "px",        "%.2f", 0.25f, 8.0f,  Instance.LodPixelError,      DragId, Inp, Mut);
+        Y = InspectorPrimitives::ConstructScalarFieldRow(Srf, BX, Y, BW, 8851u, "Crease angle",    "\xC2\xB0",  "%.0f", 0.0f,  90.0f, Instance.CreaseAngleDegrees, DragId, Inp, Mut);
+        Y = InspectorPrimitives::ConstructToggleFieldRow(Srf, BX, Y, BW, "Local SDF occlusion", Instance.LocalSdfEnabled, Inp, Mut);
+        (void)InspectorPrimitives::ConstructToggleFieldRow(Srf, BX, Y, BW, "Double-sided shading", Instance.DoubleSided, Inp, Mut);
+        return Card.Bottom() + 14.0f;
+    };
+
     return GeometryUi::ConstructGeometryPages(Surface, LeftX, TopY, InnerWidth, Entry, Desc, ActivePage, ActiveDragId, Input, OutMutated, OutPageSwitched);
 }
 

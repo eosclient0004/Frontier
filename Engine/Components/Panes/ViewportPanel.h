@@ -106,6 +106,15 @@ struct ViewportDisplaySettings
     uint32_t GiCandidateIndex      = 1u;     // [idx] - 0=StokesContour, 1=SurfelRadiosity
     uint32_t SdfConeSteps          = 6u;     // [cnt] - GDF voxel cone GI march steps [3..12]
     float    SdfGiIntensity        = 1.0f;   // [x]   - GDF voxel cone GI indirect scale [0..2.5]
+    float    SdfAoRadiusM          = 1.55f;  // [m]   - SDF UDF ambient occlusion reach [0.35..3.0]
+    float    SdfAoContrast         = 1.50f;  // [x]   - SDF UDF ambient occlusion contrast/darkness [0.40..3.0]
+    uint32_t MatcapChannelIndex    = 0u;     // [idx] - 0=Clay, 1=Ceramic, 2=Metallic, 3=Normal
+    float    MatcapRimGain         = 0.35f;  // [0-1] - MatCap silhouette rim boost
+    float    CameraFocalLengthMm   = 35.0f;  // [mm]  - Active viewport camera focal length [12..200]
+    float    CameraSensorWidthMm   = 36.0f;  // [mm]  - Active viewport camera sensor width [12..70]
+    float    CameraApertureFStop   = 2.8f;   // [f/]  - Active viewport camera aperture [1.2..22]
+    float    CameraFocusDistanceM  = 6.0f;   // [m]   - Active viewport camera focus distance [0.3..100]
+    float    CameraRollDegrees     = 0.0f;   // [deg] - Active viewport camera Dutch roll [-45..45]
     uint32_t PathTraceTargetSpp    = 256u;   // [spp] - Progressive PT convergence target (0 = render continuously, no cap)
     uint32_t PathTraceBatchSpp     = 1u;     // [spp] - PT samples accumulated per frame (1/2/4/8, HTML lab parity)
     uint32_t PathTraceMaxBounces   = 3u;     // [cnt] - Path tracer maximum bounce depth [1..8]

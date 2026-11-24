@@ -224,6 +224,13 @@ private:
     uint32_t                                                         LastGiCandidate      = 1u;
     uint32_t                                                         LastSdfConeSteps     = 6u;
     float                                                            LastSdfGiIntensity   = 1.0f;
+    float                                                            LastSdfAoRadiusM     = 1.55f;
+    float                                                            LastSdfAoContrast    = 1.50f;
+    uint32_t                                                         LastMatcapChannel    = 0u;
+    float                                                            LastMatcapRimGain    = 0.35f;
+    float                                                            LastCameraFocalMm    = 35.0f;
+    float                                                            LastCameraSensorMm   = 36.0f;
+    float                                                            LastCameraRollDeg    = 0.0f;
     uint32_t                                                         LastPtMaxBounces     = 3u;
     uint32_t                                                         LastSmrtShadowRays   = 4u;
     uint32_t                                                         LastSmrtMarchSteps   = 10u;

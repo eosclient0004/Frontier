@@ -8,11 +8,13 @@
 #include "Engine/Components/Controls/InspectorSectionPrimitives.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Editor/Inspectors/InspectorInstanceRegister.h"
+#include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <string>
 
 namespace Frontier::GeometryUi
@@ -165,14 +167,101 @@ inline void RenderSdfSlicePixels(std::vector<uint8_t>& Pixels, uint32_t W, uint3
 
 struct GeometrySummaryDesc
 {
-    const char* ShapeName        = "Cube";
-    float       WidthMeters      = 1.0f;
-    float       HeightMeters     = 1.0f;
-    float       DepthMeters      = 1.0f;
-    uint32_t    TriangleCount    = 3072u;
-    uint32_t    ClusterCount     = 48u;
-    uint32_t    LodLevels        = 6u;
+    const char*                                ShapeName        = "Cube";
+    const char*                                DomainLabel      = nullptr;
+    float                                      WidthMeters      = 1.0f;
+    float                                      HeightMeters     = 1.0f;
+    float                                      DepthMeters      = 1.0f;
+    uint32_t                                   TriangleCount    = 3072u;
+    uint32_t                                   ClusterCount     = 48u;
+    uint32_t                                   LodLevels        = 3u;
+    uint32_t                                   SubPartCount     = 1u;
+    bool                                       HasLocalSdf      = false;
+    GeometrySurfaceBinding*                    SurfaceBinding   = nullptr;
+    GeometricRaster::WorldSceneSpecification*  Scene            = nullptr;
+    std::function<float(PixelSpace&, float, float, float, uint32_t&, const PaneInputReading&, bool&)> ConstructCategoryCard {};
 };
+
+// Lightweight live sync: updates matching RigidClusterInstance transform & GPU bindless material slot without rebuilding CPU BVH
+inline uint32_t ResolveSceneClusterInstance(
+    const OutlinerRecordEntry&                      Entry,
+    const GeometricRaster::WorldSceneSpecification* Scene) noexcept
+{
+    if (Scene == nullptr || Scene->ClusterInstances.empty()) return 0xFFFFFFFFu;
+    uint32_t BestIdx  = 0xFFFFFFFFu;
+    float    BestDist = 0.75f;
+    for (uint32_t I = 0u; I < static_cast<uint32_t>(Scene->ClusterInstances.size()); ++I)
+    {
+        const auto& Inst = Scene->ClusterInstances[I];
+        const float DX = Inst.WorldTranslation.X - Entry.PositionX;
+        const float DY = Inst.WorldTranslation.Y - Entry.PositionY;
+        const float DZ = Inst.WorldTranslation.Z - Entry.PositionZ;
+        const float D  = std::sqrt(DX * DX + DY * DY + DZ * DZ);
+        if (D < BestDist)
+        {
+            BestDist = D;
+            BestIdx  = I;
+        }
+    }
+    return BestIdx;
+}
+
+inline void SyncGeometryLiveToScene(
+    const OutlinerRecordEntry&                Entry,
+    GeometrySurfaceBinding*                   Binding,
+    GeometricRaster::WorldSceneSpecification* Scene,
+    uint32_t                                  MatchedIdx,
+    bool                                      SyncMaterial,
+    bool                                      SyncTransform,
+    bool                                      GlassMode = false) noexcept
+{
+    if (Scene == nullptr) return;
+    if (MatchedIdx < Scene->ClusterInstances.size())
+    {
+        auto& Inst = Scene->ClusterInstances[MatchedIdx];
+        if (SyncTransform)
+        {
+            Inst.PreviousTranslation = Inst.WorldTranslation;
+            Inst.WorldTranslation    = { Entry.PositionX, Entry.PositionY, Entry.PositionZ };
+            Inst.RotationZDegrees    = Entry.RotationZ;
+            Inst.NonUniformScale     = {
+                std::max(0.05f, Entry.ScaleX),
+                std::max(0.05f, Entry.ScaleY),
+                std::max(0.05f, Entry.ScaleZ)
+            };
+        }
+        if (SyncMaterial && Binding != nullptr)
+        {
+            const uint16_t Slot = (Binding->MaterialSlotOrdinal > 0u && Binding->MaterialSlotOrdinal < Scene->MaterialRegister.QuerySlotCount())
+                ? Binding->MaterialSlotOrdinal
+                : Inst.MaterialSlot;
+            if (Slot < Scene->MaterialRegister.QuerySlotCount())
+            {
+                MaterialSpace::SurfaceMaterial Mat = Scene->MaterialRegister.InspectAuthoredMaterial(Slot);
+                Mat.Diffuse.BaseColor        = Binding->AlbedoTint;
+                Mat.Specular.Roughness       = std::clamp(Binding->Roughness, 0.02f, 1.0f);
+                Mat.Diffuse.DiffuseRoughness = std::clamp(Binding->Roughness, 0.02f, 1.0f);
+                Mat.Specular.Metalness                  = std::clamp(Binding->Metallic, 0.0f, 1.0f);
+                Mat.PorosityLight.EmissionLuminanceNits = std::max(0.0f, Binding->SelfGlow);
+                Mat.PorosityLight.EmissionTint          = Binding->AlbedoTint;
+                (void)Scene->MaterialRegister.UpdateMaterialSlot(Slot, Mat);
+                Inst.TransparentGlass = GlassMode;
+            }
+        }
+    }
+    else if (SyncMaterial && Binding != nullptr &&
+             Binding->MaterialSlotOrdinal < Scene->MaterialRegister.QuerySlotCount())
+    {
+        MaterialSpace::SurfaceMaterial Mat = Scene->MaterialRegister.InspectAuthoredMaterial(Binding->MaterialSlotOrdinal);
+        Mat.Diffuse.BaseColor                   = Binding->AlbedoTint;
+        Mat.Specular.Roughness                  = std::clamp(Binding->Roughness, 0.02f, 1.0f);
+        Mat.Diffuse.DiffuseRoughness            = std::clamp(Binding->Roughness, 0.02f, 1.0f);
+        Mat.Specular.Metalness                  = std::clamp(Binding->Metallic, 0.0f, 1.0f);
+        Mat.PorosityLight.EmissionLuminanceNits = std::max(0.0f, Binding->SelfGlow);
+        Mat.PorosityLight.EmissionTint          = Binding->AlbedoTint;
+        (void)Scene->MaterialRegister.UpdateMaterialSlot(Binding->MaterialSlotOrdinal, Mat);
+    }
+}
 
 // Shared 1:1 8-tab Geometry Inspector renderer
 inline float ConstructGeometryPages(
@@ -190,6 +279,31 @@ inline float ConstructGeometryPages(
     const float PadX  = 25.0f;
     const float BodyX = WideX + PadX;
     const float BodyW = WideW - PadX * 2.0f;
+    const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+
+    const uint32_t MatchedIdx = ResolveSceneClusterInstance(Entry, Desc.Scene);
+    uint32_t LiveTris     = Desc.TriangleCount;
+    uint32_t LiveClusters = Desc.ClusterCount;
+    uint32_t LiveLods     = std::max(1u, Desc.LodLevels);
+    bool     LiveHasSdf   = Desc.HasLocalSdf;
+    if (Desc.Scene != nullptr && MatchedIdx < Desc.Scene->ClusterInstances.size())
+    {
+        const auto& Inst = Desc.Scene->ClusterInstances[MatchedIdx];
+        if (Inst.PyramidAsset != nullptr && !Inst.PyramidAsset->Clusters.empty())
+        {
+            LiveClusters = static_cast<uint32_t>(Inst.PyramidAsset->Clusters.size());
+            uint32_t L0Tris = 0u;
+            uint32_t MaxLod = 0u;
+            for (const auto& Cl : Inst.PyramidAsset->Clusters)
+            {
+                MaxLod = std::max(MaxLod, static_cast<uint32_t>(Cl.HierarchyLevel));
+                if (Cl.HierarchyLevel == 0u) L0Tris += Cl.TriangleCount;
+            }
+            if (L0Tris > 0u) LiveTris = L0Tris;
+            LiveLods = std::max(1u, MaxLod + 1u);
+        }
+        LiveHasSdf = (Inst.LocalSdfVolume != nullptr);
+    }
 
     const float Wx = std::max(0.01f, Desc.WidthMeters * Entry.ScaleX);
     const float Hy = std::max(0.01f, Desc.HeightMeters * Entry.ScaleY);
@@ -344,12 +458,12 @@ inline float ConstructGeometryPages(
     }
     else if (ActivePage == 2u)
     {
-        // TAB 3: GEOMETRY — Transform (LOCAL SPACE, h = 398) + Shape (h = 240)
-        const Rectangle2D TCard { WideX, CursorY, WideW, 398.0f };
+        // TAB 3: GEOMETRY — Transform (LOCAL SPACE, live sliders + reset buttons) + Shape + Category Controls
+        const Rectangle2D TCard { WideX, CursorY, WideW, 536.0f };
         ConstructGeomCard(Surface, TCard);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, TCard.Y + 24.0f }, 16.4f, InspectorMetrics::HeadingInk, "Transform");
-        const float LW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "LOCAL SPACE");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - LW, TCard.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "LOCAL SPACE");
+        const float LW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "LIVE SCENE SYNC");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - LW, TCard.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "LIVE SCENE SYNC");
 
         const float HeadY = TCard.Y + 62.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, HeadY }, 10.4f, InspectorMetrics::DimInk, "Component");
@@ -382,44 +496,75 @@ inline float ConstructGeometryPages(
                 WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular, { Box.X + std::max(4.0f, (Box.Width - NW) * 0.5f), Box.Y + 8.0f }, Box.Width - 8.0f, 12.2f, InspectorMetrics::HeadingInk, Num);
             }
         }
-        bool CastSh = true;
-        float TY = HeadY + 154.0f;
-        TY = InspectorPrimitives::ConstructToggleFieldRow(Surface, BodyX, TY, BodyW, "Enabled", Entry.VisibilityEnabled, Input, OutMutated);
-        TY = InspectorPrimitives::ConstructToggleFieldRow(Surface, BodyX, TY + 6.0f, BodyW, "Cast shadows", CastSh, Input, OutMutated);
+        bool TransformMutated = false;
+        float TY = HeadY + 150.0f;
+        float UniformScale = std::max(0.05f, (Entry.ScaleX + Entry.ScaleY + Entry.ScaleZ) / 3.0f);
+        const float PrevScale = UniformScale;
+        TY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, TY, BodyW, 8810u, "Uniform Scale", "x", "%.2f", 0.10f, 8.0f, UniformScale, ActiveDragId, Input, TransformMutated);
+        if (TransformMutated && std::abs(UniformScale - PrevScale) > 1e-4f)
+        {
+            Entry.ScaleX = UniformScale;
+            Entry.ScaleY = UniformScale;
+            Entry.ScaleZ = UniformScale;
+        }
+        TY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, TY, BodyW, 8811u, "Yaw Rotation", "\xC2\xB0", "%.1f", -180.0f, 180.0f, Entry.RotationZ, ActiveDragId, Input, TransformMutated);
+        TY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, TY, BodyW, 8812u, "Elevation Z", "m", "%.2f", -4.0f, 12.0f, Entry.PositionZ, ActiveDragId, Input, TransformMutated);
+        TY = InspectorPrimitives::ConstructToggleFieldRow(Surface, BodyX, TY, BodyW, "Visible in viewport", Entry.VisibilityEnabled, Input, TransformMutated);
 
-        const std::array<const char*, 3u> Rsts = {{ "Position", "Rotation", "Scale" }};
+        const std::array<const char*, 3u> Rsts = {{ "Reset Pos", "Reset Rot", "Reset Scale" }};
         const float RW = std::floor((BodyW - 12.0f) / 3.0f);
         for (uint32_t I = 0u; I < 3u; ++I)
         {
-            const Rectangle2D B { BodyX + static_cast<float>(I) * (RW + 6.0f), TY + 12.0f, RW, 28.0f };
-            Surface.FillRectangle(B, ColorRgba{ 32u, 32u, 34u, 255u }, 14.0f);
-            Surface.StrokeRectangle(B, ColorRgba{ 255u, 255u, 255u, 20u }, 14.0f, 1.0f);
-            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.2f, Rsts[I]);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.Center().X - TW * 0.5f, B.Y + 8.5f }, 10.2f, InspectorMetrics::HeadingInk, Rsts[I]);
+            const Rectangle2D B { BodyX + static_cast<float>(I) * (RW + 6.0f), TY + 6.0f, RW, 28.0f };
+            const bool Hov = B.Contains(Cursor);
+            Surface.FillRectangle(B, Hov ? ColorRgba{ 46u, 48u, 52u, 255u } : ColorRgba{ 32u, 32u, 34u, 255u }, 14.0f);
+            Surface.StrokeRectangle(B, ColorRgba{ 255u, 255u, 255u, static_cast<uint8_t>(Hov ? 48u : 20u) }, 14.0f, 1.0f);
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.8f, Rsts[I]);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { B.Center().X - TW * 0.5f, B.Y + 8.5f }, 9.8f, InspectorMetrics::HeadingInk, Rsts[I]);
+            if (Hov && Input.PrimaryPointer.Pressed)
+            {
+                if (I == 0u)      { Entry.PositionX = 0.0f; Entry.PositionY = 0.0f; Entry.PositionZ = 0.0f; }
+                else if (I == 1u) { Entry.RotationX = 0.0f; Entry.RotationY = 0.0f; Entry.RotationZ = 0.0f; }
+                else              { Entry.ScaleX = 1.0f; Entry.ScaleY = 1.0f; Entry.ScaleZ = 1.0f; }
+                TransformMutated = true;
+            }
         }
-        (void)InspectorPrimitives::ConstructWrappedParagraph(
-            Surface, BodyX, TY + 52.0f, BodyW, 9.6f, 14.0f, InspectorMetrics::DimInk,
-            "Type or drag values \xC2\xB7 Shift for precision.\nBrowser transform draft; native scene unchanged.");
+        if (TransformMutated)
+        {
+            OutMutated = true;
+            SyncGeometryLiveToScene(Entry, Desc.SurfaceBinding, Desc.Scene, MatchedIdx, false, true);
+        }
         CursorY = TCard.Bottom() + 14.0f;
 
-        // Shape card
+        if (Desc.ConstructCategoryCard)
+        {
+            bool CatMut = false;
+            CursorY = Desc.ConstructCategoryCard(Surface, WideX, CursorY, WideW, ActiveDragId, Input, CatMut);
+            if (CatMut)
+            {
+                OutMutated = true;
+                SyncGeometryLiveToScene(Entry, Desc.SurfaceBinding, Desc.Scene, MatchedIdx, false, true);
+            }
+        }
+
+        // Shape summary card
         const Rectangle2D SCard { WideX, CursorY, WideW, 240.0f };
         ConstructGeomCard(Surface, SCard);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, SCard.Y + 24.0f }, 14.0f, InspectorMetrics::HeadingInk, "Shape");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, SCard.Y + 24.0f }, 14.0f, InspectorMetrics::HeadingInk, Desc.DomainLabel ? Desc.DomainLabel : "Shape");
         char SzBuf[16]{};
         std::snprintf(SzBuf, sizeof(SzBuf), "%.2f", Wx);
         (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, SCard.Y + 62.0f, SzBuf, "m \xC2\xB7 Size X", nullptr, 34.0f);
-        char SubB[72]{};
-        std::snprintf(SubB, sizeof(SubB), "%s \xC2\xB7 %.2f \xC3\x97 %.2f \xC3\x97 %.2f m with scale", Desc.ShapeName, Wx, Hy, Dz);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, SCard.Y + 114.0f }, 10.8f, InspectorMetrics::MutedInk, SubB);
+        char SubB[96]{};
+        std::snprintf(SubB, sizeof(SubB), "%s \xC2\xB7 %.2f \xC3\x97 %.2f \xC3\x97 %.2f m · %u tris", Desc.ShapeName, Wx, Hy, Dz, LiveTris);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, SCard.Y + 114.0f }, 10.6f, InspectorMetrics::MutedInk, SubB);
         DrawIsometricCube(Surface, { SCard.Center().X - 10.0f, SCard.Y + 196.0f }, 44.0f,
             ColorRgba{ 36u, 36u, 38u, 255u }, ColorRgba{ 30u, 30u, 32u, 255u }, ColorRgba{ 26u, 26u, 28u, 255u }, ColorRgba{ 138u, 140u, 144u, 210u });
         CursorY = SCard.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (ActivePage == 3u)
     {
-        // TAB 4: MATERIAL — Material channels (h = 610)
-        const Rectangle2D Card { WideX, CursorY, WideW, 610.0f };
+        // TAB 4: MATERIAL — Material channels (h = 646)
+        const Rectangle2D Card { WideX, CursorY, WideW, 646.0f };
         ConstructGeomCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 9.2f, InspectorMetrics::DimInk, "MATERIAL / SLOT 0");
         Surface.StrokeCircle({ BodyX + BodyW - 14.0f, Card.Y + 34.0f }, 14.0f, ColorRgba{ 255u, 255u, 255u, 28u }, 1.0f);
@@ -461,27 +606,22 @@ inline float ConstructGeometryPages(
             FX += FW + 5.0f;
         }
 
-        // Material name + Material type
+        // Live OpenPBR material sliders directly syncing to GPU bindless CompactMaterialRegister
         float MY = Slots.Bottom() + 18.0f;
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, MY }, 10.4f, InspectorMetrics::DimInk, "Material name");
-        const Rectangle2D NameBox { BodyX, MY + 18.0f, BodyW, 34.0f };
-        Surface.FillRectangle(NameBox, ColorRgba{ 14u, 14u, 15u, 255u }, 17.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { NameBox.X + 14.0f, NameBox.Y + 10.5f }, 12.0f, InspectorMetrics::HeadingInk, "Surface material");
+        bool MatMut = false;
+        if (Desc.SurfaceBinding != nullptr)
+        {
+            MY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, MY, BodyW, 8820u, "Roughness",  "",  "%.2f", 0.02f, 1.0f, Desc.SurfaceBinding->Roughness, ActiveDragId, Input, MatMut);
+            MY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, MY, BodyW, 8821u, "Metallic",   "",  "%.2f", 0.00f, 1.0f, Desc.SurfaceBinding->Metallic,  ActiveDragId, Input, MatMut);
+            MY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, MY, BodyW, 8822u, "Self-glow",  "x", "%.2f", 0.00f, 8.0f, Desc.SurfaceBinding->SelfGlow,  ActiveDragId, Input, MatMut);
+            if (MatMut)
+            {
+                OutMutated = true;
+                SyncGeometryLiveToScene(Entry, Desc.SurfaceBinding, Desc.Scene, MatchedIdx, true, false);
+            }
+        }
 
-        MY = NameBox.Bottom() + 16.0f;
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, MY }, 10.4f, InspectorMetrics::DimInk, "Material type");
-        const Rectangle2D TypeBox { BodyX, MY + 18.0f, BodyW, 34.0f };
-        Surface.FillRectangle(TypeBox, ColorRgba{ 14u, 14u, 15u, 255u }, 17.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { TypeBox.X + 14.0f, TypeBox.Y + 10.5f }, 12.0f, InspectorMetrics::HeadingInk, "Standard");
-        const Point2D Ch { TypeBox.Right() - 16.0f, TypeBox.Center().Y };
-        Surface.StrokeLine({ Ch.X - 4.0f, Ch.Y - 2.0f }, { Ch.X, Ch.Y + 2.5f }, InspectorMetrics::HeadingInk, 1.4f);
-        Surface.StrokeLine({ Ch.X, Ch.Y + 2.5f }, { Ch.X + 4.0f, Ch.Y - 2.0f }, InspectorMetrics::HeadingInk, 1.4f);
-
-        (void)InspectorPrimitives::ConstructWrappedParagraph(
-            Surface, BodyX, TypeBox.Bottom() + 12.0f, BodyW, 9.6f, 14.0f, InspectorMetrics::DimInk,
-            "A type sets the channels it needs (Emissive adds Emission, Glass adds Transmission) and keeps your gradient, texture and shader drafts.");
-
-        const float KpiY = TypeBox.Bottom() + 58.0f;
+        const float KpiY = MY + 8.0f;
         const float KpiW = std::floor((BodyW - 10.0f) * 0.5f);
         const auto DrawMK = [&](float X, ColorRgba Dot, const char* Lbl, const char* Val)
         {
@@ -491,8 +631,10 @@ inline float ConstructGeometryPages(
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 26.0f, K.Y + 13.0f }, 9.6f, InspectorMetrics::MutedInk, Lbl);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { K.X + 14.0f, K.Y + 38.0f }, 26.0f, InspectorMetrics::HeadingInk, Val);
         };
-        DrawMK(BodyX,               ColorRgba{ 88u, 198u, 122u, 255u }, "Channels in use", "3");
-        DrawMK(BodyX + KpiW + 10.0f,ColorRgba{ 204u, 162u, 114u, 255u }, "Non-fill sources", "0");
+        char PartBuf[16]{};
+        std::snprintf(PartBuf, sizeof(PartBuf), "%u", std::max(1u, Desc.SubPartCount));
+        DrawMK(BodyX,                ColorRgba{ 88u, 198u, 122u, 255u }, "Sub-part slots", PartBuf);
+        DrawMK(BodyX + KpiW + 10.0f, ColorRgba{ 204u, 162u, 114u, 255u }, "OpenPBR GPU",    "Live");
         CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else if (ActivePage == 4u)
@@ -595,11 +737,13 @@ inline float ConstructGeometryPages(
         float SY = Well.Bottom() + 18.0f;
         SY = InspectorPrimitives::ConstructScalarFieldRow(Surface, BodyX, SY, BodyW, 8802u, "Slice depth", "", "%.0f", 0.0f, 100.0f, SliceDepth, ActiveDragId, Input, OutMutated);
 
+        char SourceRowBuf[48]{};
+        std::snprintf(SourceRowBuf, sizeof(SourceRowBuf), "%u triangles \xC2\xB7 %s", LiveTris, LiveHasSdf ? "GPU SDF active" : "analytic");
         const std::array<std::pair<const char*, const char*>, 4u> Rows = {{
             { "Resolution",  "64\xC2\xB3 \xC2\xB7 2.1 cm voxel" },
             { "Narrow band", "3.5 voxels \xC2\xB7 7.2 cm"      },
             { "Memory",      "576 KB \xC2\xB7 dense 1.0 MB"    },
-            { "Source",      "12 triangles \xC2\xB7 closed"    },
+            { "Source",      SourceRowBuf                      },
         }};
         for (uint32_t I = 0u; I < 4u; ++I)
         {
@@ -608,21 +752,23 @@ inline float ConstructGeometryPages(
             const float VW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, Rows[I].second);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - VW, RY }, 11.0f, InspectorMetrics::HeadingInk, Rows[I].second);
         }
-        Surface.FillCircle({ BodyX + 4.0f, SY + 122.0f }, 4.0f, InspectorMetrics::DimInk);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 16.0f, SY + 116.0f }, 11.0f, InspectorMetrics::MutedInk, "Not baked yet.");
+        Surface.FillCircle({ BodyX + 4.0f, SY + 122.0f }, 4.0f, LiveHasSdf ? ColorRgba{ 76u, 206u, 128u, 255u } : InspectorMetrics::DimInk);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + 16.0f, SY + 116.0f }, 11.0f, InspectorMetrics::MutedInk, LiveHasSdf ? "Local SDF resident on GPU." : "Analytic / clipmap fallback.");
         CursorY = Card.Bottom() + InspectorMetrics::SectionGap;
     }
     else
     {
-        // TAB 8: LOD — LOD preview (h = 614)
+        // TAB 8: LOD — LOD preview (live ClusterPyramid stats)
         static float PreviewLod = 0.0f;
         const Rectangle2D Card { WideX, CursorY, WideW, 614.0f };
         ConstructGeomCard(Surface, Card);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 24.0f }, 13.0f, InspectorMetrics::HeadingInk, "LOD preview");
         char LevB[16]{};
-        std::snprintf(LevB, sizeof(LevB), "%u", Desc.LodLevels);
+        std::snprintf(LevB, sizeof(LevB), "%u", LiveLods);
         (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, Card.Y + 62.0f, LevB, "levels", nullptr, 34.0f);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 114.0f }, 10.6f, InspectorMetrics::MutedInk, "48 clusters in 13 groups \xC2\xB7 3,072 source triangles");
+        char LodSub[80]{};
+        std::snprintf(LodSub, sizeof(LodSub), "%u clusters \xC2\xB7 %u source triangles", LiveClusters, LiveTris);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 114.0f }, 10.6f, InspectorMetrics::MutedInk, LodSub);
 
         // 6-level coloured bar chart
         const Rectangle2D BarWell { BodyX, Card.Y + 142.0f, BodyW, 130.0f };
