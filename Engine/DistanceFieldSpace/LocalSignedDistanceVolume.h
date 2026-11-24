@@ -13,6 +13,7 @@
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -92,6 +93,23 @@ public:
     {
         return HalfDistanceSamples.size() * sizeof(uint16_t);
     }
+
+    // Optional Vulkan GPU compute baker callback (registered automatically by VulkanWorldRenderSequence).
+    // When attached, BakeFromTrianglesAspect dispatches BakeAspectSdfCompute.comp.spv on the GPU instead of spawning CPU threads.
+    using GpuAspectBakerCallback = std::function<bool(
+        const SpatialAcceleration::WideBoundingTree& BuiltTree,
+        uint32_t                                     ResX,
+        uint32_t                                     ResY,
+        uint32_t                                     ResZ,
+        Mathematics::Axis3D                          LocalMin,
+        Mathematics::Axis3D                          VoxelSpacing,
+        std::vector<float>&                          OutDistances)>;
+
+    static void     AssignGpuAspectBaker(GpuAspectBakerCallback Callback);
+    static void     ClearGpuAspectBaker() noexcept;
+    [[nodiscard]] static bool     QueryGpuAspectBakerAttached() noexcept;
+    [[nodiscard]] static uint64_t QueryGpuBakeCount() noexcept;
+    [[nodiscard]] static uint64_t QueryCpuBakeCount() noexcept;
 };
 
 } // namespace Frontier::DistanceFieldSpace

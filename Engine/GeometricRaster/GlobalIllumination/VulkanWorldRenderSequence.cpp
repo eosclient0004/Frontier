@@ -15,6 +15,10 @@
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 #include "Engine/MaterialSpace/Scattering/BlackbodyEmission.h"
 
+#if FRONTIER_EDITOR_ENABLED
+#include "Engine/Editor/Inspectors/InspectorGpuBaker.h"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -533,6 +537,18 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         CompiledShaderDirectory / "WorldViewportGlobalRadiosityBake.comp.spv",
         SlotTypes,
         "GlobalRadiosityBakeEntry");
+    {
+        const std::array<VkDescriptorType, 4u> AspectSdfSlots {{
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        }};
+        LocalAspectSdfBakeProgramHandle = DispatchEncoder.RegisterProgram(
+            CompiledShaderDirectory / "BakeAspectSdfCompute.comp.spv",
+            AspectSdfSlots,
+            "ComputeEntry");
+    }
     HighEndBvhProgramHandle        = UINT32_MAX;
     ViewportPathTraceProgramHandle = UINT32_MAX;
     if (TargetDevice.QueryHardwareAccelerated())
@@ -676,13 +692,108 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     }
     if (UniformBuffer.BufferHandle != VK_NULL_HANDLE)
     {
+        if (LocalAspectSdfBakeProgramHandle != UINT32_MAX)
+        {
+            DistanceFieldSpace::LocalSignedDistanceVolume::AssignGpuAspectBaker(
+                [this](
+                    const SpatialAcceleration::WideBoundingTree& BuiltTree,
+                    uint32_t                                     ResX,
+                    uint32_t                                     ResY,
+                    uint32_t                                     ResZ,
+                    Mathematics::Axis3D                          LocalMin,
+                    Mathematics::Axis3D                          VoxelSpacing,
+                    std::vector<float>&                          OutDistances) -> bool
+                {
+                    if (BoundDevice == nullptr || !BoundDevice->Ready() ||
+                        LocalAspectSdfBakeProgramHandle == UINT32_MAX ||
+                        BuiltTree.WideEntries.empty() || BuiltTree.Primitives.empty())
+                    {
+                        return false;
+                    }
+                    struct alignas(16) AspectSdfUniformStd140
+                    {
+                        uint32_t ResolutionAndCount[4];
+                        float    LocalMinAndMode[4];
+                        float    VoxelSpacingAndPad[4];
+                    };
+                    const uint64_t TotalVoxels = static_cast<uint64_t>(ResX) * ResY * ResZ;
+                    const uint64_t EntryBytes  = static_cast<uint64_t>(BuiltTree.WideEntries.size()) * sizeof(SpatialAcceleration::WideTreeEntry);
+                    const uint64_t PrimBytes   = static_cast<uint64_t>(BuiltTree.Primitives.size()) * sizeof(SpatialAcceleration::RayTrianglePrimitive);
+                    const uint64_t OutBytes    = TotalVoxels * sizeof(float);
+
+                    auto UniBuf   = DispatchEncoder.AllocateHostWritableBuffer(sizeof(AspectSdfUniformStd140), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+                    auto EntryBuf = DispatchEncoder.AllocateHostWritableBuffer(EntryBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                    auto PrimBuf  = DispatchEncoder.AllocateHostWritableBuffer(PrimBytes,  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                    auto OutBuf   = DispatchEncoder.AllocateReadbackStagingBuffer(OutBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                    if (UniBuf.BufferHandle == VK_NULL_HANDLE || EntryBuf.BufferHandle == VK_NULL_HANDLE ||
+                        PrimBuf.BufferHandle == VK_NULL_HANDLE || OutBuf.BufferHandle == VK_NULL_HANDLE)
+                    {
+                        BoundDevice->ReleaseBuffer(UniBuf);
+                        BoundDevice->ReleaseBuffer(EntryBuf);
+                        BoundDevice->ReleaseBuffer(PrimBuf);
+                        BoundDevice->ReleaseBuffer(OutBuf);
+                        return false;
+                    }
+
+                    const AspectSdfUniformStd140 Uni {
+                        { ResX, ResY, ResZ, static_cast<uint32_t>(BuiltTree.WideEntries.size()) },
+                        { LocalMin.X, LocalMin.Y, LocalMin.Z, 0.0f },
+                        { VoxelSpacing.X, VoxelSpacing.Y, VoxelSpacing.Z, static_cast<float>(BuiltTree.Primitives.size()) },
+                    };
+                    if (UniBuf.HostAddress != nullptr)   std::memcpy(UniBuf.HostAddress, &Uni, sizeof(Uni));
+                    if (EntryBuf.HostAddress != nullptr) std::memcpy(EntryBuf.HostAddress, BuiltTree.WideEntries.data(), static_cast<std::size_t>(EntryBytes));
+                    if (PrimBuf.HostAddress != nullptr)  std::memcpy(PrimBuf.HostAddress, BuiltTree.Primitives.data(), static_cast<std::size_t>(PrimBytes));
+
+                    bool Dispatched = false;
+                    DispatchEncoder.ResetTransientDescriptors();
+                    VkCommandBuffer Cmd = BoundDevice->BeginSingleTimeCommands();
+                    if (Cmd != VK_NULL_HANDLE)
+                    {
+                        const std::array<ComputeSlotDescriptor, 4u> Slots {{
+                            { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, UniBuf.BufferHandle,   sizeof(AspectSdfUniformStd140) },
+                            { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EntryBuf.BufferHandle, EntryBytes },
+                            { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PrimBuf.BufferHandle,  PrimBytes  },
+                            { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, OutBuf.BufferHandle,   OutBytes   },
+                        }};
+                        const uint32_t GX = (ResX + 3u) / 4u;
+                        const uint32_t GY = (ResY + 3u) / 4u;
+                        const uint32_t GZ = (ResZ + 3u) / 4u;
+                        if (DispatchEncoder.EncodeComputeDispatch(Cmd, LocalAspectSdfBakeProgramHandle, Slots, GX, GY, GZ))
+                        {
+                            VkMemoryBarrier Barrier {};
+                            Barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                            Barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                            Barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+                            vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0u, 1u, &Barrier, 0u, nullptr, 0u, nullptr);
+                            const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
+                            Dispatched = BoundDevice->AwaitTimelineTick(SyncPoint, 60000000000ull);
+                        }
+                    }
+
+                    if (Dispatched && OutBuf.HostAddress != nullptr)
+                    {
+                        OutDistances.resize(static_cast<std::size_t>(TotalVoxels));
+                        std::memcpy(OutDistances.data(), OutBuf.HostAddress, static_cast<std::size_t>(OutBytes));
+                    }
+
+                    BoundDevice->ReleaseBuffer(UniBuf);
+                    BoundDevice->ReleaseBuffer(EntryBuf);
+                    BoundDevice->ReleaseBuffer(PrimBuf);
+                    BoundDevice->ReleaseBuffer(OutBuf);
+                    return Dispatched;
+                });
+        }
+#if FRONTIER_EDITOR_ENABLED
+        (void)InspectorGpuBaker::AttachDevice(&TargetDevice, CompiledShaderDirectory);
+#endif
         std::fprintf(
             stdout,
-            "[FrontierWorld] VulkanWorldRenderSequence active on %.*s (Hardware GPU: %s, GPU ShadowCascade: %s)\n",
+            "[FrontierWorld] VulkanWorldRenderSequence active on %.*s (Hardware GPU: %s, GPU ShadowCascade: %s, GPU LocalSDF: %s)\n",
             static_cast<int>(TargetDevice.QueryAdapterName().size()),
             TargetDevice.QueryAdapterName().data(),
             TargetDevice.QueryHardwareAccelerated() ? "YES" : "NO (Software ICD)",
-            ShadowCascadeProgramHandle != UINT32_MAX ? "YES" : "NO");
+            ShadowCascadeProgramHandle != UINT32_MAX ? "YES" : "NO",
+            LocalAspectSdfBakeProgramHandle != UINT32_MAX ? "YES" : "NO");
         std::fflush(stdout);
         return true;
     }
@@ -691,6 +802,11 @@ bool VulkanWorldRenderSequence::InitializeSequence(
 
 void VulkanWorldRenderSequence::TeardownSequence() noexcept
 {
+#if FRONTIER_EDITOR_ENABLED
+    InspectorGpuBaker::DetachDevice();
+#endif
+    DistanceFieldSpace::LocalSignedDistanceVolume::ClearGpuAspectBaker();
+    LocalAspectSdfBakeProgramHandle = UINT32_MAX;
     if (BoundDevice != nullptr && BoundDevice->Ready())
     {
         vkDeviceWaitIdle(BoundDevice->AccessDevice());

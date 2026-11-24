@@ -31,7 +31,8 @@ void StarfieldInspector::UpdateStarChartSurface(const GeometricRaster::Starfield
     Key = InspectorPrimitives::MixRevisionFloat(Key, Stars.BrightnessMultiplier);
 
     const uint32_t W = 444u, H = 212u;
-    StarChart.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::StarfieldSheet, 0u, { Stars.BrightnessMultiplier, Stars.LimitingMagnitude, 0.0f, 0.0f } };
+    StarChart.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
@@ -80,7 +81,8 @@ void StarfieldInspector::UpdateStarSheetSurface(const GeometricRaster::Starfield
     uint64_t Key = 0x57A44404ull ^ (EntryVisible ? 0x1ull : 0x0ull);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Stars.LimitingMagnitude);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Stars.BrightnessMultiplier);
-    StarSheetBake.EnsureUpdated(Key, 256u, 128u, [](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::StarfieldSheet, 1u, { Stars.BrightnessMultiplier, Stars.LimitingMagnitude, 0.0f, 0.0f } };
+    StarSheetBake.EnsureUpdatedGpu(Key, 256u, 128u, GpuSpec, [](std::vector<uint8_t>& Pixels)
     {
         for (std::size_t I = 0u; I < Pixels.size(); I += 4u)
         {

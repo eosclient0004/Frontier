@@ -33,7 +33,8 @@ void EnvironmentLightInspector::UpdateHemisphereSurface(const EnvironmentLightIn
 
     // Exact 268 x 144 sky-dome side view + top-view blue compass (2x crisp: 536 x 288)
     const uint32_t W = 536u, H = 288u;
-    HemispherePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::EnvironmentDome, 0u, { Instance.GainScale, Instance.RotationDegrees, 0.0f, 0.0f } };
+    HemispherePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float SideCx = 166.0f, SideCy = 216.0f, SideR = 132.0f;
         const float TopCx  = 416.0f, TopCy  = 144.0f, TopR  = 86.0f;

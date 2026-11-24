@@ -75,7 +75,8 @@ void AtmosphericFogInspector::UpdateRidgesSurface(const AtmosphericFogInstanceDa
 
     // Exact FogCards.jsx AerialRidges scene box: 300 x 150 -> render 2x crisp 600 x 300
     const uint32_t W = 600u, H = 300u;
-    RidgePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::FogLayer, 4u, { Fog.DensityMultiplier * 0.4f, 1.0f, Fog.MieBlend, 0.0f } };
+    RidgePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Sigma = std::max(0.0f, Fog.DensityMultiplier) * 0.001f;
         const float Blend = std::clamp(Fog.MieBlend, 0.0f, 1.0f);

@@ -68,7 +68,8 @@ void LunarInspector::RasterizeLunarGlobe(
     Key = InspectorPrimitives::MixRevisionFloat(Key, Moon.HaloGlowMultiplier);
     Key = InspectorPrimitives::MixRevisionFloat(Key, DiscRadiusPx);
 
-    Target.EnsureUpdated(Key, WidthPx, HeightPx, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::LunarPhase, static_cast<uint32_t>(Preset), { Moon.SynodicPhaseFraction, Moon.BrightnessMultiplier, Moon.HaloGlowMultiplier, DiscRadiusPx } };
+    Target.EnsureUpdatedGpu(Key, WidthPx, HeightPx, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(WidthPx) * 0.5f;
         const float Cy = static_cast<float>(HeightPx) * 0.5f;

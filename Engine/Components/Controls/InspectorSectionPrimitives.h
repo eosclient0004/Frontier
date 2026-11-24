@@ -11,6 +11,7 @@
 
 #include "Engine/Components/Controls/ControlAppearance.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
+#include "Engine/Components/RetainedCanvasCache.h"
 #include "Engine/Mathematics/LinearColors.h"
 
 #include <imgui.h>
@@ -109,16 +110,49 @@ struct InspectorKpiMetricSpec
     const char* CaptionText = "";
 };
 
+enum class InspectorGpuBakeMode : uint32_t
+{
+    AtmosphereLimb      = 0u,
+    AtmosphereGlobe     = 1u,
+    TransmittanceLut    = 2u,
+    SkyViewLut          = 3u,
+    SolarBake           = 4u,
+    CloudSwath          = 5u,
+    LunarPhase          = 6u,
+    StarfieldSheet      = 7u,
+    FogLayer            = 8u,
+    RainbowArc          = 9u,
+    EnvironmentDome     = 10u,
+    GeometrySdfSlice    = 11u,
+    GeometryUvAtlas     = 12u,
+};
+
+struct InspectorGpuBakeSpec
+{
+    InspectorGpuBakeMode Mode       = InspectorGpuBakeMode::AtmosphereLimb;
+    uint32_t             Flags      = 0u;
+    float                ParamA[4]  { 1.0f, 1.0f, 1.0f, 30.0f };
+    float                ParamB[4]  { 0.0f, 0.0f, 0.0f, 0.0f };
+    float                ColourA[4] { 0.8f, 0.85f, 0.92f, 1.0f };
+    float                ColourB[4] { 0.1f, 0.14f, 0.22f, 1.0f };
+};
+
 // Shared on-demand retained RGBA32 texture surface for LUTs, sky/moon/cloud visuals, and specimen previews.
-// Only re-rasterizes when RevisionSignature changes; otherwise presents the resident texture with zero per-tick work.
+// Only re-bakes when RevisionSignature changes; dispatches on Vulkan GPU compute whenever attached, and throttles drag updates.
 class InspectorPreviewSurface
 {
 public:
+    using GpuBakeHookFn = std::function<bool(const InspectorGpuBakeSpec&, uint32_t, uint32_t, std::vector<uint8_t>&)>;
+
     InspectorPreviewSurface() noexcept = default;
     ~InspectorPreviewSurface() noexcept;
 
     InspectorPreviewSurface(const InspectorPreviewSurface&)            = delete;
     InspectorPreviewSurface& operator=(const InspectorPreviewSurface&) = delete;
+
+    static void AssignGpuBakeHook(GpuBakeHookFn Hook);
+    static void ClearGpuBakeHook() noexcept;
+    [[nodiscard]] static bool QueryGpuBakeHookAttached() noexcept;
 
     // Ensures the RGBA32 buffer matches (WidthPx, HeightPx) and RevisionSignature.
     // RasterCallback receives a mutable RGBA8 byte buffer of size WidthPx * HeightPx * 4.
@@ -127,6 +161,15 @@ public:
         uint32_t                                          WidthPx,
         uint32_t                                          HeightPx,
         const std::function<void(std::vector<uint8_t>&)>& RasterCallback);
+
+    // Pure-GPU first path: dispatches InspectorPreviewCompute.comp.spv on Vulkan GPU when attached,
+    // falling back to CpuFallbackCallback only in headless mode without a Vulkan device.
+    void EnsureUpdatedGpu(
+        uint64_t                                          RevisionSignature,
+        uint32_t                                          WidthPx,
+        uint32_t                                          HeightPx,
+        const InspectorGpuBakeSpec&                       GpuSpec,
+        const std::function<void(std::vector<uint8_t>&)>& CpuFallbackCallback);
 
     void Present(
         PixelSpace& Surface,
@@ -139,14 +182,21 @@ public:
     [[nodiscard]] uint32_t QueryWidthPx()  const noexcept { return WidthPx; }
     [[nodiscard]] uint32_t QueryHeightPx() const noexcept { return HeightPx; }
     [[nodiscard]] uint32_t QueryUploadCount() const noexcept { return UploadCounter; }
+    [[nodiscard]] uint32_t QueryGpuUploadCount() const noexcept { return GpuUploadCounter; }
+    [[nodiscard]] uint32_t QueryCpuUploadCount() const noexcept { return CpuUploadCounter; }
 
 private:
+    void UploadStagingPixels(uint64_t RevisionSignature, uint32_t TargetWidthPx, uint32_t TargetHeightPx, bool SizeMismatch, bool BakedOnGpu);
+
     ImTextureData        ResidentTexture   {};
     std::vector<uint8_t> StagingPixels     {};
     uint64_t             RetainedSignature = 0ull;
     uint32_t             WidthPx           = 0u;
     uint32_t             HeightPx          = 0u;
     uint32_t             UploadCounter     = 0u;
+    uint32_t             GpuUploadCounter  = 0u;
+    uint32_t             CpuUploadCounter  = 0u;
+    uint64_t             LastBakeTimeNs    = 0ull;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -591,6 +641,18 @@ void ConstructDashedSegment(
     const PaneInputReading& Input,
     bool&                   OutBakeClicked,
     bool&                   OutLoadClicked) noexcept;
+
+// Frame capture scope for hover-zone dirty gating, scroll-clip culling, and drag-cadence bake throttling
+void BeginInspectorCaptureScope(
+    RetainedCanvasCache* ActiveCache,
+    Rectangle2D          ScrollClipLogical,
+    Point2D              SurfaceOriginPhysical,
+    float                ScaleFactor) noexcept;
+void EndInspectorCaptureScope() noexcept;
+void RegisterInteractiveRect(Rectangle2D LogicalBounds) noexcept;
+[[nodiscard]] bool QueryVisibleInScrollClip(Rectangle2D LogicalBounds) noexcept;
+void NoteInteractiveDragActive(bool Active) noexcept;
+[[nodiscard]] bool QueryInteractiveDragActive() noexcept;
 
 // Bottom 45px inspector footer bar
 void ConstructInspectorFooter(

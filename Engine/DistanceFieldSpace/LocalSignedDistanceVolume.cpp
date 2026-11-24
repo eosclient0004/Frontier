@@ -10,9 +10,11 @@
 #include "Engine/DistanceFieldSpace/LocalSignedDistanceVolume.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <thread>
 
 namespace Frontier::DistanceFieldSpace
@@ -20,6 +22,11 @@ namespace Frontier::DistanceFieldSpace
 
 namespace
 {
+
+std::mutex                                         GlobalGpuAspectBakerMutex {};
+LocalSignedDistanceVolume::GpuAspectBakerCallback  GlobalGpuAspectBaker      {};
+std::atomic<uint64_t>                              GlobalGpuSdfBakeCount     { 0ull };
+std::atomic<uint64_t>                              GlobalCpuSdfBakeCount     { 0ull };
 
 [[nodiscard]] uint16_t PackFloat32ToHalf16(float Scalar) noexcept
 {
@@ -387,6 +394,26 @@ bool LocalSignedDistanceVolume::BakeFromTrianglesAspect(
     HalfDistanceSamples.resize(TotalVoxels, 0u);
     DistanceSamples.resize(TotalVoxels, 0.0f);
 
+    // Pure-GPU Vulkan compute path: avoids saturating CPU cores whenever a Vulkan device is bound.
+    {
+        GpuAspectBakerCallback GpuBaker {};
+        {
+            std::lock_guard<std::mutex> Lock(GlobalGpuAspectBakerMutex);
+            GpuBaker = GlobalGpuAspectBaker;
+        }
+        if (GpuBaker && GpuBaker(LocalTree, ResolutionX, ResolutionY, ResolutionZ, LocalMin, VoxelSpacing, DistanceSamples) &&
+            DistanceSamples.size() == TotalVoxels)
+        {
+            for (std::size_t Idx = 0u; Idx < TotalVoxels; ++Idx)
+            {
+                HalfDistanceSamples[Idx] = PackFloat32ToHalf16(DistanceSamples[Idx]);
+            }
+            GlobalGpuSdfBakeCount.fetch_add(1ull, std::memory_order_relaxed);
+            return true;
+        }
+    }
+
+    GlobalCpuSdfBakeCount.fetch_add(1ull, std::memory_order_relaxed);
     const uint32_t ThreadBudget = std::min(ResolutionZ, std::max(1u, std::thread::hardware_concurrency()));
     const auto BakeDepthBand  = [&](uint32_t ZBegin, uint32_t ZEnd)
     {
@@ -590,6 +617,34 @@ float LocalSignedDistanceVolume::SampleSmoothWorldDistance(
     };
     const float BoundaryD = Vol.SampleTrilinearLocal(Clamped);
     return (BoxD > 0.0f) ? std::hypot(BoundaryD, BoxD) : BoundaryD;
+}
+
+void LocalSignedDistanceVolume::AssignGpuAspectBaker(GpuAspectBakerCallback Callback)
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuAspectBakerMutex);
+    GlobalGpuAspectBaker = std::move(Callback);
+}
+
+void LocalSignedDistanceVolume::ClearGpuAspectBaker() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuAspectBakerMutex);
+    GlobalGpuAspectBaker = {};
+}
+
+bool LocalSignedDistanceVolume::QueryGpuAspectBakerAttached() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuAspectBakerMutex);
+    return static_cast<bool>(GlobalGpuAspectBaker);
+}
+
+uint64_t LocalSignedDistanceVolume::QueryGpuBakeCount() noexcept
+{
+    return GlobalGpuSdfBakeCount.load(std::memory_order_relaxed);
+}
+
+uint64_t LocalSignedDistanceVolume::QueryCpuBakeCount() noexcept
+{
+    return GlobalCpuSdfBakeCount.load(std::memory_order_relaxed);
 }
 
 } // namespace Frontier::DistanceFieldSpace

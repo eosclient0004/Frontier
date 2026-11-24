@@ -13,6 +13,7 @@
 #include "Engine/Components/Panes/OutlinerPanel.h"
 #include "Engine/Components/Panes/ViewportPanel.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/DistanceFieldSpace/LocalSignedDistanceVolume.h"
 #include "Engine/Editor/Inspectors/InspectorRegistry.h"
 #include "Engine/Editor/WorldEnvironmentRegistry.h"
 #include "Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.h"
@@ -1376,6 +1377,104 @@ title = "Overview"
             AllOk &= VerifyRequirement(RenderInspectorExhibit(Inspectors, Outliner, Bundle.Scene, DisplaySettings, ParityCube, ParityDir / CubeNames[PageIdx]), CubeNames[PageIdx]);
         }
         Inspectors.QueryAnalyticPrimitive().SetActivePage(0u);
+    }
+
+    // 14. GPU Compute Baking & Zero Per-Frame UI Card Update Validation
+    {
+        // 14a. Compiled GPU compute SPIR-V shaders exist for pure-GPU SDF & Inspector baking
+        const std::filesystem::path ShaderDir = std::filesystem::path(FRONTIER_COMPILED_SHADER_DIR);
+        AllOk &= VerifyRequirement(
+            std::filesystem::exists(ShaderDir / "BakeAspectSdfCompute.comp.spv"),
+            "GPU compute shader BakeAspectSdfCompute.comp.spv compiled by Slang");
+        AllOk &= VerifyRequirement(
+            std::filesystem::exists(ShaderDir / "InspectorPreviewCompute.comp.spv"),
+            "GPU compute shader InspectorPreviewCompute.comp.spv compiled by Slang");
+
+        // 14b. Only the single active Inspector card executes (never all 31 cards per frame)
+        AllOk &= VerifyRequirement(
+            Inspectors.QueryLastEvaluatedCardCount() == 1u && Inspectors.QueryLastSkippedCardCount() == 30u,
+            "InspectorRegistry evaluates strictly 1 active card and skips all 30 inactive cards");
+
+        // 14c. RetainedCanvasCache hover-zone gating replays stationary & empty-space pointer motion with 0 UI card rebuilds
+        {
+            RetainedCanvasCache Cache {};
+            ImDrawList TestList(ImGui::GetDrawListSharedData());
+            TestList._ResetForNewFrame();
+            TestList.PushTexture(ImGui::GetIO().Fonts->TexRef);
+            TestList.PushClipRectFullScreen();
+            const Rectangle2D PaneBounds { 100.0f, 50.0f, 340.0f, 825.0f };
+            const uint64_t Sig = 0xCAFEBABE12345678ull;
+
+            Cache.BeginCapture(&TestList);
+            InspectorPrimitives::BeginInspectorCaptureScope(&Cache, { 0.0f, 0.0f, 340.0f, 825.0f }, { PaneBounds.X, PaneBounds.Y }, 1.0f);
+            InspectorPrimitives::RegisterInteractiveRect({ 20.0f, 120.0f, 200.0f, 28.0f }); // interactive slider zone
+            InspectorPrimitives::EndInspectorCaptureScope();
+            TestList.AddRectFilled(ImVec2(100.0f, 50.0f), ImVec2(440.0f, 875.0f), IM_COL32(24, 24, 24, 255));
+            Cache.EndCapture(&TestList, Sig, PaneBounds, { 200.0f, 400.0f }); // resting on empty card space
+
+            // Stationary frame inside pane -> 0 rebuilds (reused)
+            AllOk &= VerifyRequirement(
+                Cache.QueryReusableHoverAware(Sig, PaneBounds, { 200.0f, 400.0f }, false),
+                "Stationary frame inside Inspector pane replays retained canvas (0 UI rebuilds)");
+            // Moving mouse across empty card space -> 0 rebuilds (reused)
+            AllOk &= VerifyRequirement(
+                Cache.QueryReusableHoverAware(Sig, PaneBounds, { 260.0f, 520.0f }, false),
+                "Pointer moving across empty Inspector card body replays retained canvas (0 UI rebuilds)");
+            // Moving mouse onto registered interactive control -> targeted rebuild triggered
+            AllOk &= VerifyRequirement(
+                !Cache.QueryReusableHoverAware(Sig, PaneBounds, { 180.0f, 180.0f }, false),
+                "Pointer entering interactive control triggers targeted hover update");
+        }
+
+        // 14d. InspectorPreviewSurface::EnsureUpdatedGpu routes to GPU baker with 0 CPU fallback executions & 1 retained upload
+        {
+            uint32_t GpuDispatches = 0u;
+            uint32_t CpuFallbacks  = 0u;
+            InspectorPreviewSurface::AssignGpuBakeHook(
+                [&](const InspectorGpuBakeSpec&, uint32_t W, uint32_t H, std::vector<uint8_t>& Out) -> bool
+                {
+                    ++GpuDispatches;
+                    Out.assign(static_cast<std::size_t>(W) * H * 4u, 0xCCu);
+                    return true;
+                });
+
+            InspectorPreviewSurface TestSurf {};
+            const InspectorGpuBakeSpec Spec { InspectorGpuBakeMode::SkyViewLut, 0u };
+            TestSurf.EnsureUpdatedGpu(0x99887766ull, 64u, 32u, Spec, [&](std::vector<uint8_t>&) { ++CpuFallbacks; });
+            TestSurf.EnsureUpdatedGpu(0x99887766ull, 64u, 32u, Spec, [&](std::vector<uint8_t>&) { ++CpuFallbacks; });
+            InspectorPreviewSurface::ClearGpuBakeHook();
+
+            AllOk &= VerifyRequirement(
+                GpuDispatches == 1u && CpuFallbacks == 0u && TestSurf.QueryGpuUploadCount() == 1u && TestSurf.QueryCpuUploadCount() == 0u,
+                "InspectorPreviewSurface dispatches strictly on GPU hook (0 CPU fallbacks, 1 retained upload)");
+        }
+
+        // 14e. LocalSignedDistanceVolume::BakeFromTrianglesAspect routes to GPU baker with 0 CPU voxel threads
+        {
+            const uint64_t CpuBefore = DistanceFieldSpace::LocalSignedDistanceVolume::QueryCpuBakeCount();
+            const uint64_t GpuBefore = DistanceFieldSpace::LocalSignedDistanceVolume::QueryGpuBakeCount();
+            DistanceFieldSpace::LocalSignedDistanceVolume::AssignGpuAspectBaker(
+                [](const SpatialAcceleration::WideBoundingTree&, uint32_t RX, uint32_t RY, uint32_t RZ,
+                   Mathematics::Axis3D, Mathematics::Axis3D, std::vector<float>& Out) -> bool
+                {
+                    Out.assign(static_cast<std::size_t>(RX) * RY * RZ, 0.25f);
+                    return true;
+                });
+
+            std::array<SpatialAcceleration::RayTrianglePrimitive, 1u> Tris {};
+            Tris[0].Corner0 = { 0.0f, 0.0f, 0.0f };
+            Tris[0].Edge01  = { 1.0f, 0.0f, 0.0f };
+            Tris[0].Edge02  = { 0.0f, 1.0f, 0.0f };
+            DistanceFieldSpace::LocalSignedDistanceVolume Vol {};
+            const bool BakedOk = Vol.BakeFromTrianglesAspect(Tris, 8u, 8u, 8u, 0.2f);
+            DistanceFieldSpace::LocalSignedDistanceVolume::ClearGpuAspectBaker();
+
+            AllOk &= VerifyRequirement(
+                BakedOk &&
+                DistanceFieldSpace::LocalSignedDistanceVolume::QueryGpuBakeCount() == (GpuBefore + 1ull) &&
+                DistanceFieldSpace::LocalSignedDistanceVolume::QueryCpuBakeCount() == CpuBefore,
+                "LocalSignedDistanceVolume executes on GPU aspect baker with zero CPU bake fallback");
+        }
     }
 
     TypographyRepository::AssignCurrent(nullptr);

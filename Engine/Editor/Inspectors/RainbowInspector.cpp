@@ -33,7 +33,8 @@ void RainbowInspector::UpdateRainbowSurface(const RainbowInstanceData& Instance)
 
     // Exact rainbow__0 square optical preview (222 x 208 -> render 2x crisp 444 x 416)
     const uint32_t W = 444u, H = 416u;
-    RainbowPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::RainbowArc, AlexanderBandEnabled ? 1u : 0u, { Instance.PrimaryIntensity, Instance.SecondaryIntensity, Instance.SupernumeraryWidth, 0.0f } };
+    RainbowPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Gain  = std::clamp(Instance.PrimaryIntensity, 0.0f, 2.5f);
         const float Width = std::clamp(Instance.SupernumeraryWidth, 0.25f, 3.0f);

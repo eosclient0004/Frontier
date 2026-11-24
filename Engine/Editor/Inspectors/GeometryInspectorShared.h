@@ -499,7 +499,8 @@ inline float ConstructGeometryPages(
     {
         // TAB 5: UV — UV preview (h = 546)
         static InspectorPreviewSurface SharedUvSurface {};
-        SharedUvSurface.EnsureUpdated(0x70501001ull, 524u, 360u, [](std::vector<uint8_t>& Pix) { RenderUvAtlasPixels(Pix, 524u, 360u); });
+        InspectorGpuBakeSpec UvSpec { InspectorGpuBakeMode::GeometryUvAtlas, 0u };
+        SharedUvSurface.EnsureUpdatedGpu(0x70501001ull, 524u, 360u, UvSpec, [](std::vector<uint8_t>& Pix) { RenderUvAtlasPixels(Pix, 524u, 360u); });
 
         const Rectangle2D Card { WideX, CursorY, WideW, 546.0f };
         ConstructGeomCard(Surface, Card);
@@ -576,7 +577,8 @@ inline float ConstructGeometryPages(
     {
         // TAB 7: SDF — SDF preview (h = 598)
         static InspectorPreviewSurface SharedSdfSurface {};
-        SharedSdfSurface.EnsureUpdated(0x70507007ull, 420u, 360u, [](std::vector<uint8_t>& Pix) { RenderSdfSlicePixels(Pix, 420u, 360u); });
+        InspectorGpuBakeSpec SdfSpec { InspectorGpuBakeMode::GeometrySdfSlice, 0u };
+        SharedSdfSurface.EnsureUpdatedGpu(0x70507007ull, 420u, 360u, SdfSpec, [](std::vector<uint8_t>& Pix) { RenderSdfSlicePixels(Pix, 420u, 360u); });
         static float SliceDepth = 50.0f;
 
         const Rectangle2D Card { WideX, CursorY, WideW, 598.0f };

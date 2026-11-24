@@ -291,6 +291,8 @@ private:
     std::function<bool()>                                      QueryUndoAvailableCallback {};             // [-]   - Optional Undo availability probe
     std::function<void(std::string_view)>                      ClipboardCopyCallback      {};             // [-]   - Optional clipboard writer
     std::function<void(std::string_view)>                      DirectConstructCallback    {};             // [-]   - Optional empty-area quick construct handler
+    double                                                     LastRealtimeCanvasLatchSec = -1.0;           // [s]   - Last ImGui time RealtimeText invalidated retained canvas
+    std::string                                                LatchedRealtimeCanvasText  {};             // [-]   - 2 Hz latched FPS text for retained-canvas signature
 };
 
 //------------------------------------------------------------------------------------------------------------------------

@@ -9,6 +9,7 @@
 
 #include "Engine/Components/Panes/InspectorPanel.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
+#include "Engine/Components/Controls/InspectorSectionPrimitives.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Lifecycle/ThoughtLog.h"
@@ -1927,7 +1928,7 @@ void InspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
         PhysicalMouse.X >= ScreenBounds.X && PhysicalMouse.X <= ScreenBounds.Right() &&
         PhysicalMouse.Y >= ScreenBounds.Y && PhysicalMouse.Y <= ScreenBounds.Bottom();
     const bool    ForceRebuild =
-        (ImGui::IsMouseDown(0) && (PointerActiveInPane || DraggingTransformCell >= 0)) ||
+        (ImGui::IsMouseDown(0) && (PointerActiveInPane || DraggingTransformCell >= 0 || InspectorPrimitives::QueryInteractiveDragActive())) ||
         ScopeDropdownOpen ||
         SortDropdownOpen ||
         NotesEditor.Active ||
@@ -1939,7 +1940,7 @@ void InspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
                                  Input.PrimaryPointer.Released || Input.SecondaryPressed ||
                                  std::fabs(Input.WheelDeltaY) > 1.0e-4f));
 
-    if (RetainedCanvas.QueryReusableStationary(Sig, ScreenBounds, PhysicalMouse, ForceRebuild) &&
+    if (RetainedCanvas.QueryReusableHoverAware(Sig, ScreenBounds, PhysicalMouse, ForceRebuild) &&
         RetainedCanvas.ReplayInto(PaneCanvasList, PhysicalMouse))
     {
         FRONTIER_THOUGHT_SCOPE("Inspector.RetainedReplay");
@@ -1953,7 +1954,9 @@ void InspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     {
         FRONTIER_THOUGHT_SCOPE("Inspector.Rebuild");
         RetainedCanvas.BeginCapture(PaneCanvasList);
+        InspectorPrimitives::BeginInspectorCaptureScope(&RetainedCanvas, LogicalBounds, { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
         Render(WindowSurface, LogicalBounds, Input, Δt);
+        InspectorPrimitives::EndInspectorCaptureScope();
         if (!ForceRebuild)
         {
             RetainedCanvas.EndCapture(PaneCanvasList, ComputeSignature(), ScreenBounds, PhysicalMouse);

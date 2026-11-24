@@ -15,12 +15,45 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 
 namespace Frontier
 {
+
+namespace
+{
+
+std::mutex                             GlobalGpuBakeHookMutex {};
+InspectorPreviewSurface::GpuBakeHookFn GlobalGpuBakeHook      {};
+
+struct InspectorCaptureFrameScope
+{
+    RetainedCanvasCache* ActiveCache          = nullptr;
+    Rectangle2D          ScrollClipLogical    {};
+    Point2D              SurfaceOriginPhys    {};
+    float                ScaleFactor          = 1.0f;
+    bool                 ScrollClipActive     = false;
+    bool                 InteractiveDragNow   = false;
+};
+
+InspectorCaptureFrameScope& AccessCaptureScope() noexcept
+{
+    static InspectorCaptureFrameScope Scope {};
+    return Scope;
+}
+
+[[nodiscard]] uint64_t QueryMonotonicNowNs() noexcept
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+} // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                           ON-DEMAND RETAINED PREVIEW SURFACE
@@ -30,6 +63,56 @@ InspectorPreviewSurface::~InspectorPreviewSurface() noexcept
 {
     ResidentTexture.DestroyPixels();
     ResidentTexture.SetStatus(ImTextureStatus_Destroyed);
+}
+
+void InspectorPreviewSurface::AssignGpuBakeHook(GpuBakeHookFn Hook)
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    GlobalGpuBakeHook = std::move(Hook);
+}
+
+void InspectorPreviewSurface::ClearGpuBakeHook() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    GlobalGpuBakeHook = {};
+}
+
+bool InspectorPreviewSurface::QueryGpuBakeHookAttached() noexcept
+{
+    std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+    return static_cast<bool>(GlobalGpuBakeHook);
+}
+
+void InspectorPreviewSurface::UploadStagingPixels(
+    uint64_t RevisionSignature,
+    uint32_t TargetWidthPx,
+    uint32_t TargetHeightPx,
+    bool     SizeMismatch,
+    bool     BakedOnGpu)
+{
+    if (SizeMismatch)
+    {
+        ResidentTexture.DestroyPixels();
+        ResidentTexture.SetStatus(ImTextureStatus_Destroyed);
+        ResidentTexture.Create(ImTextureFormat_RGBA32, static_cast<int>(TargetWidthPx), static_cast<int>(TargetHeightPx));
+        WidthPx  = TargetWidthPx;
+        HeightPx = TargetHeightPx;
+    }
+
+    if (ResidentTexture.Pixels != nullptr && !StagingPixels.empty())
+    {
+        std::memcpy(ResidentTexture.Pixels, StagingPixels.data(), StagingPixels.size());
+        if (!SizeMismatch && ResidentTexture.Status == ImTextureStatus_OK)
+        {
+            ResidentTexture.UpdateRect = { 0u, 0u, static_cast<unsigned short>(TargetWidthPx), static_cast<unsigned short>(TargetHeightPx) };
+            ResidentTexture.SetStatus(ImTextureStatus_WantUpdates);
+        }
+    }
+    RetainedSignature = RevisionSignature;
+    LastBakeTimeNs    = QueryMonotonicNowNs();
+    ++UploadCounter;
+    if (BakedOnGpu) ++GpuUploadCounter;
+    else            ++CpuUploadCounter;
 }
 
 void InspectorPreviewSurface::EnsureUpdated(
@@ -49,29 +132,67 @@ void InspectorPreviewSurface::EnsureUpdated(
         return;
     }
 
-    StagingPixels.resize(static_cast<std::size_t>(TargetWidthPx) * TargetHeightPx * 4u);
-    RasterCallback(StagingPixels);
-
-    if (SizeMismatch)
+    // Drag-cadence throttle (30 Hz max while interactively scrubbing sliders; final value bakes immediately on release).
+    if (!SizeMismatch && InspectorPrimitives::QueryInteractiveDragActive())
     {
-        ResidentTexture.DestroyPixels();
-        ResidentTexture.SetStatus(ImTextureStatus_Destroyed);
-        ResidentTexture.Create(ImTextureFormat_RGBA32, static_cast<int>(TargetWidthPx), static_cast<int>(TargetHeightPx));
-        WidthPx  = TargetWidthPx;
-        HeightPx = TargetHeightPx;
-    }
-
-    if (ResidentTexture.Pixels != nullptr)
-    {
-        std::memcpy(ResidentTexture.Pixels, StagingPixels.data(), StagingPixels.size());
-        if (!SizeMismatch && ResidentTexture.Status == ImTextureStatus_OK)
+        constexpr uint64_t DragMinIntervalNs = 33'000'000ull;
+        if ((QueryMonotonicNowNs() - LastBakeTimeNs) < DragMinIntervalNs)
         {
-            ResidentTexture.UpdateRect = { 0u, 0u, static_cast<unsigned short>(TargetWidthPx), static_cast<unsigned short>(TargetHeightPx) };
-            ResidentTexture.SetStatus(ImTextureStatus_WantUpdates);
+            return;
         }
     }
-    RetainedSignature = RevisionSignature;
-    ++UploadCounter;
+
+    StagingPixels.resize(static_cast<std::size_t>(TargetWidthPx) * TargetHeightPx * 4u);
+    RasterCallback(StagingPixels);
+    UploadStagingPixels(RevisionSignature, TargetWidthPx, TargetHeightPx, SizeMismatch, false);
+}
+
+void InspectorPreviewSurface::EnsureUpdatedGpu(
+    uint64_t                                          RevisionSignature,
+    uint32_t                                          TargetWidthPx,
+    uint32_t                                          TargetHeightPx,
+    const InspectorGpuBakeSpec&                       GpuSpec,
+    const std::function<void(std::vector<uint8_t>&)>& CpuFallbackCallback)
+{
+    if (TargetWidthPx == 0u || TargetHeightPx == 0u)
+    {
+        return;
+    }
+
+    const bool SizeMismatch = (WidthPx != TargetWidthPx) || (HeightPx != TargetHeightPx) || (ResidentTexture.Pixels == nullptr);
+    if (!SizeMismatch && RetainedSignature == RevisionSignature)
+    {
+        return;
+    }
+
+    if (!SizeMismatch && InspectorPrimitives::QueryInteractiveDragActive())
+    {
+        constexpr uint64_t DragMinIntervalNs = 33'000'000ull;
+        if ((QueryMonotonicNowNs() - LastBakeTimeNs) < DragMinIntervalNs)
+        {
+            return;
+        }
+    }
+
+    StagingPixels.resize(static_cast<std::size_t>(TargetWidthPx) * TargetHeightPx * 4u);
+
+    // Pure-GPU Vulkan compute path first — zero CPU pixel loops when GPU is active!
+    GpuBakeHookFn GpuHook {};
+    {
+        std::lock_guard<std::mutex> Lock(GlobalGpuBakeHookMutex);
+        GpuHook = GlobalGpuBakeHook;
+    }
+    if (GpuHook && GpuHook(GpuSpec, TargetWidthPx, TargetHeightPx, StagingPixels))
+    {
+        UploadStagingPixels(RevisionSignature, TargetWidthPx, TargetHeightPx, SizeMismatch, true);
+        return;
+    }
+
+    if (CpuFallbackCallback)
+    {
+        CpuFallbackCallback(StagingPixels);
+        UploadStagingPixels(RevisionSignature, TargetWidthPx, TargetHeightPx, SizeMismatch, false);
+    }
 }
 
 void InspectorPreviewSurface::Present(
@@ -80,6 +201,10 @@ void InspectorPreviewSurface::Present(
     float       CornerRadius,
     ColorRgba   Tint) noexcept
 {
+    if (!InspectorPrimitives::QueryVisibleInScrollClip(Bounds))
+    {
+        return;
+    }
     if (!QueryResident())
     {
         Surface.FillRectangle(Bounds, InspectorMetrics::ChamberDark, CornerRadius);
@@ -312,6 +437,7 @@ float ConstructPageStrip(
 
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const float   StripH = InspectorMetrics::PageStripHeight; // 34px
+    RegisterInteractiveRect({ LeftX, TopY, InnerWidth, StripH });
     const float   StepW  = 26.0f;
     const float   StepH  = 28.0f;
     const float   StepY  = TopY + (StripH - StepH) * 0.5f;
@@ -641,6 +767,7 @@ float ConstructQuickSwitchSection(
     const float    Gap    = 10.0f;
     const float    TileH  = InspectorMetrics::QuickTileHeight;
     const float    BoxH   = PadTop + 32.0f + static_cast<float>(Rows) * TileH + static_cast<float>(Rows > 0u ? Rows - 1u : 0u) * Gap + PadBot;
+    RegisterInteractiveRect({ LeftX + PadX, TopY + PadTop + 32.0f, InnerWidth - PadX * 2.0f, BoxH - PadTop - 32.0f - PadBot });
 
     const Rectangle2D Bounds { LeftX, TopY, InnerWidth, BoxH };
     ConstructSectionSurface(Surface, Bounds, "Quick controls");
@@ -743,6 +870,14 @@ float ConstructScalarFieldRow(
     const float RowY    = TopY + 20.0f;
     const float CapW    = 92.0f;
     const float CapH    = 26.0f;
+    if (!Disabled)
+    {
+        RegisterInteractiveRect({ LeftX, RowY, InnerWidth, CapH });
+    }
+    if (InOutActiveDragId == ControlId && Input.PrimaryPointer.Down)
+    {
+        NoteInteractiveDragActive(true);
+    }
     const float CapR    = CapH * 0.5f;
     const bool  HasUnit = (UnitText != nullptr && UnitText[0] != '\0');
     const float UnitW   = 36.0f;
@@ -844,6 +979,10 @@ float ConstructToggleFieldRow(
         InspectorMetrics::ToggleWidth,
         InspectorMetrics::ToggleHeight,
     };
+    if (!Disabled)
+    {
+        RegisterInteractiveRect(Track);
+    }
     const Point2D Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    Hovered = !Disabled && Track.Contains(Cursor);
 
@@ -2356,6 +2495,9 @@ float ConstructBakeImageCard(
     // Right column: Bake button + Load image button + caption
     const float RightX = BodyX + HalfW + Gap;
     const Rectangle2D BakeBtn { RightX, S.Y + 64.0f, HalfW, 33.0f };
+    RegisterInteractiveRect(Tile);
+    RegisterInteractiveRect(BakeBtn);
+    RegisterInteractiveRect({ RightX, S.Y + 105.0f, HalfW, 33.0f });
     Surface.FillRectangle(BakeBtn, ColorRgba{ 36u, 36u, 36u, 255u }, 9.0f);
     Surface.StrokeRectangle(BakeBtn, ColorRgba{ 255u, 255u, 255u, 22u }, 9.0f, 1.0f);
     const float BakeW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.2f, "Bake");
@@ -2378,6 +2520,72 @@ float ConstructBakeImageCard(
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, S.Y + 206.0f }, 9.8f, InspectorMetrics::MutedInk, Foot);
 
     return S.Bottom() + InspectorMetrics::SectionGap;
+}
+
+void BeginInspectorCaptureScope(
+    RetainedCanvasCache* ActiveCache,
+    Rectangle2D          ScrollClipLogical,
+    Point2D              SurfaceOriginPhysical,
+    float                ScaleFactor) noexcept
+{
+    auto& Scope             = AccessCaptureScope();
+    Scope.ActiveCache       = ActiveCache;
+    Scope.ScrollClipLogical = ScrollClipLogical;
+    Scope.SurfaceOriginPhys = SurfaceOriginPhysical;
+    Scope.ScaleFactor       = std::max(0.25f, ScaleFactor);
+    Scope.ScrollClipActive  = (ScrollClipLogical.Width > 1.0f && ScrollClipLogical.Height > 1.0f);
+    Scope.InteractiveDragNow = false;
+}
+
+void EndInspectorCaptureScope() noexcept
+{
+    auto& Scope            = AccessCaptureScope();
+    Scope.ActiveCache      = nullptr;
+    Scope.ScrollClipActive = false;
+}
+
+void RegisterInteractiveRect(Rectangle2D LogicalBounds) noexcept
+{
+    auto& Scope = AccessCaptureScope();
+    if (Scope.ActiveCache == nullptr || LogicalBounds.Width <= 0.5f || LogicalBounds.Height <= 0.5f)
+    {
+        return;
+    }
+    if (Scope.ScrollClipActive && !QueryVisibleInScrollClip(LogicalBounds))
+    {
+        return;
+    }
+    const Rectangle2D Physical {
+        Scope.SurfaceOriginPhys.X + LogicalBounds.X * Scope.ScaleFactor,
+        Scope.SurfaceOriginPhys.Y + LogicalBounds.Y * Scope.ScaleFactor,
+        LogicalBounds.Width * Scope.ScaleFactor,
+        LogicalBounds.Height * Scope.ScaleFactor,
+    };
+    Scope.ActiveCache->RegisterInteractiveZone(Physical);
+}
+
+bool QueryVisibleInScrollClip(Rectangle2D LogicalBounds) noexcept
+{
+    const auto& Scope = AccessCaptureScope();
+    if (!Scope.ScrollClipActive)
+    {
+        return true;
+    }
+    return LogicalBounds.Bottom() >= (Scope.ScrollClipLogical.Y - 8.0f) &&
+           LogicalBounds.Y <= (Scope.ScrollClipLogical.Bottom() + 8.0f);
+}
+
+void NoteInteractiveDragActive(bool Active) noexcept
+{
+    if (Active)
+    {
+        AccessCaptureScope().InteractiveDragNow = true;
+    }
+}
+
+bool QueryInteractiveDragActive() noexcept
+{
+    return AccessCaptureScope().InteractiveDragNow;
 }
 
 void ConstructInspectorFooter(

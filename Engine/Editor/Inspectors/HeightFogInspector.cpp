@@ -172,7 +172,11 @@ void HeightFogInspector::UpdateLayerSurface(const HeightFogInstanceData& Instanc
 
     // Exact FogCards.jsx clip rect aspect: 254 x 154 -> render 2x crisp 508 x 308
     const uint32_t W = 508u, H = 308u;
-    LayerPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::FogLayer, Enabled ? 1u : 0u, { Fog.Density, Fog.FalloffHeightMeters * 0.0025f, 0.0f, 0.0f } };
+    GpuSpec.ColourA[0] = static_cast<float>(Tint.Red) / 255.0f;
+    GpuSpec.ColourA[1] = static_cast<float>(Tint.Green) / 255.0f;
+    GpuSpec.ColourA[2] = static_cast<float>(Tint.Blue) / 255.0f;
+    LayerPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         // Precompute valley silhouette height per column
         std::vector<float> HillY(W);
@@ -344,8 +348,10 @@ void HeightFogInspector::UpdateLightStudySurfaces(const HeightFogInstanceData& I
         }
     };
 
-    TowardsSunPreview.EnsureUpdated(Key ^ 0x1111ull, W, H, [&](std::vector<uint8_t>& Px) { RasterPanel(true, Px); });
-    AwayFromSunPreview.EnsureUpdated(Key ^ 0x2222ull, W, H, [&](std::vector<uint8_t>& Px) { RasterPanel(false, Px); });
+    InspectorGpuBakeSpec SunSpec { InspectorGpuBakeMode::FogLayer, 2u, { Fog.Density, Fog.FalloffHeightMeters * 0.0025f, Fog.SunScatterIntensity, 0.0f } };
+    TowardsSunPreview.EnsureUpdatedGpu(Key ^ 0x1111ull, W, H, SunSpec, [&](std::vector<uint8_t>& Px) { RasterPanel(true, Px); });
+    SunSpec.Flags = 3u;
+    AwayFromSunPreview.EnsureUpdatedGpu(Key ^ 0x2222ull, W, H, SunSpec, [&](std::vector<uint8_t>& Px) { RasterPanel(false, Px); });
 }
 
 float HeightFogInspector::Construct(

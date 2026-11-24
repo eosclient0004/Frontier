@@ -479,6 +479,8 @@ frontier_compile_modular_slang_shader(Atmosphere/StellarTileCullCompute.slang   
 frontier_compile_modular_slang_shader(Atmosphere/StellarTileCullCompute.slang                 ProjectCullStellarTilesEntry    compute  StellarTileCullCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareBakeCompute.slang                     ComputeEntry                    compute  LensFlareBakeCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareCompute.slang                         ComputeEntry                    compute  LensFlareCompute.comp.spv)
+frontier_compile_modular_slang_shader(Baking/BakeAspectSdfCompute.slang                         ComputeEntry                    compute  BakeAspectSdfCompute.comp.spv)
+frontier_compile_modular_slang_shader(GeometricRaster/InspectorPreviewCompute.slang             ComputeEntry                    compute  InspectorPreviewCompute.comp.spv)
 
 function(frontier_compile_sketcher_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
     set(IN_SLANG "${CMAKE_SOURCE_DIR}/Engine/Shaders/Sketcher/${SLANG_FILE}")
@@ -1033,6 +1035,7 @@ if(FRONTIER_PROFILE STREQUAL "Editor")
         Engine/Editor/Inspectors/ProceduralGeometryInspector.cpp
         Engine/Editor/Inspectors/ProjectInspectorFoundation.cpp
         Engine/Editor/Inspectors/FolderInspector.cpp
+        Engine/Editor/Inspectors/InspectorGpuBaker.cpp
         Engine/Editor/Inspectors/InspectorRegistry.cpp
         Engine/Lifecycle/EditorLifecycle.cpp
     )

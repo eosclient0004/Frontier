@@ -2472,7 +2472,8 @@ void EditorLifecycle::RefreshOutlinerFooterTelemetry() noexcept
     const bool  GpuReady   = (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady());
     const bool  HwGpu      = GpuReady && GpuWorldRenderer->QueryHardwareGpuActive();
 
-    OutlinerFooterReadings Footer = Panes->Outliner.QueryFooterReadings();
+    const OutlinerFooterReadings PriorFooter = Panes->Outliner.QueryFooterReadings();
+    OutlinerFooterReadings       Footer      = PriorFooter;
     const char* EngineShortTag = "OpenPBR";
     switch (DisplayCfg.RenderEngineIndex)
     {
@@ -2523,7 +2524,14 @@ void EditorLifecycle::RefreshOutlinerFooterTelemetry() noexcept
             ShowcaseBundle->EditorCamera.CameraOrigin.Z);
         Footer.CameraText = CamBuffer;
     }
-    Panes->Outliner.ConfigureFooterReadings(Footer);
+    if (Footer.RealtimeText  != PriorFooter.RealtimeText  ||
+        Footer.QualityText   != PriorFooter.QualityText   ||
+        Footer.PrimarySlot   != PriorFooter.PrimarySlot   ||
+        Footer.SecondarySlot != PriorFooter.SecondarySlot ||
+        Footer.CameraText    != PriorFooter.CameraText)
+    {
+        Panes->Outliner.ConfigureFooterReadings(Footer);
+    }
 }
 
 bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)

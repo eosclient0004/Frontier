@@ -114,9 +114,77 @@ bool RetainedCanvasCache::QueryReusableStationary(
     return false;
 }
 
+void RetainedCanvasCache::ClearInteractiveZones() noexcept
+{
+    InteractiveZones.clear();
+}
+
+void RetainedCanvasCache::RegisterInteractiveZone(Rectangle2D PhysicalRect)
+{
+    if (PhysicalRect.Width > 0.5f && PhysicalRect.Height > 0.5f)
+    {
+        InteractiveZones.push_back(PhysicalRect);
+    }
+}
+
+int32_t RetainedCanvasCache::QueryHoveredZone(Point2D PhysicalPoint) const noexcept
+{
+    for (std::size_t Idx = 0u; Idx < InteractiveZones.size(); ++Idx)
+    {
+        if (InteractiveZones[Idx].Contains(PhysicalPoint))
+        {
+            return static_cast<int32_t>(Idx);
+        }
+    }
+    return -1;
+}
+
+bool RetainedCanvasCache::QueryReusableHoverAware(
+    uint64_t    CandidateSignature,
+    Rectangle2D PhysicalBounds,
+    Point2D     CurrentMousePhysical,
+    bool        ForceRebuild) const noexcept
+{
+    if (ForceRebuild || !CacheValid || CandidateSignature != CachedSignature)
+    {
+        return false;
+    }
+    if (PhysicalBounds.Width <= 2.0f || PhysicalBounds.Height <= 2.0f)
+    {
+        return false;
+    }
+    const bool InsideNow  = PointInsideExpanded(PhysicalBounds, CurrentMousePhysical, 4.0f);
+    const bool InsidePrev = PointInsideExpanded(CachedPhysicalBounds, LastMousePhysical, 4.0f);
+    if (!InsideNow && !InsidePrev)
+    {
+        return true;
+    }
+    if (InsideNow && InsidePrev)
+    {
+        if (std::fabs(CurrentMousePhysical.X - LastMousePhysical.X) < 0.5f &&
+            std::fabs(CurrentMousePhysical.Y - LastMousePhysical.Y) < 0.5f)
+        {
+            return true;
+        }
+        // Cursor moved inside the pane: if interactive hover zones were recorded and the hovered zone did NOT change
+        // (e.g., moving over empty card body, labels, or staying within the same control), skip full UI card rebuild!
+        if (!InteractiveZones.empty())
+        {
+            return QueryHoveredZone(CurrentMousePhysical) == LastHoveredZone;
+        }
+    }
+    else if (!InsideNow && InsidePrev && !InteractiveZones.empty() && LastHoveredZone == -1)
+    {
+        // Cursor exited empty space without having highlighted any interactive control -> zero visual change!
+        return true;
+    }
+    return false;
+}
+
 void RetainedCanvasCache::BeginCapture(ImDrawList* TargetCanvas) noexcept
 {
     CaptureActive = false;
+    InteractiveZones.clear();
     if (TargetCanvas == nullptr)
     {
         return;
@@ -251,6 +319,8 @@ void RetainedCanvasCache::EndCapture(
 
     CachedSignature      = CompletedSignature;
     CachedPhysicalBounds = PhysicalBounds;
+    LastMousePhysical    = CurrentMousePhysical;
+    LastHoveredZone      = QueryHoveredZone(CurrentMousePhysical);
     CacheValid           = true;
     ++CaptureCount;
 }
@@ -263,6 +333,7 @@ bool RetainedCanvasCache::ReplayInto(ImDrawList* TargetCanvas, Point2D CurrentMo
     }
 
     LastMousePhysical = CurrentMousePhysical;
+    LastHoveredZone   = QueryHoveredZone(CurrentMousePhysical);
     if (CachedVertices.empty() || CachedIndices.empty() || CachedCommands.empty())
     {
         ++ReplayCount;

@@ -119,7 +119,8 @@ void UpdateSwathPreview(
     Key = InspectorPrimitives::MixRevisionFloat(Key, Extinction);
 
     const uint32_t W = 272u, H = 172u;
-    Preview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::CloudSwath, IsLocal ? 1u : 0u, { Coverage01, Extinction, 0.0f, 0.0f } };
+    Preview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cov       = std::clamp(Coverage01, 0.0f, 1.0f);
         const float Threshold = 1.0f - Cov;
@@ -171,7 +172,8 @@ void UpdateDeckSectionPreview(
     Key = InspectorPrimitives::MixRevisionFloat(Key, Coverage01);
 
     const uint32_t W = 222u, H = 178u;
-    Preview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::CloudSwath, 2u, { Coverage01, 1.0f, BaseMeters * 0.001f, ThicknessMeters * 0.001f } };
+    Preview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float MaxAlt = std::max(500.0f, CeilingMeters);
         const float TopPad = 32.0f, BotPad = 18.0f;

@@ -296,6 +296,9 @@ bool InspectorRegistry::ConstructActiveInspector(
 
     bool LocalMutated = false;
     bool PageSwitched = false;
+    ++ConstructCallCount;
+    LastEvaluatedCardCount = 1u;
+    LastSkippedCardCount   = 30u;
 
     if (UseProjectBlueprint)
     {

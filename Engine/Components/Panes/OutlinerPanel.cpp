@@ -2340,7 +2340,13 @@ void OutlinerPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
         Sig = MixString(Sig, Rec.Subtitle);
         Sig = MixString(Sig, Rec.DomainTag);
     }
-    Sig = MixString(Sig, FooterReadings.RealtimeText);
+    const double NowSec = ImGui::GetTime();
+    if (LastRealtimeCanvasLatchSec < 0.0 || (NowSec - LastRealtimeCanvasLatchSec) >= 0.50)
+    {
+        LatchedRealtimeCanvasText  = FooterReadings.RealtimeText;
+        LastRealtimeCanvasLatchSec = NowSec;
+    }
+    Sig = MixString(Sig, LatchedRealtimeCanvasText);
     Sig = MixString(Sig, FooterReadings.QualityText);
     Sig = MixString(Sig, FooterReadings.PrimarySlot);
     Sig = MixString(Sig, FooterReadings.SecondarySlot);
@@ -2348,26 +2354,27 @@ void OutlinerPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
 
     const ImVec2 RawMouse = ImGui::GetIO().MousePos;
     const Point2D PhysicalMouse{ RawMouse.x, RawMouse.y };
+    const bool PointerActiveInPane =
+        PhysicalMouse.X >= ScreenBounds.X && PhysicalMouse.X <= ScreenBounds.Right() &&
+        PhysicalMouse.Y >= ScreenBounds.Y && PhysicalMouse.Y <= ScreenBounds.Bottom();
     const bool ForceRebuild =
-        ImGui::IsMouseDown(0) ||
+        (ImGui::IsMouseDown(0) && (PointerActiveInPane || DragActive || PressedRowToken.Valid())) ||
         ConstructDropdownOpen ||
         SettingsDropdownOpen ||
         DirectiveSheetOpen ||
         DragActive ||
         PressedRowToken.Valid() ||
         SearchEditor.Active ||
-        Input.PrimaryPointer.Down ||
-        Input.PrimaryPointer.Pressed ||
-        Input.PrimaryPointer.Released ||
-        Input.SecondaryPressed ||
-        std::fabs(Input.WheelDeltaY) > 1.0e-4f ||
+        (PointerActiveInPane && (Input.PrimaryPointer.Down || Input.PrimaryPointer.Pressed ||
+                                 Input.PrimaryPointer.Released || Input.SecondaryPressed ||
+                                 std::fabs(Input.WheelDeltaY) > 1.0e-4f)) ||
         Input.DeletePressed ||
         Input.ShortcutDuplicate ||
         Input.ShortcutUndo ||
         Input.ShortcutGroup ||
         Input.ShortcutAll;
 
-    if (RetainedCanvas.QueryReusable(Sig, ScreenBounds, PhysicalMouse, ForceRebuild) &&
+    if (RetainedCanvas.QueryReusableStationary(Sig, ScreenBounds, PhysicalMouse, ForceRebuild) &&
         RetainedCanvas.ReplayInto(PaneCanvasList, PhysicalMouse))
     {
         LastPhysicalBounds = ScreenBounds;

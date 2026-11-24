@@ -96,7 +96,8 @@ void SolarInspector::UpdateSolarSkySurface(const GeometricRaster::SolarCelestial
 
     // Exact sun__0 daylight sky card canvas (222 x 184 -> 2x crisp 444 x 368)
     const uint32_t W = 444u, H = 368u;
-    SunNowPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::SolarBake, 0u, { Solar.ColorTemperatureKelvin, Solar.AngularDiameterDegrees, Solar.LocalHours, 0.0f } };
+    SunNowPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Elev = SolarElevationCurve(Solar.LocalHours);
         const float SunX = static_cast<float>(W) * 0.50f;
@@ -132,7 +133,8 @@ void SolarInspector::UpdateSolarBakeSurface(const GeometricRaster::SolarCelestia
     uint64_t Key = 0x501A5505ull;
     Key = InspectorPrimitives::MixRevisionFloat(Key, Solar.LocalHours);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Solar.ColorTemperatureKelvin);
-    SolarBakeLut.EnsureUpdated(Key, 256u, 64u, [](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::SolarBake, 1u, { Solar.ColorTemperatureKelvin, Solar.AngularDiameterDegrees, Solar.LocalHours, 0.0f } };
+    SolarBakeLut.EnsureUpdatedGpu(Key, 256u, 64u, GpuSpec, [](std::vector<uint8_t>& Pixels)
     {
         for (std::size_t I = 0u; I < Pixels.size(); I += 4u)
         {

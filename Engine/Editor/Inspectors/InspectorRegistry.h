@@ -72,6 +72,9 @@ public:
     void SetScrollOffset(float ScrollPixels) noexcept { ScrollOffsetY = std::max(0.0f, ScrollPixels); ++ActivePanelRevision; }
     void ClearInstances() noexcept { Instances.Clear(); ProjectHost.ClearAll(); ++ActivePanelRevision; }
     [[nodiscard]] uint64_t QueryActiveSignature() const noexcept;
+    [[nodiscard]] uint64_t QueryConstructCallCount() const noexcept { return ConstructCallCount; }
+    [[nodiscard]] uint32_t QueryLastEvaluatedCardCount() const noexcept { return LastEvaluatedCardCount; }
+    [[nodiscard]] uint32_t QueryLastSkippedCardCount() const noexcept { return LastSkippedCardCount; }
 
     [[nodiscard]] ProjectInspectorHost&      QueryProjectHost() noexcept { return ProjectHost; }
     [[nodiscard]] InspectorInstanceRegister& QueryInstances() noexcept { return Instances; }
@@ -143,9 +146,12 @@ private:
     FolderInspector             Folder             {};
     ProjectInspectorHost        ProjectHost        {};
 
-    uint32_t LastEntryId        = 0u;
-    float    ScrollOffsetY      = 0.0f;
-    uint64_t ActivePanelRevision = 1ull;
+    uint32_t LastEntryId            = 0u;
+    float    ScrollOffsetY          = 0.0f;
+    uint64_t ActivePanelRevision    = 1ull;
+    uint64_t ConstructCallCount     = 0ull;
+    uint32_t LastEvaluatedCardCount = 0u;
+    uint32_t LastSkippedCardCount   = 30u;
 };
 
 } // namespace Frontier

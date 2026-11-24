@@ -74,7 +74,8 @@ void AtmosphereInspector::UpdateLimbSurface(const GeometricRaster::AtmosphericMe
 
     // Exact atmosphere__0 canvas (222 x 193 -> 2x crisp 444 x 386)
     const uint32_t W = 444u, H = 386u;
-    LimbPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::AtmosphereLimb, 0u, { Medium.RayleighStrength, Medium.MieStrength, Medium.OzoneStrength, SunAtLimbDeg } };
+    LimbPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx      = static_cast<float>(W) * 0.50f;
         const float PlanetR = static_cast<float>(W) * 1.48f;
@@ -147,7 +148,8 @@ void AtmosphereInspector::UpdateSpaceGlobeSurface(const GeometricRaster::Atmosph
     Key = InspectorPrimitives::MixRevisionFloat(Key, SpaceLimbThickness);
 
     const uint32_t W = 444u, H = 286u;
-    SpaceGlobePreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::AtmosphereGlobe, 0u, { Medium.RayleighStrength, SpaceAltitudeKm, SpaceSunAngleDeg, SpaceLimbThickness } };
+    SpaceGlobePreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float Cx = static_cast<float>(W) * 0.50f;
         const float Cy = static_cast<float>(H) * 0.50f;
@@ -204,7 +206,8 @@ void AtmosphereInspector::UpdateTransmittanceSurface(const GeometricRaster::Atmo
     Key = InspectorPrimitives::MixRevisionFloat(Key, Medium.OzoneStrength);
     Key = InspectorPrimitives::MixRevisionFloat(Key, Medium.RayleighScaleHeightMeters);
 
-    TransmittanceLut.EnsureUpdated(Key, 256u, 64u, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::TransmittanceLut, 0u, { Medium.RayleighStrength, Medium.MieStrength, Medium.OzoneStrength, Medium.RayleighScaleHeightMeters } };
+    TransmittanceLut.EnsureUpdatedGpu(Key, 256u, 64u, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < 64u; ++Y)
         {
@@ -239,7 +242,8 @@ void AtmosphereInspector::UpdateSkyViewSurface(
 
     // Exact equirectangular sky-view LUT (188 x 94 -> 2x crisp 376 x 188) matching atmosphere__5
     const uint32_t W = 376u, H = 188u;
-    SkyViewLut.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::SkyViewLut, 0u, { Medium.RayleighStrength, Medium.MieStrength, Medium.OzoneStrength, Solar.ManualElevationDegrees } };
+    SkyViewLut.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         const float SunU = 0.94f;
         const float SunV = 0.32f;

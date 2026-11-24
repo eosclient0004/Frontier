@@ -156,7 +156,8 @@ void LocalFogInspector::UpdateShapeGlowSurface(const LocalFogInstanceData& Insta
 
     // Exact FogShapePanel.jsx SVG radial glow: #151b1d base + centered radial #adcbd6 (0.16 -> 0.0)
     const uint32_t W = 444u, H = 348u;
-    ShapeGlowPreview.EnsureUpdated(Key, W, H, [&](std::vector<uint8_t>& Pixels)
+    InspectorGpuBakeSpec GpuSpec { InspectorGpuBakeMode::FogLayer, 5u, { 0.35f, 1.0f, 0.0f, 0.0f } };
+    ShapeGlowPreview.EnsureUpdatedGpu(Key, W, H, GpuSpec, [&](std::vector<uint8_t>& Pixels)
     {
         for (uint32_t Y = 0u; Y < H; ++Y)
         {
