@@ -2,7 +2,6 @@
                                                            AUTOSPACELAUNCH.CPP
 ============================================================================================================================================*/
 // 🧩 Standalone Game Mode executable for AutoSpace (native desktop window + Vulkan swapchain presentation, zero Editor chrome)
-//    Preserves --headless / --verify deterministic simulation mode for automated smoke verification.
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -196,12 +195,8 @@ int main(int ArgumentCount, char** ArgumentVector)
 
     std::filesystem::path ExplicitProjectRoot = AUTOSPACE_PROJECT_ROOT_DIR;
     std::filesystem::path ScreenshotPath      {};
-    bool                  HeadlessMode        = false;
-    bool                  ExplicitHeadless    = false;
-    bool                  ExplicitDesktop     = false;
     bool                  VerifyContracts     = false;
     bool                  DisableGpu          = false;
-    uint32_t              TickBudget          = 60u;
     uint32_t              RenderCycleLimit    = 0u;
     uint32_t              OverrideWidthPx     = 0u;
     uint32_t              OverrideHeightPx    = 0u;
@@ -215,39 +210,13 @@ int main(int ArgumentCount, char** ArgumentVector)
             continue;
         }
         const std::string_view Arg(RawArg);
-        if (Arg == "--headless")
-        {
-            ExplicitHeadless = true;
-            HeadlessMode     = true;
-        }
-        else if (Arg == "--desktop" || Arg == "--game")
-        {
-            ExplicitDesktop = true;
-            HeadlessMode    = false;
-        }
-        else if (Arg == "--verify")
+        if (Arg == "--verify")
         {
             VerifyContracts = true;
-            if (!ExplicitDesktop)
-            {
-                HeadlessMode = true;
-            }
         }
         else if (Arg == "--no-gpu")
         {
             DisableGpu = true;
-        }
-        else if (Arg.starts_with("--ticks="))
-        {
-            const long Parsed = std::strtol(RawArg + 8, nullptr, 10);
-            if (Parsed > 0L)
-            {
-                TickBudget = static_cast<uint32_t>(Parsed);
-                if (!ExplicitDesktop && !ExplicitHeadless)
-                {
-                    RenderCycleLimit = TickBudget;
-                }
-            }
         }
         else if (Arg.starts_with("--frames="))
         {
@@ -291,7 +260,7 @@ int main(int ArgumentCount, char** ArgumentVector)
 
     AutoSpace::AutoSpaceLifecycle Session {};
     std::string                   Diagnostic {};
-    if (!Session.Initialize(ProjectRoot, HeadlessMode, Diagnostic, InitialLobby))
+    if (!Session.Initialize(ProjectRoot, /*HeadlessWindow=*/false, Diagnostic, InitialLobby))
     {
         std::cerr << "[AutoSpace] Initialization failed: " << Diagnostic << "\n";
         return 1;
@@ -305,41 +274,7 @@ int main(int ArgumentCount, char** ArgumentVector)
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // Mode 1: Deterministic headless verification loop (--headless / --verify)
-    // -----------------------------------------------------------------------------------------------------------------
-    if (HeadlessMode)
-    {
-        const uint32_t ExecutedTicks = Session.RunBoundedTicks(TickBudget, 1.0 / 60.0);
-        const auto     Metrics       = Session.InspectMetrics();
-
-        std::cout << "[AutoSpace] Mode=Headless"
-                  << " ExecutedTicks=" << ExecutedTicks
-                  << " FixedSteps=" << Metrics.TotalFixedStepsExecuted
-                  << " Lobby=" << AutoSpace::LobbyPolicyEngine::QuerySlug(Metrics.LobbyTelemetry.ActiveLobby)
-                  << " Vehicles=" << Metrics.LobbyTelemetry.VehicleCount
-                  << " Surfaces=" << Metrics.LobbyTelemetry.SurfaceInstanceCount
-                  << " AreaLights=" << Metrics.LobbyTelemetry.AreaLightCount
-                  << " IesLights=" << Metrics.LobbyTelemetry.PhotometricLightCount
-                  << " Cameras=" << Metrics.LobbyTelemetry.CameraRigCount
-                  << " ParticleClouds=" << Metrics.LobbyTelemetry.ParticleCloudCount
-                  << " ActiveParticles=" << Metrics.LobbyTelemetry.SimulatedParticleCount
-                  << " Tris=" << Metrics.LobbyTelemetry.TotalMeshTriangles
-                  << " OutlinerRows=" << Metrics.LobbyTelemetry.OutlinerRowCount
-                  << " SimClockSec=" << Metrics.SimulatedElapsedSeconds
-                  << " BootFromDisk=" << (Metrics.BootLoadedFromDisk ? "true" : "false")
-                  << " MainWorld=" << (Metrics.MainWorldLoaded ? "true" : "false")
-                  << " Sky=" << (Metrics.SkyAtmosphereEnabled ? "on" : "off")
-                  << " Sun=" << (Metrics.SunEnabled ? "on" : "off")
-                  << " Workers=" << (Metrics.WorkerChannelsRunning ? "on" : "off")
-                  << " Stream=" << (Metrics.AssetStreamRunning ? "on" : "off")
-                  << "\n";
-
-        Session.Finalize();
-        return (ExecutedTicks == TickBudget && Metrics.TotalFixedStepsExecuted >= TickBudget) ? 0 : 3;
-    }
-
-    // -----------------------------------------------------------------------------------------------------------------
-    // Mode 2: Standalone Desktop Game Mode (native OS window + Vulkan GPU rendering + swapchain presentation)
+    // Standalone Desktop Game Mode (native OS window + Vulkan GPU rendering + swapchain presentation)
     // -----------------------------------------------------------------------------------------------------------------
     auto& RuntimeLoop = Session.AccessRuntimeLoop();
     RuntimeLoop.AccessInput().ConfigureEditorChannelEnabled(true);

@@ -1755,13 +1755,8 @@ if(BUILD_TESTING)
     add_test(NAME AutoSpaceStudioValidation COMMAND AutoSpaceStudioValidation)
 
     add_test(
-        NAME AutoSpaceExecutableSmoke
-        COMMAND AutoSpace --headless --verify --ticks=12
-    )
-
-    add_test(
         NAME AutoSpaceGameModeSmoke
-        COMMAND AutoSpace --frames=1 --width=320 --height=180
+        COMMAND AutoSpace --verify --frames=1 --width=320 --height=180
     )
 
     if(NOT ANDROID AND FRONTIER_PROFILE STREQUAL "Editor")
