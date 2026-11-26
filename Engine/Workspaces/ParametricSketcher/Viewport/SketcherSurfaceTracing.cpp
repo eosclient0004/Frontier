@@ -7,14 +7,301 @@ namespace Frontier::Workspaces::Sketcher
 {
 using namespace GeometrySpace::Parametric;
 
+namespace
+{
+// Closest point on 3D segment [A, B] to ray (Origin + t * Dir), clamped to u in [0, 1].
+Vector3 ClosestPointOnSegmentToRay(const Vector3& A, const Vector3& B, const Vector3& Origin, const Vector3& Dir)
+{
+    const Vector3 Seg = B - A;
+    const double  SegLenSq = Dot(Seg, Seg);
+    if (!(SegLenSq > 1.0e-24)) return A;
+    const Vector3 W = A - Origin;
+    const double  Bdot = Dot(Seg, Dir);
+    const double  Ddot = Dot(Seg, W);
+    const double  Edot = Dot(Dir, W);
+    const double  Denom = SegLenSq - Bdot * Bdot;
+    double U = 0.0;
+    if (Denom > 1.0e-18 * SegLenSq)
+    {
+        U = (Bdot * Edot - Ddot) / Denom;
+    }
+    else
+    {
+        U = -Ddot / SegLenSq;
+    }
+    U = std::clamp(U, 0.0, 1.0);
+    return A + Seg * U;
+}
+
+double ScreenPointToSegment(double PX, double PY, double AX, double AY, double BX, double BY)
+{
+    const double DX = BX - AX;
+    const double DY = BY - AY;
+    const double LenSq = DX * DX + DY * DY;
+    const double T = LenSq > 1.0e-12 ? std::clamp(((PX - AX) * DX + (PY - AY) * DY) / LenSq, 0.0, 1.0) : 0.0;
+    return std::hypot(PX - (AX + T * DX), PY - (AY + T * DY));
+}
+
+SketcherSnap SnapReferenceMeshFeatures(
+    const SketcherDocument& Document,
+    const OrbitCameraBasis& Frame,
+    double X,
+    double Y,
+    bool VertexSnap,
+    bool EdgeSnap,
+    double VertexReachPx,
+    double EdgeReachPx)
+{
+    if ((!VertexSnap && !EdgeSnap) || Document.ReferenceSurfaces.empty()) return {};
+
+    const OrbitRay Ray = CastOrbitRay(Frame, X, Y);
+    const Vector3  Origin{ Ray.Origin[0], Ray.Origin[1], Ray.Origin[2] };
+    const Vector3  Dir = Normalize(Vector3{ Ray.Direction[0], Ray.Direction[1], Ray.Direction[2] });
+    const auto     RefHit = IntersectReferenceSurfaces(Document.ReferenceSurfaces, Origin, Dir);
+
+    auto PartCaption = [&](uint32_t SurfIdx, uint32_t PartIdx) -> std::string
+    {
+        if (SurfIdx >= Document.ReferenceSurfaces.size()) return "Mesh";
+        const auto& Surf = Document.ReferenceSurfaces[SurfIdx];
+        if (PartIdx < Surf.Parts.size() && !Surf.Parts[PartIdx].Name.empty())
+            return Surf.Name + " · " + Surf.Parts[PartIdx].Name;
+        return Surf.Name.empty() ? std::string("Mesh") : Surf.Name;
+    };
+
+    bool        HaveVertex = false;
+    double      BestVertexPx = VertexReachPx + 1.0e-6;
+    double      BestVertexDepth = 1.0e300;
+    Vector3     BestVertexPos {};
+    Vector3     BestVertexNormal { 0.0, 0.0, 1.0 };
+    std::string BestVertexSource;
+
+    bool        HaveEdge = false;
+    double      BestEdgeScore = 1.0e300;
+    double      BestEdgePx = EdgeReachPx + 1.0e-6;
+    Vector3     BestEdgePos {};
+    Vector3     BestEdgeTangent {};
+    Vector3     BestEdgeNormal { 0.0, 0.0, 1.0 };
+    bool        BestEdgeCrease = false;
+    std::string BestEdgeSource;
+
+    auto ConsiderVertex = [&](const Vector3& Pos, const Vector3& Normal, const std::string& Label, double MaxDepth)
+    {
+        if (!VertexSnap) return;
+        const double Depth = Dot(Pos - Origin, Dir);
+        if (Depth <= 1.0e-6 || Depth > MaxDepth) return;
+        double PX = 0.0, PY = 0.0;
+        if (!ProjectSketcherPoint(Frame, Pos, PX, PY)) return;
+        const double Gap = std::hypot(PX - X, PY - Y);
+        if (Gap > VertexReachPx) return;
+        if (!HaveVertex || Gap < BestVertexPx - 0.5 || (std::fabs(Gap - BestVertexPx) <= 0.5 && Depth < BestVertexDepth))
+        {
+            HaveVertex       = true;
+            BestVertexPx     = Gap;
+            BestVertexDepth  = Depth;
+            BestVertexPos    = Pos;
+            BestVertexNormal = Length(Normal) > 1.0e-9 ? Normalize(Normal) : Vector3{ 0.0, 0.0, 1.0 };
+            BestVertexSource = "Mesh vertex · " + Label;
+        }
+    };
+
+    auto ConsiderEdge = [&](const Vector3& A, const Vector3& B, const Vector3& Normal, bool IsCrease, const std::string& Label, double MaxDepth)
+    {
+        if (!EdgeSnap) return;
+        const Vector3 Seg = B - A;
+        const double SegLen = Length(Seg);
+        if (!(SegLen > 1.0e-12)) return;
+        double AX = 0.0, AY = 0.0, BX = 0.0, BY = 0.0;
+        if (!ProjectSketcherPoint(Frame, A, AX, AY) || !ProjectSketcherPoint(Frame, B, BX, BY)) return;
+        if (ScreenPointToSegment(X, Y, AX, AY, BX, BY) > EdgeReachPx * 1.35) return;
+
+        const Vector3 Pt = ClosestPointOnSegmentToRay(A, B, Origin, Dir);
+        const double Depth = Dot(Pt - Origin, Dir);
+        if (Depth <= 1.0e-6 || Depth > MaxDepth) return;
+        double EX = 0.0, EY = 0.0;
+        if (!ProjectSketcherPoint(Frame, Pt, EX, EY)) return;
+        const double Gap = std::hypot(EX - X, EY - Y);
+        if (Gap > EdgeReachPx) return;
+
+        // Slight preference for crease/feature edges over interior triangulation diagonals.
+        const double Score = IsCrease ? Gap : (Gap + 2.25);
+        if (!HaveEdge || Score < BestEdgeScore)
+        {
+            HaveEdge        = true;
+            BestEdgeScore   = Score;
+            BestEdgePx      = Gap;
+            BestEdgePos     = Pt;
+            BestEdgeTangent = Seg * (1.0 / SegLen);
+            BestEdgeNormal  = Length(Normal) > 1.0e-9 ? Normalize(Normal) : Vector3{ 0.0, 0.0, 1.0 };
+            BestEdgeCrease  = IsCrease;
+            BestEdgeSource  = std::string(IsCrease ? "Mesh crease · " : "Mesh edge · ") + Label;
+        }
+    };
+
+    if (RefHit)
+    {
+        // Compute exact world-space radius corresponding to screen reach at the surface hit depth.
+        const double ReachPx = std::max(VertexReachPx, EdgeReachPx);
+        double WorldRadius = std::max(1.0e-4, ReachPx * Frame.WorldPerPixel * 1.5);
+        const OrbitRay RayX = CastOrbitRay(Frame, X + ReachPx, Y);
+        const OrbitRay RayY = CastOrbitRay(Frame, X, Y + ReachPx);
+        const auto ProjectOffset = [&](const OrbitRay& R) -> double
+        {
+            const Vector3 RO{ R.Origin[0], R.Origin[1], R.Origin[2] };
+            const Vector3 RD = Normalize(Vector3{ R.Direction[0], R.Direction[1], R.Direction[2] });
+            const double Den = Dot(RD, Dir);
+            if (std::fabs(Den) < 1.0e-9) return 0.0;
+            const double T = Dot(RefHit->Position - RO, Dir) / Den;
+            if (T <= 0.0) return 0.0;
+            return Distance(RO + RD * T, RefHit->Position);
+        };
+        WorldRadius = std::max({ WorldRadius, ProjectOffset(RayX) * 1.6, ProjectOffset(RayY) * 1.6 });
+
+        const double MaxDepth = RefHit->Distance + WorldRadius * 1.75;
+        std::vector<uint32_t> Triangles;
+        Triangles.reserve(384u);
+
+        for (uint32_t SurfIdx = 0u; SurfIdx < Document.ReferenceSurfaces.size(); ++SurfIdx)
+        {
+            const auto& Surf = Document.ReferenceSurfaces[SurfIdx];
+            if (!Surf.VisibleCondition || !Surf.Geometry) continue;
+            // Quick surface AABB check against query sphere.
+            const double Dx = RefHit->Position.X < Surf.MinBound[0] ? (Surf.MinBound[0] - RefHit->Position.X) : (RefHit->Position.X > Surf.MaxBound[0] ? (RefHit->Position.X - Surf.MaxBound[0]) : 0.0);
+            const double Dy = RefHit->Position.Y < Surf.MinBound[1] ? (Surf.MinBound[1] - RefHit->Position.Y) : (RefHit->Position.Y > Surf.MaxBound[1] ? (RefHit->Position.Y - Surf.MaxBound[1]) : 0.0);
+            const double Dz = RefHit->Position.Z < Surf.MinBound[2] ? (Surf.MinBound[2] - RefHit->Position.Z) : (RefHit->Position.Z > Surf.MaxBound[2] ? (RefHit->Position.Z - Surf.MaxBound[2]) : 0.0);
+            if (Dx * Dx + Dy * Dy + Dz * Dz > WorldRadius * WorldRadius) continue;
+
+            // Gather triangles in O(log N) via BVH.
+            Triangles.clear();
+            GatherReferenceTrianglesInRadius(Surf, RefHit->Position, WorldRadius, Triangles, 384u);
+            const auto& Corners = Surf.Geometry->Corners;
+            for (uint32_t Tri : Triangles)
+            {
+                const auto& C0 = Corners[size_t(Tri) * 3u + 0u];
+                const auto& C1 = Corners[size_t(Tri) * 3u + 1u];
+                const auto& C2 = Corners[size_t(Tri) * 3u + 2u];
+                const Vector3 V0{ C0.Position[0], C0.Position[1], C0.Position[2] };
+                const Vector3 V1{ C1.Position[0], C1.Position[1], C1.Position[2] };
+                const Vector3 V2{ C2.Position[0], C2.Position[1], C2.Position[2] };
+                const Vector3 N0{ C0.Normal[0], C0.Normal[1], C0.Normal[2] };
+                const Vector3 N1{ C1.Normal[0], C1.Normal[1], C1.Normal[2] };
+                const Vector3 N2{ C2.Normal[0], C2.Normal[1], C2.Normal[2] };
+                const Vector3 FaceN = Cross(V1 - V0, V2 - V0);
+                const std::string Label = PartCaption(SurfIdx, C0.PartIndex);
+
+                if (VertexSnap)
+                {
+                    ConsiderVertex(V0, N0, Label, MaxDepth);
+                    ConsiderVertex(V1, N1, Label, MaxDepth);
+                    ConsiderVertex(V2, N2, Label, MaxDepth);
+                }
+                if (EdgeSnap)
+                {
+                    ConsiderEdge(V0, V1, FaceN, (C0.CreaseBits != 0u && C1.CreaseBits != 0u), Label, MaxDepth);
+                    ConsiderEdge(V1, V2, FaceN, (C1.CreaseBits != 0u && C2.CreaseBits != 0u), Label, MaxDepth);
+                    ConsiderEdge(V2, V0, FaceN, (C2.CreaseBits != 0u && C0.CreaseBits != 0u), Label, MaxDepth);
+                }
+            }
+
+            // Also inspect nearby explicit crease/feature segments (exact boundary & sharp feature edges).
+            const double LoX = RefHit->Position.X - WorldRadius, HiX = RefHit->Position.X + WorldRadius;
+            const double LoY = RefHit->Position.Y - WorldRadius, HiY = RefHit->Position.Y + WorldRadius;
+            const double LoZ = RefHit->Position.Z - WorldRadius, HiZ = RefHit->Position.Z + WorldRadius;
+            for (const auto& Seg : Surf.Geometry->CreaseSegments)
+            {
+                if (std::max(Seg.Start[0], Seg.End[0]) < LoX || std::min(Seg.Start[0], Seg.End[0]) > HiX ||
+                    std::max(Seg.Start[1], Seg.End[1]) < LoY || std::min(Seg.Start[1], Seg.End[1]) > HiY ||
+                    std::max(Seg.Start[2], Seg.End[2]) < LoZ || std::min(Seg.Start[2], Seg.End[2]) > HiZ) continue;
+                if (Seg.PartIndex < Surf.Parts.size() && !Surf.Parts[Seg.PartIndex].VisibleCondition) continue;
+                const Vector3 A{ Seg.Start[0], Seg.Start[1], Seg.Start[2] };
+                const Vector3 B{ Seg.End[0], Seg.End[1], Seg.End[2] };
+                const std::string Label = PartCaption(SurfIdx, Seg.PartIndex);
+                if (VertexSnap)
+                {
+                    ConsiderVertex(A, RefHit->Normal, Label, MaxDepth);
+                    ConsiderVertex(B, RefHit->Normal, Label, MaxDepth);
+                }
+                if (EdgeSnap)
+                {
+                    ConsiderEdge(A, B, RefHit->Normal, true, Label, MaxDepth);
+                }
+            }
+        }
+    }
+    else
+    {
+        // Cursor just outside the mesh silhouette: still allow snapping to nearby feature/boundary crease vertices & edges.
+        for (uint32_t SurfIdx = 0u; SurfIdx < Document.ReferenceSurfaces.size(); ++SurfIdx)
+        {
+            const auto& Surf = Document.ReferenceSurfaces[SurfIdx];
+            if (!Surf.VisibleCondition || !Surf.Geometry || Surf.Geometry->CreaseSegments.size() > 65536u) continue;
+            for (const auto& Seg : Surf.Geometry->CreaseSegments)
+            {
+                if (Seg.PartIndex < Surf.Parts.size() && !Surf.Parts[Seg.PartIndex].VisibleCondition) continue;
+                const Vector3 A{ Seg.Start[0], Seg.Start[1], Seg.Start[2] };
+                const Vector3 B{ Seg.End[0], Seg.End[1], Seg.End[2] };
+                const std::string Label = PartCaption(SurfIdx, Seg.PartIndex);
+                if (VertexSnap)
+                {
+                    ConsiderVertex(A, Vector3{ 0.0, 0.0, 1.0 }, Label, 1.0e29);
+                    ConsiderVertex(B, Vector3{ 0.0, 0.0, 1.0 }, Label, 1.0e29);
+                }
+                if (EdgeSnap)
+                {
+                    ConsiderEdge(A, B, Vector3{ 0.0, 0.0, 1.0 }, true, Label, 1.0e29);
+                }
+            }
+        }
+    }
+
+    if (HaveVertex) return { SketcherSnapCategory::Endpoint, BestVertexPos, {}, BestVertexNormal, BestVertexSource, BestVertexPx };
+    if (HaveEdge)   return { SketcherSnapCategory::Curve, BestEdgePos, BestEdgeTangent, BestEdgeNormal, BestEdgeSource, BestEdgePx };
+    return {};
+}
+} // namespace
+
 SketcherSnap SnapSketcherTrace(SketcherSnapRepository& Catalogue, const SketcherDocument& Document,
-    const SketcherScene& Scene, const OrbitCameraBasis& Frame, double X, double Y, bool CurveSnap, bool AutoCurves)
+    const SketcherScene& Scene, const OrbitCameraBasis& Frame, double X, double Y, bool CurveSnap,
+    bool AutoCurves, bool VertexSnap, bool EdgeSnap)
 {
     SketcherSnapQuery Query;
     Query.Frame = Frame;
     Query.PixelX = X;
     Query.PixelY = Y;
+    Query.PointReach = 10.0;
     Query.CurveReach = 12.0;
+
+    // 1) Explicit Vertex snap (mesh vertices + CAD body vertices + authored curve endpoints).
+    if (VertexSnap)
+    {
+        SketcherSnap MeshVert = SnapReferenceMeshFeatures(Document, Frame, X, Y, true, false, 10.0, 9.0);
+        SketcherSnapQuery VQ = Query;
+        VQ.Filter = { true, false, false, false, false, false, false, false, false };
+        VQ.FreeCurvesOnly = false;
+        VQ.BodyCurvesOnly = false;
+        VQ.OverlayCurvesVisible = true;
+        SketcherSnap CadVert = FindSketcherSnap(Catalogue, Document, Scene, VQ);
+        if (MeshVert.Kind != SketcherSnapCategory::None && CadVert.Kind != SketcherSnapCategory::None)
+            return MeshVert.Pixels <= CadVert.Pixels ? MeshVert : CadVert;
+        if (MeshVert.Kind != SketcherSnapCategory::None) return MeshVert;
+        if (CadVert.Kind != SketcherSnapCategory::None)  return CadVert;
+    }
+
+    // 2) Explicit Edge snap (mesh edges/creases + CAD body edges + authored curves).
+    if (EdgeSnap)
+    {
+        SketcherSnap MeshEdge = SnapReferenceMeshFeatures(Document, Frame, X, Y, false, true, 10.0, 9.0);
+        SketcherSnapQuery EQ = Query;
+        EQ.Filter = { false, false, false, false, false, false, false, true, false };
+        EQ.FreeCurvesOnly = false;
+        EQ.BodyCurvesOnly = false;
+        EQ.OverlayCurvesVisible = true;
+        SketcherSnap CadEdge = FindSketcherSnap(Catalogue, Document, Scene, EQ);
+        if (MeshEdge.Kind != SketcherSnapCategory::None && CadEdge.Kind != SketcherSnapCategory::None)
+            return MeshEdge.Pixels <= CadEdge.Pixels ? MeshEdge : CadEdge;
+        if (MeshEdge.Kind != SketcherSnapCategory::None) return MeshEdge;
+        if (CadEdge.Kind != SketcherSnapCategory::None)  return CadEdge;
+    }
+
     const bool Curves = CurveSnap || AutoCurves;
     Query.Filter = { false, false, false, false, false, false, false, Curves, !Curves };
     Query.FreeCurvesOnly = Curves;

@@ -6,7 +6,8 @@ namespace Frontier::Workspaces::Sketcher
 {
 // Surface hits are exact carrier evaluations, seeded by the visible tessellation.
 [[nodiscard]] SketcherSnap SnapSketcherTrace(SketcherSnapRepository& Catalogue, const SketcherDocument& Document,
-    const SketcherScene& Scene, const OrbitCameraBasis& Frame, double X, double Y, bool CurveSnap, bool AutoCurves = false);
+    const SketcherScene& Scene, const OrbitCameraBasis& Frame, double X, double Y, bool CurveSnap,
+    bool AutoCurves = false, bool VertexSnap = false, bool EdgeSnap = false);
 
 // Point-only authoring: exactly the supplied controls, never a surface fit.
 struct SketcherControlTrace

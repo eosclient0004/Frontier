@@ -174,6 +174,14 @@ struct SketcherReferenceSurface
     const GeometrySpace::Parametric::Vector3&    QueryPoint,
     double                                       MaxRadius = 1.0e30);
 
+// Collect visible triangle indices within MaxRadius of QueryPoint via O(log N) BVH traversal (for mesh vertex/edge snapping).
+void GatherReferenceTrianglesInRadius(
+    const SketcherReferenceSurface&            Surface,
+    const GeometrySpace::Parametric::Vector3&  QueryPoint,
+    double                                     MaxRadius,
+    std::vector<uint32_t>&                     OutTriangles,
+    size_t                                     MaxResults = 384u);
+
 // Rescale all vertices, crease segments, bounds, and rebuild BVH by RelativeFactor (used by Scale controls).
 void RescaleReferenceSurface(SketcherReferenceSurface& Surface, double RelativeFactor);
 

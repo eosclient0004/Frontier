@@ -514,6 +514,74 @@ std::optional<SketcherReferenceHit> ProjectOntoReferenceSurfaces(
     return BestHit;
 }
 
+void GatherReferenceTrianglesInRadius(
+    const SketcherReferenceSurface&  Surface,
+    const Vector3&                   QueryPoint,
+    double                           MaxRadius,
+    std::vector<uint32_t>&           OutTriangles,
+    size_t                           MaxResults)
+{
+    if (!Surface.VisibleCondition || !Surface.Geometry || Surface.Geometry->Bvh.Cells.empty() || !(MaxRadius > 0.0) || MaxResults == 0u) return;
+
+    const auto& Corners = Surface.Geometry->Corners;
+    const auto& Bvh     = Surface.Geometry->Bvh;
+    const double RadiusSq = MaxRadius * MaxRadius;
+
+    auto BoxDistSq = [&](const SketcherReferenceBvhCell& Cell) -> double
+    {
+        const double Dx = QueryPoint.X < Cell.MinX ? (Cell.MinX - QueryPoint.X) : (QueryPoint.X > Cell.MaxX ? (QueryPoint.X - Cell.MaxX) : 0.0);
+        const double Dy = QueryPoint.Y < Cell.MinY ? (Cell.MinY - QueryPoint.Y) : (QueryPoint.Y > Cell.MaxY ? (QueryPoint.Y - Cell.MaxY) : 0.0);
+        const double Dz = QueryPoint.Z < Cell.MinZ ? (Cell.MinZ - QueryPoint.Z) : (QueryPoint.Z > Cell.MaxZ ? (QueryPoint.Z - Cell.MaxZ) : 0.0);
+        return Dx * Dx + Dy * Dy + Dz * Dz;
+    };
+
+    if (BoxDistSq(Bvh.Cells[0]) > RadiusSq) return;
+
+    uint32_t Stack[96];
+    int Top = 0;
+    Stack[Top++] = 0u;
+
+    while (Top > 0 && OutTriangles.size() < MaxResults)
+    {
+        const SketcherReferenceBvhCell& Cell = Bvh.Cells[Stack[--Top]];
+        if (Cell.Count > 0u)
+        {
+            for (uint32_t Offset = 0u; Offset < Cell.Count && OutTriangles.size() < MaxResults; ++Offset)
+            {
+                const uint32_t TriIndex = Bvh.TriangleIndices[Cell.LeftOrFirst + Offset];
+                const SketcherReferenceCorner& C0 = Corners[size_t(TriIndex) * 3u + 0u];
+                if (!PartVisibleCondition(Surface, C0.PartIndex)) continue;
+                OutTriangles.push_back(TriIndex);
+            }
+            continue;
+        }
+        const uint32_t Left  = Cell.LeftOrFirst;
+        const uint32_t Right = Left + 1u;
+        const double   LDist = BoxDistSq(Bvh.Cells[Left]);
+        const double   RDist = BoxDistSq(Bvh.Cells[Right]);
+        // Push farther child first so nearer triangles are collected first if MaxResults is reached.
+        if (LDist <= RadiusSq && RDist <= RadiusSq)
+        {
+            if (LDist < RDist)
+            {
+                if (Top + 2 <= 96) { Stack[Top++] = Right; Stack[Top++] = Left; }
+            }
+            else
+            {
+                if (Top + 2 <= 96) { Stack[Top++] = Left; Stack[Top++] = Right; }
+            }
+        }
+        else if (LDist <= RadiusSq)
+        {
+            if (Top < 96) Stack[Top++] = Left;
+        }
+        else if (RDist <= RadiusSq)
+        {
+            if (Top < 96) Stack[Top++] = Right;
+        }
+    }
+}
+
 void RescaleReferenceSurface(SketcherReferenceSurface& Surface, double RelativeFactor)
 {
     if (!Surface.Geometry || RelativeFactor <= 1.0e-9 || std::abs(RelativeFactor - 1.0) <= 1.0e-12) return;

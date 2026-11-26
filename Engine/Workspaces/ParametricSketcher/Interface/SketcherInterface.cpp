@@ -17707,7 +17707,7 @@ void DrawViewport(SketcherWorkspaceStatus& State, ImTextureRef ViewportTexture, 
         if (Drawing.SurfaceCondition)
         {
             Drawing.PointerLifted.reset();
-            State.Picker.Current = Hovered ? SnapSketcherTrace(SnapCatalogue(State, {}), State.Document, State.Scene, Frame, Local.x, Local.y, Io.KeyCtrl, State.DrawingCurveSnap) : SketcherSnap{};
+            State.Picker.Current = Hovered ? SnapSketcherTrace(SnapCatalogue(State, {}), State.Document, State.Scene, Frame, Local.x, Local.y, Io.KeyCtrl, State.DrawingCurveSnap, State.SurfaceVertexSnapEnabled, State.SurfaceEdgeSnapEnabled) : SketcherSnap{};
             Drawing.PointerCondition = State.Picker.Current.Kind != SketcherSnapCategory::None;
             if (Drawing.PointerCondition)
             {
@@ -20245,6 +20245,14 @@ void DrawDrawingOptions(SketcherWorkspaceStatus& State)
         {
             SketcherAuthoringToggle(State, "Conform spans to surface###ToolSurfaceConform", &State.SurfaceConformEnabled);
         }
+        ImGui::BeginDisabled(!D.SurfaceCondition);
+        SketcherAuthoringToggle(State, "Snap to vertices###ToolSurfaceVertexSnap", &State.SurfaceVertexSnapEnabled);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Snap picked points onto mesh vertices, CAD vertices, and curve endpoints while surface tracing.");
+        SketcherAuthoringToggle(State, "Snap along edges###ToolSurfaceEdgeSnap", &State.SurfaceEdgeSnapEnabled);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Slide and snap picked points along mesh edges, creases, and CAD edges while surface tracing.");
+        ImGui::EndDisabled();
         SketcherAuthoringToggle(State, "Snap to curves###ToolCurveSnap",&State.DrawingCurveSnap);
         ImGui::BeginDisabled(Arc);SketcherAuthoringToggle(State, "Auto-split 3D crossings###ToolAutoSplit",&State.DrawingAutoSplit);ImGui::EndDisabled();
         ImGui::BeginDisabled(Arc);SketcherAuthoringToggle(State, "Auto-surface closed loops###ToolAutoSurface",&State.DrawingAutoSurface);ImGui::EndDisabled();
@@ -20395,6 +20403,17 @@ void DrawDrawingCard(SketcherWorkspaceStatus& State)
     {
         SketcherAuthoringToggle(State, "Conform spans to surface###SurfaceConform", &State.SurfaceConformEnabled);
         RegisterWidget(State, "###SurfaceConform");
+    }
+    if (State.SurfaceTraceEnabled)
+    {
+        SketcherAuthoringToggle(State, "Snap to vertices###SurfaceVertexSnap", &State.SurfaceVertexSnapEnabled);
+        RegisterWidget(State, "###SurfaceVertexSnap");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Snap picked points onto mesh vertices, CAD vertices, and curve endpoints while surface tracing.");
+        SketcherAuthoringToggle(State, "Snap along edges###SurfaceEdgeSnap", &State.SurfaceEdgeSnapEnabled);
+        RegisterWidget(State, "###SurfaceEdgeSnap");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Slide and snap picked points along mesh edges, creases, and CAD edges while surface tracing.");
     }
     SketcherAuthoringToggle(State, "XYZ editing###FullXYZ", &State.FullXYZEnabled);
     RegisterWidget(State, "###FullXYZ");

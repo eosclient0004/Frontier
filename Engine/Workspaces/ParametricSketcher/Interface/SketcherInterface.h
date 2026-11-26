@@ -1009,6 +1009,8 @@ struct SketcherWorkspaceStatus
 {
     bool SurfaceTraceEnabled = false;
     bool SurfaceConformEnabled = true;
+    bool SurfaceVertexSnapEnabled = false;
+    bool SurfaceEdgeSnapEnabled = false;
     bool DrawingCurveSnap = true;
     bool DrawingAutoSplit = true;
     bool DrawingAutoSurface = true;
