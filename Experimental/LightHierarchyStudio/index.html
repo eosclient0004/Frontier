@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project-Zero &middot; Unified Lighting Studio (Toroidal Clipmap + Cube-Grid Pods + Nanite Light BVH)</title>
+  <link rel="stylesheet" href="./LightHierarchyStudio.css" />
+</head>
+<body>
+  <div id="Editor">
+    <!-- ========================================================================
+         LEFT DOCK — PROJECT ZERO OUTLINER (LIGHT COMPONENTS + STATIC/DYNAMIC)
+         ======================================================================== -->
+    <aside class="dock left">
+      <div class="tab-strip">
+        <div class="document-tab">
+          <span>Outliner</span>
+          <span class="tab-x">&times;</span>
+        </div>
+      </div>
+
+      <div class="outliner-head">
+        <h1>Outliner</h1>
+        <small id="OutlinerNodeCount">7 light rigs &middot; 32 emitters</small>
+      </div>
+
+      <div class="pz-stats">
+        <div class="pz-stat-card">
+          <div class="pz-stat-left">
+            <span class="stat-pill static">STATIC</span>
+            <span>Clipmap</span>
+          </div>
+          <b id="StatStaticCount">19</b>
+        </div>
+        <div class="pz-stat-card">
+          <div class="pz-stat-left">
+            <span class="stat-pill dynamic">DYNAMIC</span>
+            <span>Pod / BVH</span>
+          </div>
+          <b id="StatDynamicCount">13</b>
+        </div>
+      </div>
+
+      <div class="outliner-rows" id="OutlinerRows"></div>
+
+      <div class="outliner-footer">
+        <span><small>AUTO-BAKE</small><b id="FootBakeState" style="color:#5bdb87;">ON</b></span>
+        <span><small>BAKE MS</small><b id="FootBakeMs">0.0 ms</b></span>
+        <span><small>PODS</small><b id="FootPodCount">7</b></span>
+      </div>
+    </aside>
+
+    <!-- ========================================================================
+         CENTER DOCK — PROJECT ZERO VIEWPORT HEADER (DEBUG VIEWS) + 3 VIEWPORTS
+         ======================================================================== -->
+    <main class="dock centre">
+      <div class="tab-strip">
+        <div class="document-tab">
+          <span>Viewport</span>
+          <span class="tab-x">&times;</span>
+        </div>
+        <div class="pz-notch">Project-Zero &middot; Lighting</div>
+      </div>
+
+      <!-- Row 1: Scene Identity + Automatic Scene-Scale Presets (Small / Medium / Super Large) -->
+      <div class="vp-head-row1">
+        <div class="vp-scene-ident">
+          <b>Untitled &middot; Unified 3-System Lighting</b>
+          <small id="VpScaleCaption">Medium Plaza (36m)</small>
+          <span class="vp-tag-pill">AUTO TOROIDAL + NANITE</span>
+        </div>
+
+        <div class="seg-pills" id="SceneScaleGroup" title="Automatic Clipmap & LOD Scale Adaptation">
+          <button data-scale="small">Small 16m</button>
+          <button class="active" data-scale="medium">Medium 36m</button>
+          <button data-scale="large">Large 160m</button>
+        </div>
+      </div>
+
+      <!-- Row 2: Project Zero Viewport Header Debug Views + Camera Presets -->
+      <div class="vp-head-row2">
+        <div class="vp-debug-group" id="DebugViewGroup">
+          <button class="dbg-pill active" data-dbg="0">Lit PBR</button>
+          <button class="dbg-pill err-btn" data-dbg="1">Error &times;8 View</button>
+          <button class="dbg-pill" data-dbg="2">Toroidal Clipmap</button>
+          <button class="dbg-pill" data-dbg="3">Static vs Dynamic</button>
+          <button class="dbg-pill" data-dbg="4">Cube-Grid Pods</button>
+        </div>
+
+        <div class="seg-pills" id="CamPresetGroup">
+          <button class="active" data-cam="angle">3/4</button>
+          <button data-cam="top">Top Grid</button>
+          <button data-cam="headlights">Headlights</button>
+          <button data-cam="neon">Neon</button>
+        </div>
+      </div>
+
+      <!-- Synchronized 3-Viewport Comparison Stage -->
+      <section class="vp-grid">
+        <div class="vp-card">
+          <canvas id="CanvasTruth"></canvas>
+          <canvas class="vp-overlay" id="OverlayTruth"></canvas>
+          <div class="vp-tag">
+            <span class="dot green"></span>
+            <div>
+              <b>Exact (LOD 0 Reference)</b>
+              <small>All 32 raw emitters &middot; Cyan = Static &middot; Gold = Dynamic</small>
+            </div>
+          </div>
+          <div class="vp-perf-badge" id="TruthPerfBadge">32 evals/px &middot; -- ms</div>
+        </div>
+
+        <div class="vp-card">
+          <canvas id="CanvasApprox"></canvas>
+          <canvas class="vp-overlay" id="OverlayApprox"></canvas>
+          <div class="vp-tag">
+            <span class="dot cyan" id="ApproxDot"></span>
+            <div>
+              <b id="ApproxTitle">Unified All-3 (Nanite + Clipmap + Pod)</b>
+              <small id="ApproxSub">Static Toroidal Clipmap + Dynamic Cube-Grid Pods + Nanite BVH</small>
+            </div>
+          </div>
+          <div class="vp-perf-badge" id="ApproxPerfBadge">-- evals/px &middot; -- ms</div>
+        </div>
+
+        <div class="vp-card wide">
+          <canvas id="CanvasError"></canvas>
+          <canvas class="vp-overlay" id="OverlayError"></canvas>
+          <div class="vp-tag">
+            <span class="dot coral"></span>
+            <div>
+              <b>Live Error &times;8 Heatmap &nbsp;|&nbsp; |Exact LOD 0 &minus; Selected Pipeline|</b>
+              <small>Drag to Orbit &middot; Click floor to scroll Toroidal Fine Clipmap &amp; Distance-LOD Probe</small>
+            </div>
+          </div>
+          <div class="heatmap-bar"><span>0%</span><i></i><span>HIGH ERROR</span></div>
+        </div>
+      </section>
+
+      <footer class="stage-foot">
+        <span>Click floor to scroll <b>Toroidal Fine Clipmap</b> &amp; test <b>Distance Light BVH</b></span>
+        <span>FPS <b id="FootFps">60</b> &middot; Toroidal Fine <b id="FootToroidalCell">(0,0)</b> &middot; RMSE <b id="FootRmse">0.0%</b></span>
+      </footer>
+    </main>
+
+    <!-- ========================================================================
+         RIGHT DOCK — PROJECT ZERO INSPECTOR (BENCHMARK + LIGHT COMPONENT + BAKE)
+         ======================================================================== -->
+    <aside class="dock right">
+      <div class="tab-strip">
+        <div class="document-tab">
+          <span>Inspector</span>
+          <span class="tab-x">&times;</span>
+        </div>
+      </div>
+
+      <div class="inspector-scroll">
+        <div class="pz-insp-top">
+          <span class="pz-crumb" id="InspCrumb">Inspector / Lighting / Unified 3-System</span>
+        </div>
+        <h1 class="pz-hero-h1" id="InspHeroTitle">Unified Lighting</h1>
+        <p class="pz-hero-sub" id="InspHeroSub">Static Toroidal Clipmap + Dynamic Cube-Grid Pods + Nanite BVH</p>
+
+        <!-- Project Zero Numbered Page Carousel -->
+        <div class="pc-strip">
+          <button class="pc-step" id="BtnPagePrev">&#8249;</button>
+          <div class="pc-rail" id="PageCarouselRail">
+            <button class="pc-pill open" data-page="0"><span class="pc-number">1</span><span>Bench</span></button>
+            <button class="pc-pill" data-page="1"><span class="pc-number">2</span><span>Light</span></button>
+            <button class="pc-pill" data-page="2"><span class="pc-number">3</span><span>Clipmap</span></button>
+            <button class="pc-pill" data-page="3"><span class="pc-number">4</span><span>Nanite</span></button>
+          </div>
+          <button class="pc-step" id="BtnPageNext">&#8250;</button>
+        </div>
+
+        <!-- ============================================================
+             PAGE 1: SIDE-BY-SIDE GPU COST & VRAM COMPARISON + ERROR REFINE
+             ============================================================ -->
+        <div class="pc-page open" data-page="0">
+          <div class="bench-box">
+            <div class="bench-head">
+              <h3>Side-by-Side GPU Cost &amp; VRAM (Click row)</h3>
+              <div class="bench-actions">
+                <button id="BtnBenchErrorToggle">Error &times;8</button>
+                <button id="BtnReMeasureGpu">Re-Measure ms</button>
+              </div>
+            </div>
+            <table class="bench-table">
+              <thead>
+                <tr>
+                  <th>Lighting Mode</th>
+                  <th>GPU (ms)</th>
+                  <th>Evals/px</th>
+                  <th>Atlas VRAM</th>
+                  <th>Total</th>
+                  <th>RMSE</th>
+                </tr>
+              </thead>
+              <tbody id="BenchTableBody"></tbody>
+            </table>
+            <div class="bench-foot" id="BenchFootNote">
+              Measuring viewport GPU timing &amp; VRAM...
+            </div>
+          </div>
+
+          <div class="status-banner" id="HeadlightStatusBanner">
+            <b id="HeadlightBannerTitle">Headlights Status</b>
+            <span id="HeadlightBannerBody">Evaluating dynamic headlight pod &amp; toroidal clipmap split...</span>
+          </div>
+
+          <div class="property-card">
+            <h3>Error-Guided Refinement <small id="RefineIterLabel">Step 0</small></h3>
+            <canvas id="ErrorChartCanvas" width="340" height="84"></canvas>
+            <button class="refine-btn" id="BtnAutoRefine">Use Measured Error to Improve Results</button>
+            <button class="refine-btn secondary" id="BtnResetRefine">Reset Error Convergence</button>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PAGE 2: PROJECT ZERO LIGHT COMPONENT (STATIC / DYNAMIC TOGGLE!)
+             ============================================================ -->
+        <div class="pc-page" data-page="1">
+          <div class="property-card">
+            <h3 id="CompCardTitle">ECE Low Beam &middot; Left <small id="CompCardKind">Spot light</small></h3>
+            <div class="mobility-switch">
+              <button class="static" id="BtnCompStatic">
+                <b>Static</b>
+                <small>Toroidal Clipmap</small>
+              </button>
+              <button class="dynamic active" id="BtnCompDynamic">
+                <b>Dynamic</b>
+                <small>Cube-Grid Pod + BVH</small>
+              </button>
+            </div>
+
+            <div class="tiles" style="margin-bottom:8px;">
+              <button class="quick-tile on" id="TileCompEnabled">
+                <b>Light Enabled</b>
+                <span id="TxtCompEnabled">ON</span>
+              </button>
+              <button class="quick-tile on" id="TileCompShadows">
+                <b>Analytical Shadows</b>
+                <span>ON</span>
+              </button>
+            </div>
+
+            <label class="field">
+              <span>Dimmer / Luminous Flux Scale</span>
+              <div class="slider-pill">
+                <input id="RangeCompDimmer" type="range" min="0.0" max="2.5" step="0.05" value="1.0" />
+                <span class="split-value"><output id="OutCompDimmer">1.00</output><small>&times;</small></span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Beam Cone Angle</span>
+              <div class="slider-pill">
+                <input id="RangeCompCone" type="range" min="25" max="180" step="2" value="58" />
+                <span class="split-value"><output id="OutCompCone">58</output><small>deg</small></span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Color Temperature (Kelvin)</span>
+              <div class="slider-pill">
+                <input id="RangeCompKelvin" type="range" min="2000" max="10000" step="100" value="4800" />
+                <span class="split-value"><output id="OutCompKelvin">4800</output><small>K</small></span>
+              </div>
+            </label>
+
+            <p class="card-note" id="CompMobilityNote">
+              Switching a light between Static &amp; Dynamic automatically routes it between the Auto-Baked Toroidal Clipmap and the Dynamic Cube-Grid Pod / Nanite Light BVH.
+            </p>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PAGE 3: AUTOMATIC BAKING & TOROIDAL CLIPMAP (SMALL -> LARGE)
+             ============================================================ -->
+        <div class="pc-page" data-page="2">
+          <div class="property-card">
+            <h3>Automatic Static Clipmap Baker <small id="BakeAutoBadge">AUTO ON</small></h3>
+            <div class="tiles">
+              <button class="quick-tile on" id="TileAutoBake">
+                <b>Auto-Bake Static</b>
+                <span id="TxtAutoBake">ON</span>
+              </button>
+              <button class="quick-tile on" id="TileShowGrid">
+                <b>Show Toroidal Grid</b>
+                <span id="TxtShowGrid">ON</span>
+              </button>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric-tile"><b id="MetricFineSpan">12.0<small>m</small></b><span>FINE CASCADE SPAN</span></div>
+              <div class="metric-tile"><b id="MetricCellSize">0.75<small>m</small></b><span>FINE CELL SIZE</span></div>
+              <div class="metric-tile"><b id="MetricBakeTime">0.0<small>ms</small></b><span>LAST AUTO-BAKE</span></div>
+              <div class="metric-tile"><b id="MetricClipVram">0<small>KB</small></b><span>CLIPMAP VRAM</span></div>
+            </div>
+
+            <label class="field">
+              <span>Fine Toroidal Cascade Resolution</span>
+              <div class="slider-pill">
+                <input id="RangeFineRes" type="range" min="8" max="24" step="2" value="16" />
+                <span class="split-value"><output id="OutFineRes">16&times;16</output><small>cell</small></span>
+              </div>
+            </label>
+
+            <button class="refine-btn secondary" id="BtnForceBake">Force Re-Bake Static Toroidal Clipmap</button>
+            <p class="card-note" id="ScaleDescNote">
+              Balanced exterior &mdash; toroidal fine clipmap scrolls cleanly with the probe without voxel swimming while coarse cascade covers full scene bounds.
+            </p>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PAGE 4: NANITE LIGHT BVH, CUBE-GRID PODS & DEBUG OVERLAYS
+             ============================================================ -->
+        <div class="pc-page" data-page="3">
+          <div class="property-card">
+            <h3>Nanite Light BVH &amp; Cube-Grid Pods <small>95.1 KB/pod</small></h3>
+            <div class="tiles">
+              <button class="quick-tile on" id="TileShowLights">
+                <b>Light Tree &amp; Pods</b>
+                <span id="TxtShowLights">ON</span>
+              </button>
+              <button class="quick-tile on" id="TileAnimateDrone">
+                <b>Dynamic Drone</b>
+                <span id="TxtAnimateDrone">ON</span>
+              </button>
+            </div>
+
+            <label class="field">
+              <span>Nanite Dynamic BVH Error Budget</span>
+              <div class="slider-pill">
+                <input id="RangeLodThreshold" type="range" min="0.04" max="0.90" step="0.02" value="0.24" />
+                <span class="split-value"><output id="OutLodThreshold">0.24</output><small>rad</small></span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Static Clipmap High-Error Split Gate</span>
+              <div class="slider-pill">
+                <input id="RangeHybridGate" type="range" min="0.02" max="0.70" step="0.02" value="0.18" />
+                <span class="split-value"><output id="OutHybridGate">0.18</output><small>err</small></span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Error Heatmap Gain</span>
+              <div class="slider-pill">
+                <input id="RangeErrorGain" type="range" min="1.0" max="12.0" step="0.5" value="8.0" />
+                <span class="split-value"><output id="OutErrorGain">8.0</output><small>&times;</small></span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Floor Roughness (Lower = Specular Test)</span>
+              <div class="slider-pill">
+                <input id="RangeRoughness" type="range" min="0.12" max="0.88" step="0.02" value="0.28" />
+                <span class="split-value"><output id="OutRoughness">0.28</output><small>r</small></span>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="./LightHierarchyStudio.js"></script>
+</body>
+</html>

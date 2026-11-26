@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="botanical-folder-title">
+<title id="botanical-folder-title">Botanical folder — compact outliner symbol</title>
+<path d="M26 64q0-18 18-18h59l24 20h85q18 0 18 18v112q0 18-18 18H44q-18 0-18-18Z" fill="#303030" stroke="#555" stroke-width="3"/>
+<path d="M26 98q0-18 18-18h59l24 18h85q18 0 18 18v80q0 18-18 18H44q-18 0-18-18Z" fill="#3c3c3c" stroke="#555" stroke-width="3"/>
+<path d="M128 186V110" stroke="#A6D17E" stroke-width="7" stroke-linecap="round"/>
+<path d="M128 170c-22-2-38-14-42-31 18-2 33 4 42 15Z" fill="#77B866" stroke="#3c3c3c" stroke-width="3" stroke-linejoin="round"/>
+<path d="M128 170c22-2 38-14 42-31-18-2-33 4-42 15Z" fill="#8BC972" stroke="#3c3c3c" stroke-width="3" stroke-linejoin="round"/>
+<path d="M128 144c-18-2-31-12-34-26 15-2 27 3 34 12Z" fill="#8BC972" stroke="#3c3c3c" stroke-width="3" stroke-linejoin="round"/>
+<path d="M128 144c18-2 31-12 34-26-15-2-27 3-34 12Z" fill="#A6D17E" stroke="#3c3c3c" stroke-width="3" stroke-linejoin="round"/>
+<path d="M128 122c-11-9-11-22 0-30 11 8 11 21 0 30Z" fill="#BBE092" stroke="#3c3c3c" stroke-width="3" stroke-linejoin="round"/>
+</svg>

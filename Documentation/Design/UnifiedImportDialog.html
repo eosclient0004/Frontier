@@ -1,0 +1,2140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Unified Import Dialogue — SolidArc &amp; Frontier</title>
+<style>
+  :root {
+    --bg-canvas: #090a0c;
+    --bg-backdrop: rgba(6, 7, 9, 0.76);
+    --bg-surface: #121417;
+    --bg-elevated: #16191d;
+    --bg-card: #191c21;
+    --bg-card-hover: #1f2329;
+    --bg-pill: #22262c;
+    --bg-pill-active: #2c313a;
+    --border-subtle: rgba(255, 255, 255, 0.055);
+    --border-hairline: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --border-focus: rgba(255, 255, 255, 0.34);
+    --text-primary: #f2f4f7;
+    --text-secondary: #8e96a0;
+    --text-muted: #586069;
+    --accent-green: #4ade80;
+    --accent-green-soft: rgba(74, 222, 128, 0.13);
+    --accent-blue: #60a5fa;
+    --accent-blue-soft: rgba(96, 165, 250, 0.13);
+    --accent-amber: #f59e0b;
+    --accent-amber-soft: rgba(245, 158, 11, 0.13);
+    --accent-red: #ef4444;
+    --accent-red-soft: rgba(239, 68, 68, 0.13);
+    --accent-violet: #a78bfa;
+    --radius-dialog: 24px;
+    --radius-card: 16px;
+    --radius-row: 11px;
+    --radius-pill: 999px;
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+    --shadow-dialog: 0 36px 90px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    height: 100%;
+    background: radial-gradient(circle at 18% 0%, #171b22 0%, #0b0c0f 52%, #07080a 100%);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Ambient Workspace Backdrop Grid */
+  .workspace-backdrop {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 18px 24px;
+    gap: 14px;
+  }
+
+  /* External Demo Switcher Bar (Simulates launching inside SolidArc vs Frontier) */
+  .demo-harness-bar {
+    width: min(1180px, 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 14px;
+    border-radius: var(--radius-pill);
+    background: rgba(18, 20, 23, 0.86);
+    border: 1px solid var(--border-hairline);
+    backdrop-filter: blur(16px);
+    z-index: 20;
+    flex-shrink: 0;
+  }
+
+  .harness-left, .harness-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .harness-caption {
+    font-size: 11px;
+    color: var(--text-secondary);
+    letter-spacing: 0.01em;
+  }
+
+  .host-switcher {
+    display: inline-flex;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-pill);
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .host-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 5px 13px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.16s ease;
+  }
+  .host-btn:hover { color: var(--text-primary); }
+  .host-btn.active {
+    background: var(--bg-pill-active);
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+
+  .dot-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+  }
+
+  /* Main Modal Dialogue Window */
+  .import-dialog {
+    width: min(1180px, 100%);
+    height: min(740px, calc(100vh - 92px));
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-dialog);
+    box-shadow: var(--shadow-dialog);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* Drag & Drop Active Overlay */
+  .drop-shield {
+    position: absolute;
+    inset: 10px;
+    border-radius: 18px;
+    background: rgba(12, 14, 18, 0.91);
+    border: 1.5px dashed rgba(255, 255, 255, 0.42);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    z-index: 60;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+  .import-dialog.drag-over .drop-shield {
+    display: flex;
+  }
+
+  /* Dialogue Header */
+  .dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-hairline);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+    flex-shrink: 0;
+  }
+
+  .dialog-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .dialog-title {
+    font-size: 14.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .host-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-pill);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-secondary);
+  }
+
+  .dialog-subtitle {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Format Filter Bar */
+  .filter-pill-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-pill);
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .filter-pill {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    padding: 5px 11px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: all 0.14s ease;
+    white-space: nowrap;
+  }
+  .filter-pill:hover { color: var(--text-primary); }
+  .filter-pill.active {
+    background: var(--bg-pill-active);
+    color: var(--text-primary);
+  }
+
+  .icon-close-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: all 0.14s ease;
+  }
+  .icon-close-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--bg-card-hover);
+  }
+
+  /* Sub-Toolbar: Path Breadcrumbs + Search + Local Disk Picker */
+  .path-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+  }
+
+  .breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .crumb-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    padding: 4px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .crumb-btn:hover {
+    background: var(--bg-pill);
+    color: var(--text-primary);
+  }
+  .crumb-btn.current {
+    background: var(--bg-card);
+    border-color: var(--border-hairline);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .crumb-sep {
+    color: var(--text-muted);
+    font-size: 11px;
+    user-select: none;
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-pill);
+    padding: 5px 11px;
+    width: 230px;
+    transition: border-color 0.15s ease;
+  }
+  .search-input-wrap:focus-within {
+    border-color: var(--border-focus);
+  }
+  .search-input-wrap input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    width: 100%;
+  }
+  .search-input-wrap input::placeholder { color: var(--text-muted); }
+
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--bg-pill);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+
+  /* 3-Column Body */
+  .dialog-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 196px 1fr 376px;
+  }
+
+  /* Left Sidebar: Locations & Recent Roots */
+  .locations-pane {
+    border-right: 1px solid var(--border-hairline);
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: rgba(12, 14, 17, 0.45);
+    overflow-y: auto;
+  }
+
+  .sidebar-group {
+    margin-bottom: 14px;
+  }
+
+  .sidebar-heading {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    padding: 0 10px 6px;
+  }
+
+  .loc-item {
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 7px 10px;
+    border-radius: 10px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.14s ease;
+    text-align: left;
+  }
+  .loc-item:hover {
+    background: var(--bg-card);
+    color: var(--text-primary);
+  }
+  .loc-item.active {
+    background: var(--bg-pill);
+    border-color: var(--border-hairline);
+    color: var(--text-primary);
+  }
+  .loc-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .loc-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .drop-hint-box {
+    padding: 11px;
+    border-radius: 13px;
+    background: var(--bg-card);
+    border: 1px dashed var(--border-strong);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  /* Center Pane: File List & Multi-Select Queue */
+  .files-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--border-hairline);
+    background: var(--bg-surface);
+  }
+
+  .file-table-head {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.9fr) 104px 82px 84px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    user-select: none;
+  }
+
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .file-row {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.9fr) 104px 82px 84px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: var(--radius-row);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .file-row:hover {
+    background: var(--bg-card);
+  }
+  .file-row.selected {
+    background: var(--bg-pill);
+    border-color: var(--border-strong);
+  }
+  .file-row.has-warning .file-name-main {
+    color: #fca5a5;
+  }
+
+  .file-cell-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .fmt-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    flex-shrink: 0;
+    border: 1px solid var(--border-hairline);
+  }
+  .fmt-solidarc { background: rgba(74, 222, 128, 0.13); color: var(--accent-green); border-color: rgba(74, 222, 128, 0.32); }
+  .fmt-step     { background: rgba(96, 165, 250, 0.13); color: var(--accent-blue); border-color: rgba(96, 165, 250, 0.32); }
+  .fmt-blend    { background: rgba(245, 158, 11, 0.14); color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.32); }
+  .fmt-poly     { background: rgba(167, 139, 250, 0.14); color: var(--accent-violet); border-color: rgba(167, 139, 250, 0.32); }
+  .fmt-curve    { background: rgba(241, 243, 245, 0.09); color: var(--text-primary); border-color: rgba(255, 255, 255, 0.18); }
+  .fmt-media    { background: rgba(56, 189, 248, 0.13); color: #38bdf8; border-color: rgba(56, 189, 248, 0.30); }
+  .fmt-warn     { background: var(--accent-red-soft); color: var(--accent-red); border-color: rgba(239, 68, 68, 0.36); }
+
+  .file-name-stack {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .file-name-main {
+    font-size: 12.2px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-name-sub {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-cell-type {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-secondary);
+  }
+  .file-cell-size, .file-cell-date {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Right Pane: Live 3D Specimen Preview + Context-Sensitive Import Settings */
+  .inspector-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-elevated);
+    overflow-y: auto;
+    padding: 14px;
+    gap: 12px;
+  }
+
+  /* Interactive 3D Viewport Preview Card */
+  .preview-card {
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .preview-overlay-top {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 4;
+  }
+
+  .preview-chip {
+    pointer-events: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    background: rgba(18, 20, 23, 0.84);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-secondary);
+    backdrop-filter: blur(8px);
+  }
+
+  .preview-layer-toggles {
+    pointer-events: auto;
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  .layer-btn {
+    border: 1px solid var(--border-hairline);
+    background: rgba(18, 20, 23, 0.84);
+    color: var(--text-secondary);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: all 0.13s ease;
+  }
+  .layer-btn.active {
+    background: var(--bg-pill-active);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
+
+  #preview-canvas {
+    width: 100%;
+    height: 178px;
+    display: block;
+    cursor: grab;
+  }
+  #preview-canvas:active { cursor: grabbing; }
+
+  .preview-metrics-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-card);
+  }
+  .metric-cell {
+    padding: 7px 9px;
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .metric-cell:last-child { border-right: none; }
+  .metric-k {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .metric-v {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Embedded Pillars Strip (Shown for .solidarc / Frontier intake) */
+  .pillars-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-card);
+    padding: 11px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-heading {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+  }
+  .card-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--accent-green);
+  }
+
+  .pillar-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .pillar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+  .pillar-pill.on {
+    color: var(--text-primary);
+    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.09);
+  }
+  .pillar-pill .check-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .pillar-pill.on .check-dot {
+    background: var(--accent-green);
+  }
+
+  /* Settings Section Card */
+  .settings-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-card);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .setting-label {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .setting-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .segmented {
+    display: inline-flex;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-pill);
+    padding: 2px;
+    gap: 2px;
+  }
+  .seg-opt {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 10.8px;
+    padding: 4px 9px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: all 0.13s ease;
+  }
+  .seg-opt.active {
+    background: var(--bg-pill-active);
+    color: var(--text-primary);
+  }
+
+  .select-pill {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 11.2px;
+    padding: 5px 10px;
+    border-radius: var(--radius-pill);
+    outline: none;
+    cursor: pointer;
+  }
+
+  /* Switch */
+  .switch {
+    width: 36px;
+    height: 20px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.18s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform 0.18s ease, background 0.18s ease;
+  }
+  .switch.on {
+    background: var(--accent-green-soft);
+    border-color: rgba(74, 222, 128, 0.45);
+  }
+  .switch.on::after {
+    transform: translateX(16px);
+    background: var(--accent-green);
+  }
+
+  /* Range Slider */
+  .slider-block {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-hairline);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Explicit Diagnostic Error / Refusal Banner */
+  .diagnostic-banner {
+    display: none;
+    padding: 10px 14px;
+    margin: 0 20px 10px;
+    border-radius: 13px;
+    background: rgba(239, 68, 68, 0.11);
+    border: 1px solid rgba(239, 68, 68, 0.42);
+    color: #fecaca;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .diagnostic-banner.visible {
+    display: flex;
+  }
+  .diag-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fca5a5;
+    margin-bottom: 2px;
+  }
+  .diag-detail {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #fecaca;
+  }
+
+  /* Visible Staged Progress Bar Strip */
+  .progress-strip {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 20px;
+    border-top: 1px solid var(--border-hairline);
+    background: #101215;
+    flex-shrink: 0;
+  }
+  .progress-strip.visible {
+    display: flex;
+  }
+  .progress-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .progress-phase {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .progress-pct {
+    font-family: var(--font-mono);
+    color: var(--accent-green);
+    font-variant-numeric: tabular-nums;
+  }
+  .progress-track {
+    width: 100%;
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-card);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, #4ade80, #f2f4f7);
+    transition: width 0.18s ease;
+  }
+
+  /* Dialogue Footer */
+  .dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-hairline);
+    background: var(--bg-surface);
+    flex-shrink: 0;
+  }
+
+  .selection-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .selected-file-pill {
+    font-family: var(--font-mono);
+    font-size: 11.2px;
+    padding: 5px 11px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-primary);
+    max-width: 340px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .target-destination {
+    font-size: 11.2px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border-hairline);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.14s ease;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .btn-ghost:hover {
+    color: var(--text-primary);
+    background: var(--bg-card);
+  }
+  .btn-secondary {
+    background: var(--bg-pill);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
+  .btn-secondary:hover {
+    background: var(--bg-pill-active);
+  }
+  .btn-primary {
+    background: #ffffff;
+    color: #090a0c;
+    border-color: #ffffff;
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background: #e6e9ef;
+  }
+  .btn-primary:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 1020px) {
+    .dialog-body {
+      grid-template-columns: 1fr 340px;
+    }
+    .locations-pane {
+      display: none;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="workspace-backdrop">
+
+  <!-- Interactive Host Switcher Bar (Preview SolidArc vs Frontier Host Context) -->
+  <div class="demo-harness-bar">
+    <div class="harness-left">
+      <span class="dot-indicator"></span>
+      <span class="harness-caption">Shared UI Component · Switch Host Application:</span>
+      <div class="host-switcher">
+        <button class="host-btn active" id="host-frontier-btn" onclick="switchHost('frontier')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14L10 8M4 20L16 8M10 20L20 10M16 20L20 16"/></svg>
+          Frontier Engine
+        </button>
+        <button class="host-btn" id="host-solidarc-btn" onclick="switchHost('solidarc')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16"/></svg>
+          SolidArc CAD
+        </button>
+      </div>
+    </div>
+    <div class="harness-right">
+      <span class="harness-caption">Drop any local file onto dialogue or click</span>
+      <button class="btn btn-secondary" style="padding: 4px 11px; font-size: 11px;" onclick="document.getElementById('local-file-input').click()">
+        Browse Local Disk…
+      </button>
+      <input type="file" id="local-file-input" multiple style="display: none;" onchange="handleLocalFiles(this.files)" />
+    </div>
+  </div>
+
+  <!-- =============================================================================================== -->
+  <!--                         UNIFIED IMPORT DIALOGUE (SOLIDARC + FRONTIER)                           -->
+  <!-- =============================================================================================== -->
+  <div class="import-dialog" id="import-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title-text">
+
+    <!-- Drag & Drop Shield -->
+    <div class="drop-shield">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f2f4f7" stroke-width="1.6">
+        <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/>
+      </svg>
+      <div style="font-size: 15px; font-weight: 500;">Drop files to inspect &amp; stage for import</div>
+      <div style="font-size: 11.5px; color: var(--text-secondary);">Supports .solidarc · .step / .stp · .blend · .obj / .fbx / . gltf · .toml · .png / .exr / .ies</div>
+    </div>
+
+    <!-- Top Header -->
+    <header class="dialog-header">
+      <div class="dialog-title-group">
+        <div class="brand-mark" id="dialog-brand-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f2f4f7" stroke-width="2" stroke-linecap="round">
+            <path d="M4 14L10 8M4 20L16 8M10 20L20 10M16 20L20 16"/>
+          </svg>
+        </div>
+        <div>
+          <div class="dialog-title">
+            <span id="dialog-title-text">Import into Frontier World &amp; Content Repository</span>
+            <span class="host-tag" id="dialog-host-tag">FRONTIER · SI METRES</span>
+          </div>
+          <div class="dialog-subtitle" id="dialog-subtitle-text">
+            Unified zero-bake .solidarc containers, polygon networks (.GeometrySpace), STEP solids, and optical media
+          </div>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="filter-pill-group" id="format-filter-bar"></div>
+        <button class="icon-close-btn" title="Close (Esc)" onclick="resetImportState()">✕</button>
+      </div>
+    </header>
+
+    <!-- Path Breadcrumb & Search Sub-Toolbar -->
+    <div class="path-toolbar">
+      <div class="breadcrumbs" id="breadcrumbs-bar"></div>
+      <div class="toolbar-right">
+        <div class="search-input-wrap">
+          <svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="#8e96a0" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" id="file-search-input" placeholder="Filter files by name or suffix…" oninput="renderFileList()" />
+          <span class="kbd">⌘F</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3-Pane Body -->
+    <div class="dialog-body">
+
+      <!-- Left Sidebar: Locations -->
+      <aside class="locations-pane">
+        <div>
+          <div class="sidebar-group">
+            <div class="sidebar-heading">Project Roots</div>
+            <button class="loc-item active" data-folder="all" onclick="selectFolder('all', this)">
+              <span class="loc-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+                All Supported
+              </span>
+              <span class="loc-count" id="count-all">8</span>
+            </button>
+            <button class="loc-item" data-folder="vehicles" onclick="selectFolder('vehicles', this)">
+              <span class="loc-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+                Content / Vehicles
+              </span>
+              <span class="loc-count">4</span>
+            </button>
+            <button class="loc-item" data-folder="cad" onclick="selectFolder('cad', this)">
+              <span class="loc-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                CAD / Mechanical
+              </span>
+              <span class="loc-count">3</span>
+            </button>
+            <button class="loc-item" data-folder="optics" onclick="selectFolder('optics', this)">
+              <span class="loc-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41"/></svg>
+                Materials &amp; Optics
+              </span>
+              <span class="loc-count">1</span>
+            </button>
+          </div>
+
+          <div class="sidebar-group">
+            <div class="sidebar-heading">Target Stratification</div>
+            <div style="padding: 4px 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.5;">
+              <div><strong style="color: var(--text-primary);">.solidarc</strong> → Unified CAD + Mesh + Curve + SDF</div>
+              <div style="margin-top: 4px;"><strong style="color: var(--text-primary);">.GeometrySpace</strong> → Pure Polygon / Quad / UV</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="drop-hint-box">
+          <div style="font-size: 11px; font-weight: 500; color: var(--text-primary);">Local File Intake</div>
+          <div style="font-size: 10.5px; color: var(--text-secondary);">
+            Drag files here or browse disk to inspect headers before committing.
+          </div>
+          <button class="btn btn-secondary" style="width: 100%; justify-content: center; padding: 6px 10px; font-size: 11px;" onclick="document.getElementById('local-file-input').click()">
+            Choose Files…
+          </button>
+        </div>
+      </aside>
+
+      <!-- Center Pane: Sortable File List -->
+      <main class="files-pane">
+        <div class="file-table-head">
+          <span>Document / Source File</span>
+          <span>Format</span>
+          <span>Size</span>
+          <span>Modified</span>
+        </div>
+        <div class="file-list" id="file-list-container"></div>
+      </main>
+
+      <!-- Right Pane: Live 3D Specimen Preview + Context-Aware Import Settings -->
+      <aside class="inspector-pane">
+
+        <!-- 3D Aspect-Matched Orbit Preview -->
+        <div class="preview-card">
+          <div class="preview-overlay-top">
+            <span class="preview-chip" id="preview-aspect-chip">1:1 Aspect Preserved</span>
+            <div class="preview-layer-toggles">
+              <button class="layer-btn active" id="toggle-wire-btn" onclick="toggleLayer('wire', this)">Wire</button>
+              <button class="layer-btn active" id="toggle-curves-btn" onclick="toggleLayer('curves', this)">Curves</button>
+              <button class="layer-btn active" id="toggle-sdf-btn" onclick="toggleLayer('sdf', this)">SDF Grid</button>
+            </div>
+          </div>
+          <canvas id="preview-canvas" width="696" height="356"></canvas>
+          <div class="preview-metrics-strip">
+            <div class="metric-cell">
+              <span class="metric-k" id="m1-k">Faces</span>
+              <span class="metric-v" id="m1-v">—</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-k" id="m2-k">Curves</span>
+              <span class="metric-v" id="m2-v">—</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-k" id="m3-k">SDF Field</span>
+              <span class="metric-v" id="m3-v">—</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-k" id="m4-k">Runtime Bake</span>
+              <span class="metric-v" id="m4-v">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Embedded Pillars Selector (Dynamic per file type & host) -->
+        <div class="pillars-card" id="pillars-card">
+          <div class="card-heading-row">
+            <span class="card-heading" id="pillars-heading">Embedded Container Sections</span>
+            <span class="card-tag" id="pillars-status-tag">Zero-Copy mmap</span>
+          </div>
+          <div class="pillar-badges" id="pillars-container"></div>
+        </div>
+
+        <!-- Dynamic Format-Specific Import Options -->
+        <div class="settings-card" id="dynamic-settings-card"></div>
+
+      </aside>
+    </div>
+
+    <!-- Explicit Diagnostic Refusal / Validation Error Banner -->
+    <div class="diagnostic-banner" id="diagnostic-banner" role="alert">
+      <div>
+        <div class="diag-title" id="diag-title">Import Refused — Pre-Flight Topology Diagnostic</div>
+        <div class="diag-detail" id="diag-detail"></div>
+      </div>
+      <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; flex-shrink: 0;" onclick="hideDiagnostic()">Dismiss</button>
+    </div>
+
+    <!-- Visible Staged Progress Bar -->
+    <div class="progress-strip" id="progress-strip">
+      <div class="progress-meta-row">
+        <span class="progress-phase" id="progress-phase-text">Reading Tier 1 TOML header…</span>
+        <span class="progress-pct" id="progress-pct-text">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill-bar"></div>
+      </div>
+    </div>
+
+    <!-- Dialogue Footer -->
+    <footer class="dialog-footer">
+      <div class="selection-summary">
+        <span class="selected-file-pill" id="footer-selected-name">No file selected</span>
+        <span class="target-destination" id="footer-target-desc">→ Content/Vehicles/</span>
+      </div>
+      <div class="footer-actions">
+        <button class="btn btn-ghost" onclick="resetImportState()">Cancel</button>
+        <button class="btn btn-primary" id="primary-import-btn" onclick="executeImport()">
+          <span id="primary-import-label">Import into Frontier</span>
+          <span class="kbd" style="background: rgba(0,0,0,0.12); color: #090a0c; border-color: rgba(0,0,0,0.15);">↵</span>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------------------------------------------
+  //  SHARED SPECIMEN DATASET (REAL SOLIDARC + FRONTIER FORMATS, METRICS, PROPORTIONS & DIAGNOSTIC CASES)
+  // ---------------------------------------------------------------------------------------------------------
+  const SPECIMENS = [
+    {
+      id: "fuselage-solidarc",
+      name: "AerodynamicFuselage.solidarc",
+      subtitle: "Unified Tier-1 Authoring TOML + .GeometrySpace + .Curve + BSDF/VSDF",
+      folder: "vehicles",
+      ext: ".solidarc",
+      badge: "ARC",
+      badgeClass: "fmt-solidarc",
+      typeLabel: "SolidArc Unified",
+      sizeLabel: "2.84 MB",
+      dateLabel: "Today 23:24",
+      shape: "fuselage",
+      dimsMeters: [3.84, 1.48, 1.12], // Elongated natural proportions preserved!
+      metrics: { faces: "4,820 quads/tris", curves: "26 NURBS", sdf: "32×18×14 BSDF", bake: "0.0 ms (mmap)" },
+      pillars: [
+        { label: ".GeometrySpace", on: true },
+        { label: ".Curve ('CRV1')", on: true },
+        { label: ".DistanceField ('BSDF')", on: true },
+        { label: ".DistanceField ('VSDF' fp16)", on: true },
+        { label: "Feature History", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "flange-solidarc",
+      name: "PrecisionFlangeHousing.solidarc",
+      subtitle: "Parametric Block + Collar + Bore · 100% Sign · 0.0000 mm MAE",
+      folder: "cad",
+      ext: ".solidarc",
+      badge: "ARC",
+      badgeClass: "fmt-solidarc",
+      typeLabel: "SolidArc Unified",
+      sizeLabel: "618 KB",
+      dateLabel: "Today 23:18",
+      shape: "flange",
+      dimsMeters: [0.24, 0.16, 0.075],
+      metrics: { faces: "1,398 tris", curves: "19 analytic", sdf: "9 Primitives", bake: "0.0 ms (mmap)" },
+      pillars: [
+        { label: ".GeometrySpace", on: true },
+        { label: ".Curve ('CRV1')", on: true },
+        { label: ".DistanceField ('BSDF')", on: true },
+        { label: ".DistanceField ('VSDF' fp16)", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "racer-wheel-step",
+      name: "RacerWheelAssembly.step",
+      subtitle: "ISO 10303-21 AP214 · 57 Analytic & Conic Faces · File Unit mm",
+      folder: "vehicles",
+      ext: ".step",
+      badge: "STEP",
+      badgeClass: "fmt-step",
+      typeLabel: "STEP AP214",
+      sizeLabel: "1.42 MB",
+      dateLabel: "Nov 24",
+      shape: "wheel",
+      dimsMeters: [0.68, 0.31, 0.68],
+      metrics: { faces: "57 CAD faces", curves: "148 Conic/Line", sdf: "Compile on Intake", bake: "~18 ms CPU" },
+      pillars: [
+        { label: "Canonical STEP Solid", on: true },
+        { label: "Auto-Orient Loops", on: true },
+        { label: "Compile BSDF + VSDF", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "egoist-blend",
+      name: "EgoistReferenceBody.blend",
+      subtitle: "Blender 5.02 ZSTD · Mirror + Subsurf Lvl 2 + Crease 30° · 240K Tris",
+      folder: "vehicles",
+      ext: ".blend",
+      badge: "BLND",
+      badgeClass: "fmt-blend",
+      typeLabel: "Blender SDNA",
+      sizeLabel: "14.6 MB",
+      dateLabel: "Nov 22",
+      shape: "vehicleCage",
+      dimsMeters: [4.52, 1.98, 1.24],
+      metrics: { faces: "240,112 tris", curves: "1,840 creases", sdf: "Polygon BVH4", bake: "Reference / Poly" },
+      pillars: [
+        { label: "Modifier Stack Eval", on: true },
+        { label: "BVH4 Ray Structure", on: true },
+        { label: "UDIM 1001–1004 UVs", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "control-rim-poly",
+      name: "ControlVehicleRim_QuadCage.fbx",
+      subtitle: "Subdivision Quad/N-gon Polygon Modelling → Standalone .GeometrySpace",
+      folder: "vehicles",
+      ext: ".fbx",
+      badge: "POLY",
+      badgeClass: "fmt-poly",
+      typeLabel: "Polygon Network",
+      sizeLabel: "3.18 MB",
+      dateLabel: "Nov 20",
+      shape: "wheel",
+      dimsMeters: [0.52, 0.26, 0.52],
+      metrics: { faces: "18,440 quads", curves: "UV Seams Only", sdf: "None (Pure Poly)", bake: "ClusterPyramid" },
+      pillars: [
+        { label: ".GeometrySpace (Quads/N-gons)", on: true },
+        { label: "Crease Normals (38°)", on: true },
+        { label: "128-Tri ClusterPyramid", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "shoulder-curves-toml",
+      name: "ShoulderGuideRails.toml",
+      subtitle: "Format = 'VehicleCurves' · 14 3D Class-A Fit Rails · Units = mm",
+      folder: "cad",
+      ext: ".toml",
+      badge: "CRV",
+      badgeClass: "fmt-curve",
+      typeLabel: "VehicleCurves",
+      sizeLabel: "84 KB",
+      dateLabel: "Nov 19",
+      shape: "curvesOnly",
+      dimsMeters: [4.20, 1.82, 1.18],
+      metrics: { faces: "0 (Wire Only)", curves: "14 SpaceCurves", sdf: "None", bake: "Clamped NURBS" },
+      pillars: [
+        { label: "P&T Ch.9 Fairing Fit", on: true },
+        { label: "30° Corner Split", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "headlamp-ies",
+      name: "AutomotiveProjectorLowBeam.ies",
+      subtitle: "LM-63 Class C Photometric Distribution → 128×32 Optical LUT",
+      folder: "optics",
+      ext: ".ies",
+      badge: "OPT",
+      badgeClass: "fmt-media",
+      typeLabel: "IES Photometry",
+      sizeLabel: "42 KB",
+      dateLabel: "Nov 18",
+      shape: "photometry",
+      dimsMeters: [1.0, 1.0, 1.0],
+      metrics: { faces: "Luminaire Lobe", curves: "Candela Polar", sdf: "128×32 LUT", bake: "1.2 ms" },
+      pillars: [
+        { label: ".IesProfile", on: true },
+        { label: "Candela Spherical LUT", on: true }
+      ],
+      warning: null
+    },
+    {
+      id: "unclosed-sheet-step",
+      name: "UncappedOpenShellTrim.step",
+      subtitle: "ISO 10303-21 · 3 Unstitched Open Surface Shells (Diagnostic Test)",
+      folder: "cad",
+      ext: ".step",
+      badge: "ERR",
+      badgeClass: "fmt-warn",
+      typeLabel: "STEP Open Sheet",
+      sizeLabel: "512 KB",
+      dateLabel: "Nov 17",
+      shape: "flange",
+      dimsMeters: [0.32, 0.22, 0.11],
+      metrics: { faces: "34 open faces", curves: "11 laminar", sdf: "Unclosed Shell", bake: "Refused in Solid" },
+      pillars: [
+        { label: "11 Unpaired Laminar Edges", on: false }
+      ],
+      warning: "Import UncappedOpenShellTrim.step: file holds 3 open surface shells (11 unpaired laminar edges). Enable 'Allow Open Sheet Panels' or stitch boundary loops before solid SDF compilation."
+    }
+  ];
+
+  const HOST_CONFIG = {
+    frontier: {
+      title: "Import into Frontier World & Content Repository",
+      tag: "FRONTIER · SI METRES",
+      subtitle: "Unified zero-bake .solidarc containers, standalone .GeometrySpace polygon networks, and optical media",
+      ctaLabel: "Import into Frontier",
+      destPrefix: "→ Content/Imported/",
+      filters: [
+        { id: "all", label: "All Formats" },
+        { id: ".solidarc", label: ".solidarc" },
+        { id: "poly", label: "Polygon (.blend / .fbx)" },
+        { id: ".step", label: "CAD (.step)" },
+        { id: "optics", label: "Optics & Media" }
+      ]
+    },
+    solidarc: {
+      title: "Import into SolidArc Parametric Document",
+      tag: "SOLIDARC · 1000 MM = 1 M",
+      subtitle: "Canonical STEP AP214 B-Rep solids, Blender ZSTD reference cages, 3D VehicleCurves, and ortho blueprints",
+      ctaLabel: "Import into SolidArc",
+      destPrefix: "→ Active Feature Partition · ",
+      filters: [
+        { id: "all", label: "All CAD & Ref" },
+        { id: ".step", label: "STEP (.step / .stp)" },
+        { id: ".blend", label: "Blender (.blend)" },
+        { id: ".solidarc", label: ".solidarc" },
+        { id: ".toml", label: "Curves (.toml)" }
+      ]
+    }
+  };
+
+  let state = {
+    host: "frontier",
+    filter: "all",
+    folder: "all",
+    selectedId: "fuselage-solidarc",
+    layers: { wire: true, curves: true, sdf: true },
+    allowOpenSheets: false,
+    importing: false,
+    yaw: -0.58,
+    pitch: 0.34,
+    draggingOrbit: false,
+    lastMouse: [0, 0]
+  };
+
+  function getSelectedSpecimen() {
+    return SPECIMENS.find(s => s.id === state.selectedId) || SPECIMENS[0];
+  }
+
+  // ---------------------------------------------------------------------------------------------------------
+  //  HOST MODE & FILTER RENDERING
+  // ---------------------------------------------------------------------------------------------------------
+  function switchHost(hostKey) {
+    state.host = hostKey;
+    state.filter = "all";
+    hideDiagnostic();
+    document.getElementById("host-frontier-btn").classList.toggle("active", hostKey === "frontier");
+    document.getElementById("host-solidarc-btn").classList.toggle("active", hostKey === "solidarc");
+
+    const cfg = HOST_CONFIG[hostKey];
+    document.getElementById("dialog-title-text").textContent = cfg.title;
+    document.getElementById("dialog-host-tag").textContent = cfg.tag;
+    document.getElementById("dialog-subtitle-text").textContent = cfg.subtitle;
+
+    renderFilterPills();
+    renderBreadcrumbs();
+    renderFileList();
+    renderInspector();
+  }
+
+  function renderFilterPills() {
+    const bar = document.getElementById("format-filter-bar");
+    const filters = HOST_CONFIG[state.host].filters;
+    bar.innerHTML = filters.map(f =>
+      `<button class="filter-pill ${state.filter === f.id ? 'active' : ''}" onclick="setFormatFilter('${f.id}')">${f.label}</button>`
+    ).join("");
+  }
+
+  function setFormatFilter(filterId) {
+    state.filter = filterId;
+    renderFilterPills();
+    renderFileList();
+  }
+
+  function selectFolder(folderKey, btnEl) {
+    state.folder = folderKey;
+    document.querySelectorAll(".loc-item").forEach(el => el.classList.remove("active"));
+    if (btnEl) btnEl.classList.add("active");
+    renderBreadcrumbs();
+    renderFileList();
+  }
+
+  function renderBreadcrumbs() {
+    const folderNames = {
+      all: "All Supported Roots",
+      vehicles: "Vehicles",
+      cad: "Mechanical_CAD",
+      optics: "Optics_Photometry"
+    };
+    const rootName = state.host === "frontier" ? "Frontier-1" : "SolidArcWorkspace";
+    const bar = document.getElementById("breadcrumbs-bar");
+    bar.innerHTML = `
+      <button class="crumb-btn" onclick="selectFolder('all', document.querySelector('[data-folder=all]'))">${rootName}</button>
+      <span class="crumb-sep">/</span>
+      <button class="crumb-btn" onclick="selectFolder('all', document.querySelector('[data-folder=all]'))">Content</button>
+      <span class="crumb-sep">/</span>
+      <button class="crumb-btn current">${folderNames[state.folder] || "All"}</button>
+    `;
+  }
+
+  function matchesFilter(item) {
+    if (state.folder !== "all" && item.folder !== state.folder) return false;
+    if (state.filter !== "all") {
+      if (state.filter === "poly" && item.ext !== ".blend" && item.ext !== ".fbx") return false;
+      else if (state.filter === "optics" && item.ext !== ".ies") return false;
+      else if (state.filter.startsWith(".") && item.ext !== state.filter) return false;
+    }
+    const q = document.getElementById("file-search-input").value.trim().toLowerCase();
+    if (q && !item.name.toLowerCase().includes(q) && !item.subtitle.toLowerCase().includes(q)) {
+      return false;
+    }
+    return true;
+  }
+
+  function renderFileList() {
+    const container = document.getElementById("file-list-container");
+    const visible = SPECIMENS.filter(matchesFilter);
+    document.getElementById("count-all").textContent = String(SPECIMENS.length);
+
+    if (visible.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 42px 20px; text-align: center; color: var(--text-muted);">
+          No matching files in current filter. Clear search or drop a local file onto the dialogue.
+        </div>`;
+      return;
+    }
+
+    if (!visible.some(v => v.id === state.selectedId)) {
+      state.selectedId = visible[0].id;
+    }
+
+    container.innerHTML = visible.map(item => `
+      <div class="file-row ${item.id === state.selectedId ? 'selected' : ''} ${item.warning ? 'has-warning' : ''}"
+           onclick="selectSpecimen('${item.id}')"
+           ondblclick="selectSpecimen('${item.id}'); executeImport();">
+        <div class="file-cell-name">
+          <div class="fmt-icon ${item.badgeClass}">${item.badge}</div>
+          <div class="file-name-stack">
+            <span class="file-name-main">${item.name}</span>
+            <span class="file-name-sub">${item.subtitle}</span>
+          </div>
+        </div>
+        <span class="file-cell-type">${item.typeLabel}</span>
+        <span class="file-cell-size">${item.sizeLabel}</span>
+        <span class="file-cell-date">${item.dateLabel}</span>
+      </div>
+    `).join("");
+
+    renderInspector();
+  }
+
+  function selectSpecimen(id) {
+    state.selectedId = id;
+    hideDiagnostic();
+    renderFileList();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------
+  //  INSPECTOR & CONTEXT-SENSITIVE SETTINGS RENDERER
+  // ---------------------------------------------------------------------------------------------------------
+  function renderInspector() {
+    const item = getSelectedSpecimen();
+    const [dx, dy, dz] = item.dimsMeters;
+    document.getElementById("preview-aspect-chip").textContent =
+      `${dx.toFixed(2)} × ${dy.toFixed(2)} × ${dz.toFixed(2)} m · Natural Aspect`;
+
+    document.getElementById("m1-v").textContent = item.metrics.faces;
+    document.getElementById("m2-v").textContent = item.metrics.curves;
+    document.getElementById("m3-v").textContent = item.metrics.sdf;
+    document.getElementById("m4-v").textContent = item.metrics.bake;
+
+    // Pillars strip
+    const pillarsBox = document.getElementById("pillars-container");
+    document.getElementById("pillars-status-tag").textContent =
+      item.ext === ".solidarc" ? "Zero-Copy 64B mmap" : (item.warning ? "Pre-Flight Warning" : "Compiled on Intake");
+    document.getElementById("pillars-status-tag").style.color =
+      item.warning ? "var(--accent-red)" : "var(--accent-green)";
+
+    pillarsBox.innerHTML = item.pillars.map(p => `
+      <span class="pillar-pill ${p.on ? 'on' : ''}" onclick="this.classList.toggle('on')">
+        <span class="check-dot"></span>${p.label}
+      </span>
+    `).join("");
+
+    // Dynamic Settings per file type + host
+    const card = document.getElementById("dynamic-settings-card");
+    if (item.ext === ".solidarc") {
+      card.innerHTML = `
+        <div class="card-heading-row">
+          <span class="card-heading">Unified .solidarc Intake</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);">Tier 1 + Tier 2</span>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Intake Placement</div>
+            <div class="setting-sub">${state.host === 'frontier' ? 'Spawn World Instance with BSDF/VSDF' : 'Append Feature Partition or Insert Body'}</div>
+          </div>
+          <div class="segmented">
+            <button class="seg-opt active" onclick="activateSeg(this)">${state.host === 'frontier' ? 'Instance' : 'New Body'}</button>
+            <button class="seg-opt" onclick="activateSeg(this)">${state.host === 'frontier' ? 'Repository' : 'Editable Steps'}</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Distance Field Residency</span>
+          <select class="select-pill">
+            <option>Exact GPU BSDF + fp16 VSDF</option>
+            <option>fp16 LocalVolume Only ('VSDF')</option>
+            <option>Polygon BVH4 Only (.GeometrySpace)</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Verify 64-bit FNV-1a Section Checksums</span>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      `;
+    } else if (item.ext === ".step") {
+      card.innerHTML = `
+        <div class="card-heading-row">
+          <span class="card-heading">ISO 10303-21 STEP B-Rep Options</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);">AP214 / AP203</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Source Length Unit</span>
+          <div class="segmented">
+            <button class="seg-opt active" onclick="activateSeg(this)">Auto (mm)</button>
+            <button class="seg-opt" onclick="activateSeg(this)">mm</button>
+            <button class="seg-opt" onclick="activateSeg(this)">m</button>
+            <button class="seg-opt" onclick="activateSeg(this)">in</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Repair Loop Directions &amp; Tolerant Edges</span>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Allow Open Sheet Panels</div>
+            <div class="setting-sub">Required when importing unstitched surface shells</div>
+          </div>
+          <div class="switch ${state.allowOpenSheets ? 'on' : ''}" onclick="toggleOpenSheets(this)"></div>
+        </div>
+        <div class="slider-block">
+          <div class="setting-row">
+            <span class="setting-label">Aspect-Matched Narrow-Band Grid Budget</span>
+            <span style="font-family: var(--font-mono); font-size: 11px;" id="sdf-budget-val">4,096 cells</span>
+          </div>
+          <input type="range" min="1024" max="16384" step="1024" value="4096"
+                 oninput="document.getElementById('sdf-budget-val').textContent = Number(this.value).toLocaleString() + ' cells'" />
+        </div>
+      `;
+    } else if (item.ext === ".blend" || item.ext === ".fbx") {
+      card.innerHTML = `
+        <div class="card-heading-row">
+          <span class="card-heading">${item.ext === '.blend' ? 'Blender SDNA & Modifier Stack' : 'Polygon Modelling → .GeometrySpace'}</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);">Quads / N-gons / UVs</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Preserve Quads &amp; N-gons in PolygonNetwork</span>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Evaluate Viewport Modifiers (Mirror / Subsurf)</span>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Up-Axis &amp; Coordinate Handedness</span>
+          <div class="segmented">
+            <button class="seg-opt active" onclick="activateSeg(this)">Z-Up → Y-Up</button>
+            <button class="seg-opt" onclick="activateSeg(this)">Keep Y-Up</button>
+          </div>
+        </div>
+        <div class="slider-block">
+          <div class="setting-row">
+            <span class="setting-label">Dihedral Crease Split Angle</span>
+            <span style="font-family: var(--font-mono); font-size: 11px;" id="crease-angle-val">38.0°</span>
+          </div>
+          <input type="range" min="15" max="75" step="1" value="38"
+                 oninput="document.getElementById('crease-angle-val').textContent = Number(this.value).toFixed(1) + '°'" />
+        </div>
+      `;
+    } else {
+      card.innerHTML = `
+        <div class="card-heading-row">
+          <span class="card-heading">Curve &amp; Photometric Fitting</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);">SI Metres / Candela</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">SpaceCurve Max Deviation Tolerance</span>
+          <span style="font-family: var(--font-mono); font-size: 11px;">0.20 mm</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Split Sharp Crease Corners (&gt; 30°)</span>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      `;
+    }
+
+    // Footer summary
+    document.getElementById("footer-selected-name").textContent = item.name;
+    const cfg = HOST_CONFIG[state.host];
+    const targetSuffix =
+      state.host === "frontier"
+        ? (item.ext === ".fbx" ? "ControlVehicleRim.GeometrySpace" : item.name)
+        : (item.ext === ".blend" ? "ReferenceSurfaces[0]" : "Body#1 (" + item.name.replace(/\.[^.]+$/, "") + ")");
+    document.getElementById("footer-target-desc").textContent = cfg.destPrefix + targetSuffix;
+    document.getElementById("primary-import-label").textContent = cfg.ctaLabel;
+  }
+
+  function activateSeg(btn) {
+    Array.from(btn.parentElement.children).forEach(c => c.classList.remove("active"));
+    btn.classList.add("active");
+  }
+
+  function toggleOpenSheets(sw) {
+    state.allowOpenSheets = !state.allowOpenSheets;
+    sw.classList.toggle("on", state.allowOpenSheets);
+    if (state.allowOpenSheets) hideDiagnostic();
+  }
+
+  function toggleLayer(key, btn) {
+    state.layers[key] = !state.layers[key];
+    btn.classList.toggle("active", state.layers[key]);
+  }
+
+  // ---------------------------------------------------------------------------------------------------------
+  //  VISIBLE PROGRESS SEQUENCE + EXPLICIT DIAGNOSTIC ERROR REPORTING
+  // ---------------------------------------------------------------------------------------------------------
+  function showDiagnostic(title, detail) {
+    document.getElementById("diag-title").textContent = title;
+    document.getElementById("diag-detail").textContent = detail;
+    document.getElementById("diagnostic-banner").classList.add("visible");
+  }
+
+  function hideDiagnostic() {
+    document.getElementById("diagnostic-banner").classList.remove("visible");
+  }
+
+  function resetImportState() {
+    state.importing = false;
+    hideDiagnostic();
+    document.getElementById("progress-strip").classList.remove("visible");
+    document.getElementById("progress-fill-bar").style.width = "0%";
+    document.getElementById("primary-import-btn").disabled = false;
+    renderInspector();
+  }
+
+  function executeImport() {
+    if (state.importing) return;
+    const item = getSelectedSpecimen();
+
+    // Explicit diagnostic refusal when importing an open sheet solid without AllowOpenSheets
+    if (item.warning && !state.allowOpenSheets) {
+      showDiagnostic("Import Refused — Unclosed B-Rep Shell Topology", item.warning);
+      return;
+    }
+
+    hideDiagnostic();
+    state.importing = true;
+    const btn = document.getElementById("primary-import-btn");
+    btn.disabled = true;
+
+    const strip = document.getElementById("progress-strip");
+    const phaseTxt = document.getElementById("progress-phase-text");
+    const pctTxt = document.getElementById("progress-pct-text");
+    const fillBar = document.getElementById("progress-fill-bar");
+    strip.classList.add("visible");
+
+    const stages = item.ext === ".solidarc"
+      ? [
+          [28, "Mapping 64B-aligned Tier 2 sections via MemoryMappedFileView…"],
+          [64, "Verifying 64-bit FNV-1a checksums (.GeometrySpace + .Curve + BSDF + VSDF)…"],
+          [92, "Uploading std430 surface field & BVH4 buffers (0.0 ms SDF bake)…"],
+          [100, `Imported ${item.name} into ${state.host === 'frontier' ? 'Frontier World' : 'SolidArc'} cleanly.`]
+        ]
+      : [
+          [22, `Reading ${item.name} header & unit scale…`],
+          [55, "Assembling B-Rep / PolygonNetwork connectivity & chart UVs…"],
+          [84, "Compiling aspect-matched narrow-band SDF & WideBoundingTree BVH4…"],
+          [100, `Imported ${item.name} cleanly · 0 topology refusals.`]
+        ];
+
+    let idx = 0;
+    function advance() {
+      if (!state.importing) return;
+      const [pct, msg] = stages[idx];
+      fillBar.style.width = pct + "%";
+      pctTxt.textContent = pct + "%";
+      phaseTxt.textContent = msg;
+      idx++;
+      if (idx < stages.length) {
+        setTimeout(advance, 260);
+      } else {
+        state.importing = false;
+        btn.disabled = false;
+        document.getElementById("primary-import-label").textContent = "Imported ✓";
+        setTimeout(() => {
+          document.getElementById("primary-import-label").textContent = HOST_CONFIG[state.host].ctaLabel;
+        }, 1600);
+      }
+    }
+    advance();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------
+  //  DRAG-AND-DROP & REAL LOCAL FILE PICKER SUPPORT
+  // ---------------------------------------------------------------------------------------------------------
+  function handleLocalFiles(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    Array.from(fileList).forEach((f, idx) => {
+      const dotIdx = f.name.lastIndexOf(".");
+      const ext = dotIdx >= 0 ? f.name.slice(dotIdx).toLowerCase() : ".dat";
+      const supported = [".solidarc", ".step", ".stp", ".blend", ".fbx", ".obj", ".gltf", ".glb", ".toml", ".ies", ".png", ".jpg", ".exr", ".hdr", ".svg"];
+      const isSupported = supported.includes(ext);
+      const sizeKB = f.size / 1024;
+      const sizeStr = sizeKB >= 1024 ? (sizeKB / 1024).toFixed(2) + " MB" : Math.max(1, Math.round(sizeKB)) + " KB";
+
+      const newId = "local-" + Date.now() + "-" + idx;
+      SPECIMENS.unshift({
+        id: newId,
+        name: f.name,
+        subtitle: isSupported
+          ? `Local Disk File · Ready for ${state.host === 'frontier' ? 'Frontier' : 'SolidArc'} intake`
+          : `Unrecognized suffix '${ext}' — SuffixRegistry rejected unknown format`,
+        folder: "vehicles",
+        ext: ext === ".stp" ? ".step" : (ext === ".obj" || ext === ".gltf" || ext === ".glb" ? ".fbx" : ext),
+        badge: isSupported ? ext.replace(".", "").slice(0, 4).toUpperCase() : "ERR",
+        badgeClass: !isSupported ? "fmt-warn" : (ext === ".solidarc" ? "fmt-solidarc" : ext === ".blend" ? "fmt-blend" : "fmt-step"),
+        typeLabel: isSupported ? ("Local " + ext) : "Unsupported",
+        sizeLabel: sizeStr,
+        dateLabel: "Just now",
+        shape: ext === ".solidarc" ? "fuselage" : "flange",
+        dimsMeters: [1.80, 0.92, 0.64],
+        metrics: {
+          faces: isSupported ? "Header Ready" : "Rejected",
+          curves: isSupported ? "Auto-Detect" : "—",
+          sdf: ext === ".solidarc" ? "Embedded BSDF" : "On Intake",
+          bake: ext === ".solidarc" ? "0.0 ms" : "Staged"
+        },
+        pillars: isSupported
+          ? [{ label: "Local File Verified", on: true }, { label: "64B Section Align", on: true }]
+          : [{ label: "Unknown Format Suffix", on: false }],
+        warning: isSupported ? null : `SuffixRegistry::ResolveSuffixCaseInsensitive('${ext}') rejected unknown extension. Choose .solidarc, .step, .blend, .fbx, .toml, or a registered *Space document.`
+      });
+      if (idx === 0) {
+        state.folder = "all";
+        state.filter = "all";
+        state.selectedId = newId;
+      }
+    });
+    renderFilterPills();
+    renderFileList();
+  }
+
+  const dialogEl = document.getElementById("import-dialog");
+  window.addEventListener("dragover", e => {
+    e.preventDefault();
+    dialogEl.classList.add("drag-over");
+  });
+  window.addEventListener("dragleave", e => {
+    if (e.relatedTarget === null) dialogEl.classList.remove("drag-over");
+  });
+  window.addEventListener("drop", e => {
+    e.preventDefault();
+    dialogEl.classList.remove("drag-over");
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      handleLocalFiles(e.dataTransfer.files);
+    }
+  });
+
+  window.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      document.getElementById("file-search-input").focus();
+    } else if (e.key === "Escape") {
+      resetImportState();
+    } else if (e.key === "Enter" && document.activeElement.tagName !== "INPUT") {
+      executeImport();
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
+  //  INTERACTIVE ASPECT-MATCHED 3D SPECIMEN PREVIEW CANVAS (ORBITAL WIRE + CURVES + NARROW-BAND SDF GRID)
+  // ---------------------------------------------------------------------------------------------------------
+  const canvas = document.getElementById("preview-canvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.addEventListener("pointerdown", e => {
+    state.draggingOrbit = true;
+    state.lastMouse = [e.clientX, e.clientY];
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", e => {
+    if (!state.draggingOrbit) return;
+    const dx = e.clientX - state.lastMouse[0];
+    const dy = e.clientY - state.lastMouse[1];
+    state.lastMouse = [e.clientX, e.clientY];
+    state.yaw += dx * 0.011;
+    state.pitch = Math.max(-1.25, Math.min(1.25, state.pitch + dy * 0.011));
+  });
+  canvas.addEventListener("pointerup", () => { state.draggingOrbit = false; });
+
+  function projectPoint3D(x, y, z, scale, cx, cy) {
+    const cyaw = Math.cos(state.yaw), syaw = Math.sin(state.yaw);
+    const cp = Math.cos(state.pitch), sp = Math.sin(state.pitch);
+    const rx = x * cyaw - z * syaw;
+    const rz = x * syaw + z * cyaw;
+    const ry = y * cp - rz * sp;
+    const rz2 = y * sp + rz * cp;
+    const persp = 4.2 / (4.2 + rz2 * 0.45);
+    return [cx + rx * scale * persp, cy - ry * scale * persp, rz2];
+  }
+
+  function drawLine3D(a, b, scale, cx, cy) {
+    const p0 = projectPoint3D(a[0], a[1], a[2], scale, cx, cy);
+    const p1 = projectPoint3D(b[0], b[1], b[2], scale, cx, cy);
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p1[0], p1[1]);
+    ctx.stroke();
+  }
+
+  function drawPreviewFrame(ts) {
+    if (!state.draggingOrbit) {
+      state.yaw += 0.0028;
+    }
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Subtle radial vignette
+    const grad = ctx.createRadialGradient(w * 0.5, h * 0.48, 12, w * 0.5, h * 0.5, w * 0.55);
+    grad.addColorStop(0, "#171b22");
+    grad.addColorStop(1, "#090a0c");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const item = getSelectedSpecimen();
+    const [lx, wz, hy] = [item.dimsMeters[0], item.dimsMeters[1], item.dimsMeters[2]];
+    const maxSpan = Math.max(lx, wz, hy, 1e-3);
+    // Natural aspect-matched normalization: divide all 3 axes by the SAME scalar maxSpan so elongated bodies are NEVER squashed!
+    const nx = lx / maxSpan, nz = wz / maxSpan, ny = hy / maxSpan;
+    const scale = Math.min(w, h) * 0.37;
+    const cx = w * 0.5, cy = h * 0.53;
+
+    // Ground reference grid
+    ctx.strokeStyle = "rgba(255,255,255,0.045)";
+    ctx.lineWidth = 1;
+    for (let g = -3; g <= 3; g++) {
+      const t = g * 0.24;
+      drawLine3D([-0.72, -ny * 0.55, t], [0.72, -ny * 0.55, t], scale, cx, cy);
+      drawLine3D([t, -ny * 0.55, -0.72], [t, -ny * 0.55, 0.72], scale, cx, cy);
+    }
+
+    // Optional Aspect-Matched Narrow-Band SDF Bounding Grid
+    if (state.layers.sdf && item.metrics.sdf !== "None" && item.metrics.sdf !== "None (Pure Poly)") {
+      ctx.strokeStyle = item.warning ? "rgba(239, 68, 68, 0.28)" : "rgba(74, 222, 128, 0.22)";
+      ctx.lineWidth = 1;
+      const hx = nx * 0.54, hyy = ny * 0.54, hz = nz * 0.54;
+      const corners = [
+        [-hx,-hyy,-hz],[hx,-hyy,-hz],[hx,hyy,-hz],[-hx,hyy,-hz],
+        [-hx,-hyy, hz],[hx,-hyy, hz],[hx,hyy, hz],[-hx,hyy, hz]
+      ];
+      const boxEdges = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+      boxEdges.forEach(([i,j]) => drawLine3D(corners[i], corners[j], scale, cx, cy));
+
+      // Aspect-matched subdivisions along longest axis
+      const subX = Math.max(2, Math.round(nx * 6));
+      ctx.strokeStyle = "rgba(74, 222, 128, 0.09)";
+      for (let s = 1; s < subX; s++) {
+        const sx = -hx + (2 * hx * s) / subX;
+        drawLine3D([sx, -hyy, -hz], [sx, -hyy, hz], scale, cx, cy);
+        drawLine3D([sx, -hyy, hz], [sx, hyy, hz], scale, cx, cy);
+      }
+    }
+
+    // Geometry Wireframe & Parametric Curves in True Proportions
+    if (item.shape === "fuselage" || item.shape === "vehicleCage" || item.shape === "curvesOnly") {
+      const stations = 11;
+      const ringPts = 16;
+      const rings = [];
+      for (let i = 0; i <= stations; i++) {
+        const u = i / stations;
+        const x = (u - 0.5) * nx;
+        const profile = Math.sin(Math.pow(u, 0.72) * Math.PI) * 0.88 + 0.12;
+        const camber = Math.sin(u * Math.PI) * 0.06 * ny;
+        const ring = [];
+        for (let j = 0; j < ringPts; j++) {
+          const th = (j / ringPts) * Math.PI * 2;
+          const y = camber + Math.sin(th) * (ny * 0.46 * profile) * (Math.sin(th) > 0 ? 1.0 : 0.68);
+          const z = Math.cos(th) * (nz * 0.48 * profile);
+          ring.push([x, y, z]);
+        }
+        rings.push(ring);
+      }
+
+      if (state.layers.wire && item.shape !== "curvesOnly") {
+        ctx.strokeStyle = "rgba(226, 232, 240, 0.28)";
+        ctx.lineWidth = 1.05;
+        for (let i = 0; i <= stations; i++) {
+          for (let j = 0; j < ringPts; j++) {
+            drawLine3D(rings[i][j], rings[i][(j + 1) % ringPts], scale, cx, cy);
+            if (i < stations) drawLine3D(rings[i][j], rings[i + 1][j], scale, cx, cy);
+          }
+        }
+      }
+
+      if (state.layers.curves) {
+        ctx.strokeStyle = "#60a5fa";
+        ctx.lineWidth = 1.9;
+        [0, 4, 7, 11].forEach(si => {
+          for (let j = 0; j < ringPts; j++) {
+            drawLine3D(rings[si][j], rings[si][(j + 1) % ringPts], scale, cx, cy);
+          }
+        });
+        ctx.strokeStyle = "#4ade80";
+        for (let i = 0; i < stations; i++) {
+          drawLine3D(rings[i][0], rings[i + 1][0], scale, cx, cy);
+          drawLine3D(rings[i][4], rings[i + 1][4], scale, cx, cy);
+          drawLine3D(rings[i][8], rings[i + 1][8], scale, cx, cy);
+        }
+      }
+    } else if (item.shape === "flange" || item.shape === "wheel") {
+      const segs = 24;
+      const rOuter = Math.min(nx, nz) * 0.48;
+      const rBore = rOuter * 0.44;
+      const hHalf = ny * 0.44;
+      for (let j = 0; j < segs; j++) {
+        const a0 = (j / segs) * Math.PI * 2;
+        const a1 = ((j + 1) / segs) * Math.PI * 2;
+        const c0 = Math.cos(a0), s0 = Math.sin(a0);
+        const c1 = Math.cos(a1), s1 = Math.sin(a1);
+        if (state.layers.wire) {
+          ctx.strokeStyle = "rgba(226, 232, 240, 0.30)";
+          ctx.lineWidth = 1.05;
+          drawLine3D([c0 * rOuter, -hHalf, s0 * rOuter], [c0 * rOuter, hHalf, s0 * rOuter], scale, cx, cy);
+          if (j % 2 === 0) {
+            drawLine3D([c0 * rBore, hHalf, s0 * rBore], [c0 * rOuter, hHalf, s0 * rOuter], scale, cx, cy);
+          }
+        }
+        if (state.layers.curves) {
+          ctx.strokeStyle = item.warning ? "#f87171" : "#60a5fa";
+          ctx.lineWidth = 1.85;
+          drawLine3D([c0 * rOuter, hHalf, s0 * rOuter], [c1 * rOuter, hHalf, s1 * rOuter], scale, cx, cy);
+          drawLine3D([c0 * rOuter, -hHalf, s0 * rOuter], [c1 * rOuter, -hHalf, s1 * rOuter], scale, cx, cy);
+          ctx.strokeStyle = "#4ade80";
+          drawLine3D([c0 * rBore, hHalf, s0 * rBore], [c1 * rBore, hHalf, s1 * rBore], scale, cx, cy);
+          drawLine3D([c0 * rBore, -hHalf, s0 * rBore], [c1 * rBore, -hHalf, s1 * rBore], scale, cx, cy);
+        }
+      }
+    } else {
+      // Photometric polar lobe
+      const segs = 28;
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.7;
+      for (let p = 0; p < 4; p++) {
+        const phi = (p / 4) * Math.PI;
+        for (let j = 0; j < segs; j++) {
+          const t0 = (j / segs) * Math.PI;
+          const t1 = ((j + 1) / segs) * Math.PI;
+          const r0 = Math.pow(Math.sin(t0), 1.8) * 0.55;
+          const r1 = Math.pow(Math.sin(t1), 1.8) * 0.55;
+          drawLine3D(
+            [Math.cos(phi) * Math.sin(t0) * r0, 0.25 - Math.cos(t0) * r0, Math.sin(phi) * Math.sin(t0) * r0],
+            [Math.cos(phi) * Math.sin(t1) * r1, 0.25 - Math.cos(t1) * r1, Math.sin(phi) * Math.sin(t1) * r1],
+            scale, cx, cy
+          );
+        }
+      }
+    }
+
+    // Mini XYZ Coordinate Triad in bottom-left of canvas
+    const ox = 36, oy = h - 30;
+    const axes = [
+      { v: [0.22, 0, 0], color: "#ef4444", label: "X" },
+      { v: [0, 0.22, 0], color: "#4ade80", label: "Y" },
+      { v: [0, 0, 0.22], color: "#60a5fa", label: "Z" }
+    ];
+    axes.forEach(ax => {
+      const p = projectPoint3D(ax.v[0], ax.v[1], ax.v[2], 95, ox, oy);
+      ctx.strokeStyle = ax.color;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(p[0], p[1]);
+      ctx.stroke();
+      ctx.fillStyle = ax.color;
+      ctx.font = "600 10px JetBrains Mono, monospace";
+      ctx.fillText(ax.label, p[0] + 3, p[1] + 3);
+    });
+
+    requestAnimationFrame(drawPreviewFrame);
+  }
+
+  // Initialize
+  switchHost("frontier");
+  requestAnimationFrame(drawPreviewFrame);
+</script>
+</body>
+</html>

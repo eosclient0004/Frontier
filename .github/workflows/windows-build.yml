@@ -1,0 +1,305 @@
+name: Frontier Windows Build
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+      - 'main'
+    paths:
+      - '.github/workflows/windows-build.yml'
+      - 'CMakeLists.txt'
+      - 'Automation/**'
+      - 'Content/**'
+      - 'Engine/**'
+      - 'EngineContent/**'
+      - 'Exhibits/**'
+      - 'Projects/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    name: Build portable Frontier workspace package
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out branch source
+        uses: actions/checkout@v4
+
+      - name: Set up pinned build tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up MSVC x64 developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache Ninja and sccache binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/build-tools
+          key: win-x64-tools-ninja-1.13.2-sccache-0.20.1
+
+      - name: Install Ninja and sccache
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          function Invoke-DownloadAndVerify {
+            param(
+              [Parameter(Mandatory = $true)][string]$Url,
+              [Parameter(Mandatory = $true)][string]$OutFile,
+              [Parameter(Mandatory = $true)][string]$ExpectedSha256
+            )
+            $Headers = @{ 'User-Agent' = 'Frontier-Windows-CI' }
+            if ($env:GH_TOKEN) {
+              $Headers['Authorization'] = "Bearer $($env:GH_TOKEN)"
+            }
+            for ($Attempt = 1; $Attempt -le 4; $Attempt++) {
+              try {
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $Headers -MaximumRedirection 10 -TimeoutSec 120
+                $Actual = (Get-FileHash -Path $OutFile -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($Actual -ne $ExpectedSha256.ToLowerInvariant()) {
+                  throw "SHA-256 mismatch for ${Url}: expected $ExpectedSha256, got $Actual"
+                }
+                return
+              } catch {
+                Remove-Item -Force $OutFile -ErrorAction SilentlyContinue
+                if ($Attempt -eq 4) { throw }
+                Write-Warning "Download attempt $Attempt failed for ${Url}: $_"
+                Start-Sleep -Seconds (5 * $Attempt)
+              }
+            }
+          }
+
+          $ToolsDir = Join-Path $env:RUNNER_TEMP 'build-tools'
+          New-Item -ItemType Directory -Force $ToolsDir | Out-Null
+
+          $NinjaExe = Join-Path $ToolsDir 'ninja.exe'
+          if (-not (Test-Path $NinjaExe)) {
+            $NinjaZip = Join-Path $env:RUNNER_TEMP 'ninja-win.zip'
+            $NinjaTmp = Join-Path $env:RUNNER_TEMP 'ninja-extract'
+            Invoke-DownloadAndVerify `
+              -Url 'https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip' `
+              -OutFile $NinjaZip `
+              -ExpectedSha256 '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'
+            if (Test-Path $NinjaTmp) { Remove-Item -Recurse -Force $NinjaTmp }
+            Expand-Archive -Path $NinjaZip -DestinationPath $NinjaTmp -Force
+            $FoundNinja = Get-ChildItem -Path $NinjaTmp -Recurse -Filter 'ninja.exe' | Select-Object -First 1
+            if (-not $FoundNinja) { throw 'ninja.exe missing from ninja-win.zip archive' }
+            Copy-Item $FoundNinja.FullName $NinjaExe -Force
+            Remove-Item -Recurse -Force $NinjaZip, $NinjaTmp -ErrorAction SilentlyContinue
+          }
+
+          $SccacheExe = Join-Path $ToolsDir 'sccache.exe'
+          if (-not (Test-Path $SccacheExe)) {
+            $SccacheZip = Join-Path $env:RUNNER_TEMP 'sccache-win.zip'
+            $SccacheTmp = Join-Path $env:RUNNER_TEMP 'sccache-extract'
+            Invoke-DownloadAndVerify `
+              -Url 'https://github.com/mozilla/sccache/releases/download/v0.20.1/sccache-v0.20.1-x86_64-pc-windows-msvc.zip' `
+              -OutFile $SccacheZip `
+              -ExpectedSha256 'ca500a01139e9af8d5f5a5e69b6a0dd941ed79ed3399a91cc35bba484fe732fa'
+            if (Test-Path $SccacheTmp) { Remove-Item -Recurse -Force $SccacheTmp }
+            Expand-Archive -Path $SccacheZip -DestinationPath $SccacheTmp -Force
+            $FoundSccache = Get-ChildItem -Path $SccacheTmp -Recurse -Filter 'sccache.exe' | Select-Object -First 1
+            if (-not $FoundSccache) { throw 'sccache.exe missing from sccache archive' }
+            Copy-Item $FoundSccache.FullName $SccacheExe -Force
+            Remove-Item -Recurse -Force $SccacheZip, $SccacheTmp -ErrorAction SilentlyContinue
+          }
+
+          $ToolsDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$ToolsDir;$env:PATH"
+
+          $SccacheDir = Join-Path $env:RUNNER_TEMP 'sccache'
+          New-Item -ItemType Directory -Force $SccacheDir | Out-Null
+          "SCCACHE_DIR=$SccacheDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SCCACHE_CACHE_SIZE=4G" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          & $NinjaExe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $SccacheExe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cache pinned native dependencies, fonts, and shader toolchain
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ExternalPackages
+            EngineContent/FontsArchives
+          key: win-x64-deps-v2-${{ hashFiles('Automation/**') }}
+
+      - name: Cache sccache compiled object files
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: win-x64-sccache-v1-${{ hashFiles('CMakeLists.txt', 'Engine/**/*.h', 'Engine/**/*.cpp') }}
+          restore-keys: |
+            win-x64-sccache-v1-
+
+      - name: Install pinned font-generation dependency
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+            python -m pip install --requirement Automation/FontRequirements.txt
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($Attempt -eq 3) { exit $LASTEXITCODE }
+            Start-Sleep -Seconds 5
+          }
+
+      - name: Recover pinned native dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+            $Output = & python Automation/PrepareDependencies.py 2>&1
+            $Result = $LASTEXITCODE
+            $Output | ForEach-Object { Write-Output "$_" }
+            if ($Result -eq 0) { exit 0 }
+            if ($Attempt -lt 3) {
+              Write-Warning "PrepareDependencies attempt $Attempt failed; retrying..."
+              Start-Sleep -Seconds 5
+              continue
+            }
+            $Details = ($Output | Select-Object -Last 12 | ForEach-Object { "$_" }) -join ' '
+            Write-Output "::error title=Dependency preparation failed::$Details"
+            exit $Result
+          }
+
+      - name: Prepare bundled fonts
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+            python Automation/PrepareFonts.py
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($Attempt -eq 3) { exit $LASTEXITCODE }
+            Start-Sleep -Seconds 5
+          }
+
+      - name: Install pinned Windows Slang compiler
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+            python Automation/PrepareShaderToolchain.py
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($Attempt -eq 3) { exit $LASTEXITCODE }
+            Start-Sleep -Seconds 5
+          }
+
+      - name: Configure Windows x64 Ninja build with sccache
+        shell: pwsh
+        run: |
+          cmake -S . -B Build/Windows -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW `
+            -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+            -DFRONTIER_PROFILE=Editor `
+            -DBUILD_TESTING=OFF `
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build Windows x64 Frontier, SolidArc, and AutoSpace applications
+        shell: pwsh
+        run: |
+          $Output = & cmake --build Build/Windows --parallel 4 --target `
+            Frontier FrontierSketcher AutoSpace `
+            FrontierEngineRuntimeDll FrontierWorkspaceUiDll 2>&1
+          $Result = $LASTEXITCODE
+          $Output | ForEach-Object { Write-Output "$_" }
+          sccache --show-stats
+          if ($Result -ne 0) {
+            $Diagnostics = $Output | Select-String -Pattern '(?i)(:\s*(?:fatal\s+)?error\b|LNK[0-9]+|FAILED|Build FAILED|MSB[0-9]+)' | Select-Object -Last 12
+            if (-not $Diagnostics) { $Diagnostics = $Output | Select-Object -Last 10 }
+            $Details = ($Diagnostics | ForEach-Object { "$_" }) -join ' '
+            Write-Output "::error title=Windows build diagnostics::$Details"
+            exit $Result
+          }
+
+      - name: Assemble portable folder
+        shell: pwsh
+        run: |
+          $Payload = Join-Path $env:RUNNER_TEMP 'Frontier-Workspaces-Windows-x64'
+          if (Test-Path $Payload) { Remove-Item -Recurse -Force $Payload }
+          New-Item -ItemType Directory -Force `
+            "$Payload/CompiledShaders", `
+            "$Payload/EngineContent", `
+            "$Payload/Content", `
+            "$Payload/Projects/AutoSpace", `
+            "$Payload/Binaries/Win64" | Out-Null
+          Copy-Item 'Build/Windows/Frontier.exe' "$Payload/Frontier.exe"
+          Copy-Item 'Build/Windows/FrontierSketcher.exe' "$Payload/SolidArc.exe"
+          Copy-Item 'Build/Windows/Projects/AutoSpace/AutoSpace.exe' "$Payload/AutoSpace.exe"
+          Copy-Item 'Build/Windows/Binaries/Win64/*' "$Payload/Binaries/Win64/" -Recurse -Force
+          Copy-Item 'Build/Windows/CompiledShaders/*' "$Payload/CompiledShaders/" -Recurse -Force
+          Copy-Item 'EngineContent/*' "$Payload/EngineContent/" -Recurse -Force
+          Copy-Item 'Content/*' "$Payload/Content/" -Recurse -Force
+          Copy-Item 'Projects/AutoSpace/*' "$Payload/Projects/AutoSpace/" -Recurse -Force
+          $RequiredPayload = @(
+            "$Payload/Frontier.exe",
+            "$Payload/SolidArc.exe",
+            "$Payload/AutoSpace.exe",
+            "$Payload/CompiledShaders/WorldViewportRadiometricCompute.comp.spv",
+            "$Payload/EngineContent/FontsArchives/FontRepository.FontSpace",
+            "$Payload/EngineContent/FontsArchives/Inter/Inter-Regular.otf",
+            "$Payload/Content/Environment/Skies/ClearSkyDaylight.VolumetricSpace",
+            "$Payload/Projects/AutoSpace/AutoSpace.projectspace",
+            "$Payload/Projects/AutoSpace/Content/Worlds/MainWorld.WorldSpace"
+          )
+          foreach ($RequiredPath in $RequiredPayload) {
+            if (-not (Test-Path $RequiredPath)) {
+              Write-Error "Portable Windows package is missing required file: $RequiredPath"
+              exit 1
+            }
+          }
+          Push-Location $Payload
+          try {
+            & "$Payload/AutoSpace.exe" --headless --verify
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Packaged AutoSpace.exe headless verification failed with exit code $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
+          } finally {
+            Pop-Location
+          }
+          @'
+          Frontier, SolidArc & AutoSpace for Windows x64
+
+          Executables included:
+            - Frontier.exe  : Project Browser, 3D World Editor & Integrated Workspaces
+            - SolidArc.exe  : Standalone Parametric B-Rep CAD & Sketching Studio
+            - AutoSpace.exe : Standalone AutoSpace Runtime (Sun & Clear Sky blank world)
+
+          Keep CompiledShaders, EngineContent, Content, Projects, and Binaries/Win64 beside the executables.
+          A Windows Vulkan 1.2+ graphics driver is required.
+          '@ | Set-Content "$Payload/README.txt" -Encoding utf8
+          Compress-Archive -Path "$Payload/*" -DestinationPath 'Build/Frontier-Workspaces-Windows-x64.zip' -CompressionLevel Optimal
+
+      - name: Upload Windows x64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Frontier-Workspaces-Windows-x64
+          path: Build/Frontier-Workspaces-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14

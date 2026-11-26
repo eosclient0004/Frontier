@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Frontier · Unified Lighting Architecture Lab</title>
+  <link rel="stylesheet" href="./LabStyles.css" />
+</head>
+<body>
+  <div class="lab-shell">
+    <header class="top-bar">
+      <div class="brand-cluster">
+        <span class="brand-title">Frontier · Unified Lighting Architecture Lab</span>
+        <span class="brand-tag">WebGL2 Live Proof</span>
+      </div>
+
+      <div class="engine-tabs" role="group" aria-label="Render Engines">
+        <button class="seg-btn" data-engine data-val="0">0 · MatCap + SH2</button>
+        <button class="seg-btn" data-engine data-val="1">2 · SDF Analytic + GDF</button>
+        <button class="seg-btn" data-engine data-val="2">1 · OpenPBR Direct</button>
+        <button class="seg-btn active" data-engine data-val="3">3 · RealTime GI</button>
+        <button class="seg-btn" data-engine data-val="4">4 · PathTracer (0,2)</button>
+      </div>
+
+      <div class="engine-tabs" role="group" aria-label="Lobby Environments">
+        <button class="seg-btn active" data-env data-val="0">Lobby 1 · Cyclorama</button>
+        <button class="seg-btn" data-env data-val="1">Lobby 2 · Forest</button>
+        <button class="seg-btn" data-env data-val="2">Lobby 3 · Pit Garage</button>
+      </div>
+    </header>
+
+    <div class="main-area">
+      <section class="viewport-pane">
+        <canvas id="glCanvas"></canvas>
+
+        <div class="hud-overlay">
+          <div class="hud-row" id="hudTelemetry"></div>
+          <div class="hud-note good" id="hudDiagnosis"></div>
+        </div>
+
+        <div class="camera-strip">
+          <button class="seg-btn" data-camera="hero">Hero 3/4</button>
+          <button class="seg-btn" data-camera="cutoff">Headlamp Cutoff Wall</button>
+          <button class="seg-btn" data-camera="rear">Tail &amp; GI Bleed</button>
+          <button class="seg-btn" data-camera="plan">Top Plan</button>
+          <button class="seg-btn" id="btnCameraCut">Instant Camera Cut</button>
+        </div>
+      </section>
+
+      <aside class="inspector-pane">
+        <div class="panel-section">
+          <div class="section-header">
+            <span>1 · Many-Light Scheduler</span>
+            <span>Comparison</span>
+          </div>
+          <div class="control-stack">
+            <button class="seg-btn active" data-scheduler data-val="0">PriorityCut Split8 (Selected)</button>
+            <button class="seg-btn" data-scheduler data-val="1">PriorityCut Split4 (GtxLowEnd)</button>
+            <button class="seg-btn" data-scheduler data-val="2">Brute-Force All Luminaires (O(N))</button>
+            <button class="seg-btn warn" data-scheduler data-val="3">Why Bad · View-Frustum Clustered</button>
+            <button class="seg-btn warn" data-scheduler data-val="4">Why Bad · ReSTIR DI Ghosting</button>
+          </div>
+          <label class="toggle-row">
+            <span>Drive / Steer Car (Motion Test)</span>
+            <input type="checkbox" id="chkDriveVehicle" />
+          </label>
+          <label class="toggle-row">
+            <span>SDF Defect · Voxelized Grid Lights</span>
+            <input type="checkbox" id="chkSdfVoxelDefect" />
+          </label>
+          <label class="toggle-row">
+            <span>MatCap · Blend SH2 + Top-4 Lights</span>
+            <input type="checkbox" id="chkMatCapLight" checked />
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <div class="section-header">
+            <span>2 · Debug Lens &amp; Stress</span>
+            <span>Telemetry</span>
+          </div>
+          <select id="selDebugLens" class="lab-select">
+            <option value="0">Final ACES Filmic Lit</option>
+            <option value="1">Light-Tree Cut Count Heatmap</option>
+            <option value="2">False-Colour Illuminance (Lux)</option>
+            <option value="3">Shadows &amp; SDF AO Only</option>
+            <option value="4">Indirect GI Color Bleed Only</option>
+            <option value="5">Clearcoat Specular Lobes Only</option>
+          </select>
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Self-Lit Pylons (Many-Lights Stress)</span>
+              <strong id="lblPylons">16</strong>
+            </div>
+            <input type="range" id="rngPylons" min="0" max="48" step="4" value="16" />
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="section-header">
+            <span>3 · Studio, Portal &amp; Automotive Rig</span>
+          </div>
+          <div class="control-grid">
+            <label class="toggle-row"><span>LTC Softbox</span><input type="checkbox" id="chkSoftbox" checked /></label>
+            <label class="toggle-row"><span>IES Fresnel</span><input type="checkbox" id="chkFresnel" checked /></label>
+            <label class="toggle-row"><span>Tube Rim Bar</span><input type="checkbox" id="chkRimTube" checked /></label>
+            <label class="toggle-row"><span>Sky Portal</span><input type="checkbox" id="chkPortal" checked /></label>
+            <label class="toggle-row"><span>Low Beam IES</span><input type="checkbox" id="chkLowBeam" checked /></label>
+            <label class="toggle-row"><span>High Beam</span><input type="checkbox" id="chkHighBeam" /></label>
+            <label class="toggle-row"><span>DRL Capsule</span><input type="checkbox" id="chkDrl" checked /></label>
+            <label class="toggle-row"><span>Brake Boost</span><input type="checkbox" id="chkBrake" /></label>
+          </div>
+          <label class="toggle-row">
+            <span>Amber Turn Signal Flash</span>
+            <input type="checkbox" id="chkTurnSignal" />
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <div class="section-header">
+            <span>4 · 128×32 Type-C IES Goniometer</span>
+          </div>
+          <select id="selIesProfile" class="lab-select"></select>
+          <canvas id="polarCanvas" class="polar-canvas" width="300" height="164"></canvas>
+        </div>
+
+        <div class="panel-section">
+          <div class="section-header">
+            <span>5 · Architecture Parity Summary</span>
+          </div>
+          <table class="matrix-mini">
+            <thead>
+              <tr><th>Method</th><th>Refl/GI</th><th>Motion</th><th>Verdict</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>PriorityCut</td><td class="status-good">Full</td><td class="status-good">0 Lag</td><td class="status-good">Selected</td></tr>
+              <tr><td>Clustered</td><td class="status-bad">Breaks</td><td>Rebuilds</td><td class="status-bad">Rejected</td></tr>
+              <tr><td>ReSTIR DI</td><td class="status-bad">Screen</td><td class="status-bad">Ghosts</td><td class="status-bad">Rejected</td></tr>
+              <tr><td>SDF Analytic</td><td class="status-good">Sharp</td><td class="status-good">Instant</td><td class="status-good">Selected</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module" src="./LightingLabApp.js"></script>
+</body>
+</html>

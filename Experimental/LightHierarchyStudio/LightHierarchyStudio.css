@@ -1,0 +1,695 @@
+/*============================================================================================================================================
+                                                      LIGHTHIERARCHYSTUDIO.CSS
+============================================================================================================================================*/
+/* 🧩 Project Zero 3-Dock Unified Lighting Studio (Static Toroidal Clipmap + Dynamic Cube-Grid Pods + Nanite Light BVH) */
+
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 300;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-300-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 400;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 500;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-500-normal.woff2") format("woff2");
+}
+
+* { box-sizing: border-box; }
+html, body, #Editor { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+body {
+  background: #060608;
+  color: #f0f0f4;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  user-select: none;
+}
+
+button, input, select { font: inherit; color: inherit; }
+button {
+  cursor: pointer;
+  border: 1px solid #ffffff12;
+  background: #1f1f24;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 10px;
+  transition: background 110ms ease, border-color 110ms ease;
+}
+button:hover { background: #2c2c34; }
+button:disabled { opacity: 0.4; cursor: default; }
+
+select {
+  height: 28px;
+  border-radius: 14px;
+  padding: 0 10px;
+  background: #17171c;
+  border: 1px solid #ffffff14;
+  color: #e4e4ec;
+  font-size: 11px;
+  outline: none;
+}
+
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  height: 24px;
+  border-radius: 24px;
+  background: linear-gradient(90deg, #484854 0 var(--fill, 50%), #202026 var(--fill, 50%) 100%);
+  cursor: ew-resize;
+  margin: 0;
+  min-width: 24px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ececf0;
+  box-shadow: 0 1px 3px #0009;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #2e2e36; border-radius: 6px; }
+
+/*========================================================================================================================
+                                           3-DOCK PROJECT ZERO WORKSPACE SHELL
+========================================================================================================================*/
+
+#Editor {
+  display: grid;
+  grid-template-columns: 274px minmax(0, 1fr) 392px;
+  gap: 2px;
+  background: #040406;
+}
+
+.dock {
+  background: #111114;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-strip {
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  padding: 3px 8px 0 4px;
+  background: #0a0a0c;
+  border-bottom: 1px solid #ffffff08;
+  position: relative;
+  gap: 6px;
+}
+.document-tab {
+  height: 26px;
+  min-width: 98px;
+  padding: 0 14px 0 15px;
+  background: #1c1c21;
+  color: #e4e4ec;
+  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 100%, 0 100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.document-tab .tab-x { color: #6f6f78; margin-left: auto; }
+
+.pz-notch {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  height: 28px;
+  min-width: 170px;
+  padding: 0 24px;
+  background: #212126;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 13px 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #e8e8f0;
+  letter-spacing: 0.3px;
+}
+
+/*========================================================================================================================
+                                           LEFT DOCK — PROJECT ZERO LIGHT OUTLINER
+========================================================================================================================*/
+
+.outliner-head {
+  padding: 12px 15px 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex: none;
+}
+.outliner-head h1 { margin: 0; font-size: 19px; font-weight: 300; color: #f2f2f6; }
+.outliner-head small { font-size: 10px; color: #6c6c76; }
+
+.pz-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  padding: 0 12px 10px;
+  flex: none;
+}
+.pz-stat-card {
+  height: 60px;
+  background: #17171b;
+  border: 1px solid #ffffff0d;
+  border-radius: 13px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pz-stat-left { display: flex; flex-direction: column; gap: 3px; text-align: left; }
+.pz-stat-left span { font-size: 10px; color: #8c8c96; }
+.stat-pill {
+  font-size: 8.5px;
+  letter-spacing: 0.8px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  width: fit-content;
+  font-weight: 600;
+}
+.stat-pill.static { background: #38d9f520; color: #38d9f5; }
+.stat-pill.dynamic { background: #ffb45422; color: #ffb454; }
+.pz-stat-card b { font-size: 22px; font-weight: 300; color: #f2f2f6; font-variant-numeric: tabular-nums; }
+
+.outliner-rows {
+  flex: 1;
+  overflow: auto;
+  padding: 2px 9px 10px;
+}
+.outliner-group {
+  font-size: 10px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: #6b6b76;
+  padding: 8px 8px 4px;
+}
+.outliner-row {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  position: relative;
+  margin-bottom: 2px;
+}
+.outliner-row:hover:not(.selected) { background: #1a1a1f; }
+.outliner-row.selected {
+  background: #23232a;
+  border-color: #3f3f4a;
+}
+.outliner-row.selected::before {
+  content: "";
+  position: absolute;
+  left: -1px; top: 5px; bottom: 5px;
+  width: 3px;
+  border-radius: 2px;
+  background: #ffb454;
+}
+.outliner-row.disabled-row { opacity: 0.42; }
+.row-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.row-name { font-size: 11.5px; color: #e8e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { font-size: 9.5px; color: #72727e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mob-chip {
+  height: 20px;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  flex: none;
+}
+.mob-chip.static {
+  background: #38d9f51c;
+  border-color: #38d9f550;
+  color: #5ee6ff;
+}
+.mob-chip.dynamic {
+  background: #ffb45420;
+  border-color: #ffb45455;
+  color: #ffc578;
+}
+
+.outliner-footer {
+  height: 42px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-top: 1px solid #ffffff08;
+  background: #131317;
+}
+.outliner-footer span { display: flex; flex-direction: column; }
+.outliner-footer small { font-size: 7.5px; letter-spacing: 0.7px; color: #646470; }
+.outliner-footer b { font-size: 10.5px; font-weight: 400; color: #d8d8e2; font-variant-numeric: tabular-nums; }
+
+/*========================================================================================================================
+                                     CENTER DOCK — PROJECT ZERO VIEWPORT HEADER + 3 STAGES
+========================================================================================================================*/
+
+.vp-head-row1 {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid #ffffff08;
+  background: #111114;
+  gap: 8px;
+}
+.vp-scene-ident { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vp-scene-ident b { font-size: 12.5px; font-weight: 400; color: #f0f0f6; white-space: nowrap; }
+.vp-scene-ident small { font-size: 9.5px; color: #757582; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vp-tag-pill {
+  font-size: 8.5px;
+  letter-spacing: 0.8px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #5bdb8718;
+  border: 1px solid #5bdb8740;
+  color: #5bdb87;
+  white-space: nowrap;
+}
+
+.seg-pills {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #18181d;
+  border: 1px solid #ffffff10;
+  border-radius: 14px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.seg-pills button {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 10px;
+  border: 0;
+  background: transparent;
+  color: #8f909c;
+  border-radius: 11px;
+  white-space: nowrap;
+}
+.seg-pills button.active {
+  background: #ececf2;
+  color: #111;
+  font-weight: 500;
+}
+
+.vp-head-row2 {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: #0e0e12;
+  border-bottom: 1px solid #ffffff0a;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.vp-head-row2::-webkit-scrollbar { display: none; }
+.vp-debug-group { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.dbg-pill {
+  height: 25px;
+  min-height: 25px;
+  padding: 0 10px;
+  font-size: 10px;
+  border-radius: 13px;
+  background: #18181e;
+  border: 1px solid #ffffff12;
+  color: #b4b6c4;
+  white-space: nowrap;
+}
+.dbg-pill.active {
+  background: #2c2d38;
+  border-color: #38d9f599;
+  color: #ffffff;
+}
+.dbg-pill.err-btn.active {
+  background: #3d1d1c;
+  border-color: #ff5f56aa;
+  color: #ffc2be;
+}
+
+.vp-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1.35fr 0.85fr;
+  gap: 7px;
+  padding: 8px 10px;
+}
+.vp-card {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #080a0e;
+  border: 1px solid #ffffff12;
+  min-width: 0;
+  min-height: 0;
+}
+.vp-card.wide { grid-column: 1 / span 2; }
+.vp-card canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.vp-overlay { pointer-events: auto; cursor: crosshair; }
+
+.vp-tag {
+  position: absolute;
+  left: 9px; top: 9px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: 9px;
+  background: #0a0c10d8;
+  border: 1px solid #ffffff16;
+  pointer-events: none;
+}
+.vp-tag b { font-size: 11px; font-weight: 500; color: #f4f4f8; }
+.vp-tag small { font-size: 9.5px; color: #96a0b0; display: block; }
+.vp-tag .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.dot.green { background: #5bdb87; box-shadow: 0 0 7px #5bdb87; }
+.dot.amber { background: #ffb454; box-shadow: 0 0 7px #ffb454; }
+.dot.cyan  { background: #38d9f5; box-shadow: 0 0 7px #38d9f5; }
+.dot.coral { background: #ff5f56; box-shadow: 0 0 7px #ff5f56; }
+
+.vp-perf-badge {
+  position: absolute;
+  right: 9px; top: 9px;
+  z-index: 4;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: #0a0c10d4;
+  border: 1px solid #ffffff14;
+  font-size: 9.5px;
+  color: #cfd5e2;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.heatmap-bar {
+  position: absolute;
+  right: 10px; bottom: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: #0a0c10d0;
+  border: 1px solid #ffffff14;
+  font-size: 9px;
+  color: #cfd5e0;
+  pointer-events: none;
+}
+.heatmap-bar i {
+  width: 96px; height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, #080812, #5c126e, #d64726, #fce040);
+}
+
+.stage-foot {
+  height: 36px;
+  flex: none;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0c0c10;
+  border-top: 1px solid #ffffff08;
+  font-size: 10px;
+  color: #7c7e8c;
+}
+.stage-foot b { color: #e2e4ec; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/*========================================================================================================================
+                                         RIGHT DOCK — PROJECT ZERO INSPECTOR & BENCHMARK
+========================================================================================================================*/
+
+.inspector-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+}
+
+.pz-insp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.pz-crumb { font-size: 9.5px; color: #787a86; }
+.pz-hero-h1 { margin: 0 0 2px; font-size: 23px; font-weight: 300; color: #f4f4f8; }
+.pz-hero-sub { margin: 0 0 12px; font-size: 10.5px; color: #848694; }
+
+/* Project Zero PageCarousel */
+.pc-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 12px;
+}
+.pc-step {
+  width: 24px; height: 24px; min-height: 24px; padding: 0; border-radius: 50%;
+  background: #1b1b20; color: #c8cad2;
+}
+.pc-rail {
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  border-radius: 999px; background: #141418;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+  overflow-x: auto; scrollbar-width: none;
+}
+.pc-rail::-webkit-scrollbar { display: none; }
+.pc-pill {
+  display: inline-flex; flex: none; align-items: center; gap: 5px;
+  height: 24px; min-height: 24px; padding: 0 9px 0 4px;
+  border: 0; border-radius: 999px; background: transparent;
+  color: #9698a4; font-size: 10.5px; white-space: nowrap;
+}
+.pc-number {
+  display: grid; place-items: center; width: 17px; height: 17px;
+  border-radius: 50%; background: #292930; color: #c8cad2;
+  font-size: 9px; font-weight: 600;
+}
+.pc-pill.open { background: #34343e; color: #fff; }
+.pc-pill.open .pc-number { background: #f0f0f4; color: #141418; }
+.pc-page { display: none; }
+.pc-page.open { display: block; }
+
+/* Reference-Style Side-by-Side GPU Cost & VRAM Comparison Box */
+.bench-box {
+  padding: 13px 13px 11px;
+  border-radius: 18px;
+  border: 1px solid #30313c;
+  background: linear-gradient(135deg, #1f2027, #16171d);
+  margin-bottom: 12px;
+}
+.bench-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.bench-head h3 { margin: 0; font-size: 11px; font-weight: 500; color: #eceef4; }
+.bench-actions { display: flex; gap: 5px; }
+.bench-actions button {
+  height: 22px; min-height: 22px; padding: 0 8px;
+  font-size: 9.5px; border-radius: 10px; background: #262732;
+}
+.bench-actions button.active { background: #472020; border-color: #ff5f5688; color: #ffc1bd; }
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.bench-table th {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #747888;
+  text-align: right;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #ffffff10;
+}
+.bench-table th:first-child { text-align: left; }
+.bench-table tr.bench-row { cursor: pointer; transition: background 90ms ease; }
+.bench-table tr.bench-row:hover { background: #ffffff08; }
+.bench-table tr.bench-row.active { background: #ffb4541c; }
+.bench-table td {
+  padding: 6px 3px;
+  font-size: 10px;
+  color: #d4d6e2;
+  text-align: right;
+  border-bottom: 1px solid #ffffff06;
+  white-space: nowrap;
+}
+.bench-table td:first-child { text-align: left; color: #f0f2f8; }
+.bench-table tr.bench-row.active td:first-child { color: #ffb454; font-weight: 500; }
+.b-speed { font-size: 8.5px; color: #5bdb87; margin-left: 3px; font-weight: 600; }
+.b-err-ok { color: #5bdb87 !important; font-weight: 500; }
+.b-err-mid { color: #ffb454 !important; }
+.b-err-bad { color: #ff5f56 !important; font-weight: 600; }
+.bench-foot {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #ffffff0c;
+  font-size: 9px;
+  line-height: 1.45;
+  color: #828696;
+}
+
+.status-banner {
+  padding: 9px 12px;
+  border-radius: 13px;
+  border: 1px solid #5bdb8744;
+  background: #5bdb8710;
+  color: #c2f5d4;
+  font-size: 10.5px;
+  line-height: 1.4;
+  margin-bottom: 11px;
+}
+.status-banner.warn {
+  border-color: #ff5f5655;
+  background: #ff5f5616;
+  color: #ffc2bd;
+}
+.status-banner b { display: block; font-size: 11px; margin-bottom: 2px; font-weight: 500; }
+
+.property-card {
+  padding: 14px 15px 13px;
+  border-radius: 20px;
+  border: 1px solid #2e2f38;
+  background: linear-gradient(135deg, #212228, #191a20);
+  margin-bottom: 11px;
+}
+.property-card h3 {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #e0e2ea;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.property-card h3 small { font-size: 9.5px; color: #5bdb87; font-weight: 400; }
+
+.mobility-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 11px;
+}
+.mobility-switch button {
+  height: 44px;
+  border-radius: 13px;
+  flex-direction: column;
+  gap: 1px;
+  background: #15161c;
+  border: 1px solid #ffffff10;
+}
+.mobility-switch button b { font-size: 11px; font-weight: 500; }
+.mobility-switch button small { font-size: 8.5px; color: #7e8292; }
+.mobility-switch button.static.active {
+  background: #38d9f51c;
+  border-color: #38d9f5aa;
+  color: #8ff0ff;
+}
+.mobility-switch button.dynamic.active {
+  background: #ffb45420;
+  border-color: #ffb454aa;
+  color: #ffd396;
+}
+
+.field { display: block; margin: 10px 0; }
+.field > span { display: block; font-size: 10.5px; color: #9698a6; margin-bottom: 5px; }
+.slider-pill { display: flex; align-items: center; gap: 8px; }
+.slider-pill > input[type="range"] { flex: 1; }
+.split-value {
+  width: 84px; height: 25px; display: flex;
+  border: 1px solid #ffffff12; border-radius: 13px; overflow: hidden; flex: none;
+}
+.split-value output {
+  width: 50px; display: grid; place-items: center;
+  font-size: 10.5px; background: #060608; font-variant-numeric: tabular-nums;
+}
+.split-value small {
+  flex: 1; display: grid; place-items: center;
+  background: #191a20; border-left: 1px solid #ffffff0d; font-size: 9px; color: #787a88;
+}
+
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 11px; }
+.quick-tile {
+  --ink: #5bdb87;
+  height: 68px; border-radius: 14px;
+  border: 1px solid #ffffff12;
+  background: linear-gradient(145deg, #ffffff06, #ffffff01);
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px;
+}
+.quick-tile.off { --ink: #e19483; }
+.quick-tile b { font-size: 11px; font-weight: 400; color: #e4e6ee; }
+.quick-tile span { font-size: 8.5px; letter-spacing: 0.9px; text-transform: uppercase; color: var(--ink); }
+
+.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 10px; }
+.metric-tile {
+  background: #16171c; border: 1px solid #ffffff0e; border-radius: 12px;
+  padding: 9px 11px; display: flex; flex-direction: column; gap: 2px;
+}
+.metric-tile b { font-size: 16px; font-weight: 400; color: #f2f2f8; font-variant-numeric: tabular-nums; }
+.metric-tile b small { font-size: 10px; color: #8c8e9c; margin-left: 2px; }
+.metric-tile span { font-size: 8px; letter-spacing: 0.8px; text-transform: uppercase; color: #707280; }
+
+.refine-btn {
+  width: 100%; height: 34px; border-radius: 15px;
+  background: linear-gradient(135deg, #34c759, #249b44);
+  border: 0; color: #05200b; font-weight: 600; font-size: 11px; margin-bottom: 8px;
+}
+.refine-btn.secondary {
+  background: #1b1c24; color: #c4c6d2; border: 1px solid #ffffff14; font-weight: 400; height: 28px; margin-bottom: 0;
+}
+#ErrorChartCanvas {
+  width: 100%; height: 84px; border-radius: 11px;
+  background: #0c0d11; border: 1px solid #ffffff10; display: block; margin-bottom: 8px;
+}
+.card-note { margin: 8px 0 0; font-size: 9.5px; line-height: 1.45; color: #888a98; }

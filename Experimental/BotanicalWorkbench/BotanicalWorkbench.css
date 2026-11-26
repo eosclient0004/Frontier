@@ -1,0 +1,1379 @@
+/*============================================================================================================================================
+                                                        BOTANICALWORKBENCH.CSS
+============================================================================================================================================*/
+/* 🧩 Exact 1:1 Project Zero Editor UI stylesheet (Editor.css + PageCarousel.css + WindPanel.css tokens & layout) */
+
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 300;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-300-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 400;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 500;
+  font-style: normal;
+  src: url("../UVEditor/Fonts/dm-sans-latin-500-normal.woff2") format("woff2");
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#Editor {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #090909;
+  color: #f0f0f0;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  user-select: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid #ffffff0d;
+  background: #222;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 5px 12px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+button:hover {
+  background: #2e2e2e;
+}
+button:active {
+  background: #383838;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+input,
+select {
+  min-width: 0;
+  background: #000;
+  border: 1px solid #ffffff0d;
+  outline: none;
+}
+
+select {
+  height: 32px;
+  border-radius: 16px;
+  padding: 4px 14px;
+  width: 100%;
+  color: #d4d4d4;
+  background: #0c0c0c;
+}
+option,
+optgroup {
+  background: #1a1a1a;
+  color: #e4e4e4;
+}
+
+/* Exact Project Zero Range Slider */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  height: 26px;
+  border-radius: 30px;
+  background: linear-gradient(
+    90deg,
+    #454545 0 var(--fill, 50%),
+    #242424 var(--fill, 50%) 100%
+  );
+  cursor: ew-resize;
+  min-width: 24px;
+  margin: 0;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  box-shadow: 0 1px 2px #0008;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: #e0e0e0;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2c2c2c;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*========================================================================================================================
+                                           3-DOCK PROJECT ZERO WORKSPACE SHELL
+========================================================================================================================*/
+
+#Editor {
+  display: grid;
+  grid-template-columns: 292px minmax(0, 1fr) 368px;
+  gap: 2px;
+  background: #050505;
+  position: relative;
+}
+
+.dock {
+  background: #111112;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Per-Dock Trapezoidal Tab Strip (Exact Project Zero Editor Overview) */
+.tab-strip {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  padding: 4px 8px 0 4px;
+  background: #0a0a0b;
+  border-bottom: 1px solid #ffffff08;
+  position: relative;
+  gap: 6px;
+}
+.document-tab {
+  height: 27px;
+  min-width: 108px;
+  padding: 0 14px 0 16px;
+  background: #1c1c20;
+  color: #e4e4e8;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 100%, 0 100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.document-tab .tab-x {
+  color: #6f6f76;
+  font-size: 11px;
+  margin-left: auto;
+}
+.tab-add-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: #1a1a1d;
+  border: 1px solid #ffffff10;
+  color: #8c8c94;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.tab-add-btn:hover {
+  background: #29292f;
+  color: #fff;
+}
+
+/* Center Top Project-Zero Trapezoidal Notch */
+.pz-notch {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  height: 30px;
+  min-width: 176px;
+  padding: 0 28px;
+  background: #212124;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 14px 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #b4b4bc;
+  letter-spacing: 0.3px;
+  z-index: 6;
+}
+.pz-notch b {
+  color: #ededf0;
+  font-weight: 400;
+}
+
+/*========================================================================================================================
+                                           LEFT DOCK — PROJECT ZERO OUTLINER
+========================================================================================================================*/
+
+.outliner-heading {
+  height: 58px;
+  padding: 14px 18px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.outliner-heading h1 {
+  font-size: 20px;
+  font-weight: 300;
+  letter-spacing: 0.5px;
+  margin: 0;
+  color: #f0f0f0;
+}
+.outliner-heading small {
+  font-size: 10px;
+  color: #636369;
+  white-space: nowrap;
+}
+.outliner-heading button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 50%;
+  padding: 0;
+  margin-left: auto;
+  background: transparent;
+  border-color: #ffffff10;
+  color: #777;
+}
+
+/* 2 Large Project Zero Stat Cards (Visible / Hidden) */
+.pz-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 14px;
+  flex: none;
+}
+.pz-stat-card {
+  height: 68px;
+  background: #171719;
+  border: 1px solid #ffffff0d;
+  border-radius: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+}
+.pz-stat-card:hover {
+  background: #1d1d20;
+}
+.pz-stat-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pz-stat-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+.pz-stat-badge.green {
+  background: #34c759;
+  color: #082d11;
+}
+.pz-stat-badge.muted {
+  background: #26262a;
+  color: #84848c;
+}
+.pz-stat-left span {
+  font-size: 10.5px;
+  color: #8c8c94;
+}
+.pz-stat-card b {
+  font-size: 26px;
+  font-weight: 300;
+  color: #f0f0f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.outliner-search {
+  display: flex;
+  padding: 10px 14px 8px;
+  gap: 8px;
+  flex: none;
+}
+.outliner-search label {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: #171719;
+  border: 1px solid #2b2b2e;
+  border-radius: 20px;
+  flex: 1;
+  color: #6b6b72;
+}
+.outliner-search input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: #e4e4e8;
+}
+.outliner-filter-btn {
+  height: 36px;
+  min-height: 36px;
+  background: #171719;
+  border: 1px solid #2b2b2e;
+  border-radius: 18px;
+  font-size: 10.5px;
+  color: #9e9ea6;
+  padding: 0 12px;
+}
+.outliner-filter-btn.active {
+  border-color: #ffb45477;
+  color: #ffb454;
+}
+
+.outliner-rows {
+  flex: 1;
+  overflow: auto;
+  padding: 2px 10px 10px;
+}
+.outliner-group-row {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  margin-top: 6px;
+  color: #9a9aa2;
+  font-size: 11.5px;
+}
+.outliner-group-row small {
+  font-size: 9px;
+  color: #5b5b62;
+  margin-left: 2px;
+}
+.outliner-row {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px 0 calc(14px + var(--depth, 0) * 14px);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  color: #c8c8ce;
+}
+.outliner-row:hover:not(.selected) {
+  background: #1a1a1d;
+}
+.outliner-row.selected {
+  background: #232327;
+  border-color: #3f3f46;
+  color: #f4f4f6;
+}
+.outliner-row.selected::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: #ffb454;
+}
+.outliner-row.hidden-row {
+  opacity: 0.38;
+}
+.row-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.row-name {
+  font-size: 12px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-sub {
+  font-size: 9.5px;
+  color: #65656c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.row-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #34c759;
+  color: #082e12;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  flex: none;
+}
+.outliner-row.hidden-row .row-check {
+  background: #333338;
+  color: #777;
+}
+.row-eye {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7a7a82;
+  opacity: 0;
+  flex: none;
+  font-size: 11px;
+}
+.outliner-row:hover .row-eye,
+.outliner-row.selected .row-eye,
+.outliner-row.hidden-row .row-eye {
+  opacity: 1;
+}
+
+.outliner-footer {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-top: 1px solid #ffffff08;
+  background: #131315;
+}
+.outliner-footer span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.outliner-footer small {
+  font-size: 7.5px;
+  letter-spacing: 0.8px;
+  color: #5c5c63;
+}
+.outliner-footer b {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: #c6c6cc;
+  font-variant-numeric: tabular-nums;
+}
+.outliner-footer span:first-child b {
+  color: #34c759;
+}
+
+/*========================================================================================================================
+                                           CENTER DOCK — PROJECT ZERO VIEWPORT
+========================================================================================================================*/
+
+.vp-head-row1 {
+  height: 42px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid #ffffff06;
+  background: #111113;
+}
+.vp-scene-ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vp-scene-ident .vp-title {
+  display: flex;
+  flex-direction: column;
+}
+.vp-scene-ident b {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #ececf0;
+}
+.vp-scene-ident small {
+  font-size: 9.5px;
+  color: #6a6a72;
+}
+.vp-preview-pill {
+  font-size: 9px;
+  letter-spacing: 0.9px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #ffb4541a;
+  border: 1px solid #ffb4543d;
+  color: #ffb454;
+}
+
+.vp-mode-pills {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #18181b;
+  border: 1px solid #ffffff0e;
+  border-radius: 16px;
+  padding: 2px;
+}
+.vp-mode-pills button {
+  min-height: 24px;
+  padding: 2px 11px;
+  font-size: 10.5px;
+  border: 0;
+  background: transparent;
+  color: #8f8f96;
+  border-radius: 13px;
+}
+.vp-mode-pills button.active {
+  background: #2b2b30;
+  color: #f4f4f6;
+}
+
+.vp-head-row2 {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  background: #111113;
+  border-bottom: 1px solid #ffffff08;
+}
+.vp-left-tools,
+.vp-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.construct-pill {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  background: #efefef;
+  color: #111;
+  border: 0;
+  font-size: 11px;
+  font-weight: 500;
+}
+.construct-pill:hover {
+  background: #ffffff;
+}
+.construct-pill small {
+  color: #666;
+  font-size: 9.5px;
+  margin-left: 4px;
+  font-weight: 400;
+}
+.vp-select-pill {
+  height: 30px;
+  width: auto;
+  padding: 0 12px;
+  background: #19191c;
+  border: 1px solid #ffffff12;
+  border-radius: 15px;
+  font-size: 11px;
+  color: #d4d4dc;
+}
+.vp-icon-btn {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: #19191c;
+  border: 1px solid #ffffff10;
+  color: #9e9ea6;
+  font-size: 11px;
+}
+.vp-icon-btn.active {
+  background: #e8e8e8;
+  color: #111;
+  border-color: #e8e8e8;
+}
+
+.viewport-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  margin: 0 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0a0c10;
+  border: 1px solid #ffffff0a;
+}
+#ViewportCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.vp-corner-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.9px;
+  color: #9ca3af;
+  background: #0b0b0ec8;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #ffffff10;
+  pointer-events: none;
+}
+
+.viewport-footer {
+  height: 44px;
+  flex: none;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #6a6a72;
+  position: relative;
+  background: #111113;
+}
+.viewport-footer b {
+  color: #d4d4dc;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.viewport-footer b.green {
+  color: #34c759;
+}
+.vp-bottom-notch {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  height: 28px;
+  padding: 0 24px;
+  background: #202024;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+  display: flex;
+  align-items: center;
+  font-size: 10.5px;
+  color: #b4b4bc;
+  cursor: pointer;
+}
+.vp-bottom-notch:hover {
+  background: #2b2b31;
+  color: #fff;
+}
+
+/*========================================================================================================================
+                                           RIGHT DOCK — EXACT PROJECT ZERO INSPECTOR
+========================================================================================================================*/
+
+.inspector-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 20px 26px;
+}
+
+/* Top Breadcrumb + Add Notes Pill (Exact Overview Screenshot) */
+.pz-insp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pz-breadcrumbs {
+  font-size: 10px;
+  color: #7d7d85;
+  letter-spacing: 0.3px;
+}
+.pz-notes-btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: transparent;
+  border: 1px dashed #3a3a40;
+  color: #9b9ba3;
+  font-size: 10.5px;
+}
+.pz-notes-btn:hover {
+  border-style: solid;
+  border-color: #666;
+  color: #fff;
+  background: #1c1c20;
+}
+
+/* Huge Light Hero Title (Exact Overview Screenshot: "Sun / Directional light") */
+.pz-hero-title {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1.15;
+  color: #f4f4f6;
+  letter-spacing: -0.2px;
+}
+.pz-hero-sub {
+  margin: 0 0 14px;
+  font-size: 11px;
+  color: #84848c;
+}
+
+/* Rounded 16px Live Visual Hero Banner Card (Exact Overview Screenshot: Sky/GDF Banner) */
+.pz-hero-banner {
+  position: relative;
+  height: 118px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #ffffff16;
+  background: #141820;
+  margin-bottom: 12px;
+}
+.pz-hero-banner canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pz-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 35%, #000000b8 100%);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.pz-hero-overlay b {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+.pz-hero-overlay-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: #cfd4dc;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 2x2 Tactile Metric Readout Tiles (Exact Overview Screenshot: 07:52 | +14° | ESE 118° | 5.4 kK) */
+.pz-metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pz-metric-tile {
+  background: #17171a;
+  border: 1px solid #ffffff0d;
+  border-radius: 13px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pz-metric-tile b {
+  font-size: 18px;
+  font-weight: 400;
+  color: #f0f0f4;
+  font-variant-numeric: tabular-nums;
+}
+.pz-metric-tile b small {
+  font-size: 11px;
+  color: #8c8c94;
+  margin-left: 3px;
+}
+.pz-metric-tile span {
+  font-size: 8.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #6e6e76;
+}
+
+.pz-status-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.pz-status-card {
+  background: #17171a;
+  border: 1px solid #ffffff0d;
+  border-radius: 13px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.pz-status-card .sc-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pz-status-card .sc-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+}
+.pz-status-card .sc-dot.green {
+  background: #34c75928;
+  color: #34c759;
+}
+.pz-status-card .sc-dot.amber {
+  background: #ffb45428;
+  color: #ffb454;
+}
+.pz-status-card .sc-left span {
+  font-size: 10px;
+  color: #8a8a92;
+}
+.pz-status-card b {
+  font-size: 19px;
+  font-weight: 300;
+  color: #f0f0f4;
+  font-variant-numeric: tabular-nums;
+}
+.pz-status-card b small {
+  font-size: 10px;
+  color: #82828a;
+  margin-left: 2px;
+}
+
+/* EXACT Project Zero PageCarousel.css */
+.pc-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.pc-step {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #1c1c1f;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+  color: #c9ccd1;
+}
+.pc-step:hover:not(:disabled) {
+  background: #29292d;
+  color: #ffffff;
+}
+.pc-rail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-radius: 999px;
+  background: #141416;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.pc-rail::-webkit-scrollbar {
+  display: none;
+}
+.pc-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 10px 0 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #9a9ea5;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pc-pill:hover {
+  color: #e4e6ea;
+  background: #ffffff08;
+}
+.pc-number {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2a2a2e;
+  color: #c9ccd1;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pc-pill.open {
+  background: #34343a;
+  color: #f4f4f5;
+  box-shadow: inset 0 0 0 1px #ffffff14, 0 1px 2px #0006;
+}
+.pc-pill.open .pc-number {
+  background: #ececef;
+  color: #141416;
+}
+.pc-count {
+  min-width: 28px;
+  color: #8a8e95;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pc-page {
+  display: none;
+}
+.pc-page.open {
+  display: block;
+  animation: pzFadeSlide 0.22s cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+@keyframes pzFadeSlide {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+/* Section Caption Row ("PROPERTIES | Light, direction & atmosphere") */
+.section-caption {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #96969e;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 4px 0 12px;
+}
+.section-caption small {
+  font-size: 9.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #77777e;
+}
+
+/* EXACT Project Zero .quick-tile Grid (Enabled / Sunlight / Day cycle / Static) */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.quick-tile {
+  --quick-ink: #5bdb87;
+  --quick-tint: #4cc778;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  height: 108px;
+  min-width: 0;
+  padding: 12px 8px 10px;
+  border-radius: 17px;
+  border: 1px solid #ffffff12;
+  background: linear-gradient(145deg, #ffffff06, #ffffff01);
+  color: #d4d4d8;
+}
+.quick-tile.off {
+  --quick-ink: #e19483;
+  --quick-tint: #cb7768;
+}
+.quick-tile.amber {
+  --quick-ink: #ffb454;
+  --quick-tint: #e89b3c;
+}
+.quick-tile:hover {
+  border-color: color-mix(in srgb, var(--quick-ink) 45%, transparent);
+  background: color-mix(in srgb, var(--quick-tint) 9%, #222226);
+}
+.quick-icon-seat {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  color: var(--quick-ink);
+  background: radial-gradient(
+    circle at 45% 30%,
+    color-mix(in srgb, var(--quick-tint) 24%, transparent),
+    color-mix(in srgb, var(--quick-tint) 7%, transparent)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--quick-tint) 16%, transparent);
+}
+.quick-tile.on .quick-icon-seat {
+  filter: drop-shadow(0 0 8px #4cc77828);
+}
+.quick-label {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #dcdce0;
+}
+.quick-status {
+  font-size: 8.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--quick-ink);
+}
+
+/* EXACT Project Zero .property-card */
+.property-card {
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  border: 1px solid #303034;
+  background: linear-gradient(135deg, #222225, #1b1b1e);
+  margin-bottom: 14px;
+  min-width: 0;
+  position: relative;
+}
+.property-card h3 {
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #d2d2d8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.property-card h3 small {
+  font-size: 9.5px;
+  color: #34c759;
+}
+.card-foot {
+  border-top: 1px solid #ffffff0c;
+  padding-top: 10px;
+  font-size: 9.5px;
+  color: #808088;
+  margin: 14px 0 0;
+  line-height: 1.45;
+}
+
+/* EXACT Project Zero .field + .slider-pill + .split-value */
+.field {
+  display: block;
+  margin: 14px 0;
+  min-width: 0;
+}
+.field:last-child {
+  margin-bottom: 2px;
+}
+.field > span {
+  display: block;
+  color: #96969e;
+  font-size: 11px;
+  margin-bottom: 7px;
+}
+.slider-pill {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.slider-pill > input[type="range"] {
+  flex: 1;
+}
+.split-value {
+  width: 92px;
+  min-width: 92px;
+  height: 28px;
+  display: flex;
+  border: 1px solid #ffffff10;
+  border-radius: 14px;
+  overflow: hidden;
+  flex: none;
+}
+.split-value output {
+  width: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: #050506;
+  color: #f0f0f2;
+  font-variant-numeric: tabular-nums;
+}
+.split-value small {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  background: #1a1a1d;
+  border-left: 1px solid #ffffff0d;
+  color: #6b6b73;
+  font-size: 10px;
+}
+
+/* EXACT Project Zero .switch-row & .toggle */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 11.5px;
+  color: #b4b4bc;
+  margin: 14px 0;
+  cursor: pointer;
+}
+.toggle {
+  height: 24px;
+  min-height: 24px;
+  width: 44px;
+  border: 0;
+  border-radius: 24px;
+  padding: 2px;
+  background: #3c3c40;
+  display: block;
+  flex: none;
+  position: relative;
+}
+.toggle i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #eee;
+  transition: transform 0.15s ease;
+}
+.toggle.on {
+  background: #34c759;
+}
+.toggle.on i {
+  transform: translateX(20px);
+}
+
+/* EXACT Project Zero .subcomponent Drill-in Card */
+.subcomponent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #222225, #1b1b1e);
+  border: 1px solid #303034;
+  margin-bottom: 8px;
+  text-align: left;
+  justify-content: flex-start;
+}
+.subcomponent:hover {
+  border-color: #4a4a52;
+  background: linear-gradient(135deg, #28282c, #202024);
+}
+.subcomponent .sc-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.subcomponent b {
+  font-size: 12px;
+  font-weight: 400;
+  color: #e8e8ec;
+}
+.subcomponent small {
+  font-size: 9.5px;
+  color: #82828a;
+}
+.subcomponent .sc-chev {
+  margin-left: auto;
+  color: #777;
+  font-size: 15px;
+}
+
+/* Project Zero 3-Choice Segmented Selector (CameraBody / Tier Picker) */
+.pz-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.pz-choices button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 6px 9px;
+  border-radius: 12px;
+  background: #ffffff06;
+  border: 1px solid #ffffff10;
+  color: #a4a8b0;
+  font-size: 10.5px;
+}
+.pz-choices button b {
+  position: absolute;
+  left: 7px;
+  top: 5px;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: #ffffff4d;
+}
+.pz-choices button.on {
+  background: #ffffff12;
+  border-color: #f0f0f2a0;
+  color: #ffffff;
+}
+.pz-choices button.on b {
+  color: #ffb454;
+}
+
+/* Project Zero WindPanel Streamline Canvas + Gradient Legend */
+.wind-visual canvas {
+  display: block;
+  width: 100%;
+  height: 150px;
+  border: 1px solid #ffffff14;
+  border-radius: 14px;
+  background: #0d1112;
+}
+.wind-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #92a99f;
+  font-size: 9.5px;
+  margin: 8px 0 4px;
+}
+.wind-legend i {
+  height: 4px;
+  flex: 1;
+  background: linear-gradient(90deg, #306e7c, #58a56e, #d3b565);
+  border-radius: 8px;
+}
+
+/* Swatch Pair & Action Buttons */
+.swatch-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.swatch-tile {
+  background: #101012;
+  border: 1px solid #ffffff10;
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.swatch-tile canvas {
+  width: 100%;
+  height: 76px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.swatch-tile small {
+  font-size: 9.5px;
+  color: #8a8a92;
+}
+
+.wide-pill-btn {
+  width: 100%;
+  height: 34px;
+  border-radius: 17px;
+  font-size: 11px;
+  margin-top: 8px;
+}
+.wide-pill-btn.reset-btn {
+  background: #19191c;
+  border-color: #ffffff12;
+  color: #b8b8c0;
+  margin: 0 0 10px;
+}
+.wide-pill-btn.danger {
+  background: #3d1d1c;
+  border-color: #7c3532;
+  color: #ffb8b2;
+}
+.wide-pill-btn.danger:hover {
+  background: #522523;
+}
+
+.gdf-card-canvas {
+  width: 100%;
+  height: 176px;
+  border-radius: 14px;
+  border: 1px solid #ffffff14;
+  display: block;
+  background: #0d1117;
+}
+
+/* Inspector Footer */
+.inspector-footer {
+  height: 44px;
+  flex: none;
+  border-top: 1px solid #ffffff08;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  color: #6b6b73;
+  background: #131315;
+}

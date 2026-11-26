@@ -1,0 +1,79 @@
+# Frontier Engine — Botanical Species Asset (.botanical)
+[Container]
+FormatSuffix    = ".botanical"
+SchemaVersion   = 1
+SpeciesId       = "medjool_date_palm"
+CommonName      = "Medjool Date Palm"
+BotanicalName   = "Phoenix dactylifera"
+GrowthForm      = "Palm"
+Architecture    = "date_palm"
+ThumbnailAsset  = "EngineContent/Thumbnails/Botanical/medjool_date_palm.png"
+
+[Trunk]
+HeightMeters       = 6.4
+BaseRadiusMeters   = 0.28
+TaperExponent      = 0.22
+FlareRatio         = 1.38
+GnarlAmplitude     = 0.12
+BarkNoiseAmp       = 0.78
+BarkNoiseFreq      = 10.5
+BreakCollarHeight  = 0.0
+
+[Roots]
+Count              = 6
+SpreadMeters       = 0.95
+ButtressHeight     = 0.55
+
+[Palm]
+TrunkLeanDeg       = 6.5
+TrunkCurveDeg      = 10.0
+BasalBole          = 0.36
+RootButtresses     = 6
+TrunkRelief        = 0.80
+CrownshaftRatio    = 0.0
+ForkLevels         = 0
+FrondCount         = 28
+FrondLengthMeters  = 3.1
+FrondWidthMeters   = 0.96
+FrondArchDeg       = 72.0
+LeafletPairs       = 30
+PlumoseSplay       = 0.18
+ShowFruits         = true
+FruitBunches       = 6
+FruitAbundance     = 1.05
+
+[Leaves]
+LeafArchetypeSdf   = "palm_leaflet"
+BladeScaleMeters   = 0.46
+BladeAspect        = 0.12
+HalfThicknessMm    = 0.65
+CamberX            = 0.22
+CamberZ            = 0.16
+CanDetach          = true
+DetachWindMps      = 18.0
+
+[Materials]
+WoodHueHex         = "#6d5742"
+LeafBaseHueHex     = "#3b6e44"
+LeafYoungHueHex    = "#76ab56"
+FruitHueHex        = "#b85214"
+Translucency       = 0.36
+
+[WindAndMotion]
+DefaultMotionMode  = "ForceField"
+WindSensitivity    = 1.05
+StemStiffness      = 32.0
+StemDamping        = 3.2
+RustleFrequencyHz  = 2.1
+
+[Collision]
+CollisionClass     = "SolidWoodCapsules"
+CapsuleCount       = 6
+BendLimitDeg       = 18.0
+VehiclePushGain    = 0.35
+ReplicateOverNet   = true
+
+[Sdf]
+UseNoisyCapsules   = true
+CanopyBrickRes     = 16
+LodConeBias        = 1.0

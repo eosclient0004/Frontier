@@ -1,0 +1,38 @@
+# Frontier Engine — Botanical Species Asset (.botanical)
+[Container]
+FormatSuffix    = ".botanical"
+SchemaVersion   = 1
+SpeciesId       = "bracken_fern"
+CommonName      = "Bracken Fern"
+BotanicalName   = "Pteridium aquilinum"
+GrowthForm      = "Fern"
+Architecture    = "bipinnate_lacy"
+ParentArchetype = "sword_fern"
+ThumbnailAsset  = "EngineContent/Thumbnails/Botanical/bracken_fern.png"
+
+[Fern]
+CrownRadiusMeters  = 0.085
+CaudexHeightMeters = 0.05
+FrondCount         = 14
+FrondLengthMeters  = 1.08
+FrondLengthVar     = 0.18
+FrondWidthMeters   = 0.34
+StipeFraction      = 0.24
+StipeRadiusMeters  = 0.0055
+RosetteAngleDeg    = 34.0
+ArchDroopDeg       = 62.0
+ArchPower          = 1.48
+PinnaPairs         = 22
+PinnaAngleDeg      = 64.0
+Auricle            = 0.32
+SerrationDepth     = 0.14
+
+[Materials]
+WoodHueHex         = "#3a2818"
+LeafBaseHueHex     = "#2b6326"
+LeafYoungHueHex    = "#82b840"
+
+[WindAndMotion]
+WindSensitivity    = 1.55
+StemStiffness      = 14.5
+StemDamping        = 2.2

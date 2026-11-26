@@ -1,0 +1,38 @@
+# Frontier Engine — Botanical Species Asset (.botanical)
+[Container]
+FormatSuffix    = ".botanical"
+SchemaVersion   = 1
+SpeciesId       = "coastal_coconut_palm"
+CommonName      = "Coastal Coconut Palm"
+BotanicalName   = "Cocos nucifera"
+GrowthForm      = "Palm"
+Architecture    = "coconut_palm"
+ParentArchetype = "medjool_date_palm"
+ThumbnailAsset  = "EngineContent/Thumbnails/Botanical/coastal_coconut_palm.png"
+
+[Trunk]
+HeightMeters       = 7.2
+BaseRadiusMeters   = 0.22
+BarkNoiseAmp       = 0.55
+BarkNoiseFreq      = 14.0
+
+[Palm]
+TrunkLeanDeg       = 18.0
+TrunkCurveDeg      = 24.0
+BasalBole          = 0.32
+RootButtresses     = 5
+FrondCount         = 22
+FrondLengthMeters  = 3.4
+FrondWidthMeters   = 1.08
+FrondArchDeg       = 84.0
+LeafletPairs       = 32
+PlumoseSplay       = 0.10
+ShowFruits         = true
+FruitBunches       = 4
+FruitAbundance     = 0.85
+
+[Materials]
+WoodHueHex         = "#7c6b58"
+LeafBaseHueHex     = "#347236"
+LeafYoungHueHex    = "#82ba48"
+FruitHueHex        = "#6f8a2e"

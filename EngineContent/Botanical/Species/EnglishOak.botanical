@@ -1,0 +1,72 @@
+# Frontier Engine — Botanical Species Asset (.botanical)
+[Container]
+FormatSuffix    = ".botanical"
+SchemaVersion   = 1
+SpeciesId       = "english_oak"
+CommonName      = "English Oak"
+BotanicalName   = "Quercus robur"
+GrowthForm      = "Tree"
+Architecture    = "english_oak"
+ThumbnailAsset  = "EngineContent/Thumbnails/Botanical/english_oak.png"
+
+[Trunk]
+HeightMeters       = 10.5
+BaseRadiusMeters   = 0.34
+TaperExponent      = 0.65
+FlareRatio         = 1.75
+GnarlAmplitude     = 0.42
+BarkNoiseAmp       = 0.72
+BarkNoiseFreq      = 9.5
+BreakCollarHeight  = 0.22
+
+[Roots]
+Count              = 6
+SpreadMeters       = 2.4
+ButtressHeight     = 0.85
+
+[Tree]
+BranchLevels       = 3
+LimbCount          = 11
+BranchAngleDeg     = 52.0
+ForkTendency       = 0.44
+CanopyFlatten      = 0.18
+ButtressRelief     = 0.40
+PipeConservation   = 0.62
+LeafDensity        = 1.0
+LeafSizeMeters     = 0.22
+
+[Leaves]
+LeafArchetypeSdf   = "lobed_oak"
+BladeScaleMeters   = 0.22
+BladeAspect        = 0.64
+HalfThicknessMm    = 0.60
+CamberX            = 0.16
+CamberZ            = 0.20
+CanDetach          = true
+DetachWindMps      = 10.5
+
+[Materials]
+WoodHueHex         = "#5c4633"
+LeafBaseHueHex     = "#2f6b20"
+LeafYoungHueHex    = "#74bd34"
+FruitHueHex        = "#7a5429"
+Translucency       = 0.44
+
+[WindAndMotion]
+DefaultMotionMode  = "Vat"
+WindSensitivity    = 0.82
+StemStiffness      = 48.0
+StemDamping        = 4.2
+RustleFrequencyHz  = 2.6
+
+[Collision]
+CollisionClass     = "SolidWoodCapsules"
+CapsuleCount       = 6
+BendLimitDeg       = 10.0
+VehiclePushGain    = 0.15
+ReplicateOverNet   = true
+
+[Sdf]
+UseNoisyCapsules   = true
+CanopyBrickRes     = 16
+LodConeBias        = 1.0

@@ -1,0 +1,84 @@
+# Frontier Engine — Botanical Species Asset (.botanical)
+[Container]
+FormatSuffix    = ".botanical"
+SchemaVersion   = 1
+SpeciesId       = "sword_fern"
+CommonName      = "Sword Fern"
+BotanicalName   = "Nephrolepis exaltata"
+GrowthForm      = "Fern"
+Architecture    = "pinnate_sword"
+ThumbnailAsset  = "EngineContent/Thumbnails/Botanical/sword_fern.png"
+
+[Trunk]
+HeightMeters       = 0.85
+BaseRadiusMeters   = 0.065
+TaperExponent      = 0.85
+FlareRatio         = 1.15
+GnarlAmplitude     = 0.14
+BarkNoiseAmp       = 0.28
+BarkNoiseFreq      = 12.0
+BreakCollarHeight  = 0.0
+
+[Roots]
+Count              = 0
+SpreadMeters       = 0.18
+ButtressHeight     = 0.04
+
+[Fern]
+CrownRadiusMeters  = 0.065
+CaudexHeightMeters = 0.04
+FrondCount         = 16
+FrondLengthMeters  = 0.82
+FrondLengthVar     = 0.16
+FrondWidthMeters   = 0.18
+StipeFraction      = 0.18
+StipeRadiusMeters  = 0.0045
+RosetteAngleDeg    = 38.0
+ArchDroopDeg       = 68.0
+ArchPower          = 1.55
+RachisTwistDeg     = 12.0
+RachisWaveDeg      = 7.0
+CrosierCount       = 4
+CrosierHeightMeters= 0.22
+CrosierTurns       = 2.6
+PinnaPairs         = 26
+PinnaAngleDeg      = 68.0
+Auricle            = 0.55
+SerrationDepth     = 0.09
+LaminaCamber       = 0.28
+
+[Leaves]
+LeafArchetypeSdf   = "fern_pinna"
+BladeScaleMeters   = 0.09
+BladeAspect        = 0.34
+HalfThicknessMm    = 0.55
+CamberX            = 0.14
+CamberZ            = 0.28
+CanDetach          = true
+DetachWindMps      = 13.5
+
+[Materials]
+WoodHueHex         = "#2f1e14"
+LeafBaseHueHex     = "#2d5e24"
+LeafYoungHueHex    = "#74a938"
+FruitHueHex        = "#8d582b"
+Translucency       = 0.58
+
+[WindAndMotion]
+DefaultMotionMode  = "ForceField"
+WindSensitivity    = 1.45
+StemStiffness      = 16.0
+StemDamping        = 2.4
+RustleFrequencyHz  = 3.1
+
+[Collision]
+CollisionClass     = "CompliantSpring"
+CapsuleCount       = 0
+BendLimitDeg       = 68.0
+VehiclePushGain    = 1.30
+ReplicateOverNet   = true
+
+[Sdf]
+UseNoisyCapsules   = true
+CanopyBrickRes     = 16
+LodConeBias        = 1.0
