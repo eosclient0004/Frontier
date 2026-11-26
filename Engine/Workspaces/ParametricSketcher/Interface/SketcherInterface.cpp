@@ -1927,6 +1927,16 @@ void FinishDrawingSession(SketcherWorkspaceStatus& State, bool ClosedCondition)
     {
         auto Controls=LiftedDrawingPoints(Drawing,false);
         if(Controls.empty()) for(auto P:Drawing.Points) Controls.push_back(PlacePlanePoint(DrawingPlane(Drawing),P));
+        if (ClosedCondition)
+        {
+            if (Controls.size() < 3)
+            {
+                Drawing.Refusal = "Place at least three distinct points before closing to the first";
+                Announce(State, Drawing.Refusal);
+                return;
+            }
+            if (Distance(Controls.front(), Controls.back()) > 1.0e-12) Controls.push_back(Controls.front());
+        }
         const bool ConformToReference = Drawing.SurfaceCondition && State.SurfaceConformEnabled && !State.Document.ReferenceSurfaces.empty();
         const auto Trace = ConformToReference
             ? ConstructReferenceConformingTrace(State.Document, Controls, Drawing.Kind, Drawing.Form, ClosedCondition)
@@ -1951,24 +1961,38 @@ void FinishDrawingSession(SketcherWorkspaceStatus& State, bool ClosedCondition)
     }
     if (const std::vector<Vector3> Lifted = LiftedDrawingPoints(Drawing, false); !Lifted.empty() && !KnifeCondition)
     {
-        Drawing.ActiveCondition = false;
         SketcherCommandOutcome Outcome {};
         const std::string Stem = DrawingCaptionStem(false);
         if (State.DrawingAutoSplit || State.DrawingAutoSurface)
         {
-            const auto Trace = MakeSketcherControlTrace(Lifted, Drawing.Kind, Drawing.Form, ClosedCondition);
+            std::vector<Vector3> Controls = Lifted;
+            if (ClosedCondition)
+            {
+                if (Controls.size() < 3)
+                {
+                    Drawing.Refusal = "Place at least three distinct points before closing to the first";
+                    Announce(State, Drawing.Refusal);
+                    return;
+                }
+                if (Distance(Controls.front(), Controls.back()) > 1.0e-12) Controls.push_back(Controls.front());
+            }
+            const auto Trace = MakeSketcherControlTrace(Controls, Drawing.Kind, Drawing.Form, ClosedCondition);
             if (!Trace.Refusal.empty())
             {
                 Drawing.Refusal = Legible(Trace.Refusal);
                 Announce(State, Drawing.Refusal);
                 return;
             }
+            Drawing.ActiveCondition = false;
             Outcome = Trace.Arc ? DrawSketcherSketch(State.Document, *Trace.Arc)
                                 : DrawSketcherProjectedCurve(State.Document, Trace.Curve, ClosedCondition, State.DrawingAutoSplit, State.DrawingIntersectionTolerance, State.DrawingAutoSurface, Stem);
         }
         else
         {
-            Outcome = DrawSketcherSpaceCurve(State.Document, Lifted, ClosedCondition, Drawing.Form, Stem);
+            std::vector<Vector3> Distinct = Lifted;
+            if (ClosedCondition && Distinct.size() >= 4 && Distance(Distinct.front(), Distinct.back()) <= 1.0e-9) Distinct.pop_back();
+            Drawing.ActiveCondition = false;
+            Outcome = DrawSketcherSpaceCurve(State.Document, Distinct, ClosedCondition, Drawing.Form, Stem);
         }
         if (Outcome.AcceptedCondition) State.FocusedStep = State.Document.Tree.Steps.back().Label;
         Conclude(State, Outcome);
@@ -1976,6 +2000,8 @@ void FinishDrawingSession(SketcherWorkspaceStatus& State, bool ClosedCondition)
         return;
     }
     SketcherDrawingRequest Request = ComposeDrawingRequest(Drawing, false, ClosedCondition);
+    if (ClosedCondition && Request.Points.size() >= 4 && Distance(Request.Points.front(), Request.Points.back()) <= 1.0e-9)
+        Request.Points.pop_back();
     if (KnifeCondition) Request.FillCondition = true;                                        // A knife cutter is solid
     SketchModel Probe;
     const std::string Refusal = ComposeSketcherSketch(Request, Probe);
@@ -2020,15 +2046,19 @@ void AppendDrawingPoint(SketcherWorkspaceStatus& State, Vector2 Point, bool Clos
     //    click / right-click / Enter that confirms it.
     if (Drawing.Kind == SketcherDrawingCategory::Polygon && Drawing.Points.size() >= 2) { FinishDrawingSession(State, false); return; }
     const bool Chain = DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition;
-    if (Chain && ClosingCondition)
+    const bool SnappedBackToFirst = !Drawing.Points.empty() && (Drawing.SurfaceCondition
+        ? (Drawing.PointerLifted && !Drawing.Lifted.empty() && Drawing.Lifted.front() && Distance(*Drawing.Lifted.front(), *Drawing.PointerLifted) <= 1.0e-6)
+        : (Distance(Drawing.Points.front(), Point) <= 1.0e-6 ||
+           (Drawing.PointerLifted && !Drawing.Lifted.empty() && Drawing.Lifted.front() && Distance(*Drawing.Lifted.front(), *Drawing.PointerLifted) <= 1.0e-6)));
+    if (Chain && (ClosingCondition || SnappedBackToFirst))
     {
-        if (Drawing.SurfaceCondition)
+        if (Drawing.Points.size() < 3)
         {
-            if (Drawing.Points.size() < 3) { Announce(State, "Place three distinct controls before clicking the first to close"); return; }
-            Drawing.Points.push_back(Drawing.Points.front());
-            Drawing.Lifted.push_back(Drawing.Lifted.front()); // The user's explicit closing click, not a generated pole.
+            Announce(State, "Place at least three distinct points before clicking the first to close");
+            return;
         }
-        FinishDrawingSession(State, true); return;
+        FinishDrawingSession(State, true);
+        return;
     }
     if (!Drawing.Points.empty() && (Drawing.SurfaceCondition ?
         (Drawing.PointerLifted && !Drawing.Lifted.empty() && Drawing.Lifted.back() && Distance(*Drawing.Lifted.back(), *Drawing.PointerLifted) <= 1.0e-10) :
@@ -2074,7 +2104,8 @@ void ConfirmDrawingSession(SketcherWorkspaceStatus& State)
     if (Drawing.Kind == SketcherDrawingCategory::Polygon && Drawing.Points.size() >= 2) { FinishDrawingSession(State, false); return; }
     const bool Chain = DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition;
     if (!Chain) { PointerClick(); return; }
-    FinishDrawingSession(State, false);
+    const bool AlreadyClosed = Drawing.Points.size() >= 4 && Distance(Drawing.Points.front(), Drawing.Points.back()) <= 1.0e-9;
+    FinishDrawingSession(State, AlreadyClosed);
 }
 
 void RetractDrawingPoint(SketcherWorkspaceStatus& State)
@@ -10460,12 +10491,13 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
     {
         auto Controls = LiftedDrawingPoints(Drawing, true);
         if (Controls.size() >= 2 && Distance(Controls.back(), Controls[Controls.size()-2]) <= 1e-12) Controls.pop_back();
+        const bool PreviewClosed = DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition && Controls.size() >= 4 && Distance(Controls.front(), Controls.back()) <= 1.0e-9;
         const bool Changed = Drawing.TraceFrame.ClipFromWorld != Frame.ClipFromWorld || Drawing.TraceFrame.Width != Frame.Width || Drawing.TraceFrame.Height != Frame.Height || Controls.size() != Drawing.TraceControls.size() || Drawing.TraceForm != Drawing.Form || Drawing.TraceRevision != State.Document.Revision ||
             !std::equal(Controls.begin(), Controls.end(), Drawing.TraceControls.begin(), Drawing.TraceControls.end(), [](Vector3 A, Vector3 B) { return Distance(A, B) < 1.0e-8; });
         if (ReprojectTrace && Changed)
         {
             Drawing.TraceFrame = Frame; Drawing.TraceControls = Controls; Drawing.TraceForm = Drawing.Form; Drawing.TraceRevision = State.Document.Revision;
-            const auto Trace = MakeSketcherControlTrace(Controls, Drawing.Kind, Drawing.Form, false);
+            const auto Trace = MakeSketcherControlTrace(Controls, Drawing.Kind, Drawing.Form, PreviewClosed);
             Drawing.TracePreview = Trace.Refusal.empty() ? Trace.Samples : std::vector<Vector3>{};
             Drawing.Refusal = Controls.size() >= 2 ? Legible(Trace.Refusal) : std::string{};
         }
@@ -10477,6 +10509,11 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
             ImVec2 Out;
             if (ProjectWorldPoint(State, Frame, Controls[Index], Out)) Canvas->AddCircleFilled(Out, Index == Drawing.Points.size() ? 4.5f : 3.5f, ActiveColour);
         }
+        if (PreviewClosed)
+        {
+            ImVec2 Ring;
+            if (ProjectWorldPoint(State, Frame, Controls.front(), Ring)) Canvas->AddCircle(Ring, 8.0f, ActiveColour, 24, 1.8f);
+        }
         return;
     }
     const OrthonormalBasis  Plane   = DrawingPlane(Drawing);
@@ -10484,6 +10521,7 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
     if (const std::vector<Vector3> Lifted = LiftedDrawingPoints(Drawing, true); !Lifted.empty())
     {
         // A 3D curve in the making: the through-curve in space, its points as dots (the live one white).
+        const bool PreviewClosed = DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition && Lifted.size() >= 4 && Distance(Lifted.front(), Lifted.back()) <= 1.0e-6;
         std::vector<ImVec2> Pixels;
         if (Drawing.Kind == SketcherDrawingCategory::Line)
         {
@@ -10492,7 +10530,7 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
         else
         {
             const int AdaptiveSteps = std::clamp(int(Lifted.size()) * 16, 32, 256);
-            for (const Vector3& Sample : SampleThroughCurve(Lifted, false, Drawing.Form, AdaptiveSteps)) { ImVec2 Out; if (ProjectWorldPoint(State, Frame, Sample, Out)) Pixels.push_back(Out); }
+            for (const Vector3& Sample : SampleThroughCurve(Lifted, PreviewClosed, Drawing.Form, AdaptiveSteps)) { ImVec2 Out; if (ProjectWorldPoint(State, Frame, Sample, Out)) Pixels.push_back(Out); }
         }
         if (Pixels.size() >= 2) Canvas->AddPolyline(Pixels.data(), int(Pixels.size()), ActiveColour, 2.0f);
         for (size_t Index = 0; Index < Lifted.size(); ++Index)
@@ -10502,10 +10540,17 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
             const bool Live = Index == Drawing.Points.size();
             Canvas->AddCircleFilled(Out, Live ? 4.5f : 3.5f, Live ? IM_COL32(0xff, 0xff, 0xff, 0xff) : ActiveColour);
         }
+        if (PreviewClosed)
+        {
+            ImVec2 Ring;
+            if (ProjectWorldPoint(State, Frame, Lifted.front(), Ring)) Canvas->AddCircle(Ring, 8.0f, ActiveColour, 24, 1.8f);
+        }
         return;
     }
+    const bool ClosingPreview = DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition && DrawingPointerLive(Drawing)
+                             && Drawing.Points.size() >= 3 && Distance(Drawing.Pointer, Drawing.Points.front()) <= 1.0e-6;
     SketchModel Sketch;
-    const std::string Refusal = ComposeSketcherSketch(ComposeDrawingRequest(Drawing, true, false), Sketch);
+    const std::string Refusal = ComposeSketcherSketch(ComposeDrawingRequest(Drawing, !ClosingPreview, ClosingPreview), Sketch);
     if (Refusal.empty())
     {
         for (const SketchCurve& Curve : Sketch.Curves)
@@ -10514,6 +10559,11 @@ void DrawDrawingPreview(SketcherWorkspaceStatus& State, ImDrawList* Canvas, cons
             for (const Vector2& Sample : SampleSketchCurve(Sketch, Curve)) { ImVec2 Out; if (Pixel(Sample, Out)) Pixels.push_back(Out); }
             if (Pixels.size() >= 2) Canvas->AddPolyline(Pixels.data(), int(Pixels.size()), ActiveColour, 2.0f);
         }
+    }
+    if (ClosingPreview)
+    {
+        ImVec2 Ring;
+        if (Pixel(Drawing.Points.front(), Ring)) Canvas->AddCircle(Ring, 8.0f, ActiveColour, 24, 1.8f);
     }
     std::vector<Vector2> Marks = Drawing.Points;
     if (DrawingPointerLive(Drawing)) Marks.push_back(Drawing.Pointer);
@@ -17691,21 +17741,27 @@ void DrawViewport(SketcherWorkspaceStatus& State, ImTextureRef ViewportTexture, 
             const bool ShiftAligned = ApplyDrawingShiftConstraint(State, Point);
             ImVec2 First;
             const OrthonormalBasis Plane = DrawingPlane(Drawing);
-            bool ClosingOnAxis = true;
-            if (ShiftAligned && Drawing.Points.size() >= 2)
+            if (DrawingClicks(Drawing.Kind) == 0 && !Drawing.SegmentCondition && Drawing.Points.size() >= 3)
             {
-                const Vector3 Start = Drawing.SurfaceCondition && !Drawing.Lifted.empty() && Drawing.Lifted.front() ? *Drawing.Lifted.front() : PlacePlanePoint(Plane, Drawing.Points.front());
-                const Vector3 Last = Drawing.SurfaceCondition && !Drawing.Lifted.empty() && Drawing.Lifted.back() ? *Drawing.Lifted.back() : PlacePlanePoint(Plane, Drawing.Points.back());
-                const Vector3 Delta = Start - Last;
-                ClosingOnAxis = Length(Cross(Delta, State.Picker.Current.Tangent)) <= 1.0e-9 * (1.0 + Length(Delta));
-            }
-            if (DrawingClicks(Drawing.Kind) == 0 && Drawing.Points.size() >= 2 && ProjectWorldPoint(State, Frame, Drawing.SurfaceCondition && !Drawing.Lifted.empty() && Drawing.Lifted.front() ? *Drawing.Lifted.front() : PlacePlanePoint(Plane, Drawing.Points.front()), First) &&
-                std::hypot(Io.MousePos.x - First.x, Io.MousePos.y - First.y) <= ClosingTolerance && ClosingOnAxis)
-            {
-                Point   = Drawing.Points.front();
-                if (Drawing.SurfaceCondition && !Drawing.Lifted.empty()) Drawing.PointerLifted = Drawing.Lifted.front();
-                if (ShiftAligned) State.Picker.Current.Position = Drawing.SurfaceCondition && Drawing.PointerLifted ? *Drawing.PointerLifted : PlacePlanePoint(Plane, Point);
-                Closing = true;
+                const Vector3 FirstWorld = (!Drawing.Lifted.empty() && Drawing.Lifted.front())
+                    ? *Drawing.Lifted.front()
+                    : PlacePlanePoint(Plane, Drawing.Points.front());
+                const bool SnappedToFirst =
+                    (!Drawing.SurfaceCondition && Distance(Point, Drawing.Points.front()) <= 1.0e-6) ||
+                    (Drawing.PointerLifted && !Drawing.Lifted.empty() && Drawing.Lifted.front() && Distance(*Drawing.PointerLifted, *Drawing.Lifted.front()) <= 1.0e-6);
+                const bool CursorOnFirst = ProjectWorldPoint(State, Frame, FirstWorld, First) &&
+                    std::hypot(Io.MousePos.x - First.x, Io.MousePos.y - First.y) <= ClosingTolerance;
+                if (SnappedToFirst || CursorOnFirst)
+                {
+                    Point = Drawing.Points.front();
+                    if (!Drawing.Lifted.empty() && Drawing.Lifted.front()) Drawing.PointerLifted = Drawing.Lifted.front();
+                    else if (!Drawing.SurfaceCondition) Drawing.PointerLifted.reset();
+                    if (ShiftAligned || SnappedToFirst || CursorOnFirst)
+                    {
+                        State.Picker.Current.Position = FirstWorld;
+                    }
+                    Closing = true;
+                }
             }
             Drawing.Pointer = Point;
         }
