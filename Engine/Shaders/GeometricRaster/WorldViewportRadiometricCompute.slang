@@ -350,6 +350,35 @@ float4 SampleCloudBufferBilinear(float2 PixelUv, out float OutCloudTrans)
     return max(float4(0.0, 0.0, 0.0, 0.0), Res);
 }
 
+float3 EvaluateLiveHemisphericalSkyAmbientGpu()
+{
+    if ((WorldUniforms.AtmosphereMaskPad.x & 1u) == 0u)
+    {
+        return max(float3(0.0), WorldUniforms.CloudParams.CloudSkyAmbient.xyz);
+    }
+    float3 SunDir   = normalize(WorldUniforms.SunDirConeTan.xyz);
+    float2 SunHoriz = SunDir.xy;
+    float  HNorm    = length(SunHoriz);
+    float2 HDir     = (HNorm > 1.0e-4) ? (SunHoriz / HNorm) : float2(1.0, 0.0);
+
+    float3 Overhead = EvaluateSkyDome(float3(0.0, 0.0, 1.0));
+    float3 SunSide  = EvaluateSkyDome(normalize(float3(HDir.x, HDir.y, 0.08)));
+    float3 OppSide  = EvaluateSkyDome(normalize(float3(-HDir.x, -HDir.y, 0.08)));
+    return max(float3(0.0), Overhead * 0.40 + SunSide * 0.35 + OppSide * 0.25);
+}
+
+float3 EvaluateLowBandSkyGlowGpu(float3 RayDir)
+{
+    if ((WorldUniforms.AtmosphereMaskPad.x & 1u) == 0u)
+    {
+        return max(float3(0.0), WorldUniforms.CloudParams.CloudSkyAmbient.xyz);
+    }
+    float2 Horiz = RayDir.xy;
+    float  HLen  = length(Horiz);
+    float2 HDir  = (HLen > 1.0e-4) ? (Horiz / HLen) : float2(1.0, 0.0);
+    return max(float3(0.0), EvaluateSkyDome(normalize(float3(HDir.x, HDir.y, 0.025))));
+}
+
 float3 EvaluateCloudDeckReflectionGpu(float3 RayDir, out float OutCloudTrans)
 {
     OutCloudTrans = 1.0;
@@ -358,23 +387,15 @@ float3 EvaluateCloudDeckReflectionGpu(float3 RayDir, out float OutCloudTrans)
     {
         return float3(0.0, 0.0, 0.0);
     }
-    CloudSpecification Spec = BuildCloudSpecificationFromUniformGpu(C, false);
-    float3 Origin           = ResolvePlanetaryViewOriginGpu(C, C.OriginTimeVector.xyz);
-    CloudDeck Layer         = PlanetCloudLayer(Spec, 0u);
-    float MidAlt            = (Layer.BottomM + Layer.TopM) * 0.5;
-    float DistM             = min(38000.0, MidAlt / max(0.03, RayDir.z));
-    float3 SamplePos        = Origin + RayDir * DistM;
-    float3 Adv              = CloudWindCoordinates(Spec, SamplePos, Layer.Category);
-    CloudWeatherSample Wx   = CloudWeatherFromAdvectedNormal(Spec, Adv / length(Adv));
-    float Sigma             = SamplePlanetCloudShadowDensity(Spec, Layer, SamplePos, Adv, Wx, max(12.0, DistM * Spec.PixelAngle));
-    if (Sigma <= 1.0e-6)
-    {
-        return float3(0.0, 0.0, 0.0);
-    }
-    float Tau = Sigma * (Layer.TopM - Layer.BottomM) * 0.45 / max(0.15, RayDir.z);
-    OutCloudTrans = exp(-Tau);
-    float SunT = exp(-CloudSolarOpticalDepthWithWeather(Spec, SamplePos, Wx, 3u, max(16.0, DistM * Spec.PixelAngle)));
-    return (Spec.SolarIrradiance * (0.28 * SunT) + Spec.SkyAmbient * 0.55) * (1.0 - OutCloudTrans);
+    float3 SkyAmb = EvaluateLiveHemisphericalSkyAmbientGpu();
+    CloudSpecification Spec = BuildCloudSpecificationGpu(C, SkyAmb);
+    Spec.Steps      = 16u;
+    Spec.LightSteps = 3u;
+    float  ObsAltM  = max(0.0, C.WindForceMeta.w);
+    float3 Origin   = float3(C.OriginTimeVector.x, C.OriginTimeVector.y, Spec.RadiusM + ObsAltM + C.OriginTimeVector.z);
+    CloudTransportIntegral Integral = TracePlanetaryClouds(Spec, Origin, RayDir, float2(0.5, 0.5), 60000.0);
+    OutCloudTrans   = clamp(Integral.Transmittance, 0.0, 1.0);
+    return max(float3(0.0), Integral.Radiance);
 }
 
 float OrbitalGlobeFbmGpu3(float3 P)
@@ -411,10 +432,10 @@ float3 EvaluateOrbitalSpaceGpu(
     float GroundM = PlanetCloudGroundDistance(CamPos, RayDir, PlanetR);
     OutHitsPlanet = (GroundM < 1.0e8);
 
-    uint BaseFmt = uint(C.FormationOptics.x + 0.5);
-    CloudSpecification OrbSpec = BuildCloudSpecificationFromUniformGpu(C, false, (BaseFmt == 2u) ? 12u : BaseFmt);
+    uint DeckFormation = uint(C.FormationOptics.x + 0.5);
+    CloudSpecification OrbSpec = BuildCloudSpecificationGpu(C, C.CloudSkyAmbient.xyz, (DeckFormation == 2u) ? 12u : DeckFormation);
     OrbSpec.Steps      = clamp(OrbSpec.Steps, 24u, 64u);
-    OrbSpec.LightSteps = clamp(OrbSpec.LightSteps, 3u, 6u);
+    OrbSpec.LightSteps = clamp(OrbSpec.LightSteps, 3u, 5u);
 
     CloudTransportIntegral Cloud = TracePlanetaryClouds(OrbSpec, CamPos, RayDir, PixelCoord, GroundM);
     CloudAirSegment Air = IntegrateCloudAir(OrbSpec, CamPos, RayDir, GroundM, 24u, false);
@@ -550,49 +571,308 @@ float EvaluateSolarCloudTransmittanceGpu(float3 WorldPos, float3 SunDir)
     {
         return 1.0;
     }
+    VolumetricCloudUniformBlock C = WorldUniforms.CloudParams;
     float Trans = 1.0;
-    if (WorldUniforms.CloudParams.SunAxisToggle.w >= 0.5 && WorldUniforms.CloudParams.WindVectorOcclude.z >= 0.5)
+    if (C.SunAxisToggle.w >= 0.5 && C.WindVectorOcclude.z >= 0.5)
     {
-        float DeckBaseM = max(200.0, WorldUniforms.CloudParams.DeckGeometry.x);
-        float Coverage  = clamp(WorldUniforms.CloudParams.DeckGeometry.z, 0.0, 1.0);
-        float Density   = max(0.0, WorldUniforms.CloudParams.DeckGeometry.w);
-        if (Coverage > 0.01 && Density > 0.01)
-        {
-            float  TCloud = max(0.0, (DeckBaseM - WorldPos.z) / max(0.06, SunDir.z));
-            float  TimeS  = WorldUniforms.CloudParams.OriginTimeVector.w;
-            float2 WindV  = WorldUniforms.CloudParams.WindVectorOcclude.xy * TimeS;
-            float3 CloudP = WorldPos + SunDir * TCloud - float3(WindV.x, WindV.y, 0.0);
-            float  NVal   = SampleLocalCloudFieldGpu(CloudP * 0.0012, 1.0);
-            float  CloudD = saturate((NVal - (1.0 - Coverage)) / max(0.15, Coverage)) * Density;
-            Trans *= (0.18 + 0.82 * exp(-CloudD * 1.35));
-        }
+        CloudSpecification Spec = BuildCloudSpecificationGpu(C, C.CloudSkyAmbient.xyz);
+        Spec.SunDirection       = SunDir;
+        float  ObsAltM          = max(0.0, C.WindForceMeta.w);
+        float3 PlanetP          = float3(WorldPos.x, WorldPos.y, Spec.RadiusM + ObsAltM + WorldPos.z);
+        float  Tau              = CloudSolarOpticalDepth(Spec, PlanetP, 4u, 20.0);
+        float  Strength         = saturate(C.WindVectorOcclude.w);
+        Trans *= lerp(1.0, exp(-Tau), Strength);
     }
-    uint VolCnt = min(8u, uint(WorldUniforms.CloudParams.FormationOptics.w + 0.5));
+
+    uint VolCnt = min(8u, uint(C.FormationOptics.w + 0.5));
     if (VolCnt > 0u)
     {
-        float3 InvSun = 1.0 / select(abs(SunDir) > float3(1.0e-6), SunDir, float3(1.0e-6));
+        float  TimeSec = C.OriginTimeVector.w;
+        float  SigA    = max(0.0, C.CloudPhaseAbsorbPowder.z);
+        float3 InvSun  = 1.0 / select(abs(SunDir) > float3(1.0e-6), SunDir, float3(1.0e-6));
         for (uint VIdx = 0u; VIdx < VolCnt; ++VIdx)
         {
-            float4 DenCov  = WorldUniforms.CloudParams.LocalClouds[VIdx].DensityCovScaleSides;
-            if (DenCov.x <= 0.01 || DenCov.y <= 0.01) continue;
-            float3 Center  = WorldUniforms.CloudParams.LocalClouds[VIdx].CenterShape.xyz;
-            float3 HalfExt = WorldUniforms.CloudParams.LocalClouds[VIdx].HalfExtentYaw.xyz;
-            float3 T0      = (Center - HalfExt - WorldPos) * InvSun;
-            float3 T1      = (Center + HalfExt - WorldPos) * InvSun;
-            float3 TN      = min(T0, T1);
-            float3 TF      = max(T0, T1);
-            float  TEn     = max(0.0, max(TN.x, max(TN.y, TN.z)));
-            float  TEx     = min(TF.x, min(TF.y, TF.z));
+            GpuLocalCloudVolume Vol = C.LocalClouds[VIdx];
+            if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) continue;
+            float3 Center  = Vol.CenterShape.xyz;
+            float3 HalfExt = Vol.HalfExtentYaw.xyz;
+            float  MaxXY   = max(HalfExt.x, HalfExt.y) * 1.45;
+            float3 T0      = (Center - float3(MaxXY, MaxXY, HalfExt.z) - WorldPos) * InvSun;
+            float3 T1      = (Center + float3(MaxXY, MaxXY, HalfExt.z) - WorldPos) * InvSun;
+            float  TEn     = max(0.0, max(min(T0.x, T1.x), max(min(T0.y, T1.y), min(T0.z, T1.z))));
+            float  TEx     = min(max(T0.x, T1.x), min(max(T0.y, T1.y), max(T0.z, T1.z)));
             if (TEx > TEn)
             {
-                float SegLen = TEx - TEn;
-                float MidN   = SampleLocalCloudFieldGpu((WorldPos + SunDir * (0.5 * (TEn + TEx))) * max(0.01, DenCov.z), 1.0);
-                float Den    = saturate((MidN - (1.0 - DenCov.y)) / max(0.15, DenCov.y)) * DenCov.x * 0.08;
-                Trans *= (0.16 + 0.84 * exp(-Den * SegLen));
+                float Dt = (TEx - TEn) * 0.25;
+                float Od = 0.0;
+                [unroll]
+                for (uint K = 0u; K < 4u; ++K)
+                {
+                    float  Hn = 0.5;
+                    float3 SP = WorldPos + SunDir * (TEn + (float(K) + 0.5) * Dt);
+                    Od += EvaluateSingleLocalCloudDensityGpu(Vol, SP, TimeSec, false, Hn) * (1.0 + SigA) * Dt;
+                }
+                Trans *= exp(-Od);
             }
         }
     }
-    return clamp(Trans, 0.08, 1.0);
+    return clamp(Trans, 0.26, 1.0);
+}
+
+float EvaluateUnifiedLocalShadowGpu(
+    VolumetricFogUniformBlock   Fog,
+    VolumetricCloudUniformBlock Cloud,
+    float3                      PointWorld,
+    float3                      SunDir,
+    float                       TimeSec,
+    float                       StepScaleM)
+{
+    uint  FogCount   = min(8u, uint(Fog.FogMeta.x + 0.5));
+    uint  CloudCount = min(8u, uint(Cloud.FormationOptics.w + 0.5));
+    float Od         = 0.0;
+    float St         = max(0.5, StepScaleM);
+
+    [unroll]
+    for (uint K = 1u; K <= 4u; ++K)
+    {
+        float  FK     = float(K);
+        float  D      = St * FK * FK * 0.14;
+        float3 SP     = PointWorld + SunDir * D;
+        float  RhoSum = 0.0;
+
+        for (uint I = 0u; I < FogCount; ++I)
+        {
+            if (Fog.LocalFogs[I].DensityCovScaleSides.x <= 1.0e-4) continue;
+            float Hn = 0.5;
+            float R  = EvaluateSingleLocalFogDensityGpu(Fog, Fog.LocalFogs[I], SP, TimeSec, Hn);
+            RhoSum  += R * (1.0 + max(0.0, Fog.LocalFogs[I].AbsorbShadowFalloffSteps.x));
+        }
+        for (uint J = 0u; J < CloudCount; ++J)
+        {
+            if (Cloud.LocalClouds[J].DensityCovScaleSides.x <= 1.0e-4) continue;
+            float Hn = 0.5;
+            float R  = EvaluateSingleLocalCloudDensityGpu(Cloud.LocalClouds[J], SP, TimeSec, false, Hn);
+            RhoSum  += R * (1.0 + max(0.0, Cloud.CloudPhaseAbsorbPowder.z));
+        }
+
+        Od += RhoSum * D * 0.70;
+        if (Od > 10.0) break;
+    }
+
+    return exp(-Od);
+}
+
+float4 EvaluateUnifiedLocalMediaGpu(
+    float3 RayOrigin,
+    float3 RayDir,
+    float  MaxDistanceM,
+    float3 SunDir,
+    float3 SolarIrrad,
+    float3 SkyAmbient,
+    float3 LowBandGlow,
+    float2 PixelCoord)
+{
+    VolumetricFogUniformBlock   Fog        = WorldUniforms.FogParams;
+    VolumetricCloudUniformBlock Cloud      = WorldUniforms.CloudParams;
+    uint                        FogCount   = min(8u, uint(Fog.FogMeta.x + 0.5));
+    uint                        CloudCount = min(8u, uint(Cloud.FormationOptics.w + 0.5));
+    if ((FogCount == 0u && CloudCount == 0u) || MaxDistanceM <= 0.05)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    float3 InvD   = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));
+    float  TMin   = 1.0e9;
+    float  TMax   = 0.0;
+    uint   Steps  = 24u;
+    float  MaxRad = 4.0;
+
+    for (uint I = 0u; I < FogCount; ++I)
+    {
+        GpuLocalFogVolume Vol = Fog.LocalFogs[I];
+        if (Vol.DensityCovScaleSides.x <= 1.0e-4) continue;
+        float3 Center = Vol.CenterShape.xyz;
+        float3 HalfE  = Vol.HalfExtentYaw.xyz;
+        float  MaxXY  = max(HalfE.x, HalfE.y) * 1.45;
+        uint   ShapeI = uint(Vol.CenterShape.w + 0.5);
+        float  MinZ   = (ShapeI == 7u) ? (0.14 * HalfE.z) : HalfE.z;
+        float3 BMin   = Center - float3(MaxXY, MaxXY, MinZ);
+        float3 BMax   = Center + float3(MaxXY, MaxXY, HalfE.z);
+        float3 T0     = (BMin - RayOrigin) * InvD;
+        float3 T1     = (BMax - RayOrigin) * InvD;
+        float  TE     = max(0.05, max(min(T0.x, T1.x), max(min(T0.y, T1.y), min(T0.z, T1.z))));
+        float  TX     = min(MaxDistanceM, min(max(T0.x, T1.x), min(max(T0.y, T1.y), max(T0.z, T1.z))));
+        if (TX > TE)
+        {
+            TMin   = min(TMin, TE);
+            TMax   = max(TMax, TX);
+            Steps  = max(Steps, clamp(uint(Vol.AbsorbShadowFalloffSteps.w + 0.5), 16u, 48u));
+            MaxRad = max(MaxRad, max(HalfE.x, max(HalfE.y, HalfE.z)));
+        }
+    }
+
+    for (uint J = 0u; J < CloudCount; ++J)
+    {
+        GpuLocalCloudVolume Vol = Cloud.LocalClouds[J];
+        if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) continue;
+        float3 Center = Vol.CenterShape.xyz;
+        float3 HalfE  = Vol.HalfExtentYaw.xyz;
+        float  MaxXY  = max(HalfE.x, HalfE.y) * 1.45;
+        uint   ShapeI = uint(Vol.CenterShape.w + 0.5);
+        float  MinZ   = (ShapeI == 7u) ? (0.14 * HalfE.z) : HalfE.z;
+        float3 BMin   = Center - float3(MaxXY, MaxXY, MinZ);
+        float3 BMax   = Center + float3(MaxXY, MaxXY, HalfE.z);
+        float3 T0     = (BMin - RayOrigin) * InvD;
+        float3 T1     = (BMax - RayOrigin) * InvD;
+        float  TE     = max(0.05, max(min(T0.x, T1.x), max(min(T0.y, T1.y), min(T0.z, T1.z))));
+        float  TX     = min(MaxDistanceM, min(max(T0.x, T1.x), min(max(T0.y, T1.y), max(T0.z, T1.z))));
+        if (TX > TE)
+        {
+            TMin   = min(TMin, TE);
+            TMax   = max(TMax, TX);
+            Steps  = max(Steps, clamp(uint(Vol.FormErosionAnisoSteps.w + 0.5), 16u, 48u));
+            MaxRad = max(MaxRad, max(HalfE.x, max(HalfE.y, HalfE.z)));
+        }
+    }
+
+    if (TMax <= TMin)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    float  TimeSec    = Fog.FogWindClock.w;
+    float  Dt         = (TMax - TMin) / float(Steps);
+    float  Jitter     = CloudBlueJitter(PixelCoord);
+    float  T          = TMin + Dt * Jitter;
+    float  CosS       = dot(RayDir, SunDir);
+    float  SunUp      = saturate(SunDir.z * 4.0 + 0.15);
+    float3 SunL       = SolarIrrad * SunUp;
+    float  BackG      = clamp(Cloud.CloudPhaseAbsorbPowder.x, 0.0, 0.90);
+    float  PhaseMix   = clamp(Cloud.CloudPhaseAbsorbPowder.y, 0.0, 1.0);
+    float  CloudSigA  = max(0.0, Cloud.CloudPhaseAbsorbPowder.z);
+    float  PowderK    = saturate(Cloud.CloudPhaseAbsorbPowder.w);
+    float  AmbGain    = max(0.0, Cloud.CloudAirScalesCyclone.w);
+    float3 ClAlbedo   = max(float3(0.0), Cloud.CloudAlbedoErosion.xyz);
+    float  ShScale    = clamp(MaxRad * 0.45, 0.8, 35.0);
+    uint   LampCount  = min(WorldUniforms.DenoiseStepParams.z & 0xFFFFu, 12u);
+    uint   AreaCount  = min(WorldUniforms.LightGlassMaterialDebug.x, 4u);
+
+    float3 Acc   = float3(0.0, 0.0, 0.0);
+    float  Trans = 1.0;
+
+    for (uint S = 0u; S < 48u; ++S)
+    {
+        if (S >= Steps || Trans < 0.015) break;
+        float3 P = RayOrigin + RayDir * T;
+
+        float FogRhos[8];
+        float FogHns[8];
+        bool  ShadowRequired = false;
+        for (uint I = 0u; I < FogCount; ++I)
+        {
+            float Hn = 0.5;
+            float R  = EvaluateSingleLocalFogDensityGpu(Fog, Fog.LocalFogs[I], P, TimeSec, Hn);
+            FogRhos[I] = R;
+            FogHns[I]  = Hn;
+            if (R > 1.0e-5 && Fog.LocalFogs[I].AbsorbShadowFalloffSteps.y > 0.5) ShadowRequired = true;
+        }
+
+        float CloudRhos[8];
+        float CloudHns[8];
+        for (uint J = 0u; J < CloudCount; ++J)
+        {
+            float Hn = 0.5;
+            float R  = EvaluateSingleLocalCloudDensityGpu(Cloud.LocalClouds[J], P, TimeSec, true, Hn);
+            CloudRhos[J] = R;
+            CloudHns[J]  = Hn;
+            if (R > 1.0e-5) ShadowRequired = true;
+        }
+
+        float SharedSh = ShadowRequired ? EvaluateUnifiedLocalShadowGpu(Fog, Cloud, P, SunDir, TimeSec, ShScale) : 1.0;
+
+        float  FogSigT   = 0.0;
+        float  CloudSigT = 0.0;
+        float3 FogSc     = float3(0.0, 0.0, 0.0);
+        float3 CloudSc   = float3(0.0, 0.0, 0.0);
+
+        for (uint I = 0u; I < FogCount; ++I)
+        {
+            float Rho = FogRhos[I];
+            if (Rho <= 1.0e-5) continue;
+
+            GpuLocalFogVolume Vol = Fog.LocalFogs[I];
+            float  Sh    = (Vol.AbsorbShadowFalloffSteps.y > 0.5) ? SharedSh : 1.0;
+            float  Ph    = min(CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * PiConst), 6.5);
+            float  Ms    = Sh + 0.35 * sqrt(Sh);
+            float3 Li    = SunL * (Ph * Ms * 0.22) + SkyAmbient * (0.38 + 0.22 * FogHns[I]) + LowBandGlow * 0.12;
+
+            // Photometric point/spot lamp volumetric scattering inside local fog
+            for (uint LIdx = 0u; LIdx < LampCount; ++LIdx)
+            {
+                GpuPhotometricLamp64 Lamp = PhotometricLampEntries[LIdx];
+                float3 LVec  = Lamp.PositionRange.xyz - P;
+                float  Dist2 = dot(LVec, LVec);
+                float  Reach = max(2.0, Lamp.PositionRange.w);
+                if (Dist2 < Reach * Reach && Dist2 > 1.0e-4)
+                {
+                    float  Dist   = sqrt(Dist2);
+                    float3 LDir   = LVec / Dist;
+                    float  RangeF = saturate(1.0 - Dist / Reach);
+                    float  Atten  = (RangeF * RangeF) / max(0.35, Dist2);
+                    float  LPh    = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * PiConst);
+                    Li += Lamp.PeakIntensityPad.xyz * (Atten * LPh * 0.08);
+                }
+            }
+            for (uint AIdx = 0u; AIdx < AreaCount; ++AIdx)
+            {
+                GpuAreaQuadLight AL = WorldUniforms.AreaLights[AIdx];
+                float3 LVec  = AL.CenterHalfWidth.xyz - P;
+                float  Dist2 = dot(LVec, LVec);
+                if (Dist2 > 1.0e-4 && Dist2 < 1600.0)
+                {
+                    float  Dist  = sqrt(Dist2);
+                    float3 LDir  = LVec / Dist;
+                    float  Area  = 4.0 * max(0.05, AL.CenterHalfWidth.w) * max(0.05, AL.RightHalfHeight.w);
+                    float  Atten = Area / max(0.5, Dist2);
+                    float  LPh   = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * PiConst);
+                    Li += AL.RadiancePacked.xyz * (Atten * LPh * 0.12);
+                }
+            }
+
+            float SigA = max(0.0, Vol.AbsorbShadowFalloffSteps.x);
+            FogSigT += Rho * (1.0 + SigA);
+            FogSc   += Li * Vol.TintAniso.xyz * Rho;
+        }
+
+        for (uint J = 0u; J < CloudCount; ++J)
+        {
+            float Rho = CloudRhos[J];
+            if (Rho <= 1.0e-5) continue;
+
+            GpuLocalCloudVolume Vol = Cloud.LocalClouds[J];
+            float  G1     = clamp(Vol.FormErosionAnisoSteps.z, 0.0, 0.95);
+            float  Ph     = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * PiConst), 10.0);
+            float  Ms     = SharedSh + 0.45 * sqrt(SharedSh) + 0.22 * pow(max(1.0e-6, SharedSh), 0.25);
+            float  Powder = 1.0 - PowderK * exp(-Rho * Dt * 2.5 * (1.0 + CloudSigA)) * (1.0 - 0.5 * saturate(CosS));
+            float3 Li     = SunL * (Ph * Ms * Powder * 0.55) + SkyAmbient * AmbGain * lerp(0.28, 0.68, CloudHns[J]);
+
+            CloudSigT += Rho * (1.0 + CloudSigA);
+            CloudSc   += Li * ClAlbedo * Rho;
+        }
+
+        float TotalSigT = FogSigT + CloudSigT;
+        if (TotalSigT > 1.0e-5)
+        {
+            float  Ts    = exp(-TotalSigT * Dt);
+            float3 SumSc = FogSc + CloudSc;
+            Acc   += Trans * (SumSc - SumSc * Ts) / max(TotalSigT, 1.0e-6);
+            Trans *= Ts;
+        }
+
+        T += Dt;
+    }
+
+    return float4(max(float3(0.0), Acc), clamp(Trans, 0.0, 1.0));
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -3136,10 +3416,14 @@ void CloudComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         WorldUniforms.CameraRightTanY.xyz * (NdcX * WorldUniforms.CameraOriginTanX.w) +
         WorldUniforms.CameraUpWidth.xyz   * (NdcY * WorldUniforms.CameraRightTanY.w));
 
-    float  CloudTrans = 1.0;
-    float3 CloudRad   = EvaluatePlanetaryCloudsOnlyGpu(
-        WorldUniforms.CloudParams, RayDir, float2(DispatchThreadID.xy), CloudTrans);
-    CloudRadiometricBuffer[PIdx] = float4(CloudRad, CloudTrans);
+    float3 SkyAmbLive = EvaluateLiveHemisphericalSkyAmbientGpu();
+    CloudRadiometricBuffer[PIdx] = EvaluatePlanetaryCloudsOnlyGpu(
+        WorldUniforms.CloudParams,
+        WorldUniforms.CameraOriginTanX.xyz,
+        RayDir,
+        float2(DispatchThreadID.xy),
+        1.0e7,
+        SkyAmbLive);
 }
 
 bool QueryNaniteWireframeEnabled()
@@ -4411,40 +4695,64 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             WorldUniforms.CameraRightTanY.xyz * (NdcX * WorldUniforms.CameraOriginTanX.w) +
             WorldUniforms.CameraUpWidth.xyz   * (NdcY * WorldUniforms.CameraRightTanY.w));
 
-        float HitDistForClouds = DirectBase.w;
-        float HitDistForFog    = SunContrib.w;
+        float  HitDistForClouds = DirectBase.w;
+        float  HitDistForFog    = SunContrib.w;
+        bool   SkyRayUnoccluded         = (HitDistForClouds >= 50000.0);
+        float3 SunDir           = normalize(WorldUniforms.SunDirConeTan.xyz);
+        float3 CloudSunIrrad    = WorldUniforms.CloudParams.SolarIrradianceExt.xyz;
 
-        if (WorldUniforms.CloudParams.FormationOptics.w > 0.5 || WorldUniforms.CloudParams.WindVectorOcclude.w > 0.5)
-        {
-            float  LocalCloudTrans = 1.0;
-            float3 LocalCloudRad   = EvaluateLocalCloudsSegmentGpu(
-                WorldUniforms.CloudParams, CamOrigin, RayDir, HitDistForClouds, float2(DispatchThreadID.xy), LocalCloudTrans);
-            FinalHdr = FinalHdr * LocalCloudTrans + LocalCloudRad;
-        }
+        bool AnalyticFogActive = (WorldUniforms.FogParams.HeightParams0.x > 0.5) ||
+                              (WorldUniforms.FogParams.AerialParams.x > 0.5);
+        bool LocalMediaActive  = (WorldUniforms.FogParams.FogMeta.x > 0.5) ||
+                              (WorldUniforms.CloudParams.FormationOptics.w > 0.5);
 
-        if (WorldUniforms.FogParams.HeightParams0.x > 0.5 ||
-            WorldUniforms.FogParams.AerialParams.x > 0.5 ||
-            WorldUniforms.FogParams.FogMeta.x > 0.5)
+        if (AnalyticFogActive || LocalMediaActive)
         {
-            float  FogTrans = 1.0;
-            float3 FogRad   = EvaluateVolumetricFogGpu(
-                WorldUniforms.FogParams,
-                CamOrigin,
-                RayDir,
-                HitDistForFog,
-                normalize(WorldUniforms.SunDirConeTan.xyz),
-                WorldUniforms.SolarIrradiancePad.xyz,
-                EvaluateSkyDome(RayDir),
-                float2(DispatchThreadID.xy),
-                FogTrans);
-            FinalHdr = FinalHdr * FogTrans + FogRad;
+            float3 SkyAmb  = EvaluateLiveHemisphericalSkyAmbientGpu();
+            float3 LowBand = EvaluateLowBandSkyGlowGpu(RayDir);
+
+            // 1. Analytic Media: Exp² Height Fog + Spectral Rayleigh/Mie Aerial Perspective (elevation-aware sky/horizon path!)
+            if (AnalyticFogActive)
+            {
+                float  MediaDist = SkyRayUnoccluded
+                    ? ComputeSkyFogPathMetersGpu(WorldUniforms.FogParams, CamOrigin.z, RayDir.z)
+                    : HitDistForFog;
+                float3 TransRgb  = float3(1.0, 1.0, 1.0);
+                FinalHdr = ApplyCelestialAnalyticMediaGpu(
+                    WorldUniforms.FogParams,
+                    FinalHdr,
+                    CamOrigin,
+                    RayDir,
+                    MediaDist,
+                    SunDir,
+                    CloudSunIrrad,
+                    SkyAmb,
+                    LowBand,
+                    TransRgb);
+            }
+
+            // 2. Unified Local Media: Single combined march over ALL LocalFogs + LocalClouds with shared 4-tap shadow + lamp scatter
+            if (LocalMediaActive)
+            {
+                float  LocalMaxDist = SkyRayUnoccluded ? 5000.0 : HitDistForClouds;
+                float4 LocalRes     = EvaluateUnifiedLocalMediaGpu(
+                    CamOrigin,
+                    RayDir,
+                    LocalMaxDist,
+                    SunDir,
+                    CloudSunIrrad,
+                    SkyAmb,
+                    LowBand,
+                    float2(DispatchThreadID.xy));
+                FinalHdr = FinalHdr * LocalRes.w + LocalRes.xyz;
+            }
         }
 
         FinalHdr += EvaluateVolumetricGodRaysGpu(
             CamOrigin,
             RayDir,
             HitDistForFog,
-            normalize(WorldUniforms.SunDirConeTan.xyz),
+            SunDir,
             WorldUniforms.SolarIrradiancePad.xyz,
             float2(DispatchThreadID.xy));
 

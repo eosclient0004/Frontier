@@ -42,6 +42,13 @@ enum class CloudCategoryType : uint8_t
     Pyrocumulus     = 11u, // [-] - Towering convective plume with warm ember under-glow
 };
 
+enum class LocalCloudForm : uint8_t
+{
+    Stratiform = 0u, // [-] - Flat layered local cloud slab
+    Cumuliform = 1u, // [-] - Tall billowing local cumulus tower
+    Wispy      = 2u, // [-] - Delicate diffuse local cloud veil
+};
+
 enum class LensFlareStyle : uint8_t
 {
     Anamorphic = 0u, // [-] - Horizontal cinema anamorphic blue-cyan flare with lateral wings & halos
@@ -69,23 +76,31 @@ struct CloudDeckConfiguration
 {
     bool                     CloudsEnabled            = true;
     bool                     FollowWindEnabled        = false;
-    WindCouplingSource        WindSource               = WindCouplingSource::CloudWind;
+    WindCouplingSource       WindSource               = WindCouplingSource::CloudWind;
     CloudCategoryType        Category                 = CloudCategoryType::Cumulus;
-    float                    CloudFraction            = 0.34f;   // [0..1]   - Fractional sky cover
-    float                    ExtinctionMultiplier     = 2.40f;   // [x]      - Volumetric optical density scale [0..4]
-    float                    FeatureScaleMultiplier   = 0.35f;   // [x]      - Noise octave wavelength scale [0.2..3.0]
-    float                    CloudFloorMeters         = 1400.0f; // [m]      - Base altitude above sea level [100..15000]
-    float                    LayerThicknessMeters     = 1100.0f; // [m]      - Vertical cloud depth [100..6500]
+    float                    CloudFraction            = 0.45f;   // [0..1]   - Fractional sky cover
+    float                    ExtinctionMultiplier     = 1.00f;   // [x]      - Volumetric optical density scale [0..4]
+    float                    FeatureScaleMultiplier   = 1.40f;   // [km]     - Cell scale wavelength [0.3..6.0] (x 900m)
+    float                    CloudFloorMeters         = 1500.0f; // [m]      - Base altitude above sea level [100..15000]
+    float                    LayerThicknessMeters     = 900.0f;  // [m]      - Vertical cloud depth [50..8000]
     float                    DeckCeilingMeters        = 16000.0f;// [m]      - Maximum ceiling [4000..22000]
-    float                    AnvilTopSpread           = 0.50f;   // [0..1]   - Upper anvil widening factor
-    float                    ForwardScatterAnisotropy = 0.45f;   // [-.9..9] - Henyey-Greenstein phase g
-    float                    WindSpeedMetersPerSecond = 0.0f;    // [m/s]    - Advection wind speed [0..40] (0 = static)
-    float                    WindBearingDegrees       = 250.0f;  // [deg]    - Advection wind bearing [0..360)
-    float                    WindShearPerKilometer    = 0.35f;   // [/km]    - Vertical altitude shear
-    float                    WindVeerDegreesPerKm     = 12.0f;   // [d/km]   - Ekman wind bearing rotation with altitude [-60..60]
-    float                    WindTurbulence           = 0.30f;   // [0..1]   - Wind eddy warp on cloud silhouettes
-    float                    CloudRenderScale         = 1.00f;   // [0.25..1]- Offscreen cloud pass resolution scale (1.0 = full native res)
-    uint32_t                 CloudMarchSteps          = 64u;     // [16..128]- Volumetric cloud deck raymarch steps
+    float                    AnvilTopSpread           = 0.30f;   // [0..1]   - Upper anvil / wind-shear lean factor
+    float                    ForwardScatterAnisotropy = 0.80f;   // [0..0.95]- Forward Henyey-Greenstein lobe g1
+    float                    BackScatterAnisotropy    = 0.30f;   // [0..0.90]- Back-scatter Henyey-Greenstein lobe g2
+    float                    PhaseLobeBlend           = 0.30f;   // [0..1]   - Dual-lobe HG blend (0=forward, 1=back)
+    float                    AbsorptionRatio          = 0.05f;   // [0..1]   - Separable absorption ratio sigA
+    float                    SkyAmbientGain           = 0.90f;   // [0..2]   - Hemispherical sky irradiance multiplier
+    float                    PowderStrength           = 0.60f;   // [0..1]   - Beer-Powder crevice darkening strength
+    float                    ErosionDetail            = 0.60f;   // [0..1]   - High-frequency height-modulated edge erosion
+    Mathematics::LinearRGB   CloudAlbedo              { 1.00f, 1.00f, 1.00f }; // [lin] - Cloud scattering albedo
+    float                    WindSpeedMetersPerSecond = 6.0f;    // [m/s]    - Advection wind speed [0..40]
+    float                    WindBearingDegrees       = 214.0f;  // [deg]    - Advection wind bearing [0..360)
+    float                    WindShearPerKilometer    = 0.60f;   // [/km]    - Vertical altitude shear
+    float                    WindVeerDegreesPerKm     = 18.0f;   // [d/km]   - Ekman wind bearing rotation with altitude [-60..60]
+    float                    WindTurbulence           = 0.20f;   // [0..1]   - Wind eddy warp on cloud silhouettes
+    float                    CloudRenderScale         = 1.00f;   // [0.25..1]- Offscreen cloud resolution scale (1.0 = full native res)
+    uint32_t                 CloudMarchSteps          = 48u;     // [16..64] - Volumetric cloud deck raymarch steps
+    uint32_t                 LightMarchTaps           = 5u;      // [3..5]   - Growing quadratic sun light-march taps
     CloudShadowConfiguration CloudShadow              {};
 };
 
@@ -93,17 +108,20 @@ struct BoundedCloudVolume
 {
     bool                   LocalEnabled             = false;
     bool                   FollowWindEnabled        = false;
-    WindCouplingSource      WindSource               = WindCouplingSource::LocalCloudWind;
-    AtmosphericVolumeShape Shape                    = AtmosphericVolumeShape::Box;
+    WindCouplingSource     WindSource               = WindCouplingSource::LocalCloudWind;
+    AtmosphericVolumeShape Shape                    = AtmosphericVolumeShape::Ellipsoid;
+    LocalCloudForm         Form                     = LocalCloudForm::Cumuliform;
     uint32_t               PrismSides               = 6u;
-    Mathematics::Axis3D    VolumeCenterMeters       { -100.0f, 260.0f, 130.0f };
-    Mathematics::Scalar3D  HalfExtentMeters         { 100.0f, 100.0f, 50.0f };
+    Mathematics::Axis3D    VolumeCenterMeters       { 40.0f, 160.0f, 120.0f };
+    Mathematics::Scalar3D  HalfExtentMeters         { 90.0f, 70.0f, 35.0f };
     float                  YawDegrees               = 0.0f;
-    float                  EdgeSoftness             = 0.35f;
-    float                  ExtinctionMultiplier     = 2.50f;
-    float                  CloudFraction            = 0.80f;
-    float                  FeatureScaleMeters       = 40.0f;
-    float                  ForwardScatterAnisotropy = 0.45f;
+    float                  EdgeSoftness             = 0.50f;
+    float                  ExtinctionMultiplier     = 1.20f;
+    float                  CloudFraction            = 0.60f;
+    float                  FeatureScaleMeters       = 30.0f;
+    float                  ErosionDetail            = 0.55f;
+    float                  ForwardScatterAnisotropy = 0.80f;
+    uint32_t               MarchSteps               = 36u;
 };
 
 struct LensFlareConfiguration
@@ -156,6 +174,26 @@ public:
     static void ApplyCloudCategoryPreset(
         CloudDeckConfiguration& InOutDeck,
         CloudCategoryType       Category) noexcept;
+
+    // Computes live 3-direction hemispherical sky ambient (overhead 0.40 + sun-side limb 0.35 + opposite limb 0.25)
+    [[nodiscard]] static Mathematics::LinearRGB ComputeHemisphericalSkyAmbient(
+        const AtmosphericSkySequence& SkySeq,
+        const Mathematics::Axis3D&    SunDirection,
+        bool                          AtmosphereEnabled,
+        const Mathematics::LinearRGB& FallbackSkyRadiance) noexcept;
+
+    // Unified single-interval raymarch across ALL LocalFogs + LocalClouds with shared 4-tap mutual sun shadowing & point/spot lamp scatter
+    [[nodiscard]] static FogEvaluationResult EvaluateUnifiedLocalMedia(
+        const Mathematics::Axis3D&            RayOriginWorld,
+        const Mathematics::Axis3D&            RayDirection,
+        float                                 MaxDistanceMeters,
+        const Mathematics::Axis3D&            SunDirection,
+        const Mathematics::LinearRGB&         SolarIrradiance,
+        const Mathematics::LinearRGB&         HemisphericalSkyAmbient,
+        const Mathematics::LinearRGB&         LowBandSkyGlow,
+        const WorldAtmosphereConfiguration&   Atmosphere,
+        std::span<const LocalMediaLampSample> Lamps = {},
+        float                                 PixelJitter01 = -1.0f) noexcept;
 
     // Evaluates depth-clipped local BoundedCloudVolumes (for foreground geometry hits and sky rays) with wind advection
     [[nodiscard]] static Mathematics::LinearRGB EvaluateLocalCloudsOverSegment(

@@ -1,7 +1,8 @@
 /*==========================================================================================================================================
                                                             CLOUDTRANSPORT.SLANG
 ==========================================================================================================================================*/
-// 🧩 Ordered spherical volume intervals, Beer attenuation, and solar multiple-order scattering (31f137f single-source module).
+// 🧩 Celestial volumetric cloud spherical shell raymarch: 5-tap quadratic light march, 3-oct Wrenninge multi-scatter,
+//    dual-lobe HG, Beer-Powder crevice darkening, analytical step integration, and live hemispherical sky ambient.
 
 #ifndef FRONTIER_PLANETARY_CLOUD_TRANSPORT
 #define FRONTIER_PLANETARY_CLOUD_TRANSPORT
@@ -23,32 +24,23 @@ float2 PlanetCloudSphere(float3 Position, float3 Direction, float RadiusM)
     float RayProjection     = dot(Position, Direction);
     float QuadraticConstant = (RadialDistanceM - RadiusM) * (RadialDistanceM + RadiusM);
     float Discriminant      = RayProjection * RayProjection - QuadraticConstant;
-    if (Discriminant < 0.0) return float2(1.0, -1.0);
-    float StableRoot    = -RayProjection - ((RayProjection < 0.0) ? -1.0 : 1.0) * sqrt(Discriminant);
-    float CompanionRoot = (abs(StableRoot) > 1.0e-6) ? QuadraticConstant / StableRoot : StableRoot;
+    if (Discriminant < 0.0) return float2(-1.0, -1.0);
+    float SqrtD             = sqrt(Discriminant);
+    float StableRoot        = -RayProjection - ((RayProjection < 0.0) ? -1.0 : 1.0) * SqrtD;
+    float CompanionRoot     = (abs(StableRoot) > 1.0e-6) ? QuadraticConstant / StableRoot : StableRoot;
     return float2(min(StableRoot, CompanionRoot), max(StableRoot, CompanionRoot));
 }
 
 float PlanetCloudGroundDistance(float3 Origin, float3 Direction, float RadiusM)
 {
     float2 Ground = PlanetCloudSphere(Origin, Direction, RadiusM);
-    if (Ground.x > Ground.y || Ground.y <= 0.0) return 1.0e9;
+    if (Ground.y <= 0.0) return 1.0e9;
     if (Ground.x > 0.0) return Ground.x;
     return (dot(Origin, Direction) < 0.0) ? 0.0 : 1.0e9;
 }
 
-float4 PlanetCloudLayerSpans(float3 Origin, float3 Direction, float RadiusM, CloudDeck Layer, float LimitM)
-{
-    float2 Outer = PlanetCloudSphere(Origin, Direction, RadiusM + Layer.TopM);
-    Outer        = float2(max(0.0, Outer.x), min(LimitM, Outer.y));
-    if (Outer.y <= Outer.x) return float4(0.0, 0.0, 0.0, 0.0);
-    float2 Inner = PlanetCloudSphere(Origin, Direction, RadiusM + Layer.BottomM);
-    if (Inner.y <= Outer.x || Inner.x >= Outer.y || Inner.x >= Inner.y) return float4(Outer, 0.0, 0.0);
-    return float4(Outer.x, min(Outer.y, Inner.x), max(Outer.x, Inner.y), Outer.y);
-}
-
 //------------------------------------------------------------------------------------------------------------------------
-//                                                    SOLAR EXTINCTION
+//                                      ATMOSPHERIC TRANSMITTANCE (ORBITAL SUPPORT)
 //------------------------------------------------------------------------------------------------------------------------
 
 float3 QueryCloudRayleighExtinction(CloudSpecification Specification)
@@ -78,8 +70,8 @@ float3 CloudSolarAirTransmittance(CloudSpecification Specification, float3 Posit
 {
     float RadiusM         = length(Position);
     float AltitudeM       = max(0.0, RadiusM - Specification.RadiusM);
-    float Mu              = dot(Position, Specification.SunDirection) / RadiusM;
-    float TangentBoundary = -sqrt(saturate(AltitudeM * (RadiusM + Specification.RadiusM) / (RadiusM * RadiusM)));
+    float Mu              = dot(Position, Specification.SunDirection) / max(1.0, RadiusM);
+    float TangentBoundary = -sqrt(saturate(AltitudeM * (RadiusM + Specification.RadiusM) / max(1.0, RadiusM * RadiusM)));
     float SolarVisibility = smoothstep(-0.00465, 0.00465, Mu - TangentBoundary);
     if (SolarVisibility <= 0.0) return float3(0.0, 0.0, 0.0);
     float RayleighColumnM =
@@ -93,140 +85,87 @@ float3 CloudSolarAirTransmittance(CloudSpecification Specification, float3 Posit
     return SolarVisibility * exp(-Tau);
 }
 
-float IntegrateCloudSolarDepthWithWeather(
-    CloudSpecification Specification,
-    CloudDeck          Layer,
-    float3             Position,
-    CloudWeatherSample Weather,
-    float2             Span,
-    uint               Steps,
-    float              FootprintM)
+float CloudTransportHG(float CosTheta, float G)
 {
-    if (Span.y <= Span.x) return 0.0;
-    float LengthM = Span.y - Span.x;
-    float Tau     = 0.0;
-    float StartM  = 0.0;
-    for (uint Index = 0u; Index < Steps; ++Index)
+    return CelestialPhaseHG(CosTheta, G);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                               CELESTIAL 5-TAP QUADRATIC LIGHT MARCH & SHADOW DEPTH
+//------------------------------------------------------------------------------------------------------------------------
+
+float CelestialCloudLightOpticalDepth(CloudSpecification Spec, float3 PlanetPosition)
+{
+    float Od       = 0.0;
+    float EffThick = min(Spec.ThicknessM, 1800.0);
+    float St       = EffThick * 0.12;
+    uint  Taps     = clamp(Spec.LightSteps, 3u, 5u);
+    for (uint I = 1u; I <= 5u; ++I)
     {
-        float  Fraction       = float(Index + 1u) / float(Steps);
-        float  EndM           = LengthM * Fraction * Fraction;
-        float  SampleM        = Span.x + 0.5 * (StartM + EndM);
-        float  SegmentM       = EndM - StartM;
-        float3 SamplePosition = Position + Specification.SunDirection * SampleM;
-        float3 Adv            = CloudWindCoordinates(Specification, SamplePosition, Layer.Category);
-        float  SampleSigma    = SamplePlanetCloudShadowDensity(
-            Specification, Layer, SamplePosition, Adv, Weather, max(FootprintM, 16.0 + 0.18 * SegmentM));
-        Tau += SegmentM * SampleSigma;
-        if (Tau >= 18.0) return 18.0;
-        StartM = EndM;
+        if (I > Taps) break;
+        float FI  = float(I);
+        float D   = St * FI * FI * 0.35;
+        float Lod = (I > 2u) ? 1.0 : 0.0;
+        Od += CelestialCloudDensity(Spec, PlanetPosition + Spec.SunDirection * D, Lod) * D * 0.8;
+    }
+    return Od;
+}
+
+float CloudSolarOpticalDepth(
+    CloudSpecification Specification,
+    float3             Position,
+    uint               Steps = 4u,
+    float              FootprintM = 20.0)
+{
+    if (!Specification.UseCloudShadows || Specification.Fraction <= 0.001 || Specification.Extinction <= 0.001)
+    {
+        return 0.0;
+    }
+    float R0 = Specification.RadiusM + Specification.FloorM;
+    float R1 = R0 + Specification.ThicknessM;
+    float H  = length(Position) - Specification.RadiusM;
+    float2 I0 = PlanetCloudSphere(Position, Specification.SunDirection, R0);
+    float2 I1 = PlanetCloudSphere(Position, Specification.SunDirection, R1);
+
+    float T0 = 0.0;
+    float T1 = 0.0;
+    if (H < Specification.FloorM)
+    {
+        if (I1.y < 0.0) return 0.0;
+        T0 = max(I0.y, 0.0);
+        T1 = I1.y;
+    }
+    else if (H < Specification.FloorM + Specification.ThicknessM)
+    {
+        T0 = 0.0;
+        T1 = (I0.x > 0.0) ? I0.x : I1.y;
+    }
+    else
+    {
+        return 0.0;
+    }
+
+    T1 = min(T1, T0 + min(Specification.ThicknessM * 6.0, 12000.0));
+    if (T1 <= T0) return 0.0;
+
+    uint  Count       = clamp(Steps, 2u, 6u);
+    float Dt          = (T1 - T0) / float(Count);
+    float SigA        = max(0.0, Specification.Absorption);
+    float ThickNorm   = clamp(1400.0 / max(1400.0, Specification.ThicknessM), 0.30, 1.0);
+    float Tau         = 0.0;
+    for (uint S = 0u; S < 6u; ++S)
+    {
+        if (S >= Count) break;
+        float  T   = T0 + (float(S) + 0.5) * Dt;
+        float  Rho = CelestialCloudDensity(Specification, Position + Specification.SunDirection * T, 1.0);
+        Tau += Rho * (1.0 + SigA) * 0.012 * ThickNorm * Dt;
+        if (Tau >= 6.0) return 6.0;
     }
     return Tau;
 }
 
-float CloudSolarOpticalDepthWithWeather(
-    CloudSpecification Specification,
-    float3             Position,
-    CloudWeatherSample Weather,
-    uint               Steps,
-    float              FootprintM = 0.0)
-{
-    if (!Specification.UseClouds || !Specification.UseCloudShadows || Specification.Coverage <= 0.001 ||
-        Specification.Extinction <= 0.001)
-        return 0.0;
-    float     LimitM = PlanetCloudGroundDistance(Position, Specification.SunDirection, Specification.RadiusM);
-    float     Tau    = 0.0;
-    CloudDeck Layer  = PlanetCloudLayer(Specification, 0u);
-    float4    Spans  = PlanetCloudLayerSpans(Position, Specification.SunDirection, Specification.RadiusM, Layer, LimitM);
-    for (uint IntervalIndex = 0u; IntervalIndex < 2u && Tau < 18.0; ++IntervalIndex)
-    {
-        float2 Span = IntervalIndex == 0u ? Spans.xy : Spans.zw;
-        Tau += IntegrateCloudSolarDepthWithWeather(Specification, Layer, Position, Weather, Span, Steps, FootprintM);
-    }
-    return min(18.0, Tau);
-}
-
-float CloudSolarOpticalDepth(CloudSpecification Specification, float3 Position, uint Steps, float FootprintM = 0.0)
-{
-    if (!Specification.UseClouds || !Specification.UseCloudShadows || Specification.Coverage <= 0.001 ||
-        Specification.Extinction <= 0.001)
-        return 0.0;
-    CloudDeck          Layer   = PlanetCloudLayer(Specification, 0u);
-    CloudWeatherSample Weather = CloudWeatherAtPoint(Specification, Position, Layer.Category);
-    return CloudSolarOpticalDepthWithWeather(Specification, Position, Weather, Steps, FootprintM);
-}
-
 //------------------------------------------------------------------------------------------------------------------------
-//                                          NORMALIZED PHASE AND REDISTRIBUTED LIGHT
-//------------------------------------------------------------------------------------------------------------------------
-
-float CloudTransportHG(float Mu, float Asymmetry)
-{
-    float AsymmetrySquared   = Asymmetry * Asymmetry;
-    float AngularDenominator = max(1.0e-4, 1.0 + AsymmetrySquared - 2.0 * Asymmetry * Mu);
-    return (1.0 - AsymmetrySquared) / (4.0 * CloudPi * AngularDenominator * sqrt(AngularDenominator));
-}
-
-float CloudDualLobe(float Mu, float Asymmetry, float Scale)
-{
-    return 0.86 * CloudTransportHG(Mu, Asymmetry * Scale) + 0.14 * CloudTransportHG(Mu, -0.25 * Scale);
-}
-
-float3 CloudScatteringOrderPhases(CloudSpecification Specification, float3 Direction)
-{
-    float Mu        = dot(Direction, Specification.SunDirection);
-    float Asymmetry = clamp(Specification.PhaseG, 0.35, 0.92);
-    return float3(CloudDualLobe(Mu, Asymmetry, 1.0),
-                  CloudDualLobe(Mu, Asymmetry, 0.49),
-                  CloudDualLobe(Mu, Asymmetry, 0.19));
-}
-
-float3 PlanetCloudSource(
-    CloudSpecification Specification,
-    CloudDeck          Layer,
-    float3             Position,
-    CloudWeatherSample Weather,
-    float              Sigma,
-    float3             OrderPhases,
-    float3             ViewDirection,
-    float              FootprintM)
-{
-    float3 Direct = Specification.SolarIrradiance * CloudSolarAirTransmittance(Specification, Position);
-    float  SolarTau = 0.0;
-    if (dot(Direct, Direct) > 1.0e-6)
-        SolarTau = CloudSolarOpticalDepthWithWeather(Specification, Position, Weather, Specification.LightSteps, FootprintM);
-
-    float3 AttenuatedOrders = exp(-SolarTau * float3(1.0, 0.35, 0.12));
-    float3 Scattered        = Direct * dot(OrderPhases * float3(1.0, 0.45, 0.20), AttenuatedOrders);
-
-    float HeightFraction =
-        saturate((PlanetCloudAltitude(Position, Specification.RadiusM) - Layer.BottomM) / (Layer.TopM - Layer.BottomM));
-    float SunUp = dot(normalize(Position), Specification.SunDirection);
-    float Day   = smoothstep(-0.20, 0.23, SunUp);
-    float Warm  = exp(-abs(SunUp - 0.045) * 9.5) * smoothstep(-0.20, -0.025, SunUp);
-
-    float  SkyVisibility = lerp(1.0, 0.16 + 0.84 * exp(-0.24 * SolarTau), smoothstep(0.12, 0.50, SunUp));
-    float  Twilight      = smoothstep(-0.30, -0.12, SunUp);
-    float3 Sky =
-        Specification.SkyAmbient * (0.025 * Twilight + 0.36 * Day) * lerp(0.48, 1.0, HeightFraction) * SkyVisibility;
-    float3 Bounce = (1.0 - HeightFraction) * (float3(0.032, 0.048, 0.071) * Day + float3(0.077, 0.029, 0.015) * Warm);
-
-    if (Specification.Formation == 10u) // Nacreous stratospheric iridescence
-    {
-        float Mu    = dot(ViewDirection, Specification.SunDirection);
-        float Phase = Mu * 9.0 + HeightFraction * 5.0 + (Position.x + Position.y) * 0.00020;
-        Scattered *= float3(0.98 + 0.28 * sin(Phase), 0.95 + 0.28 * sin(Phase + 2.094), 1.04 + 0.30 * sin(Phase + 4.188));
-    }
-    else if (Specification.Formation == 11u) // Pyrocumulus warm ember base under-glow
-    {
-        float CoreDense = smoothstep(Layer.Sigma * 0.22, Layer.Sigma * 0.85, Sigma);
-        Bounce += float3(1.25, 0.34, 0.05) * pow(1.0 - HeightFraction, 2.8) * CoreDense;
-    }
-
-    return Scattered + Sky + Bounce * (dot(Specification.SolarIrradiance, float3(0.3333333)) / 16.0);
-}
-
-//------------------------------------------------------------------------------------------------------------------------
-//                                                  ORDERED VIEW INTEGRATION
+//                                  CELESTIAL VOLUMETRIC CLOUD MARCH (cloudMarch)
 //------------------------------------------------------------------------------------------------------------------------
 
 CloudTransportIntegral TracePlanetaryClouds(
@@ -239,62 +178,144 @@ CloudTransportIntegral TracePlanetaryClouds(
     CloudTransportIntegral Integral;
     Integral.Radiance      = float3(0.0, 0.0, 0.0);
     Integral.Transmittance = 1.0;
-    Integral.DistanceM     = 0.0;
-    if (!Specification.UseClouds || Specification.Coverage <= 0.0 || Specification.Extinction <= 0.0) return Integral;
+    Integral.DistanceM     = LimitM;
 
-    CloudDeck Layer         = PlanetCloudLayer(Specification, 0u);
-    float     ViewAltitudeM = length(Origin) - Specification.RadiusM;
-    if (ViewAltitudeM < Layer.BottomM - 10.0 && Direction.z < -0.02 && Specification.UniformExtinction < 0.0)
-        return Integral;
-
-    LimitM                  = min(LimitM, PlanetCloudGroundDistance(Origin, Direction, Specification.RadiusM));
-    float4    Spans         = PlanetCloudLayerSpans(Origin, Direction, Specification.RadiusM, Layer, LimitM);
-    float     Jitter        = CloudBlueJitter(Pixel);
-    float3    Phases        = CloudScatteringOrderPhases(Specification, Direction);
-
-    for (uint IntervalIndex = 0u; IntervalIndex < 2u; ++IntervalIndex)
+    if (!Specification.UseClouds || Specification.Fraction <= 0.001 || Specification.Extinction <= 0.001)
     {
-        float NearM = IntervalIndex == 0u ? Spans.x : Spans.z;
-        float FarM  = IntervalIndex == 0u ? Spans.y : Spans.w;
-        if (FarM <= NearM) continue;
-        float  LengthM     = FarM - NearM;
-        float  Growth      = ViewAltitudeM > 19000.0 ? 0.0 : clamp(log(1.0 + LengthM / 1900.0), 0.1, 4.8);
-        float  Denominator = max(1.0e-6, exp(Growth) - 1.0);
-        float  LastM       = NearM;
-        float  LitAtM      = -1.0e9;
-        float3 Source      = float3(0.0, 0.0, 0.0);
-
-        for (uint Index = 0u; Index < Specification.Steps && Integral.Transmittance > 0.0001; ++Index)
-        {
-            float  Fraction  = float(Index + 1u) / float(Specification.Steps);
-            float  NextM     = NearM + LengthM * (Growth < 0.01 ? Fraction : (exp(Growth * Fraction) - 1.0) / Denominator);
-            float  DistanceM = NextM - LastM;
-            float  SampleM   = LastM + DistanceM * (0.40 + Jitter * 0.20);
-            float3 Position  = Origin + Direction * SampleM;
-            float  FootprintM = max(1.0, SampleM * Specification.PixelAngle);
-            float3 Advected   = CloudWindCoordinates(Specification, Position, Layer.Category);
-            CloudWeatherSample Weather = CloudWeatherFromAdvectedNormal(Specification, Advected / length(Advected));
-            float  Sigma               = SamplePlanetCloudDensityAdvected(Specification, Layer, Position, Advected, Weather, FootprintM, false);
-            if (Sigma > 1.0e-9)
-            {
-                float SegmentTransmittance = exp(-Sigma * DistanceM);
-                float Weight               = Integral.Transmittance * (1.0 - SegmentTransmittance);
-                float LightStrideM         = clamp(FootprintM * 0.75 + 120.0, 100.0, 280.0);
-                if (SampleM - LitAtM >= LightStrideM)
-                {
-                    Source = PlanetCloudSource(Specification, Layer, Position, Weather, Sigma, Phases, Direction, FootprintM);
-                    LitAtM = SampleM;
-                }
-                Integral.Radiance += Weight * Source;
-                Integral.DistanceM += Weight * SampleM;
-                Integral.Transmittance *= SegmentTransmittance;
-            }
-            LastM = NextM;
-        }
+        return Integral;
     }
 
-    float Opacity = 1.0 - Integral.Transmittance;
-    if (Opacity > 1.0e-5) Integral.DistanceM /= Opacity;
+    float  R0 = Specification.RadiusM + Specification.FloorM;
+    float  R1 = R0 + Specification.ThicknessM;
+    float  H  = length(Origin) - Specification.RadiusM;
+    float2 I0 = PlanetCloudSphere(Origin, Direction, R0);
+    float2 I1 = PlanetCloudSphere(Origin, Direction, R1);
+    float2 Ig = PlanetCloudSphere(Origin, Direction, Specification.RadiusM);
+
+    float T0 = 0.0;
+    float T1 = 0.0;
+    if (H < Specification.FloorM)
+    {
+        if (I1.y < 0.0) return Integral;
+        T0 = max(I0.y, 0.0);
+        T1 = I1.y;
+    }
+    else if (H > Specification.FloorM + Specification.ThicknessM)
+    {
+        if (I1.x < 0.0) return Integral;
+        T0 = I1.x;
+        T1 = (I0.x > 0.0) ? I0.x : I1.y;
+        if (Ig.x > 0.0 && Ig.x < T0) return Integral;
+    }
+    else
+    {
+        T0 = 0.0;
+        T1 = (I0.x > 0.0) ? I0.x : I1.y;
+    }
+
+    if (Ig.x > 0.0) T1 = min(T1, Ig.x);
+    T1 = min(T1, LimitM);
+
+    float FarCap = (H > Specification.FloorM + Specification.ThicknessM)
+        ? min(max(60000.0, Specification.ThicknessM * 24.0), 120000.0)
+        : min(Specification.ThicknessM * 14.0, 15000.0);
+    T1 = min(T1, T0 + FarCap);
+    if (T1 <= T0)
+    {
+        return Integral;
+    }
+
+    uint  StepCount = (Specification.ThicknessM > 2200.0)
+        ? max(clamp(Specification.Steps, 16u, 64u), 64u)
+        : clamp(Specification.Steps, 16u, 64u);
+    float Dt        = (T1 - T0) / float(StepCount);
+    float Jitter    = CloudBlueJitter(Pixel);
+    float T         = T0 + Dt * Jitter;
+    float LodFar    = smoothstep(5500.0, 24000.0, T0);
+
+    float CosS      = dot(Direction, Specification.SunDirection);
+    float G1        = clamp(Specification.PhaseG, 0.0, 0.95);
+    float G2        = clamp(Specification.BackPhaseG, 0.0, 0.90);
+    float MixLobe   = clamp(Specification.PhaseMix, 0.0, 1.0);
+    float Ph        = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -G2), MixLobe) * (4.0 * CloudPi), 14.0);
+
+    float  SunUp    = saturate(Specification.SunDirection.z * 4.0 + 0.15);
+    float3 SunL     = Specification.SolarIrradiance * SunUp;
+    float3 Amb      = Specification.SkyAmbient * max(0.0, Specification.SkyAmbientGain) * 0.62;
+    float  SigA     = max(0.0, Specification.Absorption) + ((Specification.Formation == 11u) ? 0.12 : 0.0);
+    float  PowderK  = clamp(Specification.PowderStrength, 0.0, 1.0);
+    float3 Albedo   = max(float3(0.0), Specification.CloudAlbedo);
+    float  ExtScale = 0.06 * clamp(1400.0 / max(1400.0, Specification.ThicknessM), 0.22, 1.0);
+
+    // Subtle pearlescent scattering tint for stratospheric Nacreous clouds (Formation 10)
+    if (Specification.Formation == 10u)
+    {
+        float Ang = acos(clamp(CosS, -1.0, 1.0));
+        float3 Pearl = float3(
+            0.88 + 0.22 * cos(Ang * 5.5 + 0.0),
+            0.88 + 0.20 * cos(Ang * 5.5 + 2.1),
+            0.92 + 0.18 * cos(Ang * 5.5 + 4.2));
+        Albedo *= lerp(float3(1.0, 1.0, 1.0), Pearl, 0.55);
+    }
+
+    float3 Acc      = float3(0.0, 0.0, 0.0);
+    float  Trans    = 1.0;
+    float  WeightD  = 0.0;
+    float  WeightS  = 0.0;
+
+    for (uint I = 0u; I < 64u; ++I)
+    {
+        if (I >= StepCount || Trans < 0.015) break;
+        float3 Pos = Origin + Direction * T;
+        float  Rho = CelestialCloudDensity(Specification, Pos, LodFar);
+        if (Rho > 1.0e-3)
+        {
+            float Od = lerp(CelestialCloudLightOpticalDepth(Specification, Pos), Rho * min(Specification.ThicknessM, 1800.0) * 0.3, LodFar);
+            float Hn = clamp((length(Pos) - Specification.RadiusM - Specification.FloorM) / max(1.0, Specification.ThicknessM), 0.0, 1.0);
+
+            // 3-octave Wrenninge multi-scattering (exact Celestial Demo weights: a*=0.5, b*=0.55)
+            float Ms = 0.0;
+            float A  = 1.0;
+            float B  = 1.0;
+            [unroll]
+            for (uint O = 0u; O < 3u; ++O)
+            {
+                Ms += B * exp(-Od * A * (1.0 + SigA));
+                A *= 0.50;
+                B *= 0.55;
+            }
+
+            float  Powder = 1.0 - PowderK * exp(-Rho * Dt * (ExtScale / 0.06) * 2.0 * (1.0 + SigA)) * (1.0 - 0.5 * clamp(CosS, 0.0, 1.0));
+            float3 Li     = SunL * (Ph * Ms * Powder) + Amb * lerp(0.35, 1.0, Hn);
+
+            // Pyrocumulus subtle warm convective core near volcanic base (Formation 11)
+            if (Specification.Formation == 11u)
+            {
+                float Ember = pow(saturate(1.0 - Hn * 7.0), 2.2) * smoothstep(0.02, 0.35, Rho);
+                Li += float3(1.10, 0.34, 0.07) * Ember * 0.18;
+            }
+
+            float  SigT = Rho * (1.0 + SigA) * ExtScale;
+            float  Ts   = exp(-SigT * Dt);
+            float3 Sc   = Li * Albedo * (Rho * ExtScale);
+            Acc += Trans * (Sc - Sc * Ts) / max(SigT, 1.0e-6);
+
+            float AlphaStep = Trans * (1.0 - Ts);
+            WeightD += AlphaStep * T;
+            WeightS += AlphaStep;
+            Trans   *= Ts;
+        }
+        T += Dt;
+    }
+
+    // Distance aerial haze blend only when looking through lower air from below the cloud layer
+    float Above = step(Specification.FloorM + Specification.ThicknessM, H);
+    float Aer   = (1.0 - exp(-T0 * 6.0e-5)) * (1.0 - Above);
+    Acc = lerp(Acc, Specification.SkyAmbient * (1.0 - Trans) * 0.72, Aer * 0.68);
+
+    Integral.Radiance      = max(float3(0.0), Acc);
+    Integral.Transmittance = clamp(Trans, 0.0, 1.0);
+    Integral.DistanceM     = (WeightS > 1.0e-5) ? (WeightD / WeightS) : T0;
     return Integral;
 }
 

@@ -39,31 +39,49 @@ struct HeightFogConfiguration
 
 struct AerialFogConfiguration
 {
-    bool              Enabled             = false; // [-] - Master distance-gated aerial perspective toggle
-    float             DensityMultiplier   = 1.00f; // [x] - Spectral extinction scale [0..4]
-    float             StartDistanceMeters = 50.0f; // [m] - Minimum distance before aerial perspective begins [0..2000]
-    float             MieBlend            = 0.40f; // [-] - Warm forward Mie aerosol scatter blend [0..1]
-    float             ScaleHeightMeters   = 1800.0f;
-    bool              FollowWind          = false;
-    WindCouplingSource WindSource          = WindCouplingSource::AerialFogWind;
+    bool                   Enabled             = false;                  // [-]   - Master distance-gated spectral aerial perspective toggle
+    float                  DensityMultiplier   = 1.00f;                  // [x]   - Spectral extinction scale [0..4] (1.0 ~= 22e-5 /m)
+    float                  StartDistanceMeters = 50.0f;                  // [m]   - Minimum distance before aerial perspective begins [0..2000]
+    float                  MieBlend            = 0.35f;                  // [0..1]- Mie aerosol share vs Rayleigh spectral beta
+    float                  ScaleHeightMeters   = 1200.0f;                // [m]   - Exponential e-folding scale height [50..8000]
+    float                  AnisotropyG         = 0.70f;                  // [0..1]- Forward Henyey-Greenstein phase g [0..0.95]
+    float                  SkyLightGain        = 1.00f;                  // [x]   - Hemispherical sky irradiance multiplier [0..2]
+    Mathematics::LinearRGB AerialTint          { 1.00f, 1.00f, 1.00f };  // [lin] - Spectral aerial in-scatter tint
+    bool                   FollowWind          = false;
+    WindCouplingSource     WindSource          = WindCouplingSource::AerialFogWind;
 };
 
 struct LocalFogVolume
 {
-    bool                   Enabled            = false;
-    bool                   FollowWind         = true;
-    WindCouplingSource      WindSource         = WindCouplingSource::LocalFogWind;
-    AtmosphericVolumeShape Shape              = AtmosphericVolumeShape::Box;
-    uint32_t               PrismSides         = 6u;                          // [cnt] - Sides for Prism [3..16]
-    Mathematics::Axis3D    VolumeCenterMeters { 0.0f, 0.0f, 1.5f };          // [m]   - World-space volume center
-    Mathematics::Scalar3D  HalfExtentMeters   { 8.0f, 8.0f, 3.0f };          // [m]   - Volume half-extents
-    float                  YawDegrees         = 0.0f;                        // [deg] - Horizontal rotation around +Z
-    float                  EdgeSoftness       = 0.35f;                       // [0..1]- Boundary feathering ratio
-    float                  Density            = 1.00f;                       // [x]   - Extinction multiplier [0..4]
-    float                  Coverage           = 0.65f;                       // [0..1]- FBM noise coverage threshold
-    float                  FeatureScaleMeters = 18.0f;                       // [m]   - 3D FBM eddy feature scale [1..600]
-    float                  AnisotropyG        = 0.55f;                       // [-.9..9] - Henyey-Greenstein phase g
-    Mathematics::LinearRGB FogTint            { 0.86f, 0.91f, 0.96f };       // [lin] - Local fog scattering tint
+    bool                   Enabled               = false;
+    bool                   FollowWind            = true;
+    WindCouplingSource     WindSource            = WindCouplingSource::LocalFogWind;
+    AtmosphericVolumeShape Shape                 = AtmosphericVolumeShape::Ellipsoid;
+    uint32_t               PrismSides            = 6u;                          // [cnt] - Sides for Prism [3..16]
+    Mathematics::Axis3D    VolumeCenterMeters    { 0.0f, 0.0f, 1.5f };          // [m]   - World-space volume center
+    Mathematics::Scalar3D  HalfExtentMeters      { 8.0f, 8.0f, 3.0f };          // [m]   - Volume half-extents
+    float                  YawDegrees            = 0.0f;                        // [deg] - Horizontal rotation around +Z
+    float                  EdgeSoftness          = 0.45f;                       // [0..1]- Boundary feathering / density falloff exponent
+    float                  Density               = 1.00f;                       // [x]   - Extinction multiplier [0..4]
+    float                  Coverage              = 0.75f;                       // [0..1]- Heterogeneous 3-octave noise modulation weight
+    float                  FeatureScaleMeters    = 5.0f;                        // [m]   - 3D value-noise cell scale [0.5..600]
+    float                  AnisotropyG           = 0.60f;                       // [-.9..9] - Henyey-Greenstein phase g
+    float                  AbsorptionRatio       = 0.08f;                       // [0..1]- Separable absorption ratio sigA (darkening)
+    bool                   SelfShadowEnabled     = true;                        // [-]   - 4-tap secondary sun shadow march through local media
+    bool                   DensityFalloffEnabled = true;                        // [-]   - Core-to-shell continuous falloff vs soft rim
+    uint32_t               MarchSteps            = 28u;                         // [cnt] - Raymarch steps [12..64]
+    Mathematics::LinearRGB FogTint               { 0.875f, 0.902f, 0.933f };    // [lin] - Local fog scattering albedo (#dfe6ee)
+};
+
+struct LocalMediaLampSample
+{
+    Mathematics::Axis3D    WorldPosition  { 0.0f, 0.0f, 0.0f };
+    Mathematics::Axis3D    BeamDirection  { 0.0f, 0.0f, -1.0f };
+    Mathematics::LinearRGB RadianceRgb    { 0.0f, 0.0f, 0.0f };
+    float                  ReachMeters    = 26.0f;
+    float                  DecayExponent  = 2.0f;
+    float                  CosHalfCone    = -2.0f; // <= -1.5 => isotropic point lamp; > -1.0 => spot cone
+    float                  PenumbraSoft   = 0.42f;
 };
 
 struct AtmosphericFogConfiguration
@@ -90,8 +108,9 @@ using GodRayConfiguration = AtmosphericFogConfiguration::GodRayConfiguration;
 
 struct FogEvaluationResult
 {
-    Mathematics::LinearRGB InScatterHdr  { 0.0f, 0.0f, 0.0f }; // [cd/m2] - Accumulated volumetric fog radiance
-    float                  Transmittance = 1.0f;               // [0..1]  - Remaining background visibility
+    Mathematics::LinearRGB InScatterHdr     { 0.0f, 0.0f, 0.0f }; // [cd/m2] - Accumulated volumetric fog radiance
+    Mathematics::LinearRGB TransmittanceRgb { 1.0f, 1.0f, 1.0f }; // [0..1]  - Spectral RGB transmittance (Rayleigh + Mie)
+    float                  Transmittance    = 1.0f;               // [0..1]  - Luminance-weighted background visibility
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -103,28 +122,57 @@ class VolumetricFogSequence
 public:
     static constexpr uint32_t MaxGpuLocalFogVolumes = 8u;
 
+    // Exact segment integral of exp(-(z - BaseZ)/ScaleH) along [Z0, Z1] (Wenzel / Quilez / Celestial Demo)
+    [[nodiscard]] static float EvaluateExponentialHeightIntegral(
+        float ScaleHeightMeters,
+        float OriginZ,
+        float EndZ,
+        float BaseAltitudeMeters) noexcept;
+
+    // Elevation-aware sky/horizon path distance through height + atmospheric fog media
+    [[nodiscard]] static float ComputeSkyFogPathMeters(
+        float                         OriginZ,
+        float                         RayDirZ,
+        const HeightFogConfiguration& HeightFog,
+        const AerialFogConfiguration& AerialFog) noexcept;
+
     // Analytical exponential height-fog optical depth integral over [0, SegmentMeters]
     [[nodiscard]] static float EvaluateHeightFogOpticalDepth(
         float                         OriginZ,
         float                         DirZ,
         float                         SegmentMeters,
-        const HeightFogConfiguration& Config) noexcept;
+        const HeightFogConfiguration& HeightConfiguration) noexcept;
 
     // Visibility distance where transmittance drops to 2% (-ln(0.02)/sigma)
     [[nodiscard]] static float ComputeTwoPercentVisibilityRangeMeters(
         float                         AltitudeMeters,
         const HeightFogConfiguration& HeightFog) noexcept;
 
-    // Evaluates local wind-advected fog extinction density at a 3D world point (HeightFog + LocalFogs)
-    [[nodiscard]] static float EvaluateFogMediumDensityAtPoint(
-        const Mathematics::Axis3D&         WorldPoint,
-        const AtmosphericFogConfiguration& FogConfig,
+    // Evaluates analytic Height Fog (exp^2) + Spectral Aerial Perspective (Rayleigh/Mie) in one symmetric pass
+    [[nodiscard]] static FogEvaluationResult EvaluateAnalyticAtmosphericMedia(
+        const Mathematics::Axis3D&         RayOriginWorld,
+        const Mathematics::Axis3D&         RayDirection,
+        float                              DistanceMeters,
+        const Mathematics::Axis3D&         SunDirection,
+        const Mathematics::LinearRGB&      SolarIrradiance,
+        const Mathematics::LinearRGB&      HemisphericalSkyAmbient,
+        const Mathematics::LinearRGB&      LowBandSkyGlow,
+        const AtmosphericFogConfiguration& FogConfiguration,
         const AtmosphericWindParameters&   GlobalWind,
         float                              DeckWindSpeedMps,
         float                              DeckWindBearingDeg,
         float                              SimulationSeconds) noexcept;
 
-    // Evaluates combined Height Fog + Aerial Perspective + Wind-driven LocalFogVolumes over [0, MaxDistanceMeters]
+    // Evaluates local wind-advected fog extinction density at a 3D world point (HeightFog + LocalFogs)
+    [[nodiscard]] static float EvaluateFogMediumDensityAtPoint(
+        const Mathematics::Axis3D&         WorldPoint,
+        const AtmosphericFogConfiguration& FogConfiguration,
+        const AtmosphericWindParameters&   GlobalWind,
+        float                              DeckWindSpeedMps,
+        float                              DeckWindBearingDeg,
+        float                              SimulationSeconds) noexcept;
+
+    // Evaluates combined Height Fog + Spectral Aerial Perspective + Wind-driven LocalFogVolumes over [0, MaxDistanceMeters]
     [[nodiscard]] static FogEvaluationResult EvaluateVolumetricFog(
         const Mathematics::Axis3D&         RayOriginWorld,
         const Mathematics::Axis3D&         RayDirection,
@@ -132,12 +180,14 @@ public:
         const Mathematics::Axis3D&         SunDirection,
         const Mathematics::LinearRGB&      SolarIrradiance,
         const Mathematics::LinearRGB&      SkyRadiance,
-        const AtmosphericFogConfiguration& FogConfig,
+        const AtmosphericFogConfiguration& FogConfiguration,
         const AtmosphericWindParameters&   GlobalWind,
         float                              DeckWindSpeedMps,
         float                              DeckWindBearingDeg,
         float                              SimulationSeconds,
-        float                              PixelJitter01 = -1.0f) noexcept;
+        float                              PixelJitter01 = -1.0f,
+        std::span<const LocalMediaLampSample> Lamps = {},
+        const Mathematics::LinearRGB*      OptionalLowBandGlow = nullptr) noexcept;
 
     // Evaluates volumetric crepuscular God Rays interacting with Scene Occlusion, Clouds, and Fog
     template <typename SceneVisFn, typename CloudVisFn>
@@ -147,7 +197,7 @@ public:
         float                              MaxDistanceMeters,
         const Mathematics::Axis3D&         SunDirection,
         const Mathematics::LinearRGB&      SolarIrradiance,
-        const AtmosphericFogConfiguration& FogConfig,
+        const AtmosphericFogConfiguration& FogConfiguration,
         const AtmosphericWindParameters&   GlobalWind,
         float                              DeckWindSpeedMps,
         float                              DeckWindBearingDeg,
@@ -164,7 +214,7 @@ Mathematics::LinearRGB VolumetricFogSequence::EvaluateVolumetricGodRays(
     float                              MaxDistanceMeters,
     const Mathematics::Axis3D&         SunDirection,
     const Mathematics::LinearRGB&      SolarIrradiance,
-    const AtmosphericFogConfiguration& FogConfig,
+    const AtmosphericFogConfiguration& FogConfiguration,
     const AtmosphericWindParameters&   GlobalWind,
     float                              DeckWindSpeedMps,
     float                              DeckWindBearingDeg,
@@ -173,7 +223,7 @@ Mathematics::LinearRGB VolumetricFogSequence::EvaluateVolumetricGodRays(
     CloudVisFn&&                       EvaluateCloudSolarVisibility,
     float                              PixelJitter01) noexcept
 {
-    const auto& GR = FogConfig.GodRays;
+    const auto& GR = FogConfiguration.GodRays;
     if (!GR.Enabled || GR.Intensity <= 1.0e-4f || SunDirection.Z <= 0.005f || MaxDistanceMeters <= 0.25f)
     {
         return { 0.0f, 0.0f, 0.0f };
@@ -220,7 +270,7 @@ Mathematics::LinearRGB VolumetricFogSequence::EvaluateVolumetricGodRays(
         if (GR.InteractWithFog)
         {
             const float FogRho = EvaluateFogMediumDensityAtPoint(
-                P, FogConfig, GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg,
+                P, FogConfiguration, GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg,
                 SimulationSeconds);
             MediumSigma += FogRho * 0.68f * std::max(0.1f, GR.Density);
         }

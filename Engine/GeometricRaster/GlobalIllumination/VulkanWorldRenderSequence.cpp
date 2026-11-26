@@ -47,36 +47,31 @@ struct GpuLocalCloudVolumeStd140
 {
     float CenterShape[4]          {};
     float HalfExtentYaw[4]        {};
-    float DensityCovScaleSides[4] {};
-    float WindVelCurl[4]          {};
-    float SoftAnisoPad[4]         {};
+    float DensityCovScaleSides[4]  {};
+    float WindVelCurl[4]           {};
+    float FormErosionAnisoSteps[4] {};
 };
 
 static_assert(sizeof(GpuLocalCloudVolumeStd140) == 80u, "GpuLocalCloudVolumeStd140 must equal 80 bytes.");
 
 struct VolumetricCloudUniformStd140
 {
-    float                         OriginTimeVector[4]      {};
-    float                         SunAxisToggle[4]         {};
-    float                         SolarIrradianceExt[4]    {};
-    float                         SkyColorWind[4]          {};
-    float                         DeckGeometry[4]          {};
-    float                         DeckOptics[4]            {};
-    float                         WindVectorOcclude[4]     {};
-    float                         LocalCenterExt[4]        {};
-    float                         LocalExtentFraction[4]   {};
-    float                         LocalDensityPhase[4]     {};
-    float                         FormationOptics[4]       {};
-    float                         CloudShadowOptics[4]     {};
-    float                         CloudPassControl[4]      {};
-    float                         WindForceMeta[4]         {};
-    float                         CloudToaSolarIrrad[4]    {};
-    float                         CloudSkyAmbient[4]       {};
-    float                         CloudAtmoStrengths[4]    {};
-    float                         CloudAirScalesCyclone[4] {};
-    GpuLocalCloudVolumeStd140     LocalClouds[8]           {};
+    float                         OriginTimeVector[4]       {};
+    float                         SunAxisToggle[4]          {};
+    float                         SolarIrradianceExt[4]     {};
+    float                         DeckGeometry[4]           {};
+    float                         FormationOptics[4]        {};
+    float                         WindVectorOcclude[4]      {};
+    float                         CloudPassControl[4]       {};
+    float                         WindForceMeta[4]          {};
+    float                         CloudAtmoStrengths[4]     {};
+    float                         CloudAirScalesCyclone[4]  {};
+    float                         CloudPhaseAbsorbPowder[4] {};
+    float                         CloudAlbedoErosion[4]     {};
+    float                         CloudSkyAmbient[4]        {};
+    GpuLocalCloudVolumeStd140     LocalClouds[8]            {};
 };
-static_assert(sizeof(VolumetricCloudUniformStd140) == 928u, "VolumetricCloudUniformStd140 must equal 928 bytes.");
+static_assert(sizeof(VolumetricCloudUniformStd140) == 848u, "VolumetricCloudUniformStd140 must equal 848 bytes.");
 
 struct GpuLocalFogVolumeStd140
 {
@@ -85,9 +80,10 @@ struct GpuLocalFogVolumeStd140
     float DensityCovScaleSides[4] {};
     float WindVelCurl[4]          {};
     float TintAniso[4]            {};
+    float AbsorbShadowFalloffSteps[4]     {};
 };
 
-static_assert(sizeof(GpuLocalFogVolumeStd140) == 80u, "GpuLocalFogVolumeStd140 must equal 80 bytes.");
+static_assert(sizeof(GpuLocalFogVolumeStd140) == 96u, "GpuLocalFogVolumeStd140 must equal 96 bytes.");
 
 struct VolumetricFogUniformStd140
 {
@@ -99,10 +95,11 @@ struct VolumetricFogUniformStd140
     float                         GodRayParams0[4] {};
     float                         GodRayParams1[4] {};
     float                         GodRayTint[4]    {};
+    float                         AerialTintPad[4] {};
     GpuLocalFogVolumeStd140       LocalFogs[8]     {};
 };
 
-static_assert(sizeof(VolumetricFogUniformStd140) == 768u, "VolumetricFogUniformStd140 must equal 768 bytes.");
+static_assert(sizeof(VolumetricFogUniformStd140) == 912u, "VolumetricFogUniformStd140 must equal 912 bytes.");
 
 struct GpuMoonDescriptorStd140
 {
@@ -209,7 +206,7 @@ struct WorldViewportUniformBlockStd140
     float                        PrevCameraRightTanY[4]              {}; // xyz=PrevRight, w=PrevTanHalfFovY
     float                        PrevCameraUpPad[4]                  {}; // xyz=PrevUp, w=Reserved
 };
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 3152u, "WorldViewportUniformBlockStd140 must equal 3152 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 3216u, "WorldViewportUniformBlockStd140 must equal 3216 bytes.");
 
 struct GpuShadedTriangle96
 {
@@ -6043,9 +6040,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
 
     const uint32_t WidthPx    = std::max(1u, Camera.ViewportWidthPx);
     const uint32_t HeightPx   = std::max(1u, Camera.ViewportHeightPx);
-    const bool     IsHwGpu    = QueryHardwareGpuActive();
-    const float    MaxScale   = IsHwGpu ? 1.0f : 0.50f;
-    const float    CloudScale = std::clamp(Scene.Atmosphere.Clouds.CloudRenderScale, 0.25f, MaxScale);
+    const float    CloudScale = std::clamp(Scene.Atmosphere.Clouds.CloudRenderScale, 0.25f, 1.0f);
     const uint32_t CloudW     = std::max(1u, static_cast<uint32_t>(std::lround(static_cast<float>(WidthPx)  * CloudScale)));
     const uint32_t CloudH     = std::max(1u, static_cast<uint32_t>(std::lround(static_cast<float>(HeightPx) * CloudScale)));
     const uint64_t OutBytes   = static_cast<uint64_t>(WidthPx) * HeightPx * 4ull;
@@ -6436,95 +6431,88 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         }
 
         auto& C = Uniforms.CloudParams;
-        C.OriginTimeVector[0]    = Camera.CameraOrigin.X;
-        C.OriginTimeVector[1]    = Camera.CameraOrigin.Y;
-        C.OriginTimeVector[2]    = Camera.CameraOrigin.Z;
-        C.OriginTimeVector[3]    = Atmo.SimulationSeconds;
-        C.SunAxisToggle[0]       = SunDir.X;
-        C.SunAxisToggle[1]       = SunDir.Y;
-        C.SunAxisToggle[2]       = SunDir.Z;
-        C.SunAxisToggle[3]       = Deck.CloudsEnabled ? 1.0f : 0.0f;
-        C.SolarIrradianceExt[0]  = EffectiveSunIrrad.R;
-        C.SolarIrradianceExt[1]  = EffectiveSunIrrad.G;
-        C.SolarIrradianceExt[2]  = EffectiveSunIrrad.B;
-        C.SolarIrradianceExt[3]  = Atmo.Medium.PlanetRadiusMeters;
-        C.SkyColorWind[0]        = Scene.SkyRadiance.R;
-        C.SkyColorWind[1]        = Scene.SkyRadiance.G;
-        C.SkyColorWind[2]        = Scene.SkyRadiance.B;
-        C.SkyColorWind[3]        = Deck.FollowWindEnabled ? 1.0f : 0.0f;
-        C.DeckGeometry[0]        = std::clamp(Deck.CloudFloorMeters, 100.0f, std::max(200.0f, Deck.DeckCeilingMeters - 100.0f));
-        C.DeckGeometry[1]        = Deck.LayerThicknessMeters;
-        C.DeckGeometry[2]        = Deck.CloudFraction;
-        C.DeckGeometry[3]        = Deck.ExtinctionMultiplier;
-        C.DeckOptics[0]          = Deck.FeatureScaleMultiplier;
-        C.DeckOptics[1]          = Deck.AnvilTopSpread;
-        C.DeckOptics[2]          = Deck.ForwardScatterAnisotropy;
-        C.DeckOptics[3]          = Deck.WindShearPerKilometer;
-        C.WindVectorOcclude[0]   = DeckWind.VelocityMetersPerSec.X;
-        C.WindVectorOcclude[1]   = DeckWind.VelocityMetersPerSec.Y;
-        C.WindVectorOcclude[2]   = Deck.CloudShadow.ShadowEnabled ? 1.0f : 0.0f;
-        C.WindVectorOcclude[3]   = Atmo.LocalCloud.LocalEnabled ? 1.0f : 0.0f;
-        C.LocalCenterExt[0]      = Atmo.LocalCloud.VolumeCenterMeters.X;
-        C.LocalCenterExt[1]      = Atmo.LocalCloud.VolumeCenterMeters.Y;
-        C.LocalCenterExt[2]      = Atmo.LocalCloud.VolumeCenterMeters.Z;
-        C.LocalCenterExt[3]      = Atmo.LocalCloud.FeatureScaleMeters;
-        C.LocalExtentFraction[0] = Atmo.LocalCloud.HalfExtentMeters.X;
-        C.LocalExtentFraction[1] = Atmo.LocalCloud.HalfExtentMeters.Y;
-        C.LocalExtentFraction[2] = Atmo.LocalCloud.HalfExtentMeters.Z;
-        C.LocalExtentFraction[3] = Atmo.LocalCloud.CloudFraction;
-        C.LocalDensityPhase[0]   = Atmo.LocalCloud.ExtinctionMultiplier;
-        C.LocalDensityPhase[1]   = Atmo.LocalCloud.ForwardScatterAnisotropy;
-        C.LocalDensityPhase[2]   = static_cast<float>(WidthPx);
-        C.LocalDensityPhase[3]   = static_cast<float>(HeightPx);
-        C.FormationOptics[0]     = static_cast<float>(static_cast<uint32_t>(Deck.Category));
-        C.FormationOptics[1]     = Deck.WindVeerDegreesPerKm * Constants::DegToRadFloat;
-        C.FormationOptics[2]     = std::max(Deck.WindTurbulence, DeckWind.TurbulenceScalar);
-        C.CloudShadowOptics[0]   = Deck.CloudShadow.ShadowFraction;
-        C.CloudShadowOptics[1]   = Deck.CloudShadow.ShadowDensityMultiplier;
-        C.CloudShadowOptics[2]   = Deck.CloudShadow.ShadowScale;
-        C.CloudShadowOptics[3]   = Deck.CloudShadow.ShadowAnvil;
-        C.CloudPassControl[0]    = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudW) : 0.0f;
-        C.CloudPassControl[1]    = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudH) : 0.0f;
-        const uint32_t EffSteps  = IsHwGpu
-            ? std::clamp(std::max(Deck.CloudMarchSteps, 64u), 48u, 128u)
-            : std::clamp(Deck.CloudMarchSteps, 24u, 36u);
-        C.CloudPassControl[2]    = static_cast<float>(EffSteps);
+        C.OriginTimeVector[0]       = Camera.CameraOrigin.X;
+        C.OriginTimeVector[1]       = Camera.CameraOrigin.Y;
+        C.OriginTimeVector[2]       = Camera.CameraOrigin.Z;
+        C.OriginTimeVector[3]       = Deck.FollowWindEnabled ? Atmo.SimulationSeconds : 0.0f;
+        C.SunAxisToggle[0]          = SunDir.X;
+        C.SunAxisToggle[1]          = SunDir.Y;
+        C.SunAxisToggle[2]          = SunDir.Z;
+        C.SunAxisToggle[3]          = Deck.CloudsEnabled ? 1.0f : 0.0f;
+        C.SolarIrradianceExt[0]     = EffectiveSunIrrad.R * 0.44f;
+        C.SolarIrradianceExt[1]     = EffectiveSunIrrad.G * 0.44f;
+        C.SolarIrradianceExt[2]     = EffectiveSunIrrad.B * 0.44f;
+        C.SolarIrradianceExt[3]     = std::max(500000.0f, Atmo.Medium.PlanetRadiusMeters);
+        C.DeckGeometry[0]           = std::clamp(Deck.CloudFloorMeters, 50.0f, std::max(200.0f, Deck.DeckCeilingMeters - 50.0f));
+        C.DeckGeometry[1]           = std::max(50.0f, Deck.LayerThicknessMeters);
+        C.DeckGeometry[2]           = std::clamp(Deck.CloudFraction, 0.0f, 1.0f);
+        C.DeckGeometry[3]           = std::max(0.0f, Deck.ExtinctionMultiplier);
+        C.FormationOptics[0]        = static_cast<float>(static_cast<uint32_t>(Deck.Category));
+        C.FormationOptics[1]        = std::max(0.30f, Deck.FeatureScaleMultiplier);
+        C.FormationOptics[2]        = std::clamp(Deck.ForwardScatterAnisotropy, 0.0f, 0.95f);
 
-        const auto BaseCloudWind = Deck.FollowWindEnabled
-            ? AtmosphericWindSolver::ResolveWindSample(
-                  Atmo.Wind, Deck.WindSpeedMetersPerSecond, Deck.WindBearingDegrees,
-                  Deck.WindSource, { 0.0f, 0.0f, Deck.CloudFloorMeters }, Deck.CloudFloorMeters,
-                  Atmo.SimulationSeconds)
-            : ResolvedWindSample {};
-        C.CloudPassControl[3] = Basis.TanHalfFovY;
-        C.WindForceMeta[0]    = 1600.0f;
-        C.WindForceMeta[1]    = BaseCloudWind.VelocityMetersPerSec.X;
-        C.WindForceMeta[2]    = BaseCloudWind.VelocityMetersPerSec.Y;
-        C.WindForceMeta[3]    = Atmo.Medium.ObserverAltitudeMeters;
+        float DeckWindVX = DeckWind.VelocityMetersPerSec.X;
+        float DeckWindVY = DeckWind.VelocityMetersPerSec.Y;
+        if (!Deck.FollowWindEnabled)
+        {
+            const float BearRad = Deck.WindBearingDegrees * Constants::DegToRadFloat;
+            DeckWindVX = std::cos(BearRad) * Deck.WindSpeedMetersPerSecond;
+            DeckWindVY = -std::sin(BearRad) * Deck.WindSpeedMetersPerSecond;
+        }
+        C.WindVectorOcclude[0]      = DeckWindVX;
+        C.WindVectorOcclude[1]      = DeckWindVY;
+        C.WindVectorOcclude[2]      = Deck.CloudShadow.ShadowEnabled ? 1.0f : 0.0f;
+        C.WindVectorOcclude[3]      = std::clamp(Deck.CloudShadow.ShadowDensityMultiplier, 0.0f, 1.0f);
 
-        const float CloudSolarScale = std::max(0.0f, Atmo.Solar.SolarIntensityMultiplier * Atmo.Medium.SkyBrightnessMultiplier * 0.72f);
-        C.CloudToaSolarIrrad[0] = SolarSolved.EffectiveSolarTint.R * CloudSolarScale;
-        C.CloudToaSolarIrrad[1] = SolarSolved.EffectiveSolarTint.G * CloudSolarScale;
-        C.CloudToaSolarIrrad[2] = SolarSolved.EffectiveSolarTint.B * CloudSolarScale;
-        C.CloudToaSolarIrrad[3] = 0.04f;
-        const float AmbGain     = CloudSolarScale / 16.0f;
-        C.CloudSkyAmbient[0]    = 0.37f * AmbGain * Atmo.Medium.SkyTint.R;
-        C.CloudSkyAmbient[1]    = 0.46f * AmbGain * Atmo.Medium.SkyTint.G;
-        C.CloudSkyAmbient[2]    = 0.62f * AmbGain * Atmo.Medium.SkyTint.B;
-        C.CloudSkyAmbient[3]    = IsHwGpu ? 8.0f : 4.0f;
-        C.CloudAtmoStrengths[0] = Atmo.Medium.RayleighStrength;
-        C.CloudAtmoStrengths[1] = Atmo.Medium.MieStrength;
-        C.CloudAtmoStrengths[2] = Atmo.Medium.OzoneStrength;
-        C.CloudAtmoStrengths[3] = Atmo.Medium.AtmosphereThicknessMeters;
-        C.CloudAirScalesCyclone[0] = Atmo.Medium.RayleighScaleHeightMeters;
-        C.CloudAirScalesCyclone[1] = Atmo.Medium.MieScaleHeightMeters;
-        C.CloudAirScalesCyclone[2] = 28.0f;
-        C.CloudAirScalesCyclone[3] = 22000.0f;
+        C.CloudPassControl[0]       = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudW) : 0.0f;
+        C.CloudPassControl[1]       = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudH) : 0.0f;
+        C.CloudPassControl[2]       = static_cast<float>(std::clamp(Deck.CloudMarchSteps, 16u, 64u));
+        C.CloudPassControl[3]       = static_cast<float>(std::clamp(Deck.LightMarchTaps, 3u, 5u));
+
+        C.WindForceMeta[0]          = Deck.WindShearPerKilometer;
+        C.WindForceMeta[1]          = Deck.WindVeerDegreesPerKm * Constants::DegToRadFloat;
+        C.WindForceMeta[2]          = std::max(Deck.WindTurbulence, DeckWind.TurbulenceScalar);
+        C.WindForceMeta[3]          = std::max(0.0f, Atmo.Medium.ObserverAltitudeMeters);
+
+        C.CloudAtmoStrengths[0]     = Atmo.Medium.RayleighStrength;
+        C.CloudAtmoStrengths[1]     = Atmo.Medium.MieStrength;
+        C.CloudAtmoStrengths[2]     = Atmo.Medium.OzoneStrength;
+        C.CloudAtmoStrengths[3]     = Atmo.Medium.AtmosphereThicknessMeters;
+
+        C.CloudAirScalesCyclone[0]  = Atmo.Medium.RayleighScaleHeightMeters;
+        C.CloudAirScalesCyclone[1]  = Atmo.Medium.MieScaleHeightMeters;
+        C.CloudAirScalesCyclone[2]  = std::clamp(Deck.AnvilTopSpread, 0.0f, 1.0f);
+        C.CloudAirScalesCyclone[3]  = std::max(0.0f, Deck.SkyAmbientGain);
+
+        C.CloudPhaseAbsorbPowder[0] = std::clamp(Deck.BackScatterAnisotropy, 0.0f, 0.90f);
+        C.CloudPhaseAbsorbPowder[1] = std::clamp(Deck.PhaseLobeBlend, 0.0f, 1.0f);
+        C.CloudPhaseAbsorbPowder[2] = std::max(0.0f, Deck.AbsorptionRatio);
+        C.CloudPhaseAbsorbPowder[3] = std::clamp(Deck.PowderStrength, 0.0f, 1.0f);
+
+        C.CloudAlbedoErosion[0]     = std::max(0.0f, Deck.CloudAlbedo.R);
+        C.CloudAlbedoErosion[1]     = std::max(0.0f, Deck.CloudAlbedo.G);
+        C.CloudAlbedoErosion[2]     = std::max(0.0f, Deck.CloudAlbedo.B);
+        C.CloudAlbedoErosion[3]     = std::clamp(Deck.ErosionDetail, 0.0f, 1.0f);
+
+        if (AtmoActive)
+        {
+            const float DayFade = std::clamp(SunDir.Z * 3.5f + 0.15f, 0.02f, 1.0f);
+            C.CloudSkyAmbient[0] = 0.24f * DayFade * Atmo.Medium.SkyTint.R;
+            C.CloudSkyAmbient[1] = 0.36f * DayFade * Atmo.Medium.SkyTint.G;
+            C.CloudSkyAmbient[2] = 0.56f * DayFade * Atmo.Medium.SkyTint.B;
+        }
+        else
+        {
+            C.CloudSkyAmbient[0] = Scene.SkyRadiance.R;
+            C.CloudSkyAmbient[1] = Scene.SkyRadiance.G;
+            C.CloudSkyAmbient[2] = Scene.SkyRadiance.B;
+        }
+        C.CloudSkyAmbient[3] = 0.0f;
 
         uint32_t LocalCloudCount = 0u;
         auto PackLocalCloud = [&](const BoundedCloudVolume& Vol)
         {
-            if (LocalCloudCount >= 8u || !Vol.LocalEnabled || Vol.CloudFraction <= 0.01f || Vol.ExtinctionMultiplier <= 0.01f)
+            if (LocalCloudCount >= 8u || !Vol.LocalEnabled || Vol.CloudFraction <= 0.001f || Vol.ExtinctionMultiplier <= 0.001f)
             {
                 return;
             }
@@ -6535,26 +6523,26 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                       Atmo.SimulationSeconds)
                 : ResolvedWindSample {};
             auto& Dst = C.LocalClouds[LocalCloudCount++];
-            Dst.CenterShape[0]          = Vol.VolumeCenterMeters.X;
-            Dst.CenterShape[1]          = Vol.VolumeCenterMeters.Y;
-            Dst.CenterShape[2]          = Vol.VolumeCenterMeters.Z;
-            Dst.CenterShape[3]          = static_cast<float>(static_cast<uint32_t>(Vol.Shape));
-            Dst.HalfExtentYaw[0]        = Vol.HalfExtentMeters.X;
-            Dst.HalfExtentYaw[1]        = Vol.HalfExtentMeters.Y;
-            Dst.HalfExtentYaw[2]        = Vol.HalfExtentMeters.Z;
-            Dst.HalfExtentYaw[3]        = Vol.YawDegrees * Constants::DegToRadFloat;
-            Dst.DensityCovScaleSides[0] = Vol.ExtinctionMultiplier;
-            Dst.DensityCovScaleSides[1] = Vol.CloudFraction;
-            Dst.DensityCovScaleSides[2] = 1.0f / std::max(2.0f, Vol.FeatureScaleMeters);
-            Dst.DensityCovScaleSides[3] = static_cast<float>(std::clamp(Vol.PrismSides, 3u, 16u));
-            Dst.WindVelCurl[0]          = W.VelocityMetersPerSec.X;
-            Dst.WindVelCurl[1]          = W.VelocityMetersPerSec.Y;
-            Dst.WindVelCurl[2]          = W.VelocityMetersPerSec.Z;
-            Dst.WindVelCurl[3]          = W.CurlScalar;
-            Dst.SoftAnisoPad[0]         = Vol.EdgeSoftness;
-            Dst.SoftAnisoPad[1]         = Vol.ForwardScatterAnisotropy;
-            Dst.SoftAnisoPad[2]         = Vol.FollowWindEnabled ? 1.0f : 0.0f;
-            Dst.SoftAnisoPad[3]         = 0.0f;
+            Dst.CenterShape[0]           = Vol.VolumeCenterMeters.X;
+            Dst.CenterShape[1]           = Vol.VolumeCenterMeters.Y;
+            Dst.CenterShape[2]           = Vol.VolumeCenterMeters.Z;
+            Dst.CenterShape[3]           = static_cast<float>(static_cast<uint32_t>(Vol.Shape));
+            Dst.HalfExtentYaw[0]         = Vol.HalfExtentMeters.X;
+            Dst.HalfExtentYaw[1]         = Vol.HalfExtentMeters.Y;
+            Dst.HalfExtentYaw[2]         = Vol.HalfExtentMeters.Z;
+            Dst.HalfExtentYaw[3]         = Vol.YawDegrees * Constants::DegToRadFloat;
+            Dst.DensityCovScaleSides[0]  = Vol.ExtinctionMultiplier;
+            Dst.DensityCovScaleSides[1]  = Vol.CloudFraction;
+            Dst.DensityCovScaleSides[2]  = std::max(0.5f, Vol.FeatureScaleMeters);
+            Dst.DensityCovScaleSides[3]  = static_cast<float>(std::clamp(Vol.PrismSides, 3u, 16u));
+            Dst.WindVelCurl[0]           = W.VelocityMetersPerSec.X;
+            Dst.WindVelCurl[1]           = W.VelocityMetersPerSec.Y;
+            Dst.WindVelCurl[2]           = W.VelocityMetersPerSec.Z;
+            Dst.WindVelCurl[3]           = std::clamp(Vol.EdgeSoftness, 0.02f, 1.0f);
+            Dst.FormErosionAnisoSteps[0] = static_cast<float>(static_cast<uint32_t>(Vol.Form));
+            Dst.FormErosionAnisoSteps[1] = std::clamp(Vol.ErosionDetail, 0.0f, 1.0f);
+            Dst.FormErosionAnisoSteps[2] = std::clamp(Vol.ForwardScatterAnisotropy, 0.0f, 0.95f);
+            Dst.FormErosionAnisoSteps[3] = static_cast<float>(std::clamp(Vol.MarchSteps, 16u, 48u));
         };
         if (Atmo.LocalCloud.LocalEnabled)
         {
@@ -6595,7 +6583,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         uint32_t LocalFogCount = 0u;
         for (const auto& Vol : Fg.LocalFogs)
         {
-            if (LocalFogCount >= 8u || !Vol.Enabled || Vol.Density <= 1.0e-4f || Vol.Coverage <= 1.0e-4f)
+            if (LocalFogCount >= 8u || !Vol.Enabled || Vol.Density <= 1.0e-4f)
             {
                 continue;
             }
@@ -6615,22 +6603,26 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             Dst.HalfExtentYaw[2]        = Vol.HalfExtentMeters.Z;
             Dst.HalfExtentYaw[3]        = Vol.YawDegrees * Constants::DegToRadFloat;
             Dst.DensityCovScaleSides[0] = Vol.Density;
-            Dst.DensityCovScaleSides[1] = Vol.Coverage;
-            Dst.DensityCovScaleSides[2] = 1.0f / std::max(1.5f, Vol.FeatureScaleMeters);
+            Dst.DensityCovScaleSides[1] = std::clamp(Vol.Coverage, 0.0f, 1.0f);
+            Dst.DensityCovScaleSides[2] = std::max(0.25f, Vol.FeatureScaleMeters);
             Dst.DensityCovScaleSides[3] = static_cast<float>(std::clamp(Vol.PrismSides, 3u, 16u));
             Dst.WindVelCurl[0]          = FW.VelocityMetersPerSec.X;
             Dst.WindVelCurl[1]          = FW.VelocityMetersPerSec.Y;
             Dst.WindVelCurl[2]          = FW.VelocityMetersPerSec.Z;
-            Dst.WindVelCurl[3]          = FW.CurlScalar;
+            Dst.WindVelCurl[3]          = std::clamp(Vol.EdgeSoftness, 0.01f, 1.0f);
             Dst.TintAniso[0]            = Vol.FogTint.R;
             Dst.TintAniso[1]            = Vol.FogTint.G;
             Dst.TintAniso[2]            = Vol.FogTint.B;
-            Dst.TintAniso[3]            = Vol.AnisotropyG;
+            Dst.TintAniso[3]            = std::clamp(Vol.AnisotropyG, -0.95f, 0.95f);
+            Dst.AbsorbShadowFalloffSteps[0]     = std::max(0.0f, Vol.AbsorptionRatio);
+            Dst.AbsorbShadowFalloffSteps[1]     = Vol.SelfShadowEnabled ? 1.0f : 0.0f;
+            Dst.AbsorbShadowFalloffSteps[2]     = Vol.DensityFalloffEnabled ? 1.0f : 0.0f;
+            Dst.AbsorbShadowFalloffSteps[3]     = static_cast<float>(std::clamp(Vol.MarchSteps, 16u, 48u));
         }
         F.FogMeta[0] = static_cast<float>(LocalFogCount);
-        F.FogMeta[1] = Fg.AerialFog.ScaleHeightMeters;
-        F.FogMeta[2] = (LocalFogCount > 0u) ? Fg.LocalFogs[0].EdgeSoftness : 0.35f;
-        F.FogMeta[3] = 0.0f;
+        F.FogMeta[1] = std::max(50.0f, Fg.AerialFog.ScaleHeightMeters);
+        F.FogMeta[2] = std::clamp(Fg.AerialFog.AnisotropyG, 0.0f, 0.95f);
+        F.FogMeta[3] = std::max(0.0f, Fg.AerialFog.SkyLightGain);
 
         F.GodRayParams0[0] = Fg.GodRays.Enabled ? 1.0f : 0.0f;
         F.GodRayParams0[1] = Fg.GodRays.Intensity;
@@ -6644,6 +6636,11 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         F.GodRayTint[1]    = Fg.GodRays.ShaftTint.G;
         F.GodRayTint[2]    = Fg.GodRays.ShaftTint.B;
         F.GodRayTint[3]    = Fg.GodRays.Decay;
+
+        F.AerialTintPad[0] = std::max(0.0f, Fg.AerialFog.AerialTint.R);
+        F.AerialTintPad[1] = std::max(0.0f, Fg.AerialFog.AerialTint.G);
+        F.AerialTintPad[2] = std::max(0.0f, Fg.AerialFog.AerialTint.B);
+        F.AerialTintPad[3] = 0.0f;
 
         auto& Cel = Uniforms.CelestialParams;
         Cel.SunAxisRadius[0]    = SunDir.X;

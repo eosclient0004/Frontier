@@ -1,253 +1,340 @@
 /*============================================================================================================================================
                                                         VOLUMETRICFOGCOMPUTE.SLANG
 ============================================================================================================================================*/
-// 🧩 GPU Atmospheric Height Fog, Spectral Aerial Perspective & Wind-Advected Multi-Shape LocalFogVolumes
+// 🧩 Celestial Analytic Media (Exp² Height Fog + Spectral Rayleigh/Mie Aerial Perspective) & Multi-Shape Local Fog Volumes
+
+#include "CloudNoise.slang"
 
 static const float FogPiConst = 3.14159265359;
 
 struct GpuLocalFogVolume
 {
-    float4 CenterShape;          // xyz = CenterWorld, w = Shape (0=Box,1=Sphere,2=Ellipsoid,3=Cylinder,4=Cone,5=Diamond,6=Prism,7=HalfSphere)
+    float4 CenterShape;          // xyz = CenterWorld, w = Shape (0=Box..7=HalfSphere)
     float4 HalfExtentYaw;        // xyz = HalfExtentM, w = YawRad
-    float4 DensityCovScaleSides; // x = Density, y = Coverage, z = InvFeatureScale, w = float(PrismSides)
-    float4 WindVelCurl;          // xyz = ResolvedWindVelMps, w = CurlScalar
+    float4 DensityCovScaleSides; // x = Density, y = Coverage/Heterogeneity, z = FeatureScaleMeters, w = float(PrismSides)
+    float4 WindVelCurl;          // xyz = ResolvedWindVelMps, w = EdgeSoftness (per-volume!)
     float4 TintAniso;            // xyz = FogTintLinear, w = AnisotropyG
+    float4 AbsorbShadowFalloffSteps;     // x = AbsorptionRatio, y = SelfShadow (0/1), z = DensityFalloff (0/1), w = MarchSteps
 };
 
 struct VolumetricFogUniformBlock
 {
-    float4            HeightParams0; // x = Enabled, y = Density, z = FalloffHeightM, w = BaseAltM
+    float4            HeightParams0; // x = Enabled, y = Density, z = FalloffHeightM, w = FloorAltM
     float4            HeightParams1; // xyz = HeightColour, w = SunScatterIntensity
     float4            AerialParams;  // x = Enabled, y = DensityMul, z = StartDistM, w = MieBlend
     float4            FogWindClock;  // x = HeightFollowWind, y = HeightWindVX, z = HeightWindVY, w = SimulationSeconds
-    float4            FogMeta;       // x = LocalFogCount (0..8), y = AerialScaleHeightM, z = Softness, w = Reserved
+    float4            FogMeta;       // x = LocalFogCount (0..8), y = AerialScaleHeightM, z = AerialAnisotropyG, w = AerialSkyLightGain
     float4            GodRayParams0; // x = Enabled, y = Intensity, z = AnisotropyG, w = Density
     float4            GodRayParams1; // x = MaxDistanceM, y = SampleSteps, z = InteractWithClouds, w = InteractWithFog
     float4            GodRayTint;    // xyz = ShaftTint, w = Decay
+    float4            AerialTintPad; // xyz = AerialTintLinear, w = Reserved
     GpuLocalFogVolume LocalFogs[8];
 };
 
-float HashFogInt3Gpu(int IX, int IY, int IZ)
+//------------------------------------------------------------------------------------------------------------------------
+//                                      EXACT HEIGHT INTEGRAL & ELEVATION-AWARE SKY RANGE
+//------------------------------------------------------------------------------------------------------------------------
+
+float EvaluateExpHeightIntegralGpu(float ScaleHeightM, float OriginZ, float EndZ, float FloorAltM)
 {
-    uint N = uint(IX) * 374761393u + uint(IY) * 668265263u + uint(IZ) * 2147483647u;
-    N = (N ^ (N >> 13u)) * 1274126177u;
-    N = N ^ (N >> 16u);
-    return float(N) * (1.0 / 4294967296.0);
-}
-
-float LatticeNoiseFog3Gpu(float3 P)
-{
-    int3 I   = int3(floor(P));
-    float3 F = P - float3(I);
-    float3 U = F * F * (3.0 - 2.0 * F);
-
-    float N000 = HashFogInt3Gpu(I.x, I.y, I.z),         N100 = HashFogInt3Gpu(I.x + 1, I.y, I.z);
-    float N010 = HashFogInt3Gpu(I.x, I.y + 1, I.z),     N110 = HashFogInt3Gpu(I.x + 1, I.y + 1, I.z);
-    float N001 = HashFogInt3Gpu(I.x, I.y, I.z + 1),     N101 = HashFogInt3Gpu(I.x + 1, I.y, I.z + 1);
-    float N011 = HashFogInt3Gpu(I.x, I.y + 1, I.z + 1), N111 = HashFogInt3Gpu(I.x + 1, I.y + 1, I.z + 1);
-
-    return lerp(
-        lerp(lerp(N000, N100, U.x), lerp(N010, N110, U.x), U.y),
-        lerp(lerp(N001, N101, U.x), lerp(N011, N111, U.x), U.y),
-        U.z);
-}
-
-float FogFbmGpu3(float3 P)
-{
-    float  Sum = 0.0;
-    float  Amp = 0.54;
-    float3 Q   = P;
-    for (uint Oct = 0u; Oct < 4u; ++Oct)
+    float H  = max(1.0, ScaleHeightM);
+    float DZ = EndZ - OriginZ;
+    float A0 = (OriginZ - FloorAltM) / H;
+    if (abs(DZ) < 0.01)
     {
-        Sum += Amp * LatticeNoiseFog3Gpu(Q);
-        Q = float3(
-             0.80 * Q.x - 0.48 * Q.y + 0.36 * Q.z,
-             0.48 * Q.x + 0.86 * Q.y + 0.16 * Q.z,
-            -0.36 * Q.x + 0.04 * Q.y + 0.93 * Q.z) * 2.03 + float3(7.1, -11.3, 5.7);
-        Amp *= 0.46;
+        return exp(-clamp(A0, -10.0, 40.0));
     }
-    return Sum;
+    float A1 = (EndZ - FloorAltM) / H;
+    return max(0.0, (exp(-clamp(A0, -10.0, 40.0)) - exp(-clamp(A1, -10.0, 40.0))) / (DZ / H));
 }
 
-float EvaluateFogPhaseHGGpu(float CosTheta, float G)
+float ComputeSkyFogPathMetersGpu(VolumetricFogUniformBlock Fog, float OriginZ, float RayDirZ)
 {
-    float CG  = clamp(G, -0.89, 0.89);
-    float G2  = CG * CG;
-    float Den = max(1.0e-3, 1.0 + G2 - 2.0 * CG * CosTheta);
-    return (1.0 - G2) / (4.0 * FogPiConst * pow(Den, 1.5));
+    float HeightRef = (Fog.HeightParams0.x > 0.5) ? (max(1.0, Fog.HeightParams0.z) * 4.0) : 0.0;
+    float AerialRef = (Fog.AerialParams.x > 0.5)  ? (max(10.0, Fog.FogMeta.y) * 5.0)       : 0.0;
+    float TopRef    = max(HeightRef, AerialRef);
+    if (TopRef <= 1.0) TopRef = 6000.0;
+    if (RayDirZ > 0.002)
+    {
+        return min(25000.0, TopRef / RayDirZ);
+    }
+    if (RayDirZ < -0.002)
+    {
+        float FloorAlt = (Fog.HeightParams0.x > 0.5) ? Fog.HeightParams0.w : 0.0;
+        float AboveM  = max(2.0, OriginZ - FloorAlt);
+        return min(25000.0, AboveM / (-RayDirZ));
+    }
+    return 25000.0;
 }
 
-float EvaluateVolumeShapeMaskGpu(
-    float3 P,
-    float3 Center,
+float EvaluateHeightFogOpticalDepthGpu(
+    float OriginZ,
+    float DirZ,
+    float SegM,
+    float Density,
+    float FalloffM,
+    float FloorAltM)
+{
+    if (Density <= 1.0e-6 || SegM <= 1.0e-4) return 0.0;
+    float K = EvaluateExpHeightIntegralGpu(FalloffM, OriginZ, OriginZ + DirZ * SegM, FloorAltM);
+    return max(0.0, clamp(Density, 0.0, 0.5) * SegM * K);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                  BOUNDED SHAPE MASK (8 SHAPES, Z-UP, PER-VOLUME SOFTNESS)
+//------------------------------------------------------------------------------------------------------------------------
+
+float EvaluateFogVolumeShapeMaskGpu(
+    float3 PointWorld,
+    float3 CenterWorld,
     float3 HalfExt,
     uint   Shape,
     float  YawRad,
-    float  PrismSides,
-    float  Softness)
+    uint   PrismSides,
+    float  EdgeSoftness,
+    bool   DensityFalloff,
+    out float OutMargin,
+    out float OutHeightNorm)
 {
-    float3 H = max(float3(0.1), HalfExt);
-    float3 D = P - Center;
-    float  Cs = cos(YawRad);
-    float  Sn = sin(YawRad);
-    float3 L  = float3(D.x * Cs + D.y * Sn, -D.x * Sn + D.y * Cs, D.z);
-    float3 N  = L / H;
+    float3 SafeH = max(HalfExt, float3(0.1, 0.1, 0.1));
+    float3 Rel   = PointWorld - CenterWorld;
+    float  C     = cos(-YawRad);
+    float  S     = sin(-YawRad);
+    float3 Local = float3(C * Rel.x - S * Rel.y, S * Rel.x + C * Rel.y, Rel.z);
 
-    float NormDist = 0.0;
+    float  Soft = clamp(EdgeSoftness, 0.01, 1.0);
+    float3 U    = Local / SafeH;
+    OutHeightNorm = clamp(0.5 * (U.z + 1.0), 0.0, 1.0);
+
+    float DistNorm = 1.0e6;
     if (Shape == 0u) // Box
     {
-        NormDist = max(abs(N.x), max(abs(N.y), abs(N.z)));
+        DistNorm = max(abs(U.x), max(abs(U.y), abs(U.z)));
     }
     else if (Shape == 1u) // Sphere
     {
-        float MinR = min(H.x, min(H.y, H.z));
-        NormDist = length(L) / MinR;
+        float MinExt = min(SafeH.x, min(SafeH.y, SafeH.z));
+        DistNorm = length(Local) / max(0.1, MinExt);
     }
     else if (Shape == 2u) // Ellipsoid
     {
-        NormDist = length(N);
+        DistNorm = length(U);
     }
-    else if (Shape == 3u) // Cylinder
+    else if (Shape == 3u) // Cylinder (Z-up)
     {
-        NormDist = max(length(N.xy), abs(N.z));
+        DistNorm = max(length(U.xy), abs(U.z));
     }
-    else if (Shape == 4u) // Cone
+    else if (Shape == 4u) // Cone (Z-up: wide base U.z = -1, apex U.z = +1)
     {
-        float T   = clamp(0.5 * (1.0 - N.z), 0.0, 1.0);
-        float Rad = length(N.xy) / max(0.08, T);
-        NormDist  = max(Rad, abs(N.z));
+        float Taper = clamp(0.5 * (1.0 - U.z), 0.0, 1.0);
+        float Rad   = length(U.xy);
+        DistNorm    = max(abs(U.z), (Taper > 1.0e-3) ? (Rad / Taper) : (Rad > 1.0e-4 ? 2.0 : 1.0));
     }
-    else if (Shape == 5u) // Diamond
+    else if (Shape == 5u) // Diamond (octahedron)
     {
-        NormDist = abs(N.x) + abs(N.y) + abs(N.z);
+        DistNorm = abs(U.x) + abs(U.y) + abs(U.z);
     }
-    else if (Shape == 6u) // Prism
+    else if (Shape == 6u) // N-sided Prism
     {
-        float Sides = clamp(PrismSides, 3.0, 16.0);
-        float Theta = atan2(N.y, N.x);
-        float Sec   = 6.2831853 / Sides;
-        float ModA  = (Theta - Sec * floor(Theta / Sec)) - 0.5 * Sec;
-        float Rad   = length(N.xy) * cos(ModA) / max(0.25, cos(0.5 * Sec));
-        NormDist    = max(Rad, abs(N.z));
+        uint  Sides  = clamp(PrismSides, 3u, 16u);
+        float Sector = (2.0 * FogPiConst) / float(Sides);
+        float Angle  = atan2(U.y, U.x);
+        float ModA   = fmod(Angle + 4.0 * FogPiConst + 0.5 * Sector, Sector) - 0.5 * Sector;
+        float PolyR  = (length(U.xy) * cos(ModA)) / max(0.25, cos(0.5 * Sector));
+        DistNorm     = max(PolyR, abs(U.z));
     }
-    else // HalfSphere (7u)
+    else // Shape == 7u: HalfSphere Dome (flat bottom at CenterWorld.z)
     {
-        float BaseDepth = (L.z < 0.0) ? (-L.z / max(0.05, 0.14 * H.z)) : 0.0;
-        float DomeRad   = (L.z >= 0.0) ? length(N) : length(N.xy);
-        NormDist        = max(DomeRad, BaseDepth);
+        if (U.z < -0.14) { OutMargin = 0.0; return 0.0; }
+        float BottomF = smoothstep(-0.14, 0.06, U.z);
+        float RadialD = length(float3(U.x, U.y, max(0.0, U.z)));
+        OutHeightNorm = clamp(max(0.0, U.z), 0.0, 1.0);
+        float Margin  = saturate(1.0 - RadialD);
+        OutMargin     = Margin * BottomF;
+        if (OutMargin <= 0.0) return 0.0;
+        if (DensityFalloff)
+        {
+            return pow(smoothstep(0.0, 1.0, Margin), lerp(0.35, 3.0, Soft)) * BottomF;
+        }
+        return smoothstep(0.0, max(Soft, 0.01), Margin) * BottomF;
     }
 
-    float Soft = clamp(Softness, 0.04, 0.92);
-    float Mask = 1.0 - smoothstep(max(0.0, 1.0 - Soft), 1.0, NormDist);
-    if (Shape == 7u)
+    float Margin = saturate(1.0 - DistNorm);
+    OutMargin = Margin;
+    if (Margin <= 0.0) return 0.0;
+
+    if (DensityFalloff)
     {
-        float RadialDecay = pow(saturate(1.0 - NormDist * 0.82), 0.72);
-        Mask *= (0.35 + 0.65 * RadialDecay);
+        return pow(smoothstep(0.0, 1.0, Margin), lerp(0.35, 3.0, Soft));
     }
-    return Mask;
+    return smoothstep(0.0, max(Soft, 0.01), Margin);
 }
 
-float3 AdvectFogPointBackwardGpu(
-    VolumetricFogUniformBlock Fog,
-    float3                    P,
-    float                     TimeSec,
-    float4                    BaseWindVelCurl,
-    out float3                OutVel,
-    out float                 OutCurl)
-{
-    OutVel  = BaseWindVelCurl.xyz;
-    OutCurl = BaseWindVelCurl.w;
-    if (abs(TimeSec) <= 1.0e-4) return P;
-    float AdvSec = TimeSec * 0.72;
-    return P - OutVel * AdvSec;
-}
+//------------------------------------------------------------------------------------------------------------------------
+//                                  CELESTIAL SINGLE LOCAL FOG VOLUME DENSITY (lfDensity)
+//------------------------------------------------------------------------------------------------------------------------
 
 float EvaluateSingleLocalFogDensityGpu(
     VolumetricFogUniformBlock Fog,
     GpuLocalFogVolume         Vol,
-    float3                    P,
-    float                     Softness,
+    float3                    PointWorld,
     float                     TimeSec,
-    out float                 OutCurlHighlight)
+    out float                 OutHeightNorm)
 {
-    OutCurlHighlight = 0.0;
-    uint   ShapeIdx  = uint(Vol.CenterShape.w + 0.5);
-    float3 Center    = Vol.CenterShape.xyz;
-    float3 HalfExt   = Vol.HalfExtentYaw.xyz;
-    float  Mask      = EvaluateVolumeShapeMaskGpu(
-        P, Center, HalfExt, ShapeIdx, Vol.HalfExtentYaw.w, Vol.DensityCovScaleSides.w, Softness);
+    OutHeightNorm = 0.5;
+    if (Vol.DensityCovScaleSides.x <= 1.0e-4) return 0.0;
+
+    float Margin = 0.0;
+    float Soft   = clamp(Vol.WindVelCurl.w, 0.01, 1.0);
+    bool  Fall   = (Vol.AbsorbShadowFalloffSteps.z > 0.5);
+    float Mask   = EvaluateFogVolumeShapeMaskGpu(
+        PointWorld,
+        Vol.CenterShape.xyz,
+        Vol.HalfExtentYaw.xyz,
+        uint(Vol.CenterShape.w + 0.5),
+        Vol.HalfExtentYaw.w,
+        uint(Vol.DensityCovScaleSides.w + 0.5),
+        Soft,
+        Fall,
+        Margin,
+        OutHeightNorm);
     if (Mask <= 1.0e-4) return 0.0;
 
-    float3 Vel;
-    float  Curl;
-    float3 AdvP = AdvectFogPointBackwardGpu(Fog, P, TimeSec, Vol.WindVelCurl, Vel, Curl);
-    float Speed = length(Vel);
-
-    float LScale  = Vol.DensityCovScaleSides.z;
-    float Cov     = clamp(Vol.DensityCovScaleSides.y, 0.01, 1.0);
-    float Thresh  = 1.0 - Cov;
-    float N       = FogFbmGpu3(AdvP * LScale);
-    float BaseDen = max(0.0, (N - Thresh) / max(0.15, Cov));
-
-    if (Speed > 0.25)
+    // Wind advection + gentle animated drift (Z-up)
+    float3 AdvP = PointWorld;
+    float2 WVel = Vol.WindVelCurl.xy;
+    AdvP.xy -= WVel * TimeSec * 0.85;
+    float  WLen = length(WVel);
+    if (WLen > 0.5)
     {
-        float FilamentNoise = LatticeNoiseFog3Gpu(float3(AdvP.x * LScale * 1.85, AdvP.y * LScale * 1.85, AdvP.z * LScale * 1.45));
-        float CurlBoost     = 1.0 + clamp(Curl * 0.26, 0.0, 1.15) * (0.55 + 0.90 * FilamentNoise);
-        float JetClear      = 1.0 - clamp((Speed - 6.0) * 0.034, 0.0, 0.62) * (0.55 + 0.45 * (1.0 - FilamentNoise));
-        BaseDen *= clamp(CurlBoost * JetClear, 0.22, 2.15);
-        OutCurlHighlight = clamp(Curl * 0.14, 0.0, 0.40);
+        float3 SwirlC = AdvP * 0.08 + float3(TimeSec * 0.06, -TimeSec * 0.05, 0.0);
+        float  Sx     = CelestialScalarNoise(SwirlC + float3(0.0, 0.4, 0.0)) - CelestialScalarNoise(SwirlC - float3(0.0, 0.4, 0.0));
+        float  Sy     = CelestialScalarNoise(SwirlC + float3(0.4, 0.0, 0.0)) - CelestialScalarNoise(SwirlC - float3(0.4, 0.0, 0.0));
+        AdvP.xy += float2(Sx, -Sy) * min(WLen * 0.08, 2.2);
     }
 
-    return BaseDen * Mask * Vol.DensityCovScaleSides.x * 0.075;
+    float ScaleM = max(0.25, Vol.DensityCovScaleSides.z);
+    float3 P = AdvP / ScaleM + float3(TimeSec * 0.04, TimeSec * 0.02, TimeSec * 0.015);
+    float  N = CelestialScalarNoise(P) * 0.55
+             + CelestialScalarNoise(P * 2.1 + float3(2.3, 4.7, 1.1)) * 0.30
+             + CelestialScalarNoise(P * 4.4 + float3(6.1, 0.9, 3.8)) * 0.15;
+
+    // Heterogeneity + cold-pool vertical gravity settling (exact Celestial Demo lfDensity)
+    float Hetero = saturate(Vol.DensityCovScaleSides.y);
+    float Mod    = lerp(1.0, smoothstep(0.18, 0.86, N) * 1.45, Hetero);
+    float Grav   = 1.0 - 0.35 * OutHeightNorm;
+    return Vol.DensityCovScaleSides.x * 0.16 * Mask * Mod * Grav;
 }
 
-float EvaluateFogMediumDensityAtPointGpu(VolumetricFogUniformBlock Fog, float3 WorldPos)
+float EvaluateFogMediumDensityAtPointGpu(VolumetricFogUniformBlock Fog, float3 WorldPoint)
 {
     float Sigma = 0.0;
     if (Fog.HeightParams0.x > 0.5 && Fog.HeightParams0.y > 1.0e-6)
     {
-        float Falloff = max(10.0, Fog.HeightParams0.z);
-        float RelZ    = max(0.0, (WorldPos.z - Fog.HeightParams0.w) / Falloff);
-        Sigma += clamp(Fog.HeightParams0.y, 0.0, 0.25) * exp(-RelZ);
+        float SafeH = max(1.0, Fog.HeightParams0.z);
+        float Rel   = (WorldPoint.z - Fog.HeightParams0.w) / SafeH;
+        Sigma += clamp(Fog.HeightParams0.y, 0.0, 0.5) * exp(-clamp(Rel, -10.0, 40.0));
     }
-    uint LocalCount = min(8u, uint(Fog.FogMeta.x + 0.5));
-    float Softness  = clamp(Fog.FogMeta.z, 0.04, 0.92);
-    float TimeSec   = Fog.FogWindClock.w;
+    uint  LocalCount = min(8u, uint(Fog.FogMeta.x + 0.5));
+    float TimeSec    = Fog.FogWindClock.w;
     for (uint I = 0u; I < LocalCount; ++I)
     {
-        GpuLocalFogVolume Vol = Fog.LocalFogs[I];
-        if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) continue;
-        float3 Center  = Vol.CenterShape.xyz;
-        float3 HalfExt = Vol.HalfExtentYaw.xyz;
-        float  MaxExt  = max(HalfExt.x, max(HalfExt.y, HalfExt.z)) * 1.45;
-        uint   ShapeIdx = uint(Vol.CenterShape.w + 0.5);
-        float  MinZ    = (ShapeIdx == 7u) ? (Center.z - 0.14 * HalfExt.z) : (Center.z - HalfExt.z);
-        if (WorldPos.x < Center.x - MaxExt || WorldPos.x > Center.x + MaxExt ||
-            WorldPos.y < Center.y - MaxExt || WorldPos.y > Center.y + MaxExt ||
-            WorldPos.z < MinZ || WorldPos.z > Center.z + HalfExt.z)
-        {
-            continue;
-        }
-        float DummyCurl = 0.0;
-        Sigma += EvaluateSingleLocalFogDensityGpu(Fog, Vol, WorldPos, Softness, TimeSec, DummyCurl);
+        float Hn = 0.5;
+        Sigma += EvaluateSingleLocalFogDensityGpu(Fog, Fog.LocalFogs[I], WorldPoint, TimeSec, Hn);
     }
     return Sigma;
 }
 
-float EvaluateHeightFogOpticalDepthGpu(float OriginZ, float DirZ, float SegM, float Density, float FalloffM, float BaseAltM)
+//------------------------------------------------------------------------------------------------------------------------
+//                           CELESTIAL ANALYTIC MEDIA (EXP² HEIGHT FOG + SPECTRAL AERIAL PERSPECTIVE)
+//------------------------------------------------------------------------------------------------------------------------
+
+float3 ApplyCelestialAnalyticMediaGpu(
+    VolumetricFogUniformBlock Fog,
+    float3                    BackgroundHdr,
+    float3                    RayOrigin,
+    float3                    RayDir,
+    float                     DistanceM,
+    float3                    SunDir,
+    float3                    SolarIrrad,
+    float3                    SkyAmbient,
+    float3                    LowBandGlow,
+    out float3                OutTransRgb)
 {
-    if (Density <= 1.0e-6 || SegM <= 1.0e-4) return 0.0;
-    float SafeFalloff = max(10.0, FalloffM);
-    float StartRel    = max(-4.0, (OriginZ - BaseAltM) / SafeFalloff);
-    float StartRho    = clamp(Density, 0.0, 0.25) * exp(-max(0.0, StartRel));
-    float K           = (DirZ * SegM) / SafeFalloff;
-    if (abs(K) < 1.0e-3)
+    OutTransRgb = float3(1.0, 1.0, 1.0);
+    float SafeDist = max(0.0, DistanceM);
+    if (SafeDist <= 1.0e-3) return BackgroundHdr;
+
+    float  CosS  = dot(RayDir, SunDir);
+    float  SunUp = saturate(SunDir.z * 4.0 + 0.15);
+    float3 SunL  = SolarIrrad * SunUp;
+
+    // 1. Exponential-squared Height Fog (exact Celestial Demo formula, Z-up)
+    float  Tf = 1.0;
+    float3 Lf = float3(0.0, 0.0, 0.0);
+    if (Fog.HeightParams0.x > 0.5 && Fog.HeightParams0.y > 1.0e-6)
     {
-        return StartRho * SegM * (1.0 - 0.5 * K + (K * K) / 6.0);
+        float Z0 = RayOrigin.z;
+        float Z1 = RayOrigin.z + RayDir.z * SafeDist;
+        float Od = clamp(Fog.HeightParams0.y, 0.0, 0.5) * SafeDist *
+                   EvaluateExpHeightIntegralGpu(Fog.HeightParams0.z, Z0, Z1, Fog.HeightParams0.w);
+
+        if (Fog.FogWindClock.x > 0.5)
+        {
+            float  TimeS = Fog.FogWindClock.w;
+            float3 RefP  = RayOrigin + RayDir * min(SafeDist * 0.35, 80.0);
+            float  Drift = 0.88 + 0.24 * CelestialScalarNoise(float3(
+                (RefP.x - Fog.FogWindClock.y * TimeS) * 0.03,
+                (RefP.y - Fog.FogWindClock.z * TimeS) * 0.03,
+                TimeS * 0.15));
+            Od *= Drift;
+        }
+
+        Tf = exp(-Od * Od);
+        float  FogPh  = min(CelestialPhaseHG(CosS, 0.55) * (4.0 * FogPiConst), 6.0);
+        float  SunMul = max(0.0, Fog.HeightParams1.w);
+        float3 FogLit = Fog.HeightParams1.xyz * (SkyAmbient * 0.48 + LowBandGlow * 0.20 + SunL * FogPh * 0.22 * SunMul);
+        Lf = FogLit;
     }
-    float SafeK = clamp(K, -24.0, 24.0);
-    return max(0.0, StartRho * SegM * ((1.0 - exp(-SafeK)) / SafeK));
+
+    // 2. True Spectral RGB Rayleigh/Mie Atmospheric Aerial Perspective (exact Celestial Demo formula, Z-up)
+    float3 Ta = float3(1.0, 1.0, 1.0);
+    float3 La = float3(0.0, 0.0, 0.0);
+    if (Fog.AerialParams.x > 0.5 && Fog.AerialParams.y > 1.0e-5)
+    {
+        float StartM = max(0.0, Fog.AerialParams.z);
+        float D2     = max(0.0, SafeDist - StartM);
+        if (D2 > 1.0e-3)
+        {
+            float  Z0      = RayOrigin.z + RayDir.z * StartM;
+            float  Z1      = RayOrigin.z + RayDir.z * SafeDist;
+            float  ScaleH  = max(50.0, Fog.FogMeta.y);
+            float  Beta0   = Fog.AerialParams.y * 0.000060;
+            float  OdA     = Beta0 * D2 * EvaluateExpHeightIntegralGpu(ScaleH, Z0, Z1, 0.0);
+            float  MieB    = saturate(Fog.AerialParams.w);
+            float3 SpecB   = lerp(float3(5.8, 13.5, 33.1) / 13.5, float3(1.0, 1.0, 1.0), MieB);
+            Ta             = exp(-SpecB * OdA);
+
+            float  AnisoG  = clamp(Fog.FogMeta.z, 0.0, 0.95);
+            float  SkyGain = max(0.0, Fog.FogMeta.w);
+            float  PhRay   = 0.75 * (1.0 + CosS * CosS);
+            float  PhMie   = min(CelestialPhaseHG(CosS, AnisoG) * (4.0 * FogPiConst), 8.0);
+            float3 AerLit  = (SkyAmbient * 0.48 * SkyGain + LowBandGlow * 0.28 * SkyGain) * lerp(1.0, 0.8, MieB)
+                           + SunL * lerp(PhRay * 0.18, PhMie * 0.32, MieB);
+            La = AerLit * Fog.AerialTintPad.xyz;
+        }
+    }
+
+    // Symmetric two-medium RGB composite (exact Celestial Demo applyMedia)
+    OutTransRgb = Ta * Tf;
+    float3 InScatter = La * (float3(1.0, 1.0, 1.0) - Ta) * lerp(1.0, Tf, 0.5)
+                     + Lf * (1.0 - Tf) * lerp(float3(1.0, 1.0, 1.0), Ta, 0.5);
+    return BackgroundHdr * OutTransRgb + InScatter;
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                  STANDALONE VOLUMETRIC FOG ENTRYPOINT (BACKWARD COMPAT)
+//------------------------------------------------------------------------------------------------------------------------
 
 float3 EvaluateVolumetricFogGpu(
     VolumetricFogUniformBlock Fog,
@@ -260,105 +347,114 @@ float3 EvaluateVolumetricFogGpu(
     float2                    PixelCoord,
     out float                 OutTransmittance)
 {
-    OutTransmittance = 1.0;
-    float3 InScatter = float3(0.0, 0.0, 0.0);
-    float  SafeDist  = max(0.0, MaxDistM);
-    if (SafeDist <= 1.0e-3) return InScatter;
+    float3 TransRgb = float3(1.0, 1.0, 1.0);
+    float3 Analytic = ApplyCelestialAnalyticMediaGpu(
+        Fog,
+        float3(0.0, 0.0, 0.0),
+        RayOrigin,
+        RayDir,
+        MaxDistM,
+        SunDir,
+        SolarIrrad,
+        SkyColor,
+        SkyColor,
+        TransRgb);
 
-    float CosTheta = dot(RayDir, SunDir);
-    float Ign      = frac(52.9829189 * frac(dot(PixelCoord, float2(0.06711056, 0.00583715))));
-    float Jitter   = 0.5 + 0.75 * (Ign - 0.5);
-    float TimeSec  = Fog.FogWindClock.w;
+    OutTransmittance = clamp(dot(TransRgb, float3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    float3 InScatter = Analytic;
 
-    // 1. Exponential Height Fog
-    if (Fog.HeightParams0.x > 0.5 && Fog.HeightParams0.y > 1.0e-6)
-    {
-        float TauH = EvaluateHeightFogOpticalDepthGpu(
-            RayOrigin.z, RayDir.z, SafeDist, Fog.HeightParams0.y, Fog.HeightParams0.z, Fog.HeightParams0.w);
-        if (Fog.FogWindClock.x > 0.5)
-        {
-            float3 ProbeP = RayOrigin + RayDir * min(SafeDist * 0.35, 80.0);
-            float  Ripple = 0.88 + 0.24 * LatticeNoiseFog3Gpu(float3(
-                (ProbeP.x - Fog.FogWindClock.y * TimeSec) * 0.03,
-                (ProbeP.y - Fog.FogWindClock.z * TimeSec) * 0.03,
-                TimeSec * 0.15));
-            TauH *= Ripple;
-        }
-        float TransH  = exp(-TauH);
-        float ScatH   = 1.0 - TransH;
-        float MieHg   = EvaluateFogPhaseHGGpu(CosTheta, 0.62) * Fog.HeightParams1.w * 0.45;
-        float3 FogLit = Fog.HeightParams1.xyz * (SkyColor * 0.62 + SolarIrrad * (0.045 + MieHg));
-        InScatter        += OutTransmittance * FogLit * ScatH;
-        OutTransmittance *= TransH;
-    }
+    // March local fog volumes standalone when invoked outside the unified local media path
+    uint  LocalCount = min(8u, uint(Fog.FogMeta.x + 0.5));
+    if (LocalCount == 0u || MaxDistM <= 1.0e-3) return InScatter;
 
-    // 2. Spectral Aerial Perspective
-    if (Fog.AerialParams.x > 0.5 && Fog.AerialParams.y > 1.0e-5)
-    {
-        float Travel = max(0.0, SafeDist - max(0.0, Fog.AerialParams.z));
-        if (Travel > 1.0e-3)
-        {
-            float AltF    = exp(-max(0.0, RayOrigin.z) / max(100.0, Fog.FogMeta.y));
-            float SigmaA  = Fog.AerialParams.y * 0.00022 * AltF;
-            float TransA  = exp(-SigmaA * Travel);
-            float ScatA   = 1.0 - TransA;
-            float MieB    = saturate(Fog.AerialParams.w);
-            float MiePh   = EvaluateFogPhaseHGGpu(CosTheta, 0.72);
-            float3 AerCol = SkyColor * (1.0 - 0.30 * MieB) + SolarIrrad * MieB * (0.04 + MiePh * 0.42);
-            InScatter        += OutTransmittance * AerCol * ScatA;
-            OutTransmittance *= TransA;
-        }
-    }
+    float  TimeSec = Fog.FogWindClock.w;
+    float  Jitter  = CelestialPixelJitter(PixelCoord, TimeSec);
+    float  CosS    = dot(RayDir, SunDir);
+    float  SunUp   = saturate(SunDir.z * 4.0 + 0.15);
+    float3 SunL    = SolarIrrad * SunUp;
+    float3 InvD    = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));
 
-    // 3. Wind-Driven Multi-Shape LocalFogVolumes (up to 8, 32 steps)
-    uint LocalCount = min(8u, uint(Fog.FogMeta.x + 0.5));
-    float Softness  = clamp(Fog.FogMeta.z, 0.04, 0.92);
-    float3 InvD     = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));
-
+    float TMin = 1.0e9;
+    float TMax = 0.0;
+    uint  Steps = 24u;
     for (uint I = 0u; I < LocalCount; ++I)
     {
         GpuLocalFogVolume Vol = Fog.LocalFogs[I];
-        if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) continue;
-
-        float3 Center   = Vol.CenterShape.xyz;
-        float3 HalfExt  = Vol.HalfExtentYaw.xyz;
-        float  MaxExt   = max(HalfExt.x, max(HalfExt.y, HalfExt.z)) * 1.45;
-        uint   ShapeIdx = uint(Vol.CenterShape.w + 0.5);
-        float  MinZOff  = (ShapeIdx == 7u) ? (0.14 * HalfExt.z) : HalfExt.z;
-        float3 BoxMin   = Center - float3(MaxExt, MaxExt, MinZOff);
-        float3 BoxMax   = Center + float3(MaxExt, MaxExt, HalfExt.z);
-        float3 T0       = (BoxMin - RayOrigin) * InvD;
-        float3 T1       = (BoxMax - RayOrigin) * InvD;
-        float3 TN       = min(T0, T1);
-        float3 TF       = max(T0, T1);
-        float  TEnter   = max(0.05, max(TN.x, max(TN.y, TN.z)));
-        float  TExit    = min(SafeDist, min(TF.x, min(TF.y, TF.z)));
-        if (TExit <= TEnter) continue;
-
-        float  Dt       = (TExit - TEnter) / 32.0;
-        float  Phase    = 0.72 * EvaluateFogPhaseHGGpu(CosTheta, Vol.TintAniso.w) +
-                          0.28 * EvaluateFogPhaseHGGpu(CosTheta, -0.18);
-
-        for (uint S = 0u; S < 32u; ++S)
+        if (Vol.DensityCovScaleSides.x <= 1.0e-4) continue;
+        float3 Center = Vol.CenterShape.xyz;
+        float3 HalfE  = Vol.HalfExtentYaw.xyz;
+        float  MaxXY  = max(HalfE.x, HalfE.y) * 1.45;
+        uint   ShapeI = uint(Vol.CenterShape.w + 0.5);
+        float  MinZ   = (ShapeI == 7u) ? (0.14 * HalfE.z) : HalfE.z;
+        float3 BMin   = Center - float3(MaxXY, MaxXY, MinZ);
+        float3 BMax   = Center + float3(MaxXY, MaxXY, HalfE.z);
+        float3 T0     = (BMin - RayOrigin) * InvD;
+        float3 T1     = (BMax - RayOrigin) * InvD;
+        float  TE     = max(0.05, max(min(T0.x, T1.x), max(min(T0.y, T1.y), min(T0.z, T1.z))));
+        float  TX     = min(MaxDistM, min(max(T0.x, T1.x), min(max(T0.y, T1.y), max(T0.z, T1.z))));
+        if (TX > TE)
         {
-            float  T    = TEnter + (float(S) + Jitter) * Dt;
-            float3 P    = RayOrigin + RayDir * T;
-            float  CurlHighlight = 0.0;
-            float  Den  = EvaluateSingleLocalFogDensityGpu(Fog, Vol, P, Softness, TimeSec, CurlHighlight);
-            if (Den > 1.0e-5)
-            {
-                float SegT    = exp(-Den * Dt);
-                float Scatter = 1.0 - SegT;
-                float HNorm   = clamp((P.z - BoxMin.z) / max(0.2, BoxMax.z - BoxMin.z), 0.0, 1.0);
-                float Amb     = 0.42 + 0.58 * HNorm + CurlHighlight * 0.25;
-                InScatter        += OutTransmittance * Vol.TintAniso.xyz * (SolarIrrad * Phase * 1.45 + SkyColor * Amb * 0.75) * Scatter;
-                OutTransmittance *= SegT;
-                if (OutTransmittance < 0.01) break;
-            }
+            TMin  = min(TMin, TE);
+            TMax  = max(TMax, TX);
+            Steps = max(Steps, clamp(uint(Vol.AbsorbShadowFalloffSteps.w + 0.5), 12u, 48u));
         }
-        if (OutTransmittance < 0.01) break;
+    }
+    if (TMax <= TMin) return InScatter;
+
+    float  Dt   = (TMax - TMin) / float(Steps);
+    float  T    = TMin + Dt * Jitter;
+    float3 Acc  = float3(0.0, 0.0, 0.0);
+    float  Tr   = 1.0;
+
+    for (uint S = 0u; S < 48u; ++S)
+    {
+        if (S >= Steps || Tr < 0.015) break;
+        float3 P = RayOrigin + RayDir * T;
+        float  SumSigT = 0.0;
+        float3 SumSc   = float3(0.0, 0.0, 0.0);
+
+        for (uint I = 0u; I < LocalCount; ++I)
+        {
+            GpuLocalFogVolume Vol = Fog.LocalFogs[I];
+            float Hn = 0.5;
+            float Rho = EvaluateSingleLocalFogDensityGpu(Fog, Vol, P, TimeSec, Hn);
+            if (Rho <= 1.0e-5) continue;
+
+            float Sh = 1.0;
+            if (Vol.AbsorbShadowFalloffSteps.y > 0.5)
+            {
+                float Od = 0.0;
+                float St = max(Vol.HalfExtentYaw.x, max(Vol.HalfExtentYaw.y, Vol.HalfExtentYaw.z)) * 0.45;
+                [unroll]
+                for (uint K = 1u; K <= 4u; ++K)
+                {
+                    float FK  = float(K);
+                    float D   = St * FK * 0.38;
+                    float THn = 0.5;
+                    Od += EvaluateSingleLocalFogDensityGpu(Fog, Vol, P + SunDir * D, TimeSec, THn) * D * 0.65;
+                }
+                Sh = exp(-Od * (1.0 + max(0.0, Vol.AbsorbShadowFalloffSteps.x)));
+            }
+
+            float  Ph  = CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * FogPiConst);
+            float  Ms  = Sh + 0.45 * sqrt(Sh);
+            float3 Li  = SunL * (Ph * Ms * 0.70) + SkyColor * (0.65 + 0.35 * Hn);
+            float  SigA = max(0.0, Vol.AbsorbShadowFalloffSteps.x);
+            SumSigT += Rho * (1.0 + SigA);
+            SumSc   += Li * Vol.TintAniso.xyz * Rho;
+        }
+
+        if (SumSigT > 1.0e-5)
+        {
+            float Ts = exp(-SumSigT * Dt);
+            Acc += Tr * (SumSc - SumSc * Ts) / max(SumSigT, 1.0e-6);
+            Tr  *= Ts;
+        }
+        T += Dt;
     }
 
+    InScatter        += OutTransmittance * Acc;
+    OutTransmittance *= Tr;
     return InScatter;
 }
 
@@ -368,18 +464,23 @@ float3 EvaluateVolumetricFogGpu(
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
+void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
 {
-    uint W = 64u, H = 32u;
-    if (DispatchThreadID.x >= W || DispatchThreadID.y >= H) return;
-    float2 Uv = (float2(DispatchThreadID.xy) + float2(0.5, 0.5)) / float2(float(W), float(H));
-    float  Az = (Uv.x - 0.5) * 6.2831853;
-    float  El = (Uv.y - 0.5) * 3.1415926;
-    float3 Rd = float3(cos(El) * cos(Az), cos(El) * sin(Az), sin(El));
-    float  Tr = 1.0;
-    float3 Sc = EvaluateVolumetricFogGpu(
-        FogUniforms, float3(0.0, 0.0, 2.0), Rd, 2000.0, float3(0.4, 0.5, 0.75),
-        float3(1.0, 0.95, 0.9), float3(0.25, 0.40, 0.68), float2(DispatchThreadID.xy), Tr);
-    OutFogRgba[DispatchThreadID.y * W + DispatchThreadID.x] = float4(Sc, Tr);
+    uint W = max(1u, uint(FogUniforms.FogMeta.z + 0.5));
+    uint H = max(1u, uint(FogUniforms.FogMeta.w + 0.5));
+    if (Tid.x >= W || Tid.y >= H) return;
+    float  Trans = 1.0;
+    float3 Dir   = normalize(float3(float(Tid.x) / float(W) - 0.5, 1.0, float(Tid.y) / float(H) - 0.5));
+    float3 FogC  = EvaluateVolumetricFogGpu(
+        FogUniforms,
+        float3(0.0, 0.0, 2.0),
+        Dir,
+        600.0,
+        normalize(float3(0.4, 0.6, 0.68)),
+        float3(1.0, 0.95, 0.88),
+        float3(0.28, 0.42, 0.65),
+        float2(Tid.xy),
+        Trans);
+    OutFogRgba[Tid.y * W + Tid.x] = float4(FogC, Trans);
 }
 #endif

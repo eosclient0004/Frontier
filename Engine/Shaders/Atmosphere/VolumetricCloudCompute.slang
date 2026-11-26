@@ -1,414 +1,356 @@
 /*============================================================================================================================================
-                                                      VOLUMETRICCLOUDCOMPUTE.SLANG
+                                                       VOLUMETRICCLOUDCOMPUTE.SLANG
 ============================================================================================================================================*/
-// 🧩 Single-source PlanetaryClouds bridge (CloudNoise/Density/Transport/AerialPerspective) + Multi-Shape LocalCloudVolumes
+// 🧩 Celestial GPU Volumetric Clouds (Global Spherical Shell) & Unified Local Media (LocalClouds + LocalFogs + Shared Shadow + Lamp Scatter)
 
-#ifndef FRONTIER_ATMOSPHERE_EMBEDDED
-[[vk::binding(2, 0)]] StructuredBuffer<uint> PlanetaryCloudNoise;
-#endif
+#ifndef FRONTIER_PLANETARY_CLOUD_AERIAL
 #include "CloudAerialPerspective.slang"
-
-static const float CloudPiConst = 3.14159265359;
+#endif
 
 struct GpuLocalCloudVolume
 {
-    float4 CenterShape;          // xyz = CenterWorld, w = Shape (0..6)
-    float4 HalfExtentYaw;        // xyz = HalfExtentM, w = YawRad
-    float4 DensityCovScaleSides; // x = Density, y = Coverage, z = InvFeatureScale, w = float(PrismSides)
-    float4 WindVelCurl;          // xyz = ResolvedWindVelMps, w = CurlScalar
-    float4 SoftAnisoPad;         // x = EdgeSoftness, y = AnisotropyG, z = FollowWind (0/1), w = Pad
+    float4 CenterShape;           // xyz = CenterWorld, w = Shape (0=Box..7=HalfSphere)
+    float4 HalfExtentYaw;         // xyz = HalfExtentM, w = YawRad
+    float4 DensityCovScaleSides;  // x = Extinction, y = Fraction, z = FeatureScaleMeters, w = float(PrismSides)
+    float4 WindVelCurl;           // xyz = ResolvedWindVelMps, w = EdgeSoftness
+    float4 FormErosionAnisoSteps; // x = Form (0=Stratiform,1=Cumuliform,2=Wispy), y = ErosionDetail, z = ForwardAnisoG, w = MarchSteps
 };
 
 struct VolumetricCloudUniformBlock
 {
-    float4 OriginTimeVector;     // xyz = CameraOrigin, w = SimulationSeconds
-    float4 SunAxisToggle;        // xyz = SunDirection, w = GlobalCloudsEnabled (0/1)
-    float4 SolarIrradianceExt;   // xyz = Ground SolarIrradiance, w = PlanetRadiusM
-    float4 SkyColorWind;         // xyz = SkyLowAngleColor, w = WindFollow (0/1)
-    float4 DeckGeometry;         // x = FloorM, y = ThickM, z = CloudFraction, w = DensityMul
-    float4 DeckOptics;           // x = FeatureScale, y = Anvil, z = AnisotropyG, w = WindShearPerKm
-    float4 WindVectorOcclude;    // x = WindVX, y = WindVY, z = ShadowEnabled (0/1), w = LocalEnabled (0/1)
-    float4 LocalCenterExt;       // xyz = LocalCenterM, w = LocalFeatureScaleM
-    float4 LocalExtentFraction;  // xyz = LocalHalfExtentM, w = LocalFraction
-    float4 LocalDensityPhase;    // x = LocalDensityMul, y = LocalAnisotropyG, z = ViewportW, w = ViewportH
-    float4 FormationOptics;      // x = FormationIndex (0..11), y = VeerRadPerKm, z = WindTurbulence, w = LocalCloudCount (0..8)
-    float4 CloudShadowOptics;    // x = ShadowFraction, y = ShadowDensityMul, z = ShadowScale, w = ShadowAnvil
-    float4 CloudPassControl;     // x = CloudPassW, y = CloudPassH, z = CloudMarchSteps, w = TanHalfFovY
-    float4 WindForceMeta;        // x = CouplingScaleHeightM, y = GlobalWindVX, z = GlobalWindVY, w = ObserverAltitudeM
-    float4 CloudToaSolarIrrad;   // xyz = TOA SolarIrradiance for PlanetaryClouds, w = Seed
-    float4 CloudSkyAmbient;      // xyz = SkyAmbientRGB, w = Reserved
-    float4 CloudAtmoStrengths;   // x = RayMul, y = MieMul, z = OzoneMul, w = AtmoThicknessMeters
-    float4 CloudAirScalesCyclone;// x = RayScaleH, y = MieScaleH, z = CycloneSpeedMps, w = CycloneEyeM
+    float4              OriginTimeVector;       // xyz = CameraOriginWorld, w = SimulationSeconds
+    float4              SunAxisToggle;          // xyz = SunDirection, w = CloudsEnabled (0/1)
+    float4              SolarIrradianceExt;     // xyz = CloudSolarIrradiance, w = PlanetRadiusM
+    float4              DeckGeometry;           // x = FloorM, y = ThicknessM, z = CloudFraction, w = Extinction
+    float4              FormationOptics;        // x = Category (0..12), y = FeatureScaleMultiplier, z = ForwardPhaseG, w = LocalCloudCount (0..8)
+    float4              WindVectorOcclude;      // xy = WindVelMps, z = CloudShadowsEnabled, w = CloudShadowStrength
+    float4              CloudPassControl;       // x = CloudWidth, y = CloudHeight, z = CloudMarchSteps, w = LightMarchTaps
+    float4              WindForceMeta;          // x = ShearPerKm, y = VeerRadPerKm, z = Turbulence, w = ObserverAltitudeMeters
+    float4              CloudAtmoStrengths;     // x = RayleighStr, y = MieStr, z = OzoneStr, w = AtmosphereThicknessM
+    float4              CloudAirScalesCyclone;  // x = RayleighScaleH, y = MieScaleH, z = AnvilTopSpread, w = SkyAmbientGain
+    float4              CloudPhaseAbsorbPowder; // x = BackPhaseG, y = PhaseMix, z = AbsorptionRatio, w = PowderStrength
+    float4              CloudAlbedoErosion;     // xyz = CloudAlbedoLinear, w = ErosionDetail
+    float4              CloudSkyAmbient;        // xyz = LiveHemisphericalSkyAmbient, w = Reserved
     GpuLocalCloudVolume LocalClouds[8];
 };
 
-CloudSpecification BuildCloudSpecificationFromUniformGpu(
-    VolumetricCloudUniformBlock C,
-    bool                        ShadowOnly,
-    uint                        FormationOverride = 0xFFFFFFFFu)
+CloudSpecification BuildCloudSpecificationGpu(
+    VolumetricCloudUniformBlock Cloud,
+    float3                      SkyAmbientOverride,
+    uint                        FormationOverride = 255u)
 {
     CloudSpecification Spec;
-    Spec.RadiusM             = max(500000.0, C.SolarIrradianceExt.w);
-    Spec.Coverage            = clamp(C.DeckGeometry.z * (ShadowOnly ? C.CloudShadowOptics.x : 1.0), 0.0, 1.0);
-    Spec.Extinction          = max(0.0, C.DeckGeometry.w * (ShadowOnly ? C.CloudShadowOptics.y : 1.0));
-    Spec.FloorM              = max(100.0, C.DeckGeometry.x);
-    Spec.ThicknessM          = max(100.0, C.DeckGeometry.y);
-    Spec.FeatureScale        = max(0.08, C.DeckOptics.x) * (ShadowOnly ? max(0.1, C.CloudShadowOptics.z) : 1.0);
-    Spec.Anvil               = clamp(C.DeckOptics.y * (ShadowOnly ? C.CloudShadowOptics.w : 1.0), 0.0, 1.0);
-    Spec.PhaseG              = clamp(C.DeckOptics.z, -0.5, 0.92);
-    Spec.Seed                = C.CloudToaSolarIrrad.w;
-    float TanY               = (C.CloudPassControl.w > 1.0e-4) ? C.CloudPassControl.w : 0.55;
-    float ViewportH          = max(64.0, C.LocalDensityPhase.w);
-    Spec.PixelAngle          = (2.0 * TanY) / ViewportH;
+    Spec.RadiusM             = max(500000.0, Cloud.SolarIrradianceExt.w);
+    Spec.FloorM              = Cloud.DeckGeometry.x;
+    Spec.ThicknessM          = max(50.0, Cloud.DeckGeometry.y);
+    Spec.Fraction            = saturate(Cloud.DeckGeometry.z);
+    Spec.Extinction          = max(0.0, Cloud.DeckGeometry.w);
+    Spec.FeatureScale        = max(0.30, Cloud.FormationOptics.y);
+    Spec.Anvil               = saturate(Cloud.CloudAirScalesCyclone.z);
+    Spec.PhaseG              = clamp(Cloud.FormationOptics.z, 0.0, 0.95);
+    Spec.BackPhaseG          = clamp(Cloud.CloudPhaseAbsorbPowder.x, 0.0, 0.90);
+    Spec.PhaseMix            = clamp(Cloud.CloudPhaseAbsorbPowder.y, 0.0, 1.0);
+    Spec.Absorption          = max(0.0, Cloud.CloudPhaseAbsorbPowder.z);
+    Spec.SkyAmbientGain      = max(0.0, Cloud.CloudAirScalesCyclone.w);
+    Spec.PowderStrength      = saturate(Cloud.CloudPhaseAbsorbPowder.w);
+    Spec.ErosionDetail       = saturate(Cloud.CloudAlbedoErosion.w);
+    Spec.CloudAlbedo         = max(float3(0.0), Cloud.CloudAlbedoErosion.xyz);
+    Spec.Seed                = 0.0;
+    Spec.PixelAngle          = 1.0 / max(240.0, Cloud.CloudPassControl.y);
     Spec.UniformExtinction   = -1.0;
-    Spec.TimeSeconds         = (C.SkyColorWind.w > 0.5) ? C.OriginTimeVector.w : 0.0;
-    Spec.WindVelocityMps     = float2(C.WindVectorOcclude.x, C.WindVectorOcclude.y);
-    Spec.Shear               = C.DeckOptics.w;
-    Spec.Veer                = C.FormationOptics.y;
-    Spec.Turbulence          = C.FormationOptics.z;
-    Spec.CycloneSpeedMps     = C.CloudAirScalesCyclone.z;
-    Spec.CycloneEyeM         = max(10000.0, C.CloudAirScalesCyclone.w);
-    Spec.CycloneAxis         = normalize(float3(0.05, 0.14, 0.988));
-    Spec.SunDirection        = normalize(C.SunAxisToggle.xyz);
-    Spec.SolarIrradiance     = C.CloudToaSolarIrrad.xyz;
-    Spec.SkyAmbient          = C.CloudSkyAmbient.xyz;
-    Spec.AtmosphereStrengths = C.CloudAtmoStrengths.xyz;
-    Spec.AirScaleHeightsM    = float2(max(400.0, C.CloudAirScalesCyclone.x), max(200.0, C.CloudAirScalesCyclone.y));
-    Spec.Steps               = clamp(uint(C.CloudPassControl.z + 0.5), 16u, 128u);
-    Spec.LightSteps          = clamp(uint(C.CloudSkyAmbient.w + 0.5), 3u, 16u);
-    Spec.Formation           = (FormationOverride != 0xFFFFFFFFu) ? FormationOverride : uint(C.FormationOptics.x + 0.5);
-    Spec.UseClouds           = (C.SunAxisToggle.w >= 0.5);
-    Spec.UseCloudShadows     = (C.SunAxisToggle.w >= 0.5) && (C.WindVectorOcclude.z >= 0.5);
+    Spec.TimeSeconds         = Cloud.OriginTimeVector.w;
+    Spec.WindVelocityMps     = Cloud.WindVectorOcclude.xy;
+    Spec.Shear               = Cloud.WindForceMeta.x;
+    Spec.Veer                = Cloud.WindForceMeta.y;
+    Spec.Turbulence          = Cloud.WindForceMeta.z;
+    Spec.CycloneSpeedMps     = 0.0;
+    Spec.CycloneEyeM         = 80000.0;
+    Spec.CycloneAxis         = float3(0.0, 0.0, 1.0);
+    Spec.SunDirection        = normalize(Cloud.SunAxisToggle.xyz);
+    Spec.SolarIrradiance     = Cloud.SolarIrradianceExt.xyz;
+    Spec.SkyAmbient          = SkyAmbientOverride;
+    Spec.AtmosphereStrengths = max(float3(0.0), Cloud.CloudAtmoStrengths.xyz);
+    Spec.AirScaleHeightsM    = float2(max(400.0, Cloud.CloudAirScalesCyclone.x), max(200.0, Cloud.CloudAirScalesCyclone.y));
+    Spec.Steps               = clamp(uint(Cloud.CloudPassControl.z + 0.5), 16u, 64u);
+    Spec.LightSteps          = clamp(uint(Cloud.CloudPassControl.w + 0.5), 3u, 5u);
+    Spec.Formation           = (FormationOverride < 13u) ? FormationOverride : min(12u, uint(Cloud.FormationOptics.x + 0.5));
+    Spec.UseClouds           = (Cloud.SunAxisToggle.w > 0.5);
+    Spec.UseCloudShadows     = Spec.UseClouds && (Cloud.WindVectorOcclude.z > 0.5);
     return Spec;
 }
 
-float3 ResolvePlanetaryViewOriginGpu(VolumetricCloudUniformBlock C, float3 ScenePos)
+//------------------------------------------------------------------------------------------------------------------------
+//                                      PLANETARY CLOUD DECK EVALUATION (GROUND & ORBITAL)
+//------------------------------------------------------------------------------------------------------------------------
+
+float4 EvaluatePlanetaryCloudsOnlyGpu(
+    VolumetricCloudUniformBlock Cloud,
+    float3                      RayOriginWorld,
+    float3                      RayDir,
+    float2                      PixelCoord,
+    float                       MaxDistanceM,
+    float3                      SkyAmbientLive)
 {
-    float PlanetR = max(500000.0, C.SolarIrradianceExt.w);
-    float ObsAlt  = max(5.0, C.WindForceMeta.w);
-    return float3(ScenePos.x, ScenePos.y, PlanetR + ObsAlt + ScenePos.z);
+    if (Cloud.SunAxisToggle.w < 0.5 || Cloud.DeckGeometry.z <= 0.001 || Cloud.DeckGeometry.w <= 0.001)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    CloudSpecification Spec = BuildCloudSpecificationGpu(Cloud, SkyAmbientLive);
+    float  ObsAltM          = max(0.0, Cloud.WindForceMeta.w);
+    float3 PlanetOrigin     = float3(RayOriginWorld.x, RayOriginWorld.y, Spec.RadiusM + ObsAltM + RayOriginWorld.z);
+    float  GroundM          = PlanetCloudGroundDistance(PlanetOrigin, RayDir, Spec.RadiusM);
+    float  LimitM           = min(MaxDistanceM, GroundM);
+
+    CloudTransportIntegral Integral = TracePlanetaryClouds(Spec, PlanetOrigin, RayDir, PixelCoord, LimitM);
+
+    // Orbital space viewpoints (> 80 km altitude) keep Rayleigh air limb over planetary clouds
+    float AltitudeM = length(PlanetOrigin) - Spec.RadiusM;
+    float3 FinalRad = (AltitudeM > 80000.0)
+        ? CloudRadianceThroughAir(Spec, PlanetOrigin, RayDir, Integral, 12u)
+        : Integral.Radiance;
+    return float4(max(float3(0.0), FinalRad), clamp(Integral.Transmittance, 0.0, 1.0));
 }
 
-float EvaluateCloudPhaseHG(float CosTheta, float G)
-{
-    float G2  = G * G;
-    float Den = max(1.0e-3, 1.0 + G2 - 2.0 * G * CosTheta);
-    return (1.0 - G2) / (4.0 * CloudPiConst * pow(Den, 1.5));
-}
+//------------------------------------------------------------------------------------------------------------------------
+//                                  CELESTIAL SINGLE LOCAL CLOUD VOLUME DENSITY (lcDensity)
+//------------------------------------------------------------------------------------------------------------------------
 
-float EvaluateCloudVolumeShapeMaskGpu(
-    float3 P,
-    float3 Center,
+float EvaluateLocalCloudShapeMaskGpu(
+    float3 PointWorld,
+    float3 CenterWorld,
     float3 HalfExt,
     uint   Shape,
     float  YawRad,
-    float  PrismSides,
-    float  Softness)
+    uint   PrismSides,
+    float  EdgeSoftness,
+    out float OutHeightNorm)
 {
-    float3 H = max(float3(0.1, 0.1, 0.1), HalfExt);
-    float3 D = P - Center;
-    float  Cs = cos(YawRad);
-    float  Sn = sin(YawRad);
-    float3 L  = float3(D.x * Cs + D.y * Sn, -D.x * Sn + D.y * Cs, D.z);
-    float3 N  = L / H;
+    float3 SafeH = max(HalfExt, float3(0.2, 0.2, 0.2));
+    float3 Rel   = PointWorld - CenterWorld;
+    float  C     = cos(-YawRad);
+    float  S     = sin(-YawRad);
+    float3 Local = float3(C * Rel.x - S * Rel.y, S * Rel.x + C * Rel.y, Rel.z);
 
-    float NormDist = 0.0;
-    if (Shape == 0u)
+    float  Soft  = clamp(EdgeSoftness, 0.02, 1.0);
+    float3 U     = Local / SafeH;
+    OutHeightNorm = clamp(0.5 * (U.z + 1.0), 0.0, 1.0);
+
+    float DistNorm = 1.0e6;
+    if (Shape == 0u) // Box
     {
-        NormDist = max(abs(N.x), max(abs(N.y), abs(N.z)));
+        DistNorm = max(abs(U.x), max(abs(U.y), abs(U.z)));
     }
-    else if (Shape == 1u)
+    else if (Shape == 1u) // Sphere
     {
-        float MinR = min(H.x, min(H.y, H.z));
-        NormDist = length(L) / MinR;
+        float MinExt = min(SafeH.x, min(SafeH.y, SafeH.z));
+        DistNorm = length(Local) / max(0.2, MinExt);
     }
-    else if (Shape == 2u)
+    else if (Shape == 2u) // Ellipsoid
     {
-        NormDist = length(N);
+        DistNorm = length(U);
     }
-    else if (Shape == 3u)
+    else if (Shape == 3u) // Cylinder
     {
-        NormDist = max(length(N.xy), abs(N.z));
+        DistNorm = max(length(U.xy), abs(U.z));
     }
-    else if (Shape == 4u)
+    else if (Shape == 4u) // Cone
     {
-        float T   = clamp(0.5 * (1.0 - N.z), 0.0, 1.0);
-        float Rad = length(N.xy) / max(0.08, T);
-        NormDist  = max(Rad, abs(N.z));
+        float Taper = clamp(0.5 * (1.0 - U.z), 0.0, 1.0);
+        float Rad   = length(U.xy);
+        DistNorm    = max(abs(U.z), (Taper > 1.0e-3) ? (Rad / Taper) : (Rad > 1.0e-4 ? 2.0 : 1.0));
     }
-    else if (Shape == 5u)
+    else if (Shape == 5u) // Diamond
     {
-        NormDist = abs(N.x) + abs(N.y) + abs(N.z);
+        DistNorm = abs(U.x) + abs(U.y) + abs(U.z);
     }
-    else if (Shape == 6u)
+    else if (Shape == 6u) // N-sided Prism
     {
-        float Sides = clamp(PrismSides, 3.0, 16.0);
-        float Theta = atan2(N.y, N.x);
-        float Sec   = 6.2831853 / Sides;
-        float ModA  = (Theta - Sec * floor(Theta / Sec)) - 0.5 * Sec;
-        float Rad   = length(N.xy) * cos(ModA) / max(0.25, cos(0.5 * Sec));
-        NormDist    = max(Rad, abs(N.z));
+        uint  Sides  = clamp(PrismSides, 3u, 16u);
+        float Sector = (2.0 * CloudPiConst) / float(Sides);
+        float Angle  = atan2(U.y, U.x);
+        float ModA   = fmod(Angle + 4.0 * CloudPiConst + 0.5 * Sector, Sector) - 0.5 * Sector;
+        float PolyR  = (length(U.xy) * cos(ModA)) / max(0.25, cos(0.5 * Sector));
+        DistNorm     = max(PolyR, abs(U.z));
     }
-    else
+    else // Shape == 7u: HalfSphere
     {
-        float BaseDepth = (L.z < 0.0) ? (-L.z / max(0.05, 0.14 * H.z)) : 0.0;
-        float DomeRad   = (L.z >= 0.0) ? length(N) : length(N.xy);
-        NormDist        = max(DomeRad, BaseDepth);
+        if (U.z < -0.14) return 0.0;
+        float BottomF = smoothstep(-0.14, 0.06, U.z);
+        float RadialD = length(float3(U.x, U.y, max(0.0, U.z)));
+        OutHeightNorm = clamp(max(0.0, U.z), 0.0, 1.0);
+        float Margin  = saturate(1.0 - RadialD);
+        return smoothstep(0.0, max(Soft, 0.02), Margin) * BottomF;
     }
 
-    float Soft = clamp(Softness, 0.04, 0.92);
-    float Mask = 1.0 - smoothstep(max(0.0, 1.0 - Soft), 1.0, NormDist);
-    if (Shape == 7u)
-    {
-        float RadialDecay = pow(saturate(1.0 - NormDist * 0.82), 0.72);
-        Mask *= (0.35 + 0.65 * RadialDecay);
-    }
-    return Mask;
+    float Margin = saturate(1.0 - DistNorm);
+    if (Margin <= 0.0) return 0.0;
+    return smoothstep(0.0, max(Soft, 0.02), Margin);
 }
 
-float SampleLocalCloudFieldGpu(float3 AdvP, float LScale)
+float EvaluateSingleLocalCloudDensityGpu(
+    GpuLocalCloudVolume Vol,
+    float3              PointWorld,
+    float               TimeSec,
+    bool                ApplyDetailErosion,
+    out float           OutHeightNorm)
 {
-    float PeriodM = max(12.0, 2.5 / max(1.0e-4, LScale));
-    float3 Coord  = AdvP / PeriodM + float3(0.37, 0.61, 0.19);
-    float2 S = SampleCloudShape(Coord, 1.5, PeriodM).rg;
-    float  E = SampleCloudErosion(Coord * 1.9 + float3(0.23, 0.51, 0.79), 1.5, PeriodM * 0.5).r;
-    return clamp(0.62 * S.x + 0.24 * S.y + 0.14 * E, 0.0, 1.0);
+    OutHeightNorm = 0.5;
+    if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) return 0.0;
+
+    float Soft = clamp(Vol.WindVelCurl.w, 0.02, 1.0);
+    float Mask = EvaluateLocalCloudShapeMaskGpu(
+        PointWorld,
+        Vol.CenterShape.xyz,
+        Vol.HalfExtentYaw.xyz,
+        uint(Vol.CenterShape.w + 0.5),
+        Vol.HalfExtentYaw.w,
+        uint(Vol.DensityCovScaleSides.w + 0.5),
+        Soft,
+        OutHeightNorm);
+    if (Mask <= 1.0e-4) return 0.0;
+
+    // Form vertical profile (exact Celestial Demo lcDensity: 0=Stratiform, 1=Cumuliform, 2=Wispy)
+    uint  Form = min(2u, uint(Vol.FormErosionAnisoSteps.x + 0.5));
+    float Prof = 1.0;
+    if (Form == 0u) // Stratiform
+    {
+        Prof = smoothstep(0.0, 0.15, OutHeightNorm) * (1.0 - smoothstep(0.75, 1.0, OutHeightNorm));
+    }
+    else if (Form == 1u) // Cumuliform
+    {
+        Prof = smoothstep(0.0, 0.08, OutHeightNorm) * (1.0 - smoothstep(0.35, 1.0, OutHeightNorm)) * 1.25;
+    }
+    else // Wispy
+    {
+        Prof = smoothstep(0.0, 0.30, OutHeightNorm) * (1.0 - smoothstep(0.55, 1.0, OutHeightNorm)) * 0.55;
+    }
+    if (Prof <= 1.0e-4) return 0.0;
+
+    // Wind advection + curl swirl (Z-up)
+    float3 AdvP = PointWorld;
+    float2 WVel = Vol.WindVelCurl.xy;
+    AdvP.xy -= WVel * TimeSec * 0.85;
+    float  WLen = length(WVel);
+    if (WLen > 0.5)
+    {
+        float3 SwirlC = AdvP * 0.045 + float3(TimeSec * 0.05, -TimeSec * 0.04, 0.0);
+        float  Sx     = CelestialScalarNoise(SwirlC + float3(0.0, 0.5, 0.0)) - CelestialScalarNoise(SwirlC - float3(0.0, 0.5, 0.0));
+        float  Sy     = CelestialScalarNoise(SwirlC + float3(0.5, 0.0, 0.0)) - CelestialScalarNoise(SwirlC - float3(0.5, 0.0, 0.0));
+        AdvP.xy += float2(Sx, -Sy) * min(WLen * 0.12, 3.5);
+    }
+
+    // Exact Celestial Demo 4-octave local cloud shape + 2-octave height-modulated erosion
+    float ScaleM = max(0.5, Vol.DensityCovScaleSides.z);
+    float3 S     = (AdvP - Vol.CenterShape.xyz) / ScaleM + float3(TimeSec * 0.015, TimeSec * 0.008, 0.0);
+    float ShapeN = CelestialScalarNoise(S) * 0.50
+                 + CelestialScalarNoise(S * 2.02 + float3(3.1, 9.2, 1.7)) * 0.25
+                 + CelestialScalarNoise(S * 4.10 + float3(7.7, 1.1, 2.2)) * 0.125
+                 + CelestialScalarNoise(S * 8.30 + float3(1.3, 4.4, 8.8)) * 0.0625;
+    ShapeN /= 0.9375;
+
+    float Cov  = clamp(Vol.DensityCovScaleSides.y, 0.01, 1.0);
+    float LocalDensity = saturate((ShapeN - (1.0 - Cov)) / max(1.0e-3, Cov)) * Prof * Mask;
+    if (LocalDensity <= 1.0e-4) return 0.0;
+
+    if (ApplyDetailErosion)
+    {
+        float ErodeK = saturate(Vol.FormErosionAnisoSteps.y);
+        float Det    = CelestialScalarNoise(S * 9.0 + float3(TimeSec * 0.02)) * 0.60
+                     + CelestialScalarNoise(S * 19.0 + float3(5.0, 5.0, 5.0)) * 0.40;
+        float Erode  = lerp(Det, 1.0 - Det, saturate(OutHeightNorm * 3.0)) * ErodeK * 0.45;
+        LocalDensity = saturate(LocalDensity - Erode * (1.0 - LocalDensity));
+    }
+
+    return LocalDensity * Vol.DensityCovScaleSides.x * 0.14;
 }
 
-float EvaluateLocalCloudsShadowGpu(VolumetricCloudUniformBlock Cfg, float3 WorldPos, float3 SunDir)
-{
-    uint VolCount = min(8u, uint(Cfg.FormationOptics.w + 0.5));
-    if (VolCount == 0u || SunDir.z <= 0.01) return 1.0;
+//------------------------------------------------------------------------------------------------------------------------
+//                                  LEGACY WRAPPER & STANDALONE CLOUD COMPUTE ENTRYPOINT
+//------------------------------------------------------------------------------------------------------------------------
 
-    float TimeSec = Cfg.OriginTimeVector.w;
-    float3 InvD   = 1.0 / select(abs(SunDir) > float3(1.0e-6), SunDir, float3(1.0e-6));
-    float Trans   = 1.0;
+float4 EvaluateLocalCloudsGpu(
+    VolumetricCloudUniformBlock Cloud,
+    float3                      RayOrigin,
+    float3                      RayDir,
+    float                       MaxDistanceM,
+    float2                      PixelCoord,
+    float3                      SkyAmbientLive)
+{
+    uint VolCount = min(8u, uint(Cloud.FormationOptics.w + 0.5));
+    if (VolCount == 0u || MaxDistanceM <= 0.1) return float4(0.0, 0.0, 0.0, 1.0);
+
+    float3 SunDir   = normalize(Cloud.SunAxisToggle.xyz);
+    float3 SunL     = Cloud.SolarIrradianceExt.xyz * saturate(SunDir.z * 4.0 + 0.15);
+    float  CosS     = dot(RayDir, SunDir);
+    float  BackG    = clamp(Cloud.CloudPhaseAbsorbPowder.x, 0.0, 0.90);
+    float  PhaseMix = clamp(Cloud.CloudPhaseAbsorbPowder.y, 0.0, 1.0);
+    float  SigA     = max(0.0, Cloud.CloudPhaseAbsorbPowder.z);
+    float  PowderK  = saturate(Cloud.CloudPhaseAbsorbPowder.w);
+    float  AmbGain  = max(0.0, Cloud.CloudAirScalesCyclone.w);
+    float3 ClAlbedo = max(float3(0.0), Cloud.CloudAlbedoErosion.xyz);
+    float  TimeSec  = Cloud.OriginTimeVector.w;
+    float  Jitter   = CelestialPixelJitter(PixelCoord, TimeSec);
+    float3 InvD     = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));
+
+    float3 Acc   = float3(0.0, 0.0, 0.0);
+    float  Trans = 1.0;
 
     for (uint I = 0u; I < VolCount; ++I)
     {
-        GpuLocalCloudVolume Vol = Cfg.LocalClouds[I];
-        if (Vol.DensityCovScaleSides.x <= 0.01 || Vol.DensityCovScaleSides.y <= 0.01) continue;
+        GpuLocalCloudVolume Vol = Cloud.LocalClouds[I];
+        if (Vol.DensityCovScaleSides.x <= 1.0e-4 || Vol.DensityCovScaleSides.y <= 1.0e-4) continue;
+        float3 Center = Vol.CenterShape.xyz;
+        float3 HalfE  = Vol.HalfExtentYaw.xyz;
+        float  MaxXY  = max(HalfE.x, HalfE.y) * 1.45;
+        uint   ShapeI = uint(Vol.CenterShape.w + 0.5);
+        float  MinZ   = (ShapeI == 7u) ? (0.14 * HalfE.z) : HalfE.z;
+        float3 BMin   = Center - float3(MaxXY, MaxXY, MinZ);
+        float3 BMax   = Center + float3(MaxXY, MaxXY, HalfE.z);
+        float3 T0     = (BMin - RayOrigin) * InvD;
+        float3 T1     = (BMax - RayOrigin) * InvD;
+        float  TE     = max(0.05, max(min(T0.x, T1.x), max(min(T0.y, T1.y), min(T0.z, T1.z))));
+        float  TX     = min(MaxDistanceM, min(max(T0.x, T1.x), min(max(T0.y, T1.y), max(T0.z, T1.z))));
+        if (TX <= TE) continue;
 
-        float3 Center  = Vol.CenterShape.xyz;
-        float3 HalfExt = Vol.HalfExtentYaw.xyz;
-        float  MaxExt  = max(HalfExt.x, max(HalfExt.y, HalfExt.z)) * 1.45;
-        float3 BoxMin  = Center - float3(MaxExt, MaxExt, HalfExt.z);
-        float3 BoxMax  = Center + float3(MaxExt, MaxExt, HalfExt.z);
-        float3 T0      = (BoxMin - WorldPos) * InvD;
-        float3 T1      = (BoxMax - WorldPos) * InvD;
-        float3 TN      = min(T0, T1);
-        float3 TF      = max(T0, T1);
-        float  TEnter  = max(0.02, max(TN.x, max(TN.y, TN.z)));
-        float  TExit   = min(250.0, min(TF.x, min(TF.y, TF.z)));
-        if (TExit <= TEnter) continue;
+        uint  Steps = clamp(uint(Vol.FormErosionAnisoSteps.w + 0.5), 16u, 48u);
+        float Dt    = (TX - TE) / float(Steps);
+        float G1    = clamp(Vol.FormErosionAnisoSteps.z, 0.0, 0.95);
+        float Ph    = lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * CloudPiConst);
+        float St    = max(0.5, max(HalfE.x, max(HalfE.y, HalfE.z)) * 0.45);
 
-        float Dt       = (TExit - TEnter) / 6.0;
-        float LScale   = Vol.DensityCovScaleSides.z;
-        float Cov      = clamp(Vol.DensityCovScaleSides.y, 0.01, 1.0);
-        float Thresh   = 1.0 - Cov;
-        uint  ShapeIdx = uint(Vol.CenterShape.w + 0.5);
-        bool  DoWind   = (Vol.SoftAnisoPad.z > 0.5);
-        float Tau      = 0.0;
-
-        for (uint S = 0u; S < 6u; ++S)
+        for (uint S = 0u; S < 48u; ++S)
         {
-            float  T    = TEnter + (float(S) + 0.5) * Dt;
-            float3 P    = WorldPos + SunDir * T;
-            float  Mask = EvaluateCloudVolumeShapeMaskGpu(
-                P, Center, HalfExt, ShapeIdx, Vol.HalfExtentYaw.w, Vol.DensityCovScaleSides.w, Vol.SoftAnisoPad.x);
-            if (Mask <= 1.0e-4) continue;
-            float3 AdvP = DoWind
-                ? float3(P.x - Vol.WindVelCurl.x * TimeSec, P.y - Vol.WindVelCurl.y * TimeSec, P.z - Vol.WindVelCurl.z * TimeSec * 0.35)
-                : P;
-            float N   = SampleLocalCloudFieldGpu(AdvP, LScale);
-            float Den = max(0.0, (N - Thresh) / max(0.15, Cov)) * Mask * Vol.DensityCovScaleSides.x * 0.085;
-            Tau += Den * Dt;
-        }
-        Trans *= (0.14 + 0.86 * exp(-Tau));
-    }
-    return clamp(Trans, 0.08, 1.0);
-}
-
-float3 EvaluateLocalCloudsSegmentGpu(
-    VolumetricCloudUniformBlock Cfg,
-    float3                      RayOrigin,
-    float3                      RayDir,
-    float                       MaxDistM,
-    float2                      PixelCoord,
-    inout float                 InOutTransmittance)
-{
-    float3 TotalRad = float3(0.0, 0.0, 0.0);
-    float  SafeMax  = max(0.0, MaxDistM);
-    if (SafeMax <= 0.05) return TotalRad;
-
-    float Jitter   = CloudBlueJitter(PixelCoord);
-    float3 SunDir  = normalize(Cfg.SunAxisToggle.xyz);
-    float CosTheta = dot(RayDir, SunDir);
-    float TimeSec  = Cfg.OriginTimeVector.w;
-    float3 InvD    = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));
-
-    uint VolCount = min(8u, uint(Cfg.FormationOptics.w + 0.5));
-    if (VolCount > 0u)
-    {
-        for (uint I = 0u; I < VolCount; ++I)
-        {
-            GpuLocalCloudVolume Vol = Cfg.LocalClouds[I];
-            if (Vol.DensityCovScaleSides.x <= 0.01 || Vol.DensityCovScaleSides.y <= 0.01) continue;
-
-            float3 Center  = Vol.CenterShape.xyz;
-            float3 HalfExt = Vol.HalfExtentYaw.xyz;
-            float  MaxExt  = max(HalfExt.x, max(HalfExt.y, HalfExt.z)) * 1.45;
-            float3 BoxMin  = Center - float3(MaxExt, MaxExt, HalfExt.z);
-            float3 BoxMax  = Center + float3(MaxExt, MaxExt, HalfExt.z);
-            float3 T0      = (BoxMin - RayOrigin) * InvD;
-            float3 T1      = (BoxMax - RayOrigin) * InvD;
-            float3 TN      = min(T0, T1);
-            float3 TF      = max(T0, T1);
-            float  TEnter  = max(0.05, max(TN.x, max(TN.y, TN.z)));
-            float  TExit   = min(SafeMax, min(TF.x, min(TF.y, TF.z)));
-            if (TExit <= TEnter) continue;
-
-            float Dt       = (TExit - TEnter) / 24.0;
-            float LScale   = Vol.DensityCovScaleSides.z;
-            float Cov      = clamp(Vol.DensityCovScaleSides.y, 0.01, 1.0);
-            float Thresh   = 1.0 - Cov;
-            float Phase    = 0.76 * EvaluateCloudPhaseHG(CosTheta, Vol.SoftAnisoPad.y) +
-                             0.24 * EvaluateCloudPhaseHG(CosTheta, -0.22);
-            uint  ShapeIdx = uint(Vol.CenterShape.w + 0.5);
-            bool  DoWind   = (Vol.SoftAnisoPad.z > 0.5);
-
-            for (uint S = 0u; S < 24u; ++S)
+            if (S >= Steps || Trans < 0.015) break;
+            float  T   = TE + (float(S) + Jitter) * Dt;
+            float3 P   = RayOrigin + RayDir * T;
+            float  Hn  = 0.5;
+            float  Rho = EvaluateSingleLocalCloudDensityGpu(Vol, P, TimeSec, true, Hn);
+            if (Rho > 1.0e-5)
             {
-                float  T    = TEnter + (float(S) + Jitter) * Dt;
-                float3 P    = RayOrigin + RayDir * T;
-                float  Mask = EvaluateCloudVolumeShapeMaskGpu(
-                    P, Center, HalfExt, ShapeIdx, Vol.HalfExtentYaw.w, Vol.DensityCovScaleSides.w, Vol.SoftAnisoPad.x);
-                if (Mask <= 1.0e-4) continue;
-
-                float3 AdvP = DoWind
-                    ? float3(P.x - Vol.WindVelCurl.x * TimeSec, P.y - Vol.WindVelCurl.y * TimeSec, P.z - Vol.WindVelCurl.z * TimeSec * 0.35)
-                    : P;
-
-                float N   = SampleLocalCloudFieldGpu(AdvP, LScale);
-                float Den = max(0.0, (N - Thresh) / max(0.15, Cov)) * Mask * Vol.DensityCovScaleSides.x * 0.048;
-                if (Den > 1.0e-5)
+                float Od = 0.0;
+                [unroll]
+                for (uint K = 1u; K <= 4u; ++K)
                 {
-                    float SegT    = exp(-Den * Dt);
-                    float Scatter = 1.0 - SegT;
-                    float Amb     = 0.38 + 0.58 * clamp((P.z - BoxMin.z) / max(1.0, BoxMax.z - BoxMin.z), 0.0, 1.0);
-                    TotalRad += InOutTransmittance * (Cfg.SolarIrradianceExt.xyz * Phase * 2.2 + Cfg.SkyColorWind.xyz * Amb * 0.68) * Scatter;
-                    InOutTransmittance *= SegT;
-                    if (InOutTransmittance < 0.01) break;
+                    float FK = float(K);
+                    float D  = St * FK * FK * 0.14;
+                    float TH = 0.5;
+                    Od += EvaluateSingleLocalCloudDensityGpu(Vol, P + SunDir * D, TimeSec, false, TH) * D * 0.70;
                 }
-            }
-            if (InOutTransmittance < 0.01) break;
-        }
-        return TotalRad;
-    }
-
-    if (Cfg.WindVectorOcclude.w > 0.5 && Cfg.LocalExtentFraction.w > 0.01 && Cfg.LocalDensityPhase.x > 0.01)
-    {
-        float  WindX  = (Cfg.SkyColorWind.w > 0.5) ? (Cfg.WindVectorOcclude.x * TimeSec) : 0.0;
-        float  WindY  = (Cfg.SkyColorWind.w > 0.5) ? (Cfg.WindVectorOcclude.y * TimeSec) : 0.0;
-        float3 BoxMin = Cfg.LocalCenterExt.xyz - Cfg.LocalExtentFraction.xyz;
-        float3 BoxMax = Cfg.LocalCenterExt.xyz + Cfg.LocalExtentFraction.xyz;
-        float3 T0     = (BoxMin - RayOrigin) * InvD;
-        float3 T1     = (BoxMax - RayOrigin) * InvD;
-        float3 TN     = min(T0, T1);
-        float3 TF     = max(T0, T1);
-        float  TEnter = max(0.05, max(TN.x, max(TN.y, TN.z)));
-        float  TExit  = min(SafeMax, min(TF.x, min(TF.y, TF.z)));
-        if (TExit > TEnter)
-        {
-            float Dt     = (TExit - TEnter) / 24.0;
-            float Phase  = 0.76 * EvaluateCloudPhaseHG(CosTheta, Cfg.LocalDensityPhase.y) +
-                           0.24 * EvaluateCloudPhaseHG(CosTheta, -0.22);
-            float LScale = 1.0 / max(4.0, Cfg.LocalCenterExt.w);
-            for (uint S = 0u; S < 24u; ++S)
-            {
-                float  T     = TEnter + (float(S) + Jitter) * Dt;
-                float3 P     = RayOrigin + RayDir * T;
-                float3 Rel   = abs(P - Cfg.LocalCenterExt.xyz) / max(float3(0.1, 0.1, 0.1), Cfg.LocalExtentFraction.xyz);
-                float  EdgeF = 1.0 - smoothstep(0.65, 1.0, max(Rel.x, max(Rel.y, Rel.z)));
-                float  N     = SampleLocalCloudFieldGpu(float3(P.x - WindX, P.y - WindY, P.z), LScale);
-                float  Thresh = 1.0 - Cfg.LocalExtentFraction.w;
-                float  Den   = max(0.0, (N - Thresh) / max(0.15, Cfg.LocalExtentFraction.w)) *
-                               EdgeF * Cfg.LocalDensityPhase.x * 0.028;
-                if (Den > 1.0e-5)
-                {
-                    float SegT    = exp(-Den * Dt);
-                    float Scatter = 1.0 - SegT;
-                    float Amb     = 0.35 + 0.55 * clamp((P.z - BoxMin.z) / max(1.0, BoxMax.z - BoxMin.z), 0.0, 1.0);
-                    TotalRad += InOutTransmittance * (Cfg.SolarIrradianceExt.xyz * Phase * 2.2 + Cfg.SkyColorWind.xyz * Amb * 0.65) * Scatter;
-                    InOutTransmittance *= SegT;
-                    if (InOutTransmittance < 0.01) break;
-                }
+                float  Sh     = exp(-Od * (1.0 + SigA));
+                float  Ms     = Sh + 0.55 * sqrt(Sh) + 0.30 * pow(max(1.0e-6, Sh), 0.25);
+                float  Powder = 1.0 - PowderK * exp(-Rho * Dt * 2.5 * (1.0 + SigA)) * (1.0 - 0.5 * saturate(CosS));
+                float3 Li     = SunL * (Ph * Ms * Powder) + SkyAmbientLive * AmbGain * lerp(0.35, 1.0, Hn);
+                float  SigT   = Rho * (1.0 + SigA);
+                float  Ts     = exp(-SigT * Dt);
+                float3 Sc     = Li * ClAlbedo * Rho;
+                Acc   += Trans * (Sc - Sc * Ts) / max(SigT, 1.0e-6);
+                Trans *= Ts;
             }
         }
     }
-    return TotalRad;
-}
 
-float3 EvaluateVolumetricCloudsGpu(
-    VolumetricCloudUniformBlock Cfg,
-    float3                      RayDir,
-    float2                      PixelCoord,
-    out float                   OutTransmittance,
-    bool                        IncludeLocalClouds = true,
-    uint                        StepCountOverride = 0u)
-{
-    OutTransmittance = 1.0;
-    float3 TotalRad  = float3(0.0, 0.0, 0.0);
-
-    if (IncludeLocalClouds)
-    {
-        TotalRad += EvaluateLocalCloudsSegmentGpu(
-            Cfg, Cfg.OriginTimeVector.xyz, RayDir, 60000.0, PixelCoord, OutTransmittance);
-    }
-
-    if (Cfg.SunAxisToggle.w < 0.5 || Cfg.DeckGeometry.z <= 0.01 || Cfg.DeckGeometry.w <= 0.01)
-    {
-        return TotalRad;
-    }
-
-    CloudSpecification Spec = BuildCloudSpecificationFromUniformGpu(Cfg, false);
-    if (StepCountOverride > 0u) Spec.Steps = clamp(StepCountOverride, 16u, 256u);
-
-    float3 Origin  = ResolvePlanetaryViewOriginGpu(Cfg, Cfg.OriginTimeVector.xyz);
-    float  GroundM = PlanetCloudGroundDistance(Origin, RayDir, Spec.RadiusM);
-    CloudTransportIntegral Cloud = TracePlanetaryClouds(Spec, Origin, RayDir, PixelCoord, GroundM);
-    if (Cloud.Transmittance < 0.999999)
-    {
-        CloudAirSegment Front = IntegrateCloudAir(Spec, Origin, RayDir, Cloud.DistanceM, 12u, false);
-        float3 DeckRad = Front.Transmittance * Cloud.Radiance + (1.0 - Cloud.Transmittance) * Front.Radiance;
-        TotalRad += OutTransmittance * DeckRad;
-        OutTransmittance *= Cloud.Transmittance;
-    }
-    return TotalRad;
-}
-
-float3 EvaluatePlanetaryCloudsOnlyGpu(
-    VolumetricCloudUniformBlock Cfg,
-    float3                      RayDir,
-    float2                      PixelCoord,
-    out float                   OutTransmittance)
-{
-    OutTransmittance = 1.0;
-    if (Cfg.SunAxisToggle.w < 0.5 || Cfg.DeckGeometry.z <= 0.01 || Cfg.DeckGeometry.w <= 0.01)
-    {
-        return float3(0.0, 0.0, 0.0);
-    }
-    CloudSpecification Spec = BuildCloudSpecificationFromUniformGpu(Cfg, false);
-    float3 Origin  = ResolvePlanetaryViewOriginGpu(Cfg, Cfg.OriginTimeVector.xyz);
-    float  GroundM = PlanetCloudGroundDistance(Origin, RayDir, Spec.RadiusM);
-    CloudTransportIntegral Cloud = TracePlanetaryClouds(Spec, Origin, RayDir, PixelCoord, GroundM);
-    if (Cloud.Transmittance < 0.999999)
-    {
-        CloudAirSegment Front = IntegrateCloudAir(Spec, Origin, RayDir, Cloud.DistanceM, 8u, false);
-        OutTransmittance = Cloud.Transmittance;
-        return Front.Transmittance * Cloud.Radiance + (1.0 - Cloud.Transmittance) * Front.Radiance;
-    }
-    return float3(0.0, 0.0, 0.0);
+    return float4(max(float3(0.0), Acc), clamp(Trans, 0.0, 1.0));
 }
 
 #ifndef FRONTIER_ATMOSPHERE_EMBEDDED
@@ -417,18 +359,18 @@ float3 EvaluatePlanetaryCloudsOnlyGpu(
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
+void ComputeEntry(uint3 Tid : SV_DispatchThreadID)
 {
-    uint W = max(1u, uint(CloudUniforms.LocalDensityPhase.z + 0.5));
-    uint H = max(1u, uint(CloudUniforms.LocalDensityPhase.w + 0.5));
-    if (DispatchThreadID.x >= W || DispatchThreadID.y >= H) return;
-
-    float2 Uv = (float2(DispatchThreadID.xy) + float2(0.5, 0.5)) / float2(float(W), float(H));
-    float  Az = (Uv.x - 0.5) * 6.2831853;
-    float  El = (1.0 - Uv.y) * 1.5707963;
-    float3 Rd = float3(cos(El) * cos(Az), cos(El) * sin(Az), sin(El));
-    float  Trans = 1.0;
-    float3 Rad   = EvaluateVolumetricCloudsGpu(CloudUniforms, Rd, float2(DispatchThreadID.xy), Trans);
-    OutCloudRgba[DispatchThreadID.y * W + DispatchThreadID.x] = float4(Rad, Trans);
+    uint W = max(1u, uint(CloudUniforms.CloudPassControl.x + 0.5));
+    uint H = max(1u, uint(CloudUniforms.CloudPassControl.y + 0.5));
+    if (Tid.x >= W || Tid.y >= H) return;
+    float3 Dir = normalize(float3(float(Tid.x) / float(W) - 0.5, 1.0, float(Tid.y) / float(H) - 0.5));
+    OutCloudRgba[Tid.y * W + Tid.x] = EvaluatePlanetaryCloudsOnlyGpu(
+        CloudUniforms,
+        CloudUniforms.OriginTimeVector.xyz,
+        Dir,
+        float2(Tid.xy),
+        1.0e7,
+        CloudUniforms.CloudSkyAmbient.xyz);
 }
 #endif

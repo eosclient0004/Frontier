@@ -13,10 +13,10 @@ struct CloudCaptureFootprint
     float4 RightTanX;
     float4 UpTanY;
     float4 SunIntensity;
-    float4 FloorThicknessCoverageExtinction;
+    float4 FloorThicknessFractionExtinction;
     float4 ScaleSeedPhaseExposure;
     float4 AirWindY;
-    float4 Flow;
+    float4 WindDynamics;
     float4 Cyclone;
     float4 CycloneAxis;
     uint4  Selection;
@@ -33,27 +33,34 @@ CloudSpecification QueryCloudSpecification()
 {
     CloudSpecification Specification;
     Specification.RadiusM             = Capture.Selection.x == 2u ? 1737400.0 : max(500000.0, Capture.ScaleSeedPhaseExposure.w);
-    Specification.FloorM              = Capture.FloorThicknessCoverageExtinction.x;
-    Specification.ThicknessM          = Capture.FloorThicknessCoverageExtinction.y;
-    Specification.Coverage            = Capture.FloorThicknessCoverageExtinction.z;
-    Specification.Extinction          = Capture.FloorThicknessCoverageExtinction.w;
+    Specification.FloorM              = Capture.FloorThicknessFractionExtinction.x;
+    Specification.ThicknessM          = Capture.FloorThicknessFractionExtinction.y;
+    Specification.Fraction            = Capture.FloorThicknessFractionExtinction.z;
+    Specification.Extinction          = Capture.FloorThicknessFractionExtinction.w;
     Specification.FeatureScale        = Capture.ScaleSeedPhaseExposure.x;
     Specification.Seed                = Capture.ScaleSeedPhaseExposure.y;
     Specification.PhaseG              = Capture.ScaleSeedPhaseExposure.z;
+    Specification.BackPhaseG          = 0.30;
+    Specification.PhaseMix            = 0.30;
+    Specification.Absorption          = 0.05;
+    Specification.SkyAmbientGain      = 0.90;
+    Specification.PowderStrength      = 0.60;
+    Specification.ErosionDetail       = 0.60;
+    Specification.CloudAlbedo         = float3(1.0, 1.0, 1.0);
     Specification.PixelAngle          = 2.0 * Capture.UpTanY.w / max(1.0, float(Capture.Size.y));
     Specification.TimeSeconds         = Capture.OriginTime.w;
     Specification.UniformExtinction   = Capture.Switches.z != 0u ? Capture.Cyclone.z : -1.0;
     Specification.WindVelocityMps     = float2(Capture.ForwardWindX.w, Capture.AirWindY.w);
-    Specification.Shear               = Capture.Flow.x;
-    Specification.Veer                = Capture.Flow.y;
-    Specification.Turbulence          = Capture.Flow.z;
-    Specification.Anvil               = Capture.Flow.w;
+    Specification.Shear               = Capture.WindDynamics.x;
+    Specification.Veer                = Capture.WindDynamics.y;
+    Specification.Turbulence          = Capture.WindDynamics.z;
+    Specification.Anvil               = Capture.WindDynamics.w;
     Specification.CycloneSpeedMps     = Capture.Cyclone.x;
     Specification.CycloneEyeM         = Capture.Cyclone.y;
     Specification.CycloneAxis         = normalize(Capture.CycloneAxis.xyz);
     Specification.SunDirection        = normalize(Capture.SunIntensity.xyz);
     Specification.SolarIrradiance     = float3(Capture.SunIntensity.w) * Capture.Cyclone.w;
-    Specification.SkyAmbient          = float3(0.37, 0.46, 0.62) * (Capture.SunIntensity.w / 16.0);
+    Specification.SkyAmbient          = float3(0.28, 0.42, 0.65) * (Capture.SunIntensity.w / 16.0);
     Specification.AtmosphereStrengths = Capture.Selection.x == 2u ? float3(0.0, 0.0, 0.0) : Capture.AirWindY.xyz;
     Specification.AirScaleHeightsM    = float2(8000.0, 1400.0);
     Specification.Formation           = Capture.Selection.w;
@@ -74,8 +81,8 @@ float4 IntegrateCloudCapture(
     CloudTransportIntegral Cloud   = TracePlanetaryClouds(Specification, Origin, Direction, Pixel, GroundM);
     if (Capture.Tile.w == 1u) return float4(Cloud.Transmittance, Cloud.DistanceM, 0.0, 1.0);
     if (Capture.Tile.w == 3u) return float4(Cloud.Radiance, Cloud.Transmittance);
-    float3 CompositeCloud = CloudRadianceThroughAir(Specification, Origin, Direction, Cloud, 12u);
-    return float4(CompositeCloud, Cloud.Transmittance);
+    float3 LayeredCloud = CloudRadianceThroughAir(Specification, Origin, Direction, Cloud, 12u);
+    return float4(LayeredCloud, Cloud.Transmittance);
 }
 
 [shader("compute")]

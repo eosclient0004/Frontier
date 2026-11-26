@@ -1,75 +1,61 @@
 /*==========================================================================================================================================
                                                               CLOUDNOISE.SLANG
 ==========================================================================================================================================*/
-// 🧩 Packed 3D noise access and seamless planetary weather synthesis (31f137f single-source Slang module).
+// 🧩 Celestial volumetric noise, Henyey-Greenstein scattering phase, and unbounded lattice utilities (single-source Slang module).
 
 #ifndef FRONTIER_PLANETARY_CLOUD_NOISE
 #define FRONTIER_PLANETARY_CLOUD_NOISE 1
 
+static const float CloudPiConst = 3.14159265359;
+
 //------------------------------------------------------------------------------------------------------------------------
-//                                                PACKED VOLUME FOOTPRINT
+//                                           CELESTIAL VALUE NOISE & PHASE KERNELS
 //------------------------------------------------------------------------------------------------------------------------
 
-static const uint CloudDetailOffset     = 128u * 128u * 128u;
-static const uint CloudBlueOffset       = CloudDetailOffset + 64u * 64u * 64u;
-static const uint CloudShapeMipOffset   = CloudBlueOffset + 64u * 64u;
-static const uint CloudErosionMipOffset = CloudShapeMipOffset + (128u * 128u * 128u - 1u) / 7u;
-
-float4 DecodeCloudTexel(uint Word)
+float CelestialHash13(float3 Coord)
 {
-    return float4(Word & 255u, (Word >> 8u) & 255u, (Word >> 16u) & 255u, Word >> 24u) * (1.0 / 255.0);
+    float3 P = frac(Coord * 0.1031);
+    P += dot(P, P.zyx + 31.32);
+    return frac((P.x + P.y) * P.z);
 }
 
-uint ReadCloudTexel(int3 Address, uint Resolution, uint Offset)
+float CelestialScalarNoise(float3 Coord)
 {
-    uint3 Coordinate = uint3(Address) & (Resolution - 1u);
-    return PlanetaryCloudNoise[Offset + (Coordinate.z * Resolution + Coordinate.y) * Resolution + Coordinate.x];
+    float3 Cell = floor(Coord);
+    float3 Fr   = frac(Coord);
+    Fr          = Fr * Fr * (3.0 - 2.0 * Fr);
+
+    float N000 = CelestialHash13(Cell + float3(0.0, 0.0, 0.0));
+    float N100 = CelestialHash13(Cell + float3(1.0, 0.0, 0.0));
+    float N010 = CelestialHash13(Cell + float3(0.0, 1.0, 0.0));
+    float N110 = CelestialHash13(Cell + float3(1.0, 1.0, 0.0));
+    float N001 = CelestialHash13(Cell + float3(0.0, 0.0, 1.0));
+    float N101 = CelestialHash13(Cell + float3(1.0, 0.0, 1.0));
+    float N011 = CelestialHash13(Cell + float3(0.0, 1.0, 1.0));
+    float N111 = CelestialHash13(Cell + float3(1.0, 1.0, 1.0));
+
+    return lerp(
+        lerp(lerp(N000, N100, Fr.x), lerp(N010, N110, Fr.x), Fr.y),
+        lerp(lerp(N001, N101, Fr.x), lerp(N011, N111, Fr.x), Fr.y),
+        Fr.z);
 }
 
-float4 SampleCloudVolume(float3 Coordinate, uint Size, uint Offset)
+float CelestialPhaseHG(float CosTheta, float AnisotropyG)
 {
-    float3 Projected = frac(Coordinate) * float(Size);
-    int3   Corner    = int3(Projected);
-    float3 Fraction  = Projected - float3(Corner);
-    float4 X00       = lerp(DecodeCloudTexel(ReadCloudTexel(Corner, Size, Offset)),
-                            DecodeCloudTexel(ReadCloudTexel(Corner + int3(1, 0, 0), Size, Offset)), Fraction.x);
-    float4 X10       = lerp(DecodeCloudTexel(ReadCloudTexel(Corner + int3(0, 1, 0), Size, Offset)),
-                            DecodeCloudTexel(ReadCloudTexel(Corner + int3(1, 1, 0), Size, Offset)), Fraction.x);
-    float4 X01       = lerp(DecodeCloudTexel(ReadCloudTexel(Corner + int3(0, 0, 1), Size, Offset)),
-                            DecodeCloudTexel(ReadCloudTexel(Corner + int3(1, 0, 1), Size, Offset)), Fraction.x);
-    float4 X11       = lerp(DecodeCloudTexel(ReadCloudTexel(Corner + int3(0, 1, 1), Size, Offset)),
-                            DecodeCloudTexel(ReadCloudTexel(Corner + int3(1, 1, 1), Size, Offset)), Fraction.x);
-    return lerp(lerp(X00, X10, Fraction.y), lerp(X01, X11, Fraction.y), Fraction.z);
+    float G   = clamp(AnisotropyG, -0.95, 0.95);
+    float G2  = G * G;
+    float Den = max(1.0e-4, 1.0 + G2 - 2.0 * G * CosTheta);
+    return (1.0 - G2) / (4.0 * CloudPiConst * pow(Den, 1.5));
 }
 
-float4 SampleCloudShape(float3 Coordinate, float FootprintM, float PeriodM)
+float CelestialPixelJitter(float2 PixelCoord, float TimeSeconds)
 {
-    float  Level     = clamp(log2(max(1.0, FootprintM * 128.0 / max(1.0, PeriodM))), 0.0, 7.0);
-    uint   NearLevel = (Level <= 0.0) ? 0u : min(7u, uint(floor(Level + 0.5)));
-    uint   Size      = 128u >> NearLevel;
-    uint   Offset    = (NearLevel == 0u) ? 0u : CloudShapeMipOffset + (128u * 128u * 128u - 8u * Size * Size * Size) / 7u;
-    float3 AdjCoord  = (NearLevel == 0u) ? Coordinate : (Coordinate - (0.5 / float(Size) - 0.5 / 128.0));
-    return SampleCloudVolume(AdjCoord, Size, Offset);
-}
-
-float4 SampleCloudErosion(float3 Coordinate, float FootprintM, float PeriodM)
-{
-    float  Level     = clamp(log2(max(1.0, FootprintM * 64.0 / max(1.0, PeriodM))), 0.0, 6.0);
-    uint   NearLevel = (Level <= 0.0) ? 0u : min(6u, uint(floor(Level + 0.5)));
-    uint   Size      = 64u >> NearLevel;
-    uint   Offset    = (NearLevel == 0u) ? CloudDetailOffset : CloudErosionMipOffset + (64u * 64u * 64u - 8u * Size * Size * Size) / 7u;
-    float3 AdjCoord  = (NearLevel == 0u) ? Coordinate : (Coordinate - (0.5 / float(Size) - 0.5 / 64.0));
-    return SampleCloudVolume(AdjCoord, Size, Offset);
-}
-
-float CloudBlueJitter(float2 Pixel)
-{
-    uint2 Address = uint2(abs(Pixel)) & 63u;
-    return (float(PlanetaryCloudNoise[CloudBlueOffset + Address.y * 64u + Address.x]) + 0.5) / 4096.0;
+    float Temporal = frac(TimeSeconds * 3.0);
+    return CelestialHash13(float3(PixelCoord, Temporal));
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                          UNBOUNDED LATTICE AND BOUNDARY CURL
+//                                      COMPATIBILITY LATTICE NOISE (ORBITAL GLOBE)
 //------------------------------------------------------------------------------------------------------------------------
 
 uint CloudLatticeHash(int3 Cell)
@@ -101,21 +87,30 @@ float CloudLatticeNoise(float3 Coordinate)
     return lerp(lerp(X00, X10, Fraction.y), lerp(X01, X11, Fraction.y), Fraction.z);
 }
 
-float3 RotateCloudOctave(float3 Position)
+float4 SampleCloudShape(float3 Coordinate, float FootprintM, float PeriodM)
 {
-    return float3(dot(Position, float3(0.80, -0.60, 0.0)),
-                  dot(Position, float3(0.48, 0.64, -0.60)),
-                  dot(Position, float3(0.36, 0.48, 0.80)));
+    float N0 = CelestialScalarNoise(Coordinate * 4.0);
+    float N1 = CelestialScalarNoise(Coordinate * 8.0 + float3(3.1, 1.7, 9.2));
+    return float4(N0, N1, N0 * 0.7 + N1 * 0.3, 1.0);
 }
 
-float2 CloudBoundaryCurl(float3 Coordinate)
+float4 SampleCloudErosion(float3 Coordinate, float FootprintM, float PeriodM)
 {
-    const float DifferenceStep = 0.063;
-    float Dx = CloudLatticeNoise(Coordinate + float3(DifferenceStep, 0.0, 0.0)) -
-               CloudLatticeNoise(Coordinate - float3(DifferenceStep, 0.0, 0.0));
-    float Dy = CloudLatticeNoise(Coordinate + float3(0.0, DifferenceStep, 0.0)) -
-               CloudLatticeNoise(Coordinate - float3(0.0, DifferenceStep, 0.0));
-    return float2(Dy, -Dx) / (2.0 * DifferenceStep);
+    float N0 = CelestialScalarNoise(Coordinate * 9.0);
+    float N1 = CelestialScalarNoise(Coordinate * 19.0 + float3(5.0, 5.0, 5.0));
+    return float4(N0 * 0.6 + N1 * 0.4, N1, N0, 1.0);
+}
+
+float CloudBlueJitter(float2 Pixel)
+{
+    if (Pixel.x < 0.0)
+    {
+        return clamp(Pixel.y, 0.0, 0.9999);
+    }
+    uint X = uint(floor(Pixel.x)) & 3u;
+    uint Y = uint(floor(Pixel.y)) & 3u;
+    uint B = ((X ^ Y) & 1u) * 8u + (Y & 1u) * 4u + (((X ^ Y) >> 1u) & 1u) * 2u + ((Y >> 1u) & 1u);
+    return (float(B) + 0.5) * 0.0625;
 }
 
 #endif

@@ -89,10 +89,10 @@ namespace
 
 [[nodiscard]] float EvaluateCloudIgn(uint32_t PX, uint32_t PY) noexcept
 {
-    const float DotV = static_cast<float>(PX) * 0.06711056f + static_cast<float>(PY) * 0.00583715f;
-    const float F1   = DotV - std::floor(DotV);
-    const float F2   = 52.9829189f * F1;
-    return F2 - std::floor(F2);
+    const uint32_t X = PX & 3u;
+    const uint32_t Y = PY & 3u;
+    const uint32_t B = ((X ^ Y) & 1u) * 8u + (Y & 1u) * 4u + (((X ^ Y) >> 1u) & 1u) * 2u + ((Y >> 1u) & 1u);
+    return (static_cast<float>(B) + 0.5f) * 0.0625f;
 }
 
 struct CpuDownsampledCloudField
@@ -127,6 +127,8 @@ struct CpuDownsampledCloudField
         RgbaT.assign(static_cast<std::size_t>(WidthPx) * HeightPx, { 0.0f, 0.0f, 0.0f, 1.0f });
 
         const auto SolarSolved = CelestialEphemerisSolver::SolveSolarEphemeris(Atmo.Solar);
+        const Mathematics::LinearRGB LiveSkyAmb = VolumetricCloudSequence::ComputeHemisphericalSkyAmbient(
+            SkySeq, SolarSolved.WorldDirectionToSun, Atmo.Medium.AtmosphereEnabled, Scene.SkyRadiance);
         WorldAtmosphereConfiguration DeckOnlyAtmo = Atmo;
         DeckOnlyAtmo.LocalCloud.LocalEnabled = false;
         DeckOnlyAtmo.LocalClouds.clear();
@@ -143,17 +145,13 @@ struct CpuDownsampledCloudField
                 {
                     continue;
                 }
-                const auto LowAngleDir = Mathematics::NormalizeAxis({ RayDir.X, RayDir.Y, std::max(0.05f, RayDir.Z) });
-                const auto LowAngleSky = Atmo.Medium.AtmosphereEnabled
-                    ? SkySeq.SampleSkyViewDirection(LowAngleDir)
-                    : EvaluateSkyDome(LowAngleDir, Scene.SkyRadiance, nullptr, nullptr);
                 float CloudTrans = 1.0f;
                 const auto CloudRad = VolumetricCloudSequence::EvaluateVolumetricCloudsWithWind(
                     Basis.CameraOrigin,
                     RayDir,
                     SolarSolved.WorldDirectionToSun,
                     Scene.Sun.SolarIrradiance,
-                    LowAngleSky,
+                    LiveSkyAmb,
                     DeckOnlyAtmo,
                     CloudTrans,
                     EvaluateCloudIgn(CX, CY));
@@ -310,10 +308,8 @@ struct CpuDownsampledCloudField
         };
     }
 
-    const auto LowAngleDir = Mathematics::NormalizeAxis({ RayDir.X, RayDir.Y, std::max(0.05f, RayDir.Z) });
-    const auto LowAngleSky = MediumActive
-        ? SkySeq.SampleSkyViewDirection(LowAngleDir)
-        : EvaluateSkyDome(LowAngleDir, Scene.SkyRadiance, nullptr, nullptr);
+    const Mathematics::LinearRGB LiveSkyAmb = VolumetricCloudSequence::ComputeHemisphericalSkyAmbient(
+        SkySeq, SolarSolved.WorldDirectionToSun, MediumActive, Scene.SkyRadiance);
     WorldAtmosphereConfiguration DeckOnlyAtmo = Atmo;
     DeckOnlyAtmo.LocalCloud.LocalEnabled      = false;
     DeckOnlyAtmo.LocalClouds.clear();
@@ -322,7 +318,7 @@ struct CpuDownsampledCloudField
         RayDir,
         SolarSolved.WorldDirectionToSun,
         Scene.Sun.SolarIrradiance,
-        LowAngleSky,
+        LiveSkyAmb,
         DeckOnlyAtmo,
         CloudTrans,
         PixelJitter01);
@@ -994,6 +990,36 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
         PreparedScene.AreaLights,
         SpecGiPtr);
 
+    const Mathematics::LinearRGB HemisphericalAmbient = VolumetricCloudSequence::ComputeHemisphericalSkyAmbient(
+        SkySequence, PreparedScene.Sun.DirectionToSun, PreparedScene.Atmosphere.Medium.AtmosphereEnabled, PreparedScene.SkyRadiance);
+    const Mathematics::LinearRGB CloudSolarIrradiance {
+        PreparedScene.Sun.SolarIrradiance.R * 0.44f,
+        PreparedScene.Sun.SolarIrradiance.G * 0.44f,
+        PreparedScene.Sun.SolarIrradiance.B * 0.44f
+    };
+
+    std::vector<LocalMediaLampSample> MediaLampList {};
+    for (const auto& Rad : PreparedScene.PhotometricRadiators)
+    {
+        if (MediaLampList.size() >= 12u) break;
+        LocalMediaLampSample S {};
+        S.WorldPosition = Rad.PositionWorld;
+        S.BeamDirection = Rad.BeamAxis;
+        S.RadianceRgb   = Rad.PeakIntensityRgb;
+        S.ReachMeters   = std::max(2.0f, Rad.RangeMeters);
+        MediaLampList.push_back(S);
+    }
+    for (const auto& AL : PreparedScene.AreaLights)
+    {
+        if (MediaLampList.size() >= 12u) break;
+        const float Area = 4.0f * std::max(0.05f, AL.HalfWidthMeters) * std::max(0.05f, AL.HalfHeightMeters);
+        LocalMediaLampSample S {};
+        S.WorldPosition = AL.CenterWorld;
+        S.RadianceRgb   = { AL.EmittedRadiance.R * Area * 1.5f, AL.EmittedRadiance.G * Area * 1.5f, AL.EmittedRadiance.B * Area * 1.5f };
+        S.ReachMeters   = 40.0f;
+        MediaLampList.push_back(S);
+    }
+
     for (uint32_t PY = 0u; PY < Result.HeightPx; ++PY)
     {
         for (uint32_t PX = 0u; PX < Result.WidthPx; ++PX)
@@ -1051,16 +1077,15 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
             Mathematics::LinearRGB FinalHdr = Result.DirectLighting.DirectHdrRadiance[Off];
             if (Hit.ValidHit && Hit.MaterialSlot < MatCount)
             {
-                if (PreparedScene.Atmosphere.Clouds.CloudsEnabled &&
-                    PreparedScene.Atmosphere.Clouds.CloudShadow.ShadowEnabled &&
+                if (((PreparedScene.Atmosphere.Clouds.CloudsEnabled && PreparedScene.Atmosphere.Clouds.CloudShadow.ShadowEnabled) ||
+                     PreparedScene.Atmosphere.LocalCloud.LocalEnabled ||
+                     !PreparedScene.Atmosphere.LocalClouds.empty()) &&
                     PreparedScene.AreaLights.empty())
                 {
-                    const float CloudShadowT = VolumetricCloudSequence::EvaluateSolarCloudTransmittance(
+                    const float CloudShadowT = VolumetricCloudSequence::EvaluateAllSolarCloudTransmittance(
                         Hit.WorldPosition,
                         PreparedScene.Sun.DirectionToSun,
-                        PreparedScene.Atmosphere.Clouds,
-                        PreparedScene.Atmosphere.Medium.PlanetRadiusMeters,
-                        PreparedScene.Atmosphere.SimulationSeconds);
+                        PreparedScene.Atmosphere);
                     FinalHdr = FinalHdr * CloudShadowT;
                 }
                 const auto& Mat = PreparedScene.MaterialRegister.InspectAuthoredMaterial(Hit.MaterialSlot);
@@ -1132,43 +1157,74 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                 const float NdcY = 1.0f - ((static_cast<float>(PY) + 0.5f) / static_cast<float>(Result.HeightPx)) * 2.0f;
                 const Mathematics::Axis3D RayDir = Mathematics::NormalizeAxis(
                     CurBasis.ForwardAxis + CurBasis.RightAxis * (NdcX * CurBasis.TanHalfFovX) + CurBasis.UpAxis * (NdcY * CurBasis.TanHalfFovY));
-                const float HitDist = (Hit.ValidHit && VisTargets.GlassPeelFront64[Off] == 0ull)
-                    ? Mathematics::EvaluateLength(Hit.WorldPosition - CurBasis.CameraOrigin)
-                    : 3500.0f;
-                const float CloudDist = (Hit.ValidHit && VisTargets.GlassPeelFront64[Off] == 0ull) ? HitDist : 60000.0f;
-                const float Ign = EvaluateCloudIgn(PX, PY);
+                const bool  HasHit     = (Hit.ValidHit && VisTargets.GlassPeelFront64[Off] == 0ull);
+                const float SurfaceM   = HasHit ? Mathematics::EvaluateLength(Hit.WorldPosition - CurBasis.CameraOrigin) : 60000.0f;
+                const float GodRayDist = HasHit ? SurfaceM : 3500.0f;
+                const float Ign        = EvaluateCloudIgn(PX, PY);
 
-                const auto& Atmo = PreparedScene.Atmosphere;
-                const Mathematics::LinearRGB SkyForVol = Atmo.Medium.AtmosphereEnabled
-                    ? SkySequence.SampleSkyViewDirection(RayDir)
-                    : EvaluateSkyDome(RayDir, PreparedScene.SkyRadiance, nullptr, nullptr);
+                const auto& Atmo          = PreparedScene.Atmosphere;
+                const bool AnalyticFogActive = !Atmo.Medium.OrbitalViewEnabled &&
+                                            (Atmo.Fog.HeightFog.Enabled || Atmo.Fog.AerialFog.Enabled);
+                const bool LocalMediaActive  = !Atmo.Medium.OrbitalViewEnabled &&
+                                            (Atmo.LocalCloud.LocalEnabled || !Atmo.LocalClouds.empty() || !Atmo.Fog.LocalFogs.empty());
 
-                if (Atmo.LocalCloud.LocalEnabled || !Atmo.LocalClouds.empty())
+                if (AnalyticFogActive || LocalMediaActive)
                 {
-                    float LocalCloudT = 1.0f;
-                    const auto LocalCloudR = VolumetricCloudSequence::EvaluateLocalCloudsOverSegment(
-                        CurBasis.CameraOrigin, RayDir, CloudDist, PreparedScene.Sun.DirectionToSun,
-                        PreparedScene.Sun.SolarIrradiance, SkyForVol, Atmo, LocalCloudT, Ign);
-                    FinalHdr = {
-                        FinalHdr.R * LocalCloudT + LocalCloudR.R,
-                        FinalHdr.G * LocalCloudT + LocalCloudR.G,
-                        FinalHdr.B * LocalCloudT + LocalCloudR.B,
-                    };
-                }
+                    const float HLen = std::sqrt(RayDir.X * RayDir.X + RayDir.Y * RayDir.Y);
+                    const float Hx   = (HLen > 1.0e-4f) ? (RayDir.X / HLen) : 1.0f;
+                    const float Hy   = (HLen > 1.0e-4f) ? (RayDir.Y / HLen) : 0.0f;
+                    const auto  LowBandDir = Mathematics::NormalizeAxis({ Hx, Hy, 0.025f });
+                    const Mathematics::LinearRGB LowBandGlow = Atmo.Medium.AtmosphereEnabled
+                        ? SkySequence.SampleSkyViewDirection(LowBandDir)
+                        : HemisphericalAmbient;
 
-                if (!Atmo.Medium.OrbitalViewEnabled &&
-                    (Atmo.Fog.HeightFog.Enabled || Atmo.Fog.AerialFog.Enabled || !Atmo.Fog.LocalFogs.empty()))
-                {
-                    const auto FogRes = VolumetricFogSequence::EvaluateVolumetricFog(
-                        CurBasis.CameraOrigin, RayDir, HitDist, PreparedScene.Sun.DirectionToSun,
-                        PreparedScene.Sun.SolarIrradiance, SkyForVol, Atmo.Fog, Atmo.Wind,
-                        Atmo.Clouds.WindSpeedMetersPerSecond, Atmo.Clouds.WindBearingDegrees,
-                        Atmo.SimulationSeconds, Ign);
-                    FinalHdr = {
-                        FinalHdr.R * FogRes.Transmittance + FogRes.InScatterHdr.R,
-                        FinalHdr.G * FogRes.Transmittance + FogRes.InScatterHdr.G,
-                        FinalHdr.B * FogRes.Transmittance + FogRes.InScatterHdr.B,
-                    };
+                    // 1. Analytic Media: Exp² Height Fog + Spectral Rayleigh/Mie Aerial Perspective (elevation-aware sky/horizon path!)
+                    if (AnalyticFogActive)
+                    {
+                        const float MediaDist = HasHit
+                            ? SurfaceM
+                            : VolumetricFogSequence::ComputeSkyFogPathMeters(CurBasis.CameraOrigin.Z, RayDir.Z, Atmo.Fog.HeightFog, Atmo.Fog.AerialFog);
+                        const auto AnalyticRes = VolumetricFogSequence::EvaluateAnalyticAtmosphericMedia(
+                            CurBasis.CameraOrigin,
+                            RayDir,
+                            MediaDist,
+                            PreparedScene.Sun.DirectionToSun,
+                            CloudSolarIrradiance,
+                            HemisphericalAmbient,
+                            LowBandGlow,
+                            Atmo.Fog,
+                            Atmo.Wind,
+                            Atmo.Clouds.WindSpeedMetersPerSecond,
+                            Atmo.Clouds.WindBearingDegrees,
+                            Atmo.SimulationSeconds);
+                        FinalHdr = {
+                            FinalHdr.R * AnalyticRes.TransmittanceRgb.R + AnalyticRes.InScatterHdr.R,
+                            FinalHdr.G * AnalyticRes.TransmittanceRgb.G + AnalyticRes.InScatterHdr.G,
+                            FinalHdr.B * AnalyticRes.TransmittanceRgb.B + AnalyticRes.InScatterHdr.B,
+                        };
+                    }
+
+                    // 2. Unified Local Media: Single combined march across ALL LocalFogs + LocalClouds with shared shadow + lamp scatter
+                    if (LocalMediaActive)
+                    {
+                        const float LocalMaxDist = HasHit ? SurfaceM : 5000.0f;
+                        const auto LocalRes = VolumetricCloudSequence::EvaluateUnifiedLocalMedia(
+                            CurBasis.CameraOrigin,
+                            RayDir,
+                            LocalMaxDist,
+                            PreparedScene.Sun.DirectionToSun,
+                            CloudSolarIrradiance,
+                            HemisphericalAmbient,
+                            LowBandGlow,
+                            Atmo,
+                            MediaLampList,
+                            Ign);
+                        FinalHdr = {
+                            FinalHdr.R * LocalRes.Transmittance + LocalRes.InScatterHdr.R,
+                            FinalHdr.G * LocalRes.Transmittance + LocalRes.InScatterHdr.G,
+                            FinalHdr.B * LocalRes.Transmittance + LocalRes.InScatterHdr.B,
+                        };
+                    }
                 }
 
                 if (Atmo.Fog.GodRays.Enabled && Atmo.Fog.GodRays.Intensity > 1.0e-4f)
@@ -1187,7 +1243,7 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                         return VolumetricCloudSequence::EvaluateAllSolarCloudTransmittance(P, SDir, Atmo);
                     };
                     FinalHdr = FinalHdr + VolumetricFogSequence::EvaluateVolumetricGodRays(
-                        CurBasis.CameraOrigin, RayDir, HitDist, PreparedScene.Sun.DirectionToSun,
+                        CurBasis.CameraOrigin, RayDir, GodRayDist, PreparedScene.Sun.DirectionToSun,
                         PreparedScene.Sun.SolarIrradiance, Atmo.Fog, Atmo.Wind,
                         Atmo.Clouds.WindSpeedMetersPerSecond, Atmo.Clouds.WindBearingDegrees,
                         Atmo.SimulationSeconds,
