@@ -4,6 +4,7 @@
 // 🧩 Editor-only authoring loop implementation
 
 #include "Engine/Lifecycle/EditorLifecycle.h"
+#include "Engine/Lifecycle/ProjectEditorSceneRegistry.h"
 #include "Engine/Lifecycle/ThoughtLog.h"
 #include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
 
@@ -319,7 +320,12 @@ void EditorLifecycle::ConfigureActiveProjectTitle(std::string_view ProjectTitle)
     {
         if (!ActiveProjectTitle.empty())
         {
-            Panes->Viewport.ConfigureSceneTitle(ActiveProjectTitle + (BlankPlaneSkySessionActive ? " · Blank Scene" : " · Vehicle & Clear Sky"));
+            const std::string Suffix = !ActiveProjectVariantTitle.empty()
+                ? ActiveProjectVariantTitle
+                : (ApocalypticCitySessionActive
+                       ? "Apocalyptic City Racing Level"
+                       : (BlankPlaneSkySessionActive ? "Blank Scene" : "Vehicle & Clear Sky"));
+            Panes->Viewport.ConfigureSceneTitle(ActiveProjectTitle + " · " + Suffix);
         }
     }
 }
@@ -350,9 +356,11 @@ void EditorLifecycle::PopulateApocalypticCitySession(uint32_t RenderWidthPx, uin
 void EditorLifecycle::OpenProjectSpaceSession(
     const std::filesystem::path& ProjectSpaceFile,
     uint32_t                     RenderWidthPx,
-    uint32_t                     RenderHeightPx)
+    uint32_t                     RenderHeightPx,
+    uint32_t                     SceneVariantIndex)
 {
-    StartupConfig.ProjectSpacePath = ProjectSpaceFile;
+    StartupConfig.ProjectSpacePath         = ProjectSpaceFile;
+    StartupConfig.ProjectSceneVariantIndex = SceneVariantIndex;
     if (!ProjectSpaceFile.empty())
     {
         (void)ControlCentre.AttachProjectSpace(ProjectSpaceFile);
@@ -389,6 +397,12 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
     WorldTransformGizmo.ConfigureHandleFilter(Editor::GizmoHandleFilter::Universal);
 
     const bool GpuActive = (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady());
+    ActiveSceneLightingMode          = GeometricRaster::UnifiedLightingMode::UnifiedAll3;
+    ActiveSceneSkipStaticClipmapBake = false;
+    ActiveProjectVariantTitle.clear();
+    ProjectEditorSceneResult AdapterSceneResult {};
+    bool                     AdapterSceneLoaded = false;
+
     const bool LoadedWorldFileAuthoritative = (!ApocalypticCitySessionActive && !BlankPlaneSkySessionActive);
     if (ApocalypticCitySessionActive)
     {
@@ -408,37 +422,83 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
         bool LoadedProjectWorld = false;
         if (!StartupConfig.ProjectSpacePath.empty())
         {
-            const std::filesystem::path ProjectWorldPath =
-                StartupConfig.ProjectSpacePath.parent_path() / "Content" / "Worlds" / "MainWorld.WorldSpace";
             std::error_code ExistEc {};
-            if (std::filesystem::exists(ProjectWorldPath, ExistEc))
+            auto ResolveRepositoryRootFrom = [&](std::filesystem::path Cursor) -> std::filesystem::path
             {
-                std::filesystem::path RepoRoot = std::filesystem::current_path();
-                for (int Depth = 0; Depth < 6; ++Depth)
+                for (int Depth = 0; Depth < 8; ++Depth)
                 {
-                    if (std::filesystem::exists(
-                            RepoRoot / "Content" / "Environment" / "Skies" / "ClearSkyDaylight.VolumetricSpace",
+                    if (std::filesystem::exists(Cursor / "EngineContent", ExistEc) ||
+                        std::filesystem::exists(
+                            Cursor / "Content" / "Environment" / "Skies" / "ClearSkyDaylight.VolumetricSpace",
                             ExistEc) ||
                         std::filesystem::exists(
-                            RepoRoot / "Content" / "Worlds" / "VehicleClearSkyDefault.WorldSpace",
+                            Cursor / "Content" / "Worlds" / "VehicleClearSkyDefault.WorldSpace",
                             ExistEc))
                     {
-                        break;
+                        return Cursor;
                     }
-                    if (!RepoRoot.has_parent_path())
+                    if (!Cursor.has_parent_path() || Cursor == Cursor.parent_path())
                     {
                         break;
                     }
-                    RepoRoot = RepoRoot.parent_path();
+                    Cursor = Cursor.parent_path();
                 }
-                std::string LoadDiag {};
-                LoadedProjectWorld = GeometricRaster::LoadWorldSceneFromSpaceFile(
-                    ProjectWorldPath,
-                    RepoRoot,
-                    *ShowcaseBundle,
-                    RenderWidthPx,
-                    RenderHeightPx,
-                    LoadDiag);
+                return {};
+            };
+
+            std::filesystem::path RepoRoot = ResolveRepositoryRootFrom(StartupConfig.ProjectSpacePath.parent_path());
+            if (RepoRoot.empty())
+            {
+                RepoRoot = ResolveRepositoryRootFrom(std::filesystem::current_path());
+            }
+            if (RepoRoot.empty())
+            {
+                RepoRoot = std::filesystem::current_path();
+            }
+
+            if (const auto* SceneAdapter = ProjectEditorSceneRegistry::FindMatchingAdapter(StartupConfig.ProjectSpacePath);
+                SceneAdapter != nullptr && SceneAdapter->ConstructEditorScene)
+            {
+                ProjectEditorSceneRequest SceneReq {};
+                SceneReq.ProjectSpacePath  = StartupConfig.ProjectSpacePath;
+                SceneReq.RepositoryRoot    = RepoRoot;
+                SceneReq.ViewportWidthPx   = RenderWidthPx;
+                SceneReq.ViewportHeightPx  = RenderHeightPx;
+                SceneReq.SceneVariantIndex = StartupConfig.ProjectSceneVariantIndex;
+                std::string AdapterDiag {};
+                if (SceneAdapter->ConstructEditorScene(SceneReq, *ShowcaseBundle, AdapterSceneResult, AdapterDiag))
+                {
+                    LoadedProjectWorld               = true;
+                    AdapterSceneLoaded               = true;
+                    ActiveSceneLightingMode          = AdapterSceneResult.PreferredLightingMode;
+                    ActiveSceneSkipStaticClipmapBake = AdapterSceneResult.DisableStaticClipmapBake;
+                    ActiveProjectVariantTitle        = AdapterSceneResult.ActiveVariantTitle;
+                }
+                else
+                {
+                    std::fprintf(
+                        stderr,
+                        "[EditorLifecycle] ProjectEditorSceneAdapter '%s' failed: %s\n",
+                        SceneAdapter->ProjectIdentifier.c_str(),
+                        AdapterDiag.c_str());
+                }
+            }
+
+            if (!LoadedProjectWorld)
+            {
+                const std::filesystem::path ProjectWorldPath =
+                    StartupConfig.ProjectSpacePath.parent_path() / "Content" / "Worlds" / "MainWorld.WorldSpace";
+                if (std::filesystem::exists(ProjectWorldPath, ExistEc))
+                {
+                    std::string LoadDiag {};
+                    LoadedProjectWorld = GeometricRaster::LoadWorldSceneFromSpaceFile(
+                        ProjectWorldPath,
+                        RepoRoot,
+                        *ShowcaseBundle,
+                        RenderWidthPx,
+                        RenderHeightPx,
+                        LoadDiag);
+                }
             }
         }
         if (!LoadedProjectWorld)
@@ -450,7 +510,7 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
         auto& Atmo = ShowcaseBundle->Scene.Atmosphere;
         if (LoadedWorldFileAuthoritative)
         {
-            // Synchronize viewport display settings FROM the loaded .WorldSpace atmosphere instead of overwriting it
+            // Synchronize viewport display settings FROM the loaded .WorldSpace or ProjectScene atmosphere instead of overwriting it
             auto& MutDisplay = Panes->Viewport.AccessDisplaySettings();
             MutDisplay.AtmosphereSkyEnabled    = Atmo.Medium.AtmosphereEnabled;
             MutDisplay.VolumetricCloudsEnabled = Atmo.Clouds.CloudsEnabled;
@@ -460,6 +520,22 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
             MutDisplay.CelestialStarsEnabled   = Atmo.Stars.StarfieldEnabled;
             MutDisplay.DayCyclePlaying         = Atmo.Solar.CycleAnimationEnabled;
             MutDisplay.SolarTimeOfDayHours     = Atmo.Solar.LocalHours;
+            if (AdapterSceneLoaded && AdapterSceneResult.PreferredExposureGain > 0.01f)
+            {
+                MutDisplay.ExposureGain = AdapterSceneResult.PreferredExposureGain;
+            }
+            if (AdapterSceneLoaded && ShowcaseBundle->EditorCamera.VerticalFovRadians > 0.10f)
+            {
+                const float SafeSensor = std::clamp(MutDisplay.CameraSensorWidthMm, 12.0f, 70.0f);
+                const float Aspect     = static_cast<float>(std::max(1u, RenderWidthPx)) /
+                                         static_cast<float>(std::max(1u, RenderHeightPx));
+                const float SensorH    = SafeSensor / std::max(0.5f, Aspect);
+                const float HalfTan    = std::tan(ShowcaseBundle->EditorCamera.VerticalFovRadians * 0.5f);
+                if (HalfTan > 0.01f)
+                {
+                    MutDisplay.CameraFocalLengthMm = std::clamp(SensorH / (2.0f * HalfTan), 12.0f, 200.0f);
+                }
+            }
         }
         else
         {
@@ -502,6 +578,39 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
     else
     {
         GeometricRaster::RegisterShowcaseGalleryInOutliner(Panes->Outliner, *ShowcaseBundle, true);
+        if (AdapterSceneLoaded)
+        {
+            if (OutlinerRecordEntry* RootFolder = Panes->Outliner.AccessEntry(ShowcaseBundle->ShowcaseFolderToken))
+            {
+                if (!AdapterSceneResult.SceneFolderTitle.empty())
+                {
+                    RootFolder->Title = AdapterSceneResult.SceneFolderTitle;
+                }
+                if (!AdapterSceneResult.SceneFolderSubtitle.empty())
+                {
+                    RootFolder->Subtitle = AdapterSceneResult.SceneFolderSubtitle;
+                }
+            }
+            for (const auto& ExtraCam : AdapterSceneResult.ExtraCameras)
+            {
+                OutlinerRecordEntry CamRec {};
+                CamRec.EnclosingToken    = ShowcaseBundle->CamerasFolderToken;
+                CamRec.Category          = ConstructSlotCategory::OpticsCamera;
+                CamRec.Title             = ExtraCam.Title;
+                CamRec.CategoryLabel     = "Scene / Cameras";
+                CamRec.Subtitle          = ExtraCam.Subtitle;
+                CamRec.DomainTag         = "camera:perspective";
+                CamRec.PositionX         = ExtraCam.Camera.CameraOrigin.X;
+                CamRec.PositionY         = ExtraCam.Camera.CameraOrigin.Y;
+                CamRec.PositionZ         = ExtraCam.Camera.CameraOrigin.Z;
+                CamRec.ScaleX            = 1.0f;
+                CamRec.ScaleY            = 1.0f;
+                CamRec.ScaleZ            = 1.0f;
+                CamRec.VisibilityEnabled = true;
+                CamRec.CastShadows       = false;
+                (void)Panes->Outliner.ConstructDirectEntry(std::move(CamRec));
+            }
+        }
     }
 
     // Protect primary Editor camera from accidental deletion
@@ -736,12 +845,14 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
                 PendingInteractionWorldRefresh = true;
             }
         });
-    const char* SceneSubtitle = ApocalypticCitySessionActive
-        ? "Apocalyptic City Racing Level"
-        : (BlankPlaneSkySessionActive ? "Blank Scene · Ground Plane & Sky" : "Vehicle & Clear Sky");
+    const std::string SceneSubtitle = !ActiveProjectVariantTitle.empty()
+        ? ActiveProjectVariantTitle
+        : (ApocalypticCitySessionActive
+               ? "Apocalyptic City Racing Level"
+               : (BlankPlaneSkySessionActive ? "Blank Scene · Ground Plane & Sky" : "Vehicle & Clear Sky"));
     Panes->Viewport.ConfigureSceneTitle(
         ActiveProjectTitle.empty()
-            ? std::string(SceneSubtitle)
+            ? SceneSubtitle
             : (ActiveProjectTitle + " · " + SceneSubtitle));
 
     Panes->Viewport.ConfigureInteractionCallback(
@@ -2502,6 +2613,11 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     RenderConfig.NaniteForcedLodLevel   = DisplayCfg.ClusterForcedLodLevel;
     RenderConfig.NaniteWireframeOverlay = DisplayCfg.ClusterWireframeOverlay;
     RenderConfig.QualityTier            = QTier;
+    RenderConfig.LightingMode           = ActiveSceneLightingMode;
+    if (ActiveSceneSkipStaticClipmapBake)
+    {
+        RenderConfig.AutoBakeStaticClipmap = false;
+    }
     RenderConfig.ReflectionsEnabled     = DisplayCfg.ReflectionsEnabled;
     RenderConfig.RaytracingEnabled      = DisplayCfg.RaytracingEnabled;
     RenderConfig.SelectedClusterInstanceIndex = UINT32_MAX;

@@ -69,6 +69,7 @@ public:
     [[nodiscard]] bool SelectStudioLobby(StudioLobbyId Lobby, std::string& OutDiagnostic);
 
     uint32_t RunBoundedTicks(uint32_t MaximumOuterTicks, double WallStepSeconds = 1.0 / 60.0) noexcept;
+    [[nodiscard]] bool ExecuteInteractiveTick(double WallStepSeconds) noexcept;
 
     [[nodiscard]] bool VerifyProjectContracts(std::string& OutDiagnostic) const;
 
@@ -78,6 +79,7 @@ public:
 
     [[nodiscard]] AutoSpaceLoopMetrics                   InspectMetrics() const noexcept;
     [[nodiscard]] const AutoSpacePolicyBundle&           InspectPolicies() const noexcept { return Policies; }
+    [[nodiscard]] const std::filesystem::path&           InspectRepositoryRoot() const noexcept { return RepositoryRoot; }
     [[nodiscard]] LobbyLifecycle&                        AccessLobbyLifecycle() noexcept { return Lobby; }
     [[nodiscard]] const LobbyLifecycle&                  InspectLobbyLifecycle() const noexcept { return Lobby; }
     [[nodiscard]] Frontier::Lifecycle::RuntimeLifecycle& AccessRuntimeLoop() noexcept { return RuntimeLoop; }

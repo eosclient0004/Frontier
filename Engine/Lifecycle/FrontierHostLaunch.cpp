@@ -9,6 +9,10 @@
 
 #include "Engine/Lifecycle/DesktopWorkspaceLaunch.h"
 
+#if defined(FRONTIER_HAS_AUTOSPACE_PROJECT)
+#include "Projects/AutoSpace/Source/Editor/AutoSpaceEditorSceneAdapter.h"
+#endif
+
 #include <filesystem>
 #include <span>
 
@@ -18,6 +22,10 @@
 
 int main(int Argc, char** Argv)
 {
+#if defined(FRONTIER_HAS_AUTOSPACE_PROJECT)
+    AutoSpace::RegisterAutoSpaceEditorSceneAdapter();
+#endif
+
     Frontier::Lifecycle::DesktopLaunchOptions Options {};
     Options.DefaultLaunchMode  = Frontier::Configuration::HostLaunchMode::FeatureSet;
     Options.WindowTitle        = "Frontier";

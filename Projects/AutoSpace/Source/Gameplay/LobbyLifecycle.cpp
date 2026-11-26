@@ -335,8 +335,10 @@ InstanceToken LobbyLifecycle::AppendSurfaceEntity(
     bool             CastShadows)
 {
     auto Asset = std::make_unique<LobbyGeometryAsset>();
-    Asset->StableId = std::string(StableId);
-    Asset->Network  = std::move(BuiltMesh.Network);
+    Asset->StableId     = std::string(StableId);
+    Asset->DisplayTitle = std::string(OutlinerTitle);
+    Asset->Subtitle     = std::string(Subtitle);
+    Asset->Network      = std::move(BuiltMesh.Network);
     TotalMeshTriangles += static_cast<uint32_t>(Asset->Network.Faces.size());
 
     Frontier::SpatialAcceleration::ClusterLodBakeConfiguration BakeCfg {};

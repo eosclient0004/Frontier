@@ -46,6 +46,7 @@ struct DesktopLaunchOptions
     uint32_t                      BoundedStepLimit           = 0u; // 0 = run until user closes window (auto-bounds on GlfwNull)
     std::filesystem::path         StartupImportPath          {};
     std::filesystem::path         StartupProjectSpacePath    {};
+    uint32_t                      StartupProjectSceneVariantIndex = 0u;
     std::filesystem::path         CapturePngOutputPath       {};
     bool                          OpenContentBrowser         = true;
     bool                          OpenWorldEditor            = false;

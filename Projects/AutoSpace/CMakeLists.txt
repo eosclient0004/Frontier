@@ -14,6 +14,11 @@ add_library(AutoSpaceProject STATIC
     Source/Gameplay/LobbyLifecycle.cpp
     Source/Gameplay/AutoSpaceLifecycle.cpp
 )
+if(FRONTIER_PROFILE STREQUAL "Editor")
+    target_sources(AutoSpaceProject PRIVATE
+        Source/Editor/AutoSpaceEditorSceneAdapter.cpp
+    )
+endif()
 target_include_directories(AutoSpaceProject PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}"
@@ -30,5 +35,18 @@ target_compile_features(AutoSpaceProject PUBLIC cxx_std_20)
 add_executable(AutoSpace
     Source/AutoSpaceLaunch.cpp
 )
+target_compile_definitions(AutoSpace PRIVATE
+    "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\""
+    "FRONTIER_COMPILED_SHADER_DIR=\"${CMAKE_BINARY_DIR}/CompiledShaders\""
+)
 target_link_libraries(AutoSpace PRIVATE AutoSpaceProject)
 target_compile_features(AutoSpace PRIVATE cxx_std_20)
+if(TARGET FrontierShaders)
+    add_dependencies(AutoSpace FrontierShaders)
+endif()
+if(COMMAND frontier_stage_eos_runtime)
+    frontier_stage_eos_runtime(AutoSpace)
+endif()
+if(WIN32)
+    target_link_options(AutoSpace PRIVATE "/STACK:8388608")
+endif()

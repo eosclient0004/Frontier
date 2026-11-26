@@ -50,9 +50,11 @@ namespace AutoSpace
 
 struct LobbyGeometryAsset
 {
-    std::string                                   StableId {};
-    Frontier::GeometrySpace::PolygonNetwork       Network  {};
-    Frontier::SpatialAcceleration::ClusterPyramid Pyramid  {};
+    std::string                                   StableId     {};
+    std::string                                   DisplayTitle {};
+    std::string                                   Subtitle     {};
+    Frontier::GeometrySpace::PolygonNetwork       Network      {};
+    Frontier::SpatialAcceleration::ClusterPyramid Pyramid      {};
 };
 
 struct LobbyLifecycleTelemetry
@@ -110,6 +112,7 @@ public:
     [[nodiscard]] const Frontier::GeometricRaster::WorldSceneSpecification&     InspectWorldScene() const noexcept { return WorldScene; }
     [[nodiscard]] const Frontier::World::WorldInstanceRegister&               InspectWorldRegister() const noexcept { return WorldRegister; }
     [[nodiscard]] const std::vector<StudioCameraPresetView>&                  InspectCameraPresets() const noexcept { return CameraPresets; }
+    [[nodiscard]] const std::vector<std::unique_ptr<LobbyGeometryAsset>>&     InspectGeometryAssets() const noexcept { return GeometryAssets; }
     [[nodiscard]] const std::vector<Frontier::ParticleSpace::ParticleCloudNode>& InspectParticleClouds() const noexcept { return ParticleClouds; }
     [[nodiscard]] const Frontier::ParticleSpace::ParticleGpuSimulation&         InspectParticleSimulation() const noexcept { return ParticleSimulation; }
     [[nodiscard]] const Frontier::ParticleSpace::ParticleSimulationRegion&      InspectParticleRegion() const noexcept { return ParticleRegion; }

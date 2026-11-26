@@ -1633,41 +1633,78 @@ void RegisterShowcaseGalleryInOutliner(
 
     InOutBundle.AreaLightBindings.clear();
     InOutBundle.CeilingSoftboxToken = {};
-    if (!InOutBundle.Scene.AreaLights.empty())
+    if (!InOutBundle.Scene.AreaLights.empty() || !InOutBundle.Scene.PhotometricRadiators.empty())
     {
         InOutBundle.LightingFolderToken = TargetOutliner.ConstructFolder("Lighting");
         if (OutlinerRecordEntry* Folder = TargetOutliner.AccessEntry(InOutBundle.LightingFolderToken))
         {
             Folder->FolderTint  = ColorRgba{ 226, 152, 128, 255 };
-            Folder->Subtitle    = "Analytic LTC area lights";
-            Folder->AuthorNotes = "Clipped-horizon polygonal quad lights integrated via LinearCosineLightIntegration.";
+            Folder->Subtitle    = "Analytic LTC & IES luminaires";
+            Folder->AuthorNotes = "Clipped-horizon polygonal quad lights & measured photometric IES radiators.";
             Folder->Expanded    = true;
         }
 
-        InOutBundle.CeilingSoftboxToken = TargetOutliner.ConstructFromTemplate(LightTemplateOrd, InOutBundle.LightingFolderToken);
-        if (OutlinerRecordEntry* LightEntry = TargetOutliner.AccessEntry(InOutBundle.CeilingSoftboxToken))
+        for (uint32_t LightIdx = 0u; LightIdx < static_cast<uint32_t>(InOutBundle.Scene.AreaLights.size()); ++LightIdx)
         {
-            const auto& Softbox = InOutBundle.Scene.AreaLights.front();
-            LightEntry->Category          = ConstructSlotCategory::PointLuminaire;
-            LightEntry->Title             = "Ceiling Softbox";
-            LightEntry->CategoryLabel     = "Lighting / LTC Area Quad";
-            LightEntry->Subtitle          = "LTC Quad · 1.70 × 1.30 m · 7.5, 6.6, 5.4 nit";
-            LightEntry->DomainTag         = "light:area";
-            LightEntry->AuthorNotes       = "Overhead architectural softbox illuminating gallery floor and specular spheres.";
-            LightEntry->PositionX         = Softbox.CenterWorld.X;
-            LightEntry->PositionY         = Softbox.CenterWorld.Y;
-            LightEntry->PositionZ         = Softbox.CenterWorld.Z;
-            LightEntry->ScaleX            = Softbox.HalfWidthMeters * 2.0f;
-            LightEntry->ScaleY            = Softbox.HalfHeightMeters * 2.0f;
-            LightEntry->ScaleZ            = 1.0f;
-            LightEntry->VisibilityEnabled = true;
-            LightEntry->CastShadows       = false;
+            const auto& Softbox = InOutBundle.Scene.AreaLights[LightIdx];
+            const OutlinerSlotToken LightSlot =
+                TargetOutliner.ConstructFromTemplate(LightTemplateOrd, InOutBundle.LightingFolderToken);
+            if (LightIdx == 0u)
+            {
+                InOutBundle.CeilingSoftboxToken = LightSlot;
+            }
+            if (OutlinerRecordEntry* LightEntry = TargetOutliner.AccessEntry(LightSlot))
+            {
+                LightEntry->Category          = ConstructSlotCategory::PointLuminaire;
+                LightEntry->Title             = (LightIdx == 0u && InOutBundle.Scene.AreaLights.size() == 1u)
+                    ? "Ceiling Softbox"
+                    : ("Area Softbox " + std::to_string(LightIdx + 1u));
+                LightEntry->CategoryLabel     = "Lighting / LTC Area Quad";
+                LightEntry->Subtitle          = "LTC Quad · " +
+                    std::to_string(static_cast<int>(std::round(Softbox.HalfWidthMeters * 20.0f)) / 10.0).substr(0, 4) +
+                    " × " +
+                    std::to_string(static_cast<int>(std::round(Softbox.HalfHeightMeters * 20.0f)) / 10.0).substr(0, 4) + " m";
+                LightEntry->DomainTag         = "light:area";
+                LightEntry->AuthorNotes       = "Polygonal LTC area luminaire illuminating scene surfaces.";
+                LightEntry->PositionX         = Softbox.CenterWorld.X;
+                LightEntry->PositionY         = Softbox.CenterWorld.Y;
+                LightEntry->PositionZ         = Softbox.CenterWorld.Z;
+                LightEntry->ScaleX            = Softbox.HalfWidthMeters * 2.0f;
+                LightEntry->ScaleY            = Softbox.HalfHeightMeters * 2.0f;
+                LightEntry->ScaleZ            = 1.0f;
+                LightEntry->VisibilityEnabled = true;
+                LightEntry->CastShadows       = false;
 
-            InOutBundle.AreaLightBindings.push_back({
-                InOutBundle.CeilingSoftboxToken,
-                0u,
-                Softbox.EmittedRadiance,
-            });
+                InOutBundle.AreaLightBindings.push_back({
+                    LightSlot,
+                    LightIdx,
+                    Softbox.EmittedRadiance,
+                });
+            }
+        }
+
+        for (uint32_t RadIdx = 0u; RadIdx < static_cast<uint32_t>(InOutBundle.Scene.PhotometricRadiators.size()); ++RadIdx)
+        {
+            const auto& Radiator = InOutBundle.Scene.PhotometricRadiators[RadIdx];
+            const OutlinerSlotToken RadSlot =
+                TargetOutliner.ConstructFromTemplate(LightTemplateOrd, InOutBundle.LightingFolderToken);
+            if (OutlinerRecordEntry* RadEntry = TargetOutliner.AccessEntry(RadSlot))
+            {
+                RadEntry->Category          = ConstructSlotCategory::PointLuminaire;
+                RadEntry->Title             = "Photometric Luminaire " + std::to_string(RadIdx + 1u);
+                RadEntry->CategoryLabel     = "Lighting / Photometric IES";
+                RadEntry->Subtitle          = "IES Profile #" + std::to_string(Radiator.ProfileOrdinal);
+                RadEntry->DomainTag         = "light:photometric";
+                RadEntry->AuthorNotes       = "Measured candela distribution luminaire.";
+                RadEntry->PositionX         = Radiator.PositionWorld.X;
+                RadEntry->PositionY         = Radiator.PositionWorld.Y;
+                RadEntry->PositionZ         = Radiator.PositionWorld.Z;
+                RadEntry->ScaleX            = 1.0f;
+                RadEntry->ScaleY            = 1.0f;
+                RadEntry->ScaleZ            = 1.0f;
+                RadEntry->VisibilityEnabled = true;
+                RadEntry->CastShadows       = false;
+            }
         }
     }
 

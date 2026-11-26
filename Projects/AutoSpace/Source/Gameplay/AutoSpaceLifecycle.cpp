@@ -177,6 +177,19 @@ uint32_t AutoSpaceLifecycle::RunBoundedTicks(uint32_t MaximumOuterTicks, double 
         this);
 }
 
+bool AutoSpaceLifecycle::ExecuteInteractiveTick(double WallStepSeconds) noexcept
+{
+    if (!Initialized)
+    {
+        return false;
+    }
+    return RuntimeLoop.ExecuteFixedCadenceTick(
+        WallStepSeconds,
+        &AutoSpaceLifecycle::DispatchFixedStep,
+        &AutoSpaceLifecycle::DispatchPresentationStep,
+        this);
+}
+
 bool AutoSpaceLifecycle::VerifyProjectContracts(std::string& OutDiagnostic) const
 {
     using namespace Frontier::SimulationSpace::Policies;

@@ -472,6 +472,27 @@ int LaunchDesktopWorkspace(
             InitialOptions.OpenProjectBrowser      = false;
             InitialOptions.OpenWorldEditor         = true;
         }
+        else if (Arg.starts_with("--lobby="))
+        {
+            const std::string_view LobbyArg = Arg.substr(8u);
+            if (LobbyArg == "2" || LobbyArg == "forest")
+            {
+                InitialOptions.StartupProjectSceneVariantIndex = 1u;
+            }
+            else if (LobbyArg == "3" || LobbyArg == "garage")
+            {
+                InitialOptions.StartupProjectSceneVariantIndex = 2u;
+            }
+            else
+            {
+                InitialOptions.StartupProjectSceneVariantIndex = 0u;
+            }
+        }
+        else if (Arg.starts_with("--scene-variant="))
+        {
+            InitialOptions.StartupProjectSceneVariantIndex =
+                static_cast<uint32_t>(std::max(0, std::atoi(std::string(Arg.substr(16u)).c_str())));
+        }
     }
 
 #if defined(_WIN32)
@@ -765,8 +786,20 @@ int LaunchDesktopWorkspace(
         ProjectBrowserInitialized = true;
     };
 
-    auto EnsureEditorLifecycleReady = [&](const std::filesystem::path& ProjectSpaceFile, std::string_view ProjectTitle, bool BlankPlaneSkyScene = false) -> bool
+    auto EnsureEditorLifecycleReady = [&](
+        const std::filesystem::path& ProjectSpaceFile,
+        std::string_view             ProjectTitle,
+        bool                         BlankPlaneSkyScene = false,
+        uint32_t                     SceneVariantIndex  = 0u) -> bool
     {
+        const std::filesystem::path EffectiveProjectPath =
+            ProjectSpaceFile.empty() ? InitialOptions.StartupProjectSpacePath : ProjectSpaceFile;
+        std::string ResolvedTitle(ProjectTitle);
+        if (ResolvedTitle.empty() && !EffectiveProjectPath.empty())
+        {
+            ResolvedTitle = EffectiveProjectPath.stem().string();
+        }
+
         const bool JustInitialized = !EditorStackReady;
         if (!EditorStackReady)
         {
@@ -777,14 +810,15 @@ int LaunchDesktopWorkspace(
             Lifecycle::EditorStartupConfiguration EditorCfg {};
             EditorCfg.WindowDescriptor = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
                 InitialOptions.WindowTitle, InitialOptions.InitialWidthPx, InitialOptions.InitialHeightPx);
-            EditorCfg.FontRepositoryRoot      = RepositoryRootPath / "EngineContent/FontsArchives";
-            EditorCfg.ProjectSpacePath        = ProjectSpaceFile.empty() ? InitialOptions.StartupProjectSpacePath : ProjectSpaceFile;
-            EditorCfg.PopulateShowcaseScene   = true;
+            EditorCfg.FontRepositoryRoot         = RepositoryRootPath / "EngineContent/FontsArchives";
+            EditorCfg.ProjectSpacePath           = EffectiveProjectPath;
+            EditorCfg.ProjectSceneVariantIndex   = SceneVariantIndex;
+            EditorCfg.PopulateShowcaseScene      = true;
             EditorCfg.PopulateBlankPlaneSkyScene = BlankPlaneSkyScene;
             EditorCfg.PopulateApocalypticCityScene = InitialOptions.OpenApocalypticCity;
-            EditorCfg.VulkanDevice            = &DeviceInterchange;
-            EditorCfg.ImGuiPresenter          = &SwapchainPresenter;
-            EditorCfg.CompiledShaderDirectory = CompiledShaderDir;
+            EditorCfg.VulkanDevice               = &DeviceInterchange;
+            EditorCfg.ImGuiPresenter             = &SwapchainPresenter;
+            EditorCfg.CompiledShaderDirectory    = CompiledShaderDir;
             if (!EditorLoopPtr->Initialize(EditorCfg))
             {
                 std::fprintf(stderr, "[FrontierHost] EditorLifecycle initialization failed.\n");
@@ -794,6 +828,7 @@ int LaunchDesktopWorkspace(
                 [&]()
                 {
                     EnsureProjectBrowserReady();
+                    DesktopWindow.ApplyTitle(InitialOptions.WindowTitle);
                     CurrentSurface = ActiveHostSurface::ProjectBrowserSurface;
                 });
             auto& EditorBrowserPanel = EditorLoopPtr->AccessContentBrowser().AccessPanel();
@@ -807,13 +842,14 @@ int LaunchDesktopWorkspace(
         {
             EditorLoopPtr->PopulateBlankPlaneSkySession();
         }
-        else if (!JustInitialized && !ProjectSpaceFile.empty() && EditorStackReady)
+        else if (!JustInitialized && !EffectiveProjectPath.empty() && EditorStackReady)
         {
-            EditorLoopPtr->OpenProjectSpaceSession(ProjectSpaceFile);
+            EditorLoopPtr->OpenProjectSpaceSession(EffectiveProjectPath, 640u, 384u, SceneVariantIndex);
         }
-        if (!ProjectTitle.empty())
+        if (!ResolvedTitle.empty())
         {
-            EditorLoopPtr->ConfigureActiveProjectTitle(ProjectTitle);
+            EditorLoopPtr->ConfigureActiveProjectTitle(ResolvedTitle);
+            DesktopWindow.ApplyTitle("Frontier — " + ResolvedTitle);
         }
         return true;
     };
@@ -1188,7 +1224,11 @@ int LaunchDesktopWorkspace(
                 }
                 else
                 {
-                    if (EnsureEditorLifecycleReady(Directive.SelectedFilePath, Directive.ProjectTitle, Directive.BlankPlaneSkyScene))
+                    if (EnsureEditorLifecycleReady(
+                            Directive.SelectedFilePath,
+                            Directive.ProjectTitle,
+                            Directive.BlankPlaneSkyScene,
+                            Directive.SceneVariantIndex))
                     {
                         CurrentSurface = ActiveHostSurface::WorldEditorSurface;
                     }
@@ -1210,7 +1250,11 @@ int LaunchDesktopWorkspace(
     }
     else if (CurrentSurface == ActiveHostSurface::WorldEditorSurface)
     {
-        if (!EnsureEditorLifecycleReady(InitialOptions.StartupProjectSpacePath, {}))
+        if (!EnsureEditorLifecycleReady(
+                InitialOptions.StartupProjectSpacePath,
+                {},
+                false,
+                InitialOptions.StartupProjectSceneVariantIndex))
         {
             ImGui::DestroyContext(GuiCtx);
             return 1;

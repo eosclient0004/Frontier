@@ -384,6 +384,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
     Engine/Configuration/ProjectGenerator.cpp
+    Engine/Lifecycle/ProjectEditorSceneRegistry.cpp
     Engine/Lifecycle/WorkspaceLifecycle.cpp
 )
 if(NOT ANDROID)
@@ -453,6 +454,8 @@ frontier_compile_slang_shader(GizmoRasterization.slang        VertexEntry   vert
 frontier_compile_slang_shader(GizmoRasterization.slang        FragmentEntry fragment GizmoRasterization.frag.spv)
 frontier_compile_slang_shader(WorldViewportBlit.slang         VertexEntry   vertex   WorldViewportBlit.vert.spv)
 frontier_compile_slang_shader(WorldViewportBlit.slang         FragmentEntry fragment WorldViewportBlit.frag.spv)
+frontier_compile_slang_shader(ViewportSwapchainBlit.slang     VertexEntry   vertex   ViewportSwapchainBlit.vert.spv)
+frontier_compile_slang_shader(ViewportSwapchainBlit.slang     FragmentEntry fragment ViewportSwapchainBlit.frag.spv)
 frontier_compile_slang_shader(ImGuiOverlayRasterization.slang VertexEntry   vertex   ImGuiOverlayRasterization.vert.spv)
 frontier_compile_slang_shader(ImGuiOverlayRasterization.slang FragmentEntry fragment ImGuiOverlayRasterization.frag.spv)
 frontier_compile_slang_shader(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
@@ -1202,6 +1205,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/GeometricRaster/ComponentEditor/ComponentGizmoGeometry.cpp
     Engine/GeometricRaster/ComponentEditor/ComponentViewportRenderer.cpp
     Engine/GeometricRaster/ComponentEditor/ComponentSpecimenBaker.cpp
+    Engine/GeometricRaster/Rasterization/ViewportSwapchainPresenter.cpp
     Engine/Workspaces/Texturing/PatternStampStackSession.cpp
     Engine/Workspaces/Texturing/BakingWorkspaceSession.cpp
     Engine/Workspaces/Texturing/TexturePaintSession.cpp
@@ -1724,6 +1728,11 @@ endif()
 
 add_subdirectory(Projects)
 
+if(NOT ANDROID AND FRONTIER_PROFILE STREQUAL "Editor" AND TARGET Frontier AND TARGET AutoSpaceProject)
+    target_link_libraries(Frontier PRIVATE AutoSpaceProject)
+    target_compile_definitions(Frontier PRIVATE FRONTIER_HAS_AUTOSPACE_PROJECT=1)
+endif()
+
 if(BUILD_TESTING)
     add_executable(ProjectLifecyclePolicyValidation Exhibits/ProjectLifecyclePolicyValidation.cpp)
     target_include_directories(ProjectLifecyclePolicyValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
@@ -1750,10 +1759,19 @@ if(BUILD_TESTING)
         COMMAND AutoSpace --headless --verify --ticks=12
     )
 
+    add_test(
+        NAME AutoSpaceGameModeSmoke
+        COMMAND AutoSpace --frames=1 --width=320 --height=180
+    )
+
     if(NOT ANDROID AND FRONTIER_PROFILE STREQUAL "Editor")
         add_test(
             NAME FrontierExecutableSmoke
             COMMAND Frontier --frames=3
+        )
+        add_test(
+            NAME FrontierAutoSpaceProjectSmoke
+            COMMAND Frontier --project=${CMAKE_SOURCE_DIR}/Projects/AutoSpace/AutoSpace.projectspace --frames=2
         )
         add_test(
             NAME FrontierSketcherExecutableSmoke

@@ -68,6 +68,7 @@ struct EditorStartupConfiguration
         Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier", 1600u, 980u); // [-] - Primary editor window
     std::filesystem::path FontRepositoryRoot {};                                                      // [-] - Optional EngineContent/FontsArchives path
     std::filesystem::path ProjectSpacePath {};                                                         // [-] - Optional .projectspace persistence path
+    uint32_t              ProjectSceneVariantIndex = 0u;                                              // [idx]- Selected project scene/lobby variant ordinal
     OutlinerTitleVariant                  OutlinerHeading         = OutlinerTitleVariant::Outliner; // [-] - Outliner vs LayerStack heading
     double                                MaximumStep             = 0.100;                          // [s] - Upper Δt clamp per authoring tick
     bool                                        PopulateShowcaseScene   = false;                          // [-] - Populate default ControlVehicle scene in Outliner & GTX Viewport
@@ -123,8 +124,9 @@ public:
     void               PopulateApocalypticCitySession(uint32_t RenderWidthPx = 1280u, uint32_t RenderHeightPx = 720u);
     void               OpenProjectSpaceSession(
         const std::filesystem::path& ProjectSpaceFile,
-        uint32_t                     RenderWidthPx  = 640u,
-        uint32_t                     RenderHeightPx = 384u);
+        uint32_t                     RenderWidthPx     = 640u,
+        uint32_t                     RenderHeightPx    = 384u,
+        uint32_t                     SceneVariantIndex = 0u);
     void               RefreshShowcaseViewportRaster();
     void               FrameShowcaseCameraSelection() noexcept;
 
@@ -299,6 +301,8 @@ private:
     bool                                                             RightMouseFlyActive  = false;
     bool                                                             BlankPlaneSkySessionActive = false;
     bool                                                             ApocalypticCitySessionActive = false;
+    GeometricRaster::UnifiedLightingMode                             ActiveSceneLightingMode = GeometricRaster::UnifiedLightingMode::UnifiedAll3;
+    bool                                                             ActiveSceneSkipStaticClipmapBake = false;
     GeometricRaster::ApocalypticCitySimulationRegister               ApocalypticCitySim   {};
     bool                                                             CameraInteractiveDrag = false;
     bool                                                             CameraLagSettling     = false;
@@ -308,6 +312,7 @@ private:
     bool                                                             PendingInteractionFastDrag     = false;
     std::function<void()>                                            ReturnToBrowserCallback {};
     std::string                                                      ActiveProjectTitle   {};
+    std::string                                                      ActiveProjectVariantTitle {};
     std::vector<ComponentClass::ComponentClassDefinition> ComponentDefinitions {}; // [-] - Loaded .ComponentSpace definitions
     ComponentClass::ComponentWorldPlacementRegister     WorldPlacements     {};   // [-]  - Placed ComponentClass instances
     std::vector<OutlinerPlacementLink>                  PlacementLinks      {};   // [-]  - Outliner slot <-> ComponentWorldPlacement map

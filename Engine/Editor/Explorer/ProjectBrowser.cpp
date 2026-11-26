@@ -15,6 +15,7 @@
 #include "Engine/Configuration/ProjectSpaceRepository.h"
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
 #include "Engine/GeometricRaster/VulkanInterchange.h"
+#include "Engine/Lifecycle/ProjectEditorSceneRegistry.h"
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherDocumentCodec.h"
 
 #include <imgui.h>
@@ -38,6 +39,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <cstdio>
 #include <cstring>
 
@@ -395,8 +397,69 @@ void ProjectBrowser::EnsurePreviewRendererReady()
     return true;
 }
 
+[[nodiscard]] bool LoadDiskPngPreviewRgba(
+    const std::filesystem::path& PngPath,
+    std::vector<uint8_t>&        OutRgba,
+    uint32_t&                    OutWidth,
+    uint32_t&                    OutHeight)
+{
+    std::error_code ExistEc {};
+    if (PngPath.empty() || !std::filesystem::exists(PngPath, ExistEc))
+    {
+        return false;
+    }
+    std::ifstream Stream(PngPath, std::ios::binary | std::ios::ate);
+    if (!Stream.is_open())
+    {
+        return false;
+    }
+    const std::streamsize ByteCount = Stream.tellg();
+    if (ByteCount <= 0 || ByteCount > 64 * 1024 * 1024)
+    {
+        return false;
+    }
+    Stream.seekg(0, std::ios::beg);
+    std::vector<uint8_t> PngBytes(static_cast<std::size_t>(ByteCount));
+    if (!Stream.read(reinterpret_cast<char*>(PngBytes.data()), ByteCount))
+    {
+        return false;
+    }
+    int W = 0, H = 0, Channels = 0;
+    stbi_uc* Pixels = stbi_load_from_memory(PngBytes.data(), static_cast<int>(PngBytes.size()), &W, &H, &Channels, 4);
+    if (!Pixels || W <= 0 || H <= 0)
+    {
+        if (Pixels) stbi_image_free(Pixels);
+        return false;
+    }
+    OutWidth  = static_cast<uint32_t>(W);
+    OutHeight = static_cast<uint32_t>(H);
+    OutRgba.assign(Pixels, Pixels + static_cast<size_t>(W) * static_cast<size_t>(H) * 4u);
+    stbi_image_free(Pixels);
+    return true;
+}
+
 void ProjectBrowser::RenderThumbnailForEntry(BrowserCollectionEntry& Entry, uint32_t ViewOrdinal)
 {
+    if (!Entry.ViewThumbnailPaths.empty())
+    {
+        const std::filesystem::path& ThumbPath =
+            Entry.ViewThumbnailPaths[static_cast<std::size_t>(ViewOrdinal) % Entry.ViewThumbnailPaths.size()];
+        std::vector<uint8_t> DiskRgba {};
+        uint32_t DiskW = 0u, DiskH = 0u;
+        if (LoadDiskPngPreviewRgba(ThumbPath, DiskRgba, DiskW, DiskH))
+        {
+            Entry.ThumbnailRgba = std::move(DiskRgba);
+            Entry.ThumbnailW    = DiskW;
+            Entry.ThumbnailH    = DiskH;
+            if (Entry.ThumbnailTex == nullptr)
+            {
+                Entry.ThumbnailTex = std::make_unique<ImTextureData>();
+            }
+            UploadRgbaToTextureData(*Entry.ThumbnailTex, Entry.ThumbnailRgba.data(), Entry.ThumbnailW, Entry.ThumbnailH);
+            return;
+        }
+    }
+
     if (Entry.Category == BrowserEntryCategory::Cad && !Entry.FilePath.empty())
     {
         const std::string ExtLower = LowercaseString(Entry.FilePath.extension().string());
@@ -489,6 +552,49 @@ void ProjectBrowser::RefreshReaderPreviewTexture()
         return;
     }
     const auto& ActiveCadEntry = Collection[static_cast<std::size_t>(ActiveEntryIndex)];
+    if (!ActiveCadEntry.ViewThumbnailPaths.empty())
+    {
+        const std::filesystem::path& MainThumbPath =
+            ActiveCadEntry.ViewThumbnailPaths[static_cast<std::size_t>(ActiveViewIndex) % ActiveCadEntry.ViewThumbnailPaths.size()];
+        std::vector<uint8_t> MainDiskRgba {};
+        uint32_t MainDiskW = 0u, MainDiskH = 0u;
+        if (LoadDiskPngPreviewRgba(MainThumbPath, MainDiskRgba, MainDiskW, MainDiskH))
+        {
+            ReaderPreviewRgba = std::move(MainDiskRgba);
+            ReaderPreviewW    = MainDiskW;
+            ReaderPreviewH    = MainDiskH;
+            if (ReaderPreviewTex == nullptr)
+            {
+                ReaderPreviewTex = std::make_unique<ImTextureData>();
+            }
+            UploadRgbaToTextureData(*ReaderPreviewTex, ReaderPreviewRgba.data(), ReaderPreviewW, ReaderPreviewH);
+            if (ReaderViewThumbs.size() < ActiveCadEntry.ViewTitles.size())
+            {
+                ReaderViewThumbs.resize(ActiveCadEntry.ViewTitles.size());
+            }
+            for (std::size_t VIdx = 0u; VIdx < ActiveCadEntry.ViewTitles.size(); ++VIdx)
+            {
+                if (ReaderViewThumbs[VIdx] == nullptr)
+                {
+                    ReaderViewThumbs[VIdx] = std::make_unique<ImTextureData>();
+                }
+                const std::filesystem::path& ViewPath =
+                    ActiveCadEntry.ViewThumbnailPaths[VIdx % ActiveCadEntry.ViewThumbnailPaths.size()];
+                std::vector<uint8_t> ViewRgba {};
+                uint32_t ViewW = 0u, ViewH = 0u;
+                if (LoadDiskPngPreviewRgba(ViewPath, ViewRgba, ViewW, ViewH))
+                {
+                    UploadRgbaToTextureData(*ReaderViewThumbs[VIdx], ViewRgba.data(), ViewW, ViewH);
+                }
+                else
+                {
+                    UploadRgbaToTextureData(*ReaderViewThumbs[VIdx], ReaderPreviewRgba.data(), ReaderPreviewW, ReaderPreviewH);
+                }
+            }
+            return;
+        }
+    }
+
     if (ActiveCadEntry.Category == BrowserEntryCategory::Cad && !ActiveCadEntry.FilePath.empty())
     {
         const std::string ExtLower = LowercaseString(ActiveCadEntry.FilePath.extension().string());
@@ -910,6 +1016,35 @@ bool ProjectBrowser::RegisterDiskPathInCollection(const std::filesystem::path& D
     Entry.Starred         = true;
     Entry.LocalDiskEntry  = true;
     Entry.CameraPresetIdx = static_cast<uint32_t>(Collection.size() % 5u);
+
+    if (ExtLower == ".projectspace")
+    {
+        if (const auto* SceneAdapter = Lifecycle::ProjectEditorSceneRegistry::FindMatchingAdapter(DiskPath);
+            SceneAdapter != nullptr && SceneAdapter->QueryBrowserDescriptor)
+        {
+            Lifecycle::ProjectBrowserDisplayDescriptor Desc {};
+            if (SceneAdapter->QueryBrowserDescriptor(DiskPath, FrontierRootDir, Desc))
+            {
+                if (!Desc.SummaryCaption.empty())
+                {
+                    Entry.SummaryCaption = std::move(Desc.SummaryCaption);
+                }
+                if (!Desc.Description.empty())
+                {
+                    Entry.Description = std::move(Desc.Description);
+                }
+                if (!Desc.ViewTitles.empty())
+                {
+                    Entry.ViewTitles = std::move(Desc.ViewTitles);
+                }
+                if (!Desc.ViewThumbnailPaths.empty())
+                {
+                    Entry.ViewThumbnailPaths = std::move(Desc.ViewThumbnailPaths);
+                }
+            }
+        }
+    }
+
     RenderThumbnailForEntry(Entry, 0u);
 
     Collection.insert(Collection.begin(), std::move(Entry));
@@ -1637,9 +1772,10 @@ void ProjectBrowser::RenderReaderMode(
         if (CapsuleButton::Construct(Surface, LaunchRect, LaunchBtn, Pointer).Pressed && LaunchCallback)
         {
             BrowserWorkspaceLaunchDirective Directive {};
-            Directive.TargetWorkspace  = Cap.Target;
-            Directive.ProjectTitle     = Entry.Title;
-            Directive.SelectedFilePath = Entry.FilePath;
+            Directive.TargetWorkspace   = Cap.Target;
+            Directive.ProjectTitle      = Entry.Title;
+            Directive.SelectedFilePath  = Entry.FilePath;
+            Directive.SceneVariantIndex = ActiveViewIndex;
             LaunchCallback(Directive);
             return;
         }
@@ -1836,9 +1972,10 @@ void ProjectBrowser::RenderReaderMode(
                 if (CapsuleButton::Construct(Surface, { InspX, InspY, InspW, 32.0f }, CapBtn, Pointer).Pressed && LaunchCallback)
                 {
                     BrowserWorkspaceLaunchDirective Directive {};
-                    Directive.TargetWorkspace  = Cap.Target;
-                    Directive.ProjectTitle     = Entry.Title;
-                    Directive.SelectedFilePath = Entry.FilePath;
+                    Directive.TargetWorkspace   = Cap.Target;
+                    Directive.ProjectTitle      = Entry.Title;
+                    Directive.SelectedFilePath  = Entry.FilePath;
+                    Directive.SceneVariantIndex = ActiveViewIndex;
                     LaunchCallback(Directive);
                     return;
                 }

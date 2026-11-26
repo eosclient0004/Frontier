@@ -85,17 +85,18 @@ struct BrowserCollectionEntry
     std::string                   SummaryCaption  {};
     std::string                   Description     {};
     std::string                   LastOpenedText  {};
-    std::filesystem::path         FilePath        {};
-    std::vector<std::string>      ViewTitles      {};
-    std::vector<std::string>      RevisionTitles  {};
-    std::vector<BrowserReviewNote> Notes          {};
-    bool                          Starred         = false;
-    bool                          LocalDiskEntry  = false;
-    uint32_t                      CameraPresetIdx = 0u;
-    std::unique_ptr<ImTextureData> ThumbnailTex   {};
-    std::vector<uint8_t>          ThumbnailRgba   {};
-    uint32_t                      ThumbnailW      = 0u;
-    uint32_t                      ThumbnailH      = 0u;
+    std::filesystem::path              FilePath           {};
+    std::vector<std::string>           ViewTitles         {};
+    std::vector<std::filesystem::path> ViewThumbnailPaths {};
+    std::vector<std::string>           RevisionTitles     {};
+    std::vector<BrowserReviewNote>     Notes              {};
+    bool                               Starred            = false;
+    bool                               LocalDiskEntry     = false;
+    uint32_t                           CameraPresetIdx    = 0u;
+    std::unique_ptr<ImTextureData>     ThumbnailTex       {};
+    std::vector<uint8_t>               ThumbnailRgba      {};
+    uint32_t                           ThumbnailW         = 0u;
+    uint32_t                           ThumbnailH         = 0u;
 };
 
 struct BrowserWorkspaceLaunchDirective
@@ -104,6 +105,7 @@ struct BrowserWorkspaceLaunchDirective
     std::string                     ProjectTitle        {};
     std::filesystem::path           SelectedFilePath    {};
     bool                            BlankPlaneSkyScene  = false; // [-] - True for newly created projects (blank plane & sky)
+    uint32_t                        SceneVariantIndex   = 0u;    // [idx]- Selected project scene/lobby variant ordinal
 };
 
 //------------------------------------------------------------------------------------------------------------------------

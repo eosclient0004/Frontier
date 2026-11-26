@@ -1380,8 +1380,9 @@ bool ImGuiOverlayRasterization::PresentImGuiBatches(
     }
     else
     {
-        const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(CommandBuffer);
-        const bool SyncOk = BoundDevice->AwaitTimelineTick(SyncPoint);
+        const uint64_t SyncPoint     = BoundDevice->DispatchCommandBufferAsync(CommandBuffer);
+        const uint64_t SyncTimeoutNs = BoundDevice->QueryHardwareAccelerated() ? 5000000000ull : 60000000000ull;
+        const bool     SyncOk        = BoundDevice->AwaitTimelineTick(SyncPoint, SyncTimeoutNs);
         BoundDevice->FreeCommandBuffer(CommandBuffer);
         if (!SyncOk)
         {

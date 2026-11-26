@@ -125,6 +125,9 @@ public:
     [[nodiscard]] Input::InputExtension&                             AccessInput() noexcept;
     [[nodiscard]] const Input::InputExtension&                       InspectInput() const noexcept;
     [[nodiscard]] Windowing::HeadlessPlatformWindow*                 AccessHeadlessWindow() noexcept;
+#if !defined(__ANDROID__)
+    [[nodiscard]] Windowing::DesktopPlatformWindow*                  AccessDesktopWindow() noexcept;
+#endif
     [[nodiscard]] Threading::ExecutionChannels*                      AccessExecutionChannels() noexcept;
     [[nodiscard]] Threading::AssetStreamThread*                      AccessAssetStreamThread() noexcept;
 
@@ -191,6 +194,13 @@ inline Windowing::HeadlessPlatformWindow* RuntimeLifecycle::AccessHeadlessWindow
 {
     return (!DesktopSurfaceBound && Initialized) ? &HeadlessSurface : nullptr;
 }
+
+#if !defined(__ANDROID__)
+inline Windowing::DesktopPlatformWindow* RuntimeLifecycle::AccessDesktopWindow() noexcept
+{
+    return (DesktopSurfaceBound && Initialized) ? &DesktopSurface : nullptr;
+}
+#endif
 
 inline Threading::ExecutionChannels* RuntimeLifecycle::AccessExecutionChannels() noexcept
 {
