@@ -498,12 +498,12 @@ void RegisterStudioBaseMaterials(
         Reg(StudioMaterialCode::RubberMat, "StudioRubberMat", M);
     }
 
-    // Luminous studio softbox silk diffuser
+    // Luminous studio softbox silk diffuser (physical ~6,500 nits -> ~1.82 linear HDR radiance; bright white to camera + balanced glossy reflections)
     {
         SurfaceMaterial M {};
         M.Diffuse.BaseColor                        = { 0.95f, 0.96f, 0.99f };
         M.Specular.Roughness                       = 0.55f;
-        M.PorosityLight.EmissionLuminanceNits      = 3.4f;
+        M.PorosityLight.EmissionLuminanceNits      = 6500.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 5600.0f;
         Reg(StudioMaterialCode::EmissiveDiffuser, "StudioEmissiveDiffuser", M);
     }
@@ -522,8 +522,9 @@ void RegisterStudioBaseMaterials(
         SurfaceMaterial M {};
         M.Diffuse.BaseColor                        = SrgbHexToLinearRgb(0x224c78);
         M.Specular.Roughness                       = 0.12f;
-        M.PorosityLight.EmissionLuminanceNits      = 0.95f;
+        M.PorosityLight.EmissionLuminanceNits      = 1200.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 6500.0f;
+        M.PorosityLight.EmissionTint               = { 0.36f, 0.68f, 1.00f };
         Reg(StudioMaterialCode::TetherScreen, "StudioTetherScreen", M);
     }
 
@@ -541,8 +542,9 @@ void RegisterStudioBaseMaterials(
         SurfaceMaterial M {};
         M.Diffuse.BaseColor                        = SrgbHexToLinearRgb(0x2d4c36);
         M.Specular.Roughness                       = 0.35f;
-        M.PorosityLight.EmissionLuminanceNits      = 4.50f;
+        M.PorosityLight.EmissionLuminanceNits      = 3200.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 5300.0f;
+        M.PorosityLight.EmissionTint               = { 0.42f, 0.72f, 0.48f };
         Reg(StudioMaterialCode::ForestBackdrop, "StudioForestBackdrop", M);
     }
 
@@ -641,8 +643,9 @@ void RegisterStudioBaseMaterials(
         SurfaceMaterial M {};
         M.Diffuse.BaseColor                        = SrgbHexToLinearRgb(0x88b8ea);
         M.Specular.Roughness                       = 0.90f;
-        M.PorosityLight.EmissionLuminanceNits      = 0.90f;
+        M.PorosityLight.EmissionLuminanceNits      = 3200.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 6200.0f;
+        M.PorosityLight.EmissionTint               = { 0.58f, 0.78f, 1.00f };
         Reg(StudioMaterialCode::StadiumSkyDome, "StudioStadiumSkyDome", M);
     }
 
@@ -711,16 +714,19 @@ void RegisterStudioBaseMaterials(
         M.Clearcoat.CoatWeight                     = 1.00f;
         M.Clearcoat.CoatRoughness                  = 0.02f;
         M.Transmission.TransmissionWeight          = 0.28f;
-        M.PorosityLight.EmissionLuminanceNits      = 0.18f;
+        M.PorosityLight.EmissionLuminanceNits      = 0.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 5900.0f;
         Reg(StudioMaterialCode::VehicleHeadlightOptic, "VehicleHeadlightOptic", M);
     }
     {
         SurfaceMaterial M {};
         M.Diffuse.BaseColor                        = SrgbHexToLinearRgb(0xa81012);
-        M.Specular.Roughness                       = 0.08f;
-        M.PorosityLight.EmissionLuminanceNits      = 0.42f;
+        M.Specular.Roughness                       = 0.06f;
+        M.Clearcoat.CoatWeight                     = 0.88f;
+        M.Clearcoat.CoatRoughness                  = 0.035f;
+        M.PorosityLight.EmissionLuminanceNits      = 450.0f;
         M.PorosityLight.BlackbodyTemperatureKelvin = 2200.0f;
+        M.PorosityLight.EmissionTint               = { 1.00f, 0.10f, 0.06f };
         Reg(StudioMaterialCode::VehicleTaillightOptic, "VehicleTaillightOptic", M);
     }
     {

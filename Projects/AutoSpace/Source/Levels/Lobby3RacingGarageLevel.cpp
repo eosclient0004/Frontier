@@ -64,7 +64,7 @@ void BuildLobby3RacingGarageLevel(IStudioLobbySceneBuilderContext& Ctx, const Lo
         "l3-race-track", "3D Racing Track & Stadium",
         "Procedural studio.race_track · 3-lane FIA circuit, pit wall, gantry & 14-tier grandstands",
         BuildRaceTrackSurface({ 150.0f, 3u, true, true }, Palette), ConvertHtmlPositionToWorldZUp(0.0f, 0.0f, 0.0f),
-        Palette.Resolve(StudioMaterialCode::TrackAsphalt), ArchFolder, true);
+        Palette.Resolve(StudioMaterialCode::TrackAsphalt), ArchFolder, false);
 
     (void)Ctx.AppendSurfaceEntity(
         "l3-garage-shell", "Pit Garage, Cages & Mezzanine",

@@ -55,6 +55,7 @@ struct RigidClusterInstance
     Mathematics::Axis3D                                  LocalHalfExtents    { 0.5f, 0.5f, 0.5f };       // [m]   - Unscaled local half-extents / shape radii
     uint32_t                                             AnalyticalShapeCode = DistanceShapeBakedVolume; // [-]   - DistanceShape* volume or analytical primitive tag
     const DistanceFieldSpace::LocalSignedDistanceVolume* LocalSdfVolume      = nullptr;                  // [-]   - Optional per-asset local distance volume
+    bool                                                 CastShadows         = true;                     // [-]   - False excludes receiver/fixture geometry from GDF & shadow rays
 };
 
 struct VisibleClusterCommand

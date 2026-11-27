@@ -907,8 +907,15 @@ float IntersectTriangleMT(float3 Origin, float3 Dir, float MinT, float MaxT, uin
     return TDet * InvAbsDet;
 }
 
+uint UnpackTriangleMaterialSlot(float EncodedSlot)
+{
+    return (EncodedSlot < 0.0) ? uint(-EncodedSlot - 0.5) : uint(EncodedSlot + 0.5);
+}
+
 bool IntersectTriangleShadowMT(float3 Origin, float3 Dir, float MinT, float MaxT, uint TriIndex)
 {
+    if (SceneTriangles[TriIndex].Normal2Slot.w < 0.0) return false;
+
     float3 Edge01  = SceneTriangles[TriIndex].Edge01Pad.xyz;
     float3 Edge02  = SceneTriangles[TriIndex].Edge02Pad.xyz;
     float3 PVec    = cross(Dir, Edge02);
@@ -1037,7 +1044,7 @@ RayHitReading ReconstructPrimaryHitFromTriangle(float3 Origin, float3 Dir, float
     Res.Position        = Corner0 + Edge01 * U + Edge02 * V;
     Res.GeomNormal      = RawGeom;
     Res.ShadingNormal   = SmoothN;
-    Res.MaterialSlot    = uint(N2Slot.w + 0.5);
+    Res.MaterialSlot    = UnpackTriangleMaterialSlot(N2Slot.w);
     Res.LodLevel        = MetaWord & 0xFu;
     Res.MaxLodLevel     = (MetaWord >> 4u) & 0xFu;
     Res.SeamEdgeMask    = SeamMask;
@@ -1155,7 +1162,7 @@ RayHitReading TraceSceneClosest(float3 Origin, float3 Dir, float MinT, float Max
 
                         Res.GeomNormal      = RawGeom;
                         Res.ShadingNormal   = SmoothN;
-                        Res.MaterialSlot    = uint(N2Slot.w + 0.5);
+                        Res.MaterialSlot    = UnpackTriangleMaterialSlot(N2Slot.w);
                         Res.LodLevel        = MetaWord & 0xFu;
                         Res.MaxLodLevel     = (MetaWord >> 4u) & 0xFu;
                         Res.SeamEdgeMask    = SeamMask;
@@ -1430,39 +1437,59 @@ float TraceGlobalDistanceConeVisibility(
         return 1.0;
     }
 
-    float MinVis = 1.0;
+    float MinVis       = 1.0;
+    float PrevDist     = 0.0;
+    float PrevStep     = 0.0;
+    float GroundPlaneZ = QueryGlobalDistanceAnalyticGroundZ();
+    bool  CheckGround  = (GroundPlaneZ > ValidAnalyticGroundFloorZ) && (Dir.z < -1.0e-4);
     [loop]
     for (uint Step = 0u; Step < MaxSteps; ++Step)
     {
         if (T >= SafeMax) break;
-        float LocalVox = Vox0;
-        float Dist     = SampleGlobalDistanceWorld(StartP + Dir * T, LocalVox);
-
-        // Receiver tangent-plane clearance: ignore distance readings explained by the receiver surface itself
-        float SelfPlaneDist = StartLift + T * NdotD;
-        bool  ReceiverClear = (Dist >= SelfPlaneDist - LocalVox * 0.42);
+        float  LocalVox = Vox0;
+        float3 SampleP  = StartP + Dir * T;
+        float  Dist     = SampleGlobalDistanceVolumes(SampleP, LocalVox);
+        if (CheckGround)
+        {
+            Dist = min(Dist, abs(SampleP.z - GroundPlaneZ));
+        }
 
         if (PointHard)
         {
-            if (!ReceiverClear)
+            float SelfPlaneDist = StartLift + T * NdotD;
+            float ClearWeight   = 1.0 - smoothstep(SelfPlaneDist - max(0.05, LocalVox * 0.95), SelfPlaneDist - LocalVox * 0.12, Dist);
+            if (ClearWeight > 1.0e-3)
             {
-                if (Dist <= LocalVox * 0.06) return 0.0;
                 float HardBand = saturate((Dist - LocalVox * 0.06) / max(1.0e-3, LocalVox * 0.28));
-                MinVis = min(MinVis, HardBand);
+                MinVis = min(MinVis, lerp(1.0, HardBand, ClearWeight));
+                if (MinVis <= 0.005) return 0.0;
             }
-            T += max(LocalVox * 0.60, max(0.0, Dist) * 0.88);
+            T += max(LocalVox * 0.55, max(0.0, Dist) * 0.85);
         }
         else
         {
-            float RemSpan  = max(1.0e-3, SafeMax - T);
-            float Aperture = max(LocalVox * 0.24, min(T * max(0.020, ConeTan), RemSpan * 0.55));
-            if (!ReceiverClear)
+            // General-step closest-point-of-approach along [T - PrevStep, T] using exact triangle geometry
+            // y = (r_k^2 - r_{k-1}^2 + h^2) / (2h), clamped to [0, h] — zero rings for arbitrary clamped steps
+            float SafeDist      = max(0.0, Dist);
+            float BackstepY     = (Step > 0u && PrevStep > 1.0e-4)
+                ? clamp((SafeDist * SafeDist - PrevDist * PrevDist + PrevStep * PrevStep) / (2.0 * PrevStep), 0.0, PrevStep)
+                : 0.0;
+            float ClosestD      = sqrt(max(0.0, SafeDist * SafeDist - BackstepY * BackstepY));
+            float ClosestT      = max(LocalVox * 0.25, T - BackstepY);
+            float RemSpan       = max(1.0e-3, SafeMax - ClosestT);
+            float Aperture      = max(LocalVox * 0.24, min(ClosestT * max(0.020, ConeTan), RemSpan * 0.55));
+            float SelfPlaneDist = StartLift + ClosestT * NdotD;
+            float ClearWeight   = 1.0 - smoothstep(SelfPlaneDist - max(0.06, LocalVox * 1.15), SelfPlaneDist - LocalVox * 0.15, ClosestD);
+            if (ClearWeight > 1.0e-3)
             {
-                float ConeVis = saturate((Dist + Aperture * 0.12) / (1.12 * Aperture));
-                MinVis = min(MinVis, ConeVis);
+                float ConeVis = saturate((ClosestD + Aperture * 0.12) / (1.12 * Aperture));
+                MinVis = min(MinVis, lerp(1.0, ConeVis, ClearWeight));
                 if (MinVis <= 0.01) return 0.0;
             }
-            T += max(LocalVox * 0.62, max(max(0.0, Dist) * 0.82, Aperture * 0.50));
+            float StepAdv = clamp(SafeDist * 0.65, LocalVox * 0.28, max(LocalVox * 0.65, Aperture * 0.34));
+            PrevDist = SafeDist;
+            PrevStep = StepAdv;
+            T       += StepAdv;
         }
     }
     return PointHard ? smoothstep(0.25, 0.75, MinVis) : (MinVis * MinVis * (3.0 - 2.0 * MinVis));
@@ -1496,6 +1523,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
     }
 
     float  OriginCellMeters = QueryFineGdfVoxelSize();
+    (void)SampleGlobalDistanceVolumes(SurfacePosition, OriginCellMeters);
     float  GroundPlaneZ     = QueryGlobalDistanceAnalyticGroundZ();
     float3 LiftDirection    = normalize(GeometricNormal * UdfAoGeomLiftBlend + ShadingNormal * UdfAoShadingLiftBlend);
     float  OriginLift       = max(UdfAoSurfaceBiasMeters, OriginCellMeters * UdfAoCellLiftScale);
@@ -1567,7 +1595,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
 
                 float3 SamplePosition  = RayOrigin + RayDir * TravelMeters;
                 float  LocalCellMeters = OriginCellMeters;
-                float  FieldDistance   = SampleGlobalDistanceWorld(SamplePosition, LocalCellMeters);
+                float  FieldDistance   = SampleGlobalDistanceVolumes(SamplePosition, LocalCellMeters);
                 float  HitThreshold    = max(MinimumBoxHalfExtentMeters, LocalCellMeters * UdfAoHitCellScale);
                 if (FieldDistance < HitThreshold)
                 {
@@ -1728,7 +1756,8 @@ float ComputeRadiosityVolumeFade(float3 WorldPos)
     }
     float3 Rel    = abs(WorldPos - CenterSpan.xyz) / CenterSpan.w;
     float  MaxRel = max(Rel.x, max(Rel.y, Rel.z));
-    return smoothstep(0.98, 0.80, MaxRel);
+    float  Radial = length(Rel) * 0.82;
+    return smoothstep(0.98, 0.62, max(MaxRel, Radial));
 }
 
 float3 TraceSingleRadiosityCone(
@@ -1858,6 +1887,17 @@ float3 TraceSingleRadiosityCone(
             float  SunVis      = SampleCascadedSunShadowFast(GroundP, GroundN, GroundN, SunDir);
             float3 GroundRad   = GroundAlb * (InvPiConst * max(0.0, SunDir.z) * SunVis) * WorldUniforms.SolarIrradiancePad.xyz
                                + GroundAlb * (0.28 * EvaluateSkyDome(GroundN));
+            uint AreaLightCnt  = min(4u, WorldUniforms.LightGlassMaterialDebug.x);
+            for (uint ALIdx = 0u; ALIdx < AreaLightCnt; ++ALIdx)
+            {
+                GpuAreaQuadLight AL = WorldUniforms.AreaLights[ALIdx];
+                float3 ToAl         = AL.CenterHalfWidth.xyz - GroundP;
+                float  DistSqAl     = max(0.35, dot(ToAl, ToAl));
+                float  CosGround    = max(0.0, ToAl.z * rsqrt(DistSqAl));
+                float  QuadArea     = 4.0 * AL.CenterHalfWidth.w * AL.RightHalfHeight.w;
+                float  FormFactor   = saturate(QuadArea / (PiConst * DistSqAl + QuadArea));
+                GroundRad          += GroundAlb * AL.RadiancePacked.xyz * (CosGround * FormFactor * 0.55);
+            }
             AccumRad += (1.0 - AccumOcc) * GroundRad * SkyFallbackScale;
         }
         else
@@ -2188,7 +2228,7 @@ float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, fl
         float EffRadius = max(0.035, 0.72 * (Quad.CenterHalfWidth.w + Quad.RightHalfHeight.w));
         float ConeTan   = clamp(EffRadius / CenterDist, 0.025, 0.65);
         if (PenumbraMode == 1u) ConeTan *= 0.85;
-        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, 10u);
+        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, 14u);
     }
     else if (PenumbraMode == 0u)
     {
@@ -4807,6 +4847,65 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     OutDisplayRgba8[PixelIdx] = PackLinearToSrgb8Rgba(DisplayLinear, DispatchThreadID.xy);
 }
 
+float TraceSceneShadowDepthClosest(float3 Origin, float3 Dir, float MinT, float MaxT)
+{
+    uint EntryCount = uint(WorldUniforms.SkyRadianceBvhCount.w + 0.5);
+    if (EntryCount == 0u) return 1.0e6;
+
+    float  BestT   = MaxT;
+    bool   AnyHit  = false;
+    float3 SafeDir = select(abs(Dir) > float3(1.0e-8), Dir, float3(1.0e-8));
+    float3 InvDir  = 1.0 / SafeDir;
+
+    uint Stack[32];
+    int  StackTop = 0;
+    Stack[0]      = 0u;
+
+    while (StackTop >= 0)
+    {
+        uint CurIdx = Stack[StackTop--];
+        if (CurIdx >= EntryCount) continue;
+
+        float4 BoxT = IntersectFourBoxes(Origin, InvDir, MinT, BestT, CurIdx);
+        uint4  Refs = SceneBvhEntries[CurIdx].BranchReference;
+        uint4  Cnts = SceneBvhEntries[CurIdx].BranchPrimitiveCount;
+
+        for (uint Lane = 0u; Lane < 4u; ++Lane)
+        {
+            if (BoxT[Lane] >= BestT) continue;
+            uint Ref = Refs[Lane];
+            uint Cnt = Cnts[Lane];
+            if (Ref == 0xFFFFFFFFu) continue;
+
+            uint GatePlusOne = Cnt >> 4u;
+            if (GatePlusOne != 0u && !QueryClusterBitActive(GatePlusOne - 1u)) continue;
+
+            uint TriCnt = Cnt & 0xFu;
+            if (TriCnt > 0u)
+            {
+                uint Start = Ref & 0x7FFFFFFFu;
+                for (uint P = 0u; P < TriCnt; ++P)
+                {
+                    uint TriIdx = Start + P;
+                    if (SceneTriangles[TriIdx].Normal2Slot.w < 0.0) continue;
+                    float2 BaryUV;
+                    float  HitT = IntersectTriangleMT(Origin, Dir, MinT, BestT, TriIdx, BaryUV);
+                    if (HitT > 0.0)
+                    {
+                        BestT  = HitT;
+                        AnyHit = true;
+                    }
+                }
+            }
+            else if (StackTop < 28)
+            {
+                Stack[++StackTop] = Ref;
+            }
+        }
+    }
+    return AnyHit ? BestT : 1.0e6;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ShadowCascadeComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
@@ -4830,8 +4929,8 @@ void ShadowCascadeComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float LocalV = (1.0 - ((float(DispatchThreadID.y) + 0.5) / float(Res)) * 2.0) * HalfSpan;
     float3 RayOrig = Center + LightRight * LocalU + LightUp * LocalV - LightFwd * DepthExtent;
 
-    RayHitReading Hit = TraceSceneClosest(RayOrig, LightFwd, 0.0, DepthExtent * 2.0 + 4.0);
-    SolarShadowDepthBuffer[OutOffset + DispatchThreadID.y * Res + DispatchThreadID.x] = Hit.Hit ? Hit.Distance : 1.0e6;
+    SolarShadowDepthBuffer[OutOffset + DispatchThreadID.y * Res + DispatchThreadID.x] =
+        TraceSceneShadowDepthClosest(RayOrig, LightFwd, 0.0, DepthExtent * 2.0 + 4.0);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -5203,7 +5302,7 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
                                     BestAbsCos   = StrictlyCloser ? AbsCos : max(BestAbsCos, AbsCos);
                                     BestDistSq   = min(BestDistSq, DistSq);
                                     BestNormal   = SmoothN;
-                                    BestMat      = uint(N2Slot.w + 0.5);
+                                    BestMat      = UnpackTriangleMaterialSlot(N2Slot.w);
                                     FoundSurface = true;
                                 }
                             }

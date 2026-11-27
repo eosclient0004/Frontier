@@ -172,6 +172,7 @@ private:
         float                    CachedYawDeg              = 0.0f;
         Mathematics::Axis3D      CachedTranslation         { 0.0f, 0.0f, 0.0f };
         uint32_t                 CachedMaterialSlot        = 0u;
+        bool                     CachedCastShadows         = true;
         std::array<uint32_t, 8u> LevelGateOrdinals         {
             UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
             UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX

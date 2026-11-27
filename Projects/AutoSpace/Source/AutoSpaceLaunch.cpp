@@ -200,6 +200,7 @@ int main(int ArgumentCount, char** ArgumentVector)
     uint32_t              RenderCycleLimit    = 0u;
     uint32_t              OverrideWidthPx     = 0u;
     uint32_t              OverrideHeightPx    = 0u;
+    uint32_t              DebugChannel        = 0u;
     AutoSpace::StudioLobbyId InitialLobby     = AutoSpace::StudioLobbyId::StudioLobby1Cyclorama;
 
     for (int Idx = 1; Idx < ArgumentCount; ++Idx)
@@ -253,6 +254,14 @@ int main(int ArgumentCount, char** ArgumentVector)
         else if (Arg.starts_with("--lobby="))
         {
             (void)AutoSpace::LobbyPolicyEngine::ParseLobbyId(Arg.substr(8u), InitialLobby);
+        }
+        else if (Arg.starts_with("--debug-channel="))
+        {
+            const long Parsed = std::strtol(RawArg + 16, nullptr, 10);
+            if (Parsed >= 0L && Parsed <= 31L)
+            {
+                DebugChannel = static_cast<uint32_t>(Parsed);
+            }
         }
     }
 
@@ -525,6 +534,7 @@ int main(int ArgumentCount, char** ArgumentVector)
         RenderConfiguration.RaytracingEnabled     = true;
         RenderConfiguration.SdfGiIntensity        = 1.05f;
         RenderConfiguration.ExposureGain          = QueryLobbyExposureGain(ActiveLobby);
+        RenderConfiguration.DebugChannel          = DebugChannel;
 
         bool CyclePresented = false;
         if (GpuWorldReady)

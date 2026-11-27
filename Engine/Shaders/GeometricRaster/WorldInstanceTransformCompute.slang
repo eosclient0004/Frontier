@@ -164,10 +164,11 @@ void TransformTrianglesEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float  CosZ        = InstanceTransform.ScaleCosYaw.w;
     float3 InvScale    = InstanceTransform.InvScaleSinYaw.xyz;
     float  SinZ        = InstanceTransform.InvScaleSinYaw.w;
-    uint   InstMat     = InstanceTransform.RangeMaterialFlags.z;
-    uint   Flags       = InstanceTransform.RangeMaterialFlags.w;
-    bool   HasYaw      = (Flags & 1u) != 0u;
-    bool   NonUni      = (Flags & 2u) != 0u;
+    uint   InstMat           = InstanceTransform.RangeMaterialFlags.z;
+    uint   Flags             = InstanceTransform.RangeMaterialFlags.w;
+    bool   HasYaw            = (Flags & 1u) != 0u;
+    bool   NonUni            = (Flags & 2u) != 0u;
+    bool   DisableShadowCast = (Flags & 4u) != 0u;
 
     float3 LC0  = Tri.Corner0Pad.xyz * Scale;
     float3 LE01 = Tri.Edge01Pad.xyz  * Scale;
@@ -191,7 +192,7 @@ void TransformTrianglesEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     Tri.Normal0Pad.xyz  = WN0;
     Tri.Normal1Pad.xyz  = WN1;
     Tri.Normal2Slot.xyz = WN2;
-    Tri.Normal2Slot.w   = float(FinalMat);
+    Tri.Normal2Slot.w   = DisableShadowCast ? -(float(FinalMat) + 1.0) : float(FinalMat);
 
     WorldTriangles[TriIdx] = Tri;
 }

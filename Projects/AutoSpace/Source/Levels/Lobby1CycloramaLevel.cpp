@@ -66,7 +66,7 @@ void BuildLobby1CycloramaLevel(IStudioLobbySceneBuilderContext& Ctx, const Lobby
             "Procedural studio.cyclorama · seamless matte cove",
             BuildCycloramaSurface({ 18.0f, 13.5f, 7.0f, 2.2f, true }, Palette),
             ConvertHtmlPositionToWorldZUp(0.0f, 0.0f, -0.8f),
-            Palette.Resolve(StudioMaterialCode::Cyclorama), ArchFolder, true);
+            Palette.Resolve(StudioMaterialCode::Cyclorama), ArchFolder, false);
 
         (void)Ctx.AppendSurfaceEntity(
             "studio-floor", "Glossy Tiled Studio Floor",

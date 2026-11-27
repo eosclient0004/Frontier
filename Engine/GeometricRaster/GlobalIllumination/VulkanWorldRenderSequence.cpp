@@ -3381,7 +3381,8 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
                 (std::fabs(Inst.WorldTranslation.X - PrevSpan.CachedTranslation.X) > 1.0e-5f) ||
                 (std::fabs(Inst.WorldTranslation.Y - PrevSpan.CachedTranslation.Y) > 1.0e-5f) ||
                 (std::fabs(Inst.WorldTranslation.Z - PrevSpan.CachedTranslation.Z) > 1.0e-5f) ||
-                (static_cast<uint32_t>(Inst.MaterialSlot) != PrevSpan.CachedMaterialSlot);
+                (static_cast<uint32_t>(Inst.MaterialSlot) != PrevSpan.CachedMaterialSlot) ||
+                (Inst.CastShadows != PrevSpan.CachedCastShadows);
 
             Span.CachedScaleX       = ScaleX;
             Span.CachedScaleY       = ScaleY;
@@ -3389,6 +3390,7 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
             Span.CachedYawDeg       = Inst.RotationZDegrees;
             Span.CachedTranslation  = Inst.WorldTranslation;
             Span.CachedMaterialSlot = static_cast<uint32_t>(Inst.MaterialSlot);
+            Span.CachedCastShadows  = Inst.CastShadows;
             if (Dirty)
             {
                 DirtySpanIndices.push_back(SpanIdx);
@@ -3431,7 +3433,10 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
                     const bool  HasYaw    = std::fabs(YawRad) > 1.0e-5f;
                     const float CosZ      = HasYaw ? std::cos(YawRad) : 1.0f;
                     const float SinZ      = HasYaw ? std::sin(YawRad) : 0.0f;
-                    const uint32_t Flags  = (HasYaw ? 1u : 0u) | (NonUni ? 2u : 0u);
+                    const uint32_t Flags  =
+                        (HasYaw ? 1u : 0u) |
+                        (NonUni ? 2u : 0u) |
+                        (!Span.CachedCastShadows ? 4u : 0u);
 
                     GpuInstanceTransformUniformStd140 BaseUni {};
                     BaseUni.TranslationMaxScale[0] = Span.CachedTranslation.X;
@@ -3576,6 +3581,7 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
         Span.CachedYawDeg       = Inst.RotationZDegrees;
         Span.CachedTranslation  = Inst.WorldTranslation;
         Span.CachedMaterialSlot = static_cast<uint32_t>(Inst.MaterialSlot);
+        Span.CachedCastShadows  = Inst.CastShadows;
 
         auto RotZ = [CosZ, SinZ](Mathematics::Axis3D V) noexcept -> Mathematics::Axis3D
         {
@@ -3717,7 +3723,9 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
                 DstTri.Normal2Slot[0] = WN2.X;
                 DstTri.Normal2Slot[1] = WN2.Y;
                 DstTri.Normal2Slot[2] = WN2.Z;
-                DstTri.Normal2Slot[3] = static_cast<float>(FinalMat);
+                DstTri.Normal2Slot[3] = Inst.CastShadows
+                    ? static_cast<float>(FinalMat)
+                    : -(static_cast<float>(FinalMat) + 1.0f);
                 AllShadedTris[CurTriBase + TriIdx] = DstTri;
             }
 
@@ -3803,6 +3811,7 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
     auto ResolveInstanceVolume = [&](const RigidClusterInstance& Instance) -> const DistanceFieldSpace::LocalSignedDistanceVolume*
     {
         if (Instance.TransparentGlass ||
+            !Instance.CastShadows ||
             Instance.UniformScale <= MinimumValidScaleFloor ||
             Instance.AnalyticalShapeCode == DistanceShapeExcluded)
         {
@@ -4035,6 +4044,10 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
                 }
             }
         }
+        if (!Inst.CastShadows && !AnalyticGroundSlab)
+        {
+            continue;
+        }
         Dst.ResolutionOffset[2] = VoxelOffset;
         Dst.ResolutionOffset[3] =
             (static_cast<uint32_t>(Inst.MaterialSlot) & InstanceMaterialSlotMask) |
@@ -4100,7 +4113,7 @@ Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
     float               ForegroundWeight = 0.0f;
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
-        if (Inst.TransparentGlass || Inst.UniformScale <= 1.0e-4f)
+        if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= 1.0e-4f)
         {
             continue;
         }
@@ -4109,8 +4122,32 @@ Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
         {
             continue; // Exclude 24 m ground slab from pinning the fine clipmap center to world origin
         }
-        const float Weight = (Inst.LocalSdfVolume != nullptr) ? 4.0f : 1.0f;
-        ForegroundSum      = ForegroundSum + Inst.WorldTranslation * Weight;
+        Mathematics::Axis3D InstCenter = Inst.WorldTranslation;
+        if (Inst.PyramidAsset != nullptr)
+        {
+            Mathematics::Axis3D LocalMin {}, LocalMax {};
+            if (ComputePyramidLocalBounds(Inst.PyramidAsset, LocalMin, LocalMax))
+            {
+                const float ScaleU = std::max(MinimumValidScaleFloor, Inst.UniformScale);
+                const float ScaleX = (Inst.NonUniformScale.X > MinimumValidScaleFloor) ? Inst.NonUniformScale.X : ScaleU;
+                const float ScaleY = (Inst.NonUniformScale.Y > MinimumValidScaleFloor) ? Inst.NonUniformScale.Y : ScaleU;
+                const float ScaleZ = (Inst.NonUniformScale.Z > MinimumValidScaleFloor) ? Inst.NonUniformScale.Z : ScaleU;
+                const Mathematics::Axis3D LocalMid = (LocalMin + LocalMax) * 0.5f;
+                InstCenter = {
+                    Inst.WorldTranslation.X + LocalMid.X * ScaleX,
+                    Inst.WorldTranslation.Y + LocalMid.Y * ScaleY,
+                    Inst.WorldTranslation.Z + LocalMid.Z * ScaleZ
+                };
+            }
+        }
+        float Weight = (Inst.LocalSdfVolume != nullptr) ? 4.0f : 1.0f;
+        if (OptionalCamera != nullptr)
+        {
+            const Mathematics::Axis3D ToTargetInst = InstCenter - OptionalCamera->TargetPoint;
+            const float DistToTarget = std::sqrt(std::max(0.0f, Mathematics::EvaluateDot(ToTargetInst, ToTargetInst)));
+            Weight *= 1.0f / (1.0f + 0.18f * DistToTarget * DistToTarget);
+        }
+        ForegroundSum      = ForegroundSum + InstCenter * Weight;
         ForegroundWeight  += Weight;
     }
     if (ForegroundWeight > 0.0f)
@@ -4136,16 +4173,17 @@ Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
         : Mathematics::Axis3D{ 0.0f, 1.0f, 0.0f };
 
     // Project the camera view ray onto the active scene/foreground datum plane instead of clamping
-    // a fixed look-ahead distance in mid-air: dollying forward/back keeps the fine clipmap locked
-    // on the viewed surface, and pitching upward never launches the fine cascade into empty sky.
+    // a fixed look-ahead distance in mid-air, while bounding shallow grazing rays near TargetDist
+    // so low-elevation studio cameras never launch the fine cascade meters past the framed subject.
     const float MaxFocusDist = std::clamp(SceneMaxSpan * 0.85f, 14.0f, 40.0f);
+    const float GrazingCap   = (TargetDist > 1.0e-3f) ? std::clamp(TargetDist * 1.15f, 3.0f, MaxFocusDist) : MaxFocusDist;
     Mathematics::Axis3D CameraFocus = OptionalCamera->TargetPoint;
     if (ViewDir.Z < -0.05f && OptionalCamera->CameraOrigin.Z > AnchorPlaneZ + 0.05f)
     {
         const float PlaneHitDist = std::clamp(
             (AnchorPlaneZ - OptionalCamera->CameraOrigin.Z) / ViewDir.Z,
             1.5f,
-            MaxFocusDist);
+            GrazingCap);
         CameraFocus = OptionalCamera->CameraOrigin + ViewDir * PlaneHitDist;
     }
     else if (ForegroundWeight > 0.0f)
@@ -4244,7 +4282,64 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
 
     const Mathematics::Axis3D BoundsSpan  = Scene.SceneTree.RootBoundsMax - Scene.SceneTree.RootBoundsMin;
     const Mathematics::Axis3D SceneCenter = (Scene.SceneTree.RootBoundsMin + Scene.SceneTree.RootBoundsMax) * 0.5f;
-    const float MaxHalfExtent = 0.5f * std::max({ std::abs(BoundsSpan.X), std::abs(BoundsSpan.Y), std::abs(BoundsSpan.Z), 5.6f });
+    float MaxHalfExtent = 0.5f * std::max({ std::abs(BoundsSpan.X), std::abs(BoundsSpan.Y), std::abs(BoundsSpan.Z), 5.6f });
+    {
+        Mathematics::Axis3D CasterMin {
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max()
+        };
+        Mathematics::Axis3D CasterMax {
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest()
+        };
+        bool AnyCasterBounds = false;
+        for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+        {
+            if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+            {
+                continue;
+            }
+            const float ScaleU = std::max(MinimumValidScaleFloor, Inst.UniformScale);
+            const float ScaleX = (Inst.NonUniformScale.X > MinimumValidScaleFloor) ? Inst.NonUniformScale.X : ScaleU;
+            const float ScaleY = (Inst.NonUniformScale.Y > MinimumValidScaleFloor) ? Inst.NonUniformScale.Y : ScaleU;
+            const float ScaleZ = (Inst.NonUniformScale.Z > MinimumValidScaleFloor) ? Inst.NonUniformScale.Z : ScaleU;
+            Mathematics::Axis3D LocalMin { -Inst.LocalHalfExtents.X, -Inst.LocalHalfExtents.Y, -Inst.LocalHalfExtents.Z };
+            Mathematics::Axis3D LocalMax = Inst.LocalHalfExtents;
+            if (Inst.PyramidAsset != nullptr)
+            {
+                (void)ComputePyramidLocalBounds(Inst.PyramidAsset, LocalMin, LocalMax);
+            }
+            const float SpanX = (LocalMax.X - LocalMin.X) * ScaleX;
+            const float SpanY = (LocalMax.Y - LocalMin.Y) * ScaleY;
+            const float SpanZ = (LocalMax.Z - LocalMin.Z) * ScaleZ;
+            if (SpanX >= MinimumGroundDeckSpanMeters && SpanY >= MinimumGroundDeckSpanMeters && SpanZ <= MaximumGroundDeckHeightMeters)
+            {
+                continue;
+            }
+            const float MaxRadial = 0.5f * std::sqrt(SpanX * SpanX + SpanY * SpanY);
+            const Mathematics::Axis3D LocalCenter = (LocalMin + LocalMax) * 0.5f;
+            const Mathematics::Axis3D WorldCenter {
+                Inst.WorldTranslation.X + LocalCenter.X * ScaleX,
+                Inst.WorldTranslation.Y + LocalCenter.Y * ScaleY,
+                Inst.WorldTranslation.Z + LocalCenter.Z * ScaleZ
+            };
+            CasterMin.X = std::min(CasterMin.X, WorldCenter.X - MaxRadial);
+            CasterMin.Y = std::min(CasterMin.Y, WorldCenter.Y - MaxRadial);
+            CasterMin.Z = std::min(CasterMin.Z, WorldCenter.Z - 0.5f * SpanZ);
+            CasterMax.X = std::max(CasterMax.X, WorldCenter.X + MaxRadial);
+            CasterMax.Y = std::max(CasterMax.Y, WorldCenter.Y + MaxRadial);
+            CasterMax.Z = std::max(CasterMax.Z, WorldCenter.Z + 0.5f * SpanZ);
+            AnyCasterBounds = true;
+        }
+        if (AnyCasterBounds)
+        {
+            const Mathematics::Axis3D CasterSpan = CasterMax - CasterMin;
+            const float CasterHalf = 0.5f * std::max({ std::abs(CasterSpan.X), std::abs(CasterSpan.Y), std::abs(CasterSpan.Z), 5.6f });
+            MaxHalfExtent = std::min(MaxHalfExtent, CasterHalf);
+        }
+    }
     const float FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.25f, 4.25f) * 8.0f) * 0.125f;
     const float CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
     const float FineVoxelM    = (2.0f * FineGdfHalf) / 64.0f;
@@ -5251,7 +5346,9 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
                 OutTri.Normal2Slot[0] = Smooth.Normal2.X;
                 OutTri.Normal2Slot[1] = Smooth.Normal2.Y;
                 OutTri.Normal2Slot[2] = Smooth.Normal2.Z;
-                OutTri.Normal2Slot[3] = static_cast<float>(Prim.MaterialOrdinal);
+                OutTri.Normal2Slot[3] = (Prim.OpaqueMask != 0u)
+                    ? static_cast<float>(Prim.MaterialOrdinal)
+                    : -(static_cast<float>(Prim.MaterialOrdinal) + 1.0f);
                 OutTri.Corner0Pad[3]  = PackNaniteTriangleMetaWord(0u, 0u, 0u, static_cast<uint32_t>(Idx / 512u));
                 OutTri.Edge01Pad[3]   = static_cast<float>(Idx / 128u);
                 OutTri.Edge02Pad[3]   = 0.0f;
@@ -5347,7 +5444,9 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
                 OutTri.Normal2Slot[0] = SmoothCorners[2u].X;
                 OutTri.Normal2Slot[1] = SmoothCorners[2u].Y;
                 OutTri.Normal2Slot[2] = SmoothCorners[2u].Z;
-                OutTri.Normal2Slot[3] = static_cast<float>(Prim.MaterialOrdinal);
+                OutTri.Normal2Slot[3] = (Prim.OpaqueMask != 0u)
+                    ? static_cast<float>(Prim.MaterialOrdinal)
+                    : -(static_cast<float>(Prim.MaterialOrdinal) + 1.0f);
                 OutTri.Corner0Pad[3]  = PackNaniteTriangleMetaWord(0u, 0u, 0u, static_cast<uint32_t>(Idx / 512u));
                 OutTri.Edge01Pad[3]   = static_cast<float>(Idx / 128u);
                 OutTri.Edge02Pad[3]   = 0.0f;
@@ -6162,7 +6261,64 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         if (DistanceRadiosityActive)
         {
             const Mathematics::Axis3D BoundsSpan    = Scene.SceneTree.RootBoundsMax - Scene.SceneTree.RootBoundsMin;
-            const float               MaxHalfExtent = 0.5f * std::max({ std::abs(BoundsSpan.X), std::abs(BoundsSpan.Y), std::abs(BoundsSpan.Z), 5.6f });
+            float                     MaxHalfExtent = 0.5f * std::max({ std::abs(BoundsSpan.X), std::abs(BoundsSpan.Y), std::abs(BoundsSpan.Z), 5.6f });
+            {
+                Mathematics::Axis3D CasterMin {
+                    std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max()
+                };
+                Mathematics::Axis3D CasterMax {
+                    std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest()
+                };
+                bool AnyCasterBounds = false;
+                for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+                {
+                    if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+                    {
+                        continue;
+                    }
+                    const float ScaleU = std::max(MinimumValidScaleFloor, Inst.UniformScale);
+                    const float ScaleX = (Inst.NonUniformScale.X > MinimumValidScaleFloor) ? Inst.NonUniformScale.X : ScaleU;
+                    const float ScaleY = (Inst.NonUniformScale.Y > MinimumValidScaleFloor) ? Inst.NonUniformScale.Y : ScaleU;
+                    const float ScaleZ = (Inst.NonUniformScale.Z > MinimumValidScaleFloor) ? Inst.NonUniformScale.Z : ScaleU;
+                    Mathematics::Axis3D LocalMin { -Inst.LocalHalfExtents.X, -Inst.LocalHalfExtents.Y, -Inst.LocalHalfExtents.Z };
+                    Mathematics::Axis3D LocalMax = Inst.LocalHalfExtents;
+                    if (Inst.PyramidAsset != nullptr)
+                    {
+                        (void)ComputePyramidLocalBounds(Inst.PyramidAsset, LocalMin, LocalMax);
+                    }
+                    const float SpanX = (LocalMax.X - LocalMin.X) * ScaleX;
+                    const float SpanY = (LocalMax.Y - LocalMin.Y) * ScaleY;
+                    const float SpanZ = (LocalMax.Z - LocalMin.Z) * ScaleZ;
+                    if (SpanX >= MinimumGroundDeckSpanMeters && SpanY >= MinimumGroundDeckSpanMeters && SpanZ <= MaximumGroundDeckHeightMeters)
+                    {
+                        continue;
+                    }
+                    const float MaxRadial = 0.5f * std::sqrt(SpanX * SpanX + SpanY * SpanY);
+                    const Mathematics::Axis3D LocalCenter = (LocalMin + LocalMax) * 0.5f;
+                    const Mathematics::Axis3D WorldCenter {
+                        Inst.WorldTranslation.X + LocalCenter.X * ScaleX,
+                        Inst.WorldTranslation.Y + LocalCenter.Y * ScaleY,
+                        Inst.WorldTranslation.Z + LocalCenter.Z * ScaleZ
+                    };
+                    CasterMin.X = std::min(CasterMin.X, WorldCenter.X - MaxRadial);
+                    CasterMin.Y = std::min(CasterMin.Y, WorldCenter.Y - MaxRadial);
+                    CasterMin.Z = std::min(CasterMin.Z, WorldCenter.Z - 0.5f * SpanZ);
+                    CasterMax.X = std::max(CasterMax.X, WorldCenter.X + MaxRadial);
+                    CasterMax.Y = std::max(CasterMax.Y, WorldCenter.Y + MaxRadial);
+                    CasterMax.Z = std::max(CasterMax.Z, WorldCenter.Z + 0.5f * SpanZ);
+                    AnyCasterBounds = true;
+                }
+                if (AnyCasterBounds)
+                {
+                    const Mathematics::Axis3D CasterSpan = CasterMax - CasterMin;
+                    const float CasterHalf = 0.5f * std::max({ std::abs(CasterSpan.X), std::abs(CasterSpan.Y), std::abs(CasterSpan.Z), 5.6f });
+                    MaxHalfExtent = std::min(MaxHalfExtent, CasterHalf);
+                }
+            }
             const float               FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.25f, 4.25f) * 8.0f) * 0.125f;
             const float               CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
             const float               FineVoxelM    = (2.0f * FineGdfHalf) / 64.0f;

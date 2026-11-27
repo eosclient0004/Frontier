@@ -182,7 +182,6 @@ namespace
 
         RigidClusterInstance Inst = SrcScene.ClusterInstances[Idx];
         Inst.PyramidAsset         = &DynGeometry->Pyramid;
-        const Axis3D LocalCenter  = (MinLocal + MaxLocal) * 0.5f;
         const Scalar3D Extents {
             std::max(0.05f, (MaxLocal.X - MinLocal.X) * Inst.UniformScale),
             std::max(0.05f, (MaxLocal.Y - MinLocal.Y) * Inst.UniformScale),
@@ -198,7 +197,7 @@ namespace
         ObjEntry.StableIdentifier     = SrcGeometry->StableId;
         ObjEntry.Subtitle             = SrcGeometry->Subtitle.empty() ? "AutoSpace Lobby Geometry" : SrcGeometry->Subtitle;
         ObjEntry.AuthorNotes          = "Constructed by AutoSpace LobbyLifecycle inside MainWorld.WorldSpace.";
-        ObjEntry.CenterWorld          = Inst.WorldTranslation + LocalCenter * Inst.UniformScale;
+        ObjEntry.CenterWorld          = Inst.WorldTranslation;
         ObjEntry.DimensionsMeters     = Extents;
         ObjEntry.AuthoredDimensions   = Extents;
         ObjEntry.RotationZDegrees     = Inst.RotationZDegrees;
@@ -216,9 +215,9 @@ namespace
             for (uint32_t TriOrd = 0u; TriOrd < Cluster.TriangleCount; ++TriOrd)
             {
                 const auto& Tri = DynGeometry->Pyramid.Triangles[Cluster.TriangleStartOffset + TriOrd];
-                const Axis3D P0 = DynGeometry->Pyramid.Positions[Tri.VertexIndex0] - LocalCenter;
-                const Axis3D P1 = DynGeometry->Pyramid.Positions[Tri.VertexIndex1] - LocalCenter;
-                const Axis3D P2 = DynGeometry->Pyramid.Positions[Tri.VertexIndex2] - LocalCenter;
+                const Axis3D P0 = DynGeometry->Pyramid.Positions[Tri.VertexIndex0];
+                const Axis3D P1 = DynGeometry->Pyramid.Positions[Tri.VertexIndex1];
+                const Axis3D P2 = DynGeometry->Pyramid.Positions[Tri.VertexIndex2];
                 const Axis3D CrossN = EvaluateCross(P1 - P0, P2 - P0);
                 if (EvaluateLengthSquared(CrossN) <= 1.0e-12f)
                 {

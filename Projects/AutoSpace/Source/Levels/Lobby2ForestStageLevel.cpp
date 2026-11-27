@@ -71,7 +71,7 @@ void BuildLobby2ForestStageLevel(IStudioLobbySceneBuilderContext& Ctx, const Lob
             "Procedural studio.forest_backdrop · backlit LED volume & V-flats",
             BuildForestBackdropSurface({ 12.4f, 6.2f, 20.5f, 7.25f, true }, Palette),
             ConvertHtmlPositionToWorldZUp(0.0f, 0.0f, -5.65f),
-            Palette.Resolve(StudioMaterialCode::ForestBackdrop), SetFolder, true);
+            Palette.Resolve(StudioMaterialCode::ForestBackdrop), SetFolder, false);
 
         (void)Ctx.AppendSurfaceEntity(
             "studio-floor", "Studio Concrete Floor",

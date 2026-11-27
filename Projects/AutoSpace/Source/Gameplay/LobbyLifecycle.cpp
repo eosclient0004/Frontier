@@ -355,6 +355,7 @@ InstanceToken LobbyLifecycle::AppendSurfaceEntity(
     Inst.NonUniformScale     = { 1.0f, 1.0f, 1.0f };
     Inst.RotationZDegrees    = 0.0f;
     Inst.MaterialSlot        = FallbackMaterialSlot;
+    Inst.CastShadows         = CastShadows;
 
     const uint32_t ClusterIdx = static_cast<uint32_t>(WorldScene.ClusterInstances.size());
     WorldScene.ClusterInstances.push_back(Inst);
@@ -542,7 +543,7 @@ void LobbyLifecycle::FinalizeWorldSceneAcceleration()
                 Prim.Edge02           = P2 - P0;
                 Prim.PrimitiveOrdinal = static_cast<uint32_t>(WorldPrims.size());
                 Prim.MaterialOrdinal  = (Tri.MaterialOrdinal != 0u) ? Tri.MaterialOrdinal : Inst.MaterialSlot;
-                Prim.OpaqueMask       = 1u;
+                Prim.OpaqueMask       = Inst.CastShadows ? 1u : 0u;
                 WorldPrims.push_back(Prim);
 
                 SpatialAcceleration::TriangleSmoothNormals SN {};
