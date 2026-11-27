@@ -18,6 +18,7 @@
 #include "Engine/GeometricRaster/GlobalIllumination/SpecularReflectionSequence.h"
 #include "Engine/GeometricRaster/GlobalIllumination/StokesContourIrradianceSequence.h"
 #include "Engine/GeometricRaster/GlobalIllumination/SurfelRadiosityLatticeSequence.h"
+#include "Engine/World/PortalSystem.h"
 #include "Engine/MaterialSpace/CompactMaterialRegister.h"
 #include "Engine/MaterialSpace/MaterialSurfaceLayer/BounceLayerSummary.h"
 #include "Engine/SpatialAcceleration/ClusterPyramid.h"
@@ -155,6 +156,9 @@ struct WorldSceneSpecification
     std::array<CockpitDisplaySurfaceSpec, 4u>                   CockpitDisplays               {};
     std::vector<uint32_t>                                       CockpitDisplayAtlasRgba8      {};
     uint64_t                                                    CockpitDisplayAtlasGeneration = 0ull;
+
+    // Exact multi-world 2D planar portals (Rectangle / Circle / Hexagon / RegularPolygon / CustomCutout)
+    std::vector<World::PortalPairSpecification>                 Portals                       {};
 
     // Order 2 GtxLowEnd-ONLY optional distance-field & capsule rig bindings (strictly ignored / 0 MB on RealTimeGiHighEnd)
     DistanceFieldSpace::RigidLocalVolumePlacement               GtxVehicleVolume    {};

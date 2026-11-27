@@ -77,6 +77,73 @@ struct WorldViewportUniformBlock
     float4                      PrevCameraRightTanY;              // xyz = PrevRight, w = PrevTanHalfFovY
     float4                      PrevCameraUpPad;                  // xyz = PrevUp, w = Reserved
     GpuCockpitDisplaySurface    CockpitDisplays[4];               // [0]=HMI, [1]=Cluster, [2]=WindshieldHUD, [3]=OnScreenHUD
+    uint4                       GiPortalCounts;                   // x=EmissiveClusters, y=BoneCapsules, z=Surfels, w=Portals|(ClipRanges<<8)
+    uint4                       SurfelStepControl;                // x=SurfelPhase(0/1), y=EmissiveTris, z=GiFeatureFlags, w=Reserved
+};
+
+struct GpuEmissiveTriangle80
+{
+    float4 VertexAPad;
+    float4 VertexBPad;
+    float4 VertexCPad;
+    float4 UnitNormalPad;
+    float4 LinearRadiance;
+};
+
+struct GpuEmissiveCluster64
+{
+    float4 CenterRadius;
+    float4 MeanNormalSphere;
+    float4 MeanRadianceArea;
+    uint4  TriRangeMask;
+};
+
+struct GpuBoneCapsule32
+{
+    float4 JointStartRadius;
+    float4 JointEndRadius;
+};
+
+struct GpuSurfel96
+{
+    float4 PositionRadius;
+    float4 NormalArea;
+    float4 DiffuseAlbedoPad;
+    float4 DirectExitance;
+    float4 BounceExitance;
+    float4 EmissiveSelfPad;
+};
+
+struct GpuPortalPair544
+{
+    float4 EntryCenterHalfW;
+    float4 EntryRightHalfH;
+    float4 EntryUpRimThick;
+    float4 EntryNormalRegion;
+    float4 EntryRimColorShape;
+
+    float4 ExitCenterPolySides;
+    float4 ExitRightVertCount;
+    float4 ExitUpMask;
+    float4 ExitNormalRegion;
+    float4 ExitRimColorPad;
+
+    float4 EntrySkyUpper;
+    float4 EntrySkyLower;
+    float4 EntrySunDirPad;
+    float4 EntrySunRadPad;
+    float4 ExitSkyUpper;
+    float4 ExitSkyLower;
+    float4 ExitSunDirPad;
+    float4 ExitSunRadPad;
+
+    float4 CustomPolyVerts[16];
+};
+
+struct GpuClipPlaneRange32
+{
+    uint4  ClusterRangePad;
+    float4 ClipPlaneWorld;
 };
 
 struct GpuWideTreeEntry128
@@ -168,7 +235,13 @@ struct GpuDynamicLocalSdfInstance144
 [[vk::image_format("r16f")]]    [[vk::binding(36, 0)]] RWTexture3D<float>  GdfBakeTargetImg3D;
 [[vk::image_format("rgba16f")]] [[vk::binding(37, 0)]] RWTexture3D<float4> RadiosityBakeDstImg3D;
 [[vk::image_format("r32ui")]]   [[vk::binding(38, 0)]] RWTexture2D<uint>   PrimaryVisImg2D;
-[[vk::binding(39, 0)]] StructuredBuffer<uint> CockpitDisplayAtlasRgba8;
+[[vk::binding(39, 0)]] StructuredBuffer<uint>                    CockpitDisplayAtlasRgba8;
+[[vk::binding(40, 0)]] StructuredBuffer<GpuEmissiveTriangle80>   EmissiveTriangleBuffer;
+[[vk::binding(41, 0)]] StructuredBuffer<GpuEmissiveCluster64>    EmissiveClusterBuffer;
+[[vk::binding(42, 0)]] StructuredBuffer<GpuBoneCapsule32>        DeformingBoneCapsuleBuffer;
+[[vk::binding(43, 0)]] RWStructuredBuffer<GpuSurfel96>           SurfelRadiosityBuffer;
+[[vk::binding(44, 0)]] StructuredBuffer<GpuPortalPair544>        PortalPairBuffer;
+[[vk::binding(45, 0)]] StructuredBuffer<GpuClipPlaneRange32>     ClipInstanceRangeBuffer;
 
 float4 UnpackCockpitAtlasTexelLinear(uint PackedRgba8)
 {
@@ -986,32 +1059,30 @@ float4 EvaluateUnifiedLocalMediaGpu(
 //                                           WIDE TREE (BVH4) RAY INTERSECTION
 //------------------------------------------------------------------------------------------------------------------------
 
-float IntersectTriangleMT(float3 Origin, float3 Dir, float MinT, float MaxT, uint TriIndex, out float2 OutUV)
+float3 IntersectTriangleMT(float3 Origin, float3 Dir, float MinT, float MaxT, uint TriIndex)
 {
-    OutUV = float2(0.0, 0.0);
     float3 Edge01  = SceneTriangles[TriIndex].Edge01Pad.xyz;
     float3 Edge02  = SceneTriangles[TriIndex].Edge02Pad.xyz;
     float3 PVec    = cross(Dir, Edge02);
     float  Det     = dot(Edge01, PVec);
     float  AbsDet  = abs(Det);
-    if (AbsDet <= 1.0e-8) return -1.0;
+    if (AbsDet <= 1.0e-8) return float3(-1.0, 0.0, 0.0);
 
     float  SignDet = (Det >= 0.0) ? 1.0 : -1.0;
     float3 Corner0 = SceneTriangles[TriIndex].Corner0Pad.xyz;
     float3 TVec    = Origin - Corner0;
     float  UDet    = dot(TVec, PVec) * SignDet;
-    if (UDet < 0.0 || UDet > AbsDet) return -1.0;
+    if (UDet < 0.0 || UDet > AbsDet) return float3(-1.0, 0.0, 0.0);
 
     float3 QVec  = cross(TVec, Edge01);
     float  VDet  = dot(Dir, QVec) * SignDet;
-    if (VDet < 0.0 || (UDet + VDet) > AbsDet) return -1.0;
+    if (VDet < 0.0 || (UDet + VDet) > AbsDet) return float3(-1.0, 0.0, 0.0);
 
     float  TDet  = dot(Edge02, QVec) * SignDet;
-    if (TDet < MinT * AbsDet || TDet > MaxT * AbsDet) return -1.0;
+    if (TDet < MinT * AbsDet || TDet > MaxT * AbsDet) return float3(-1.0, 0.0, 0.0);
 
     float  InvAbsDet = 1.0 / AbsDet;
-    OutUV = float2(UDet, VDet) * InvAbsDet;
-    return TDet * InvAbsDet;
+    return float3(TDet * InvAbsDet, UDet * InvAbsDet, VDet * InvAbsDet);
 }
 
 uint UnpackTriangleMaterialSlot(float EncodedSlot)
@@ -1165,6 +1236,23 @@ RayHitReading ReconstructPrimaryHitFromTriangle(float3 Origin, float3 Dir, float
     return Res;
 }
 
+bool CheckInstanceClipPlaneRejected(float3 WorldPos, uint ClusterOrd)
+{
+    uint ClipCount = min(64u, (WorldUniforms.GiPortalCounts.w >> 8u) & 0xFFu);
+    bool Rejected  = false;
+    for (uint C = 0u; C < ClipCount; ++C)
+    {
+        uint4  Rg = ClipInstanceRangeBuffer[C].ClusterRangePad;
+        float4 Pl = ClipInstanceRangeBuffer[C].ClipPlaneWorld;
+        bool   InRange = (Rg.z != 0u) && (ClusterOrd >= Rg.x) && (ClusterOrd < Rg.y);
+        if (InRange && (dot(WorldPos, Pl.xyz) + Pl.w < 0.0))
+        {
+            Rejected = true;
+        }
+    }
+    return Rejected;
+}
+
 RayHitReading TraceSceneClosest(float3 Origin, float3 Dir, float MinT, float MaxT)
 {
     RayHitReading Res;
@@ -1222,64 +1310,70 @@ RayHitReading TraceSceneClosest(float3 Origin, float3 Dir, float MinT, float Max
                 for (uint P = 0u; P < TriCnt; ++P)
                 {
                     uint   TriIdx = Start + P;
-                    float2 BaryUV;
-                    float  HitT = IntersectTriangleMT(Origin, Dir, MinT, Res.Distance, TriIdx, BaryUV);
+                    float3 HitRes = IntersectTriangleMT(Origin, Dir, MinT, Res.Distance, TriIdx);
+                    float  HitT   = HitRes.x;
+                    float2 BaryUV = HitRes.yz;
                     if (HitT > 0.0)
                     {
-                        Res.Hit        = true;
-                        Res.Distance   = HitT;
-                        Res.Position   = Origin + Dir * HitT;
-                        float  W0      = 1.0 - BaryUV.x - BaryUV.y;
-                        float3 Edge01  = SceneTriangles[TriIdx].Edge01Pad.xyz;
-                        float3 Edge02  = SceneTriangles[TriIdx].Edge02Pad.xyz;
-                        float4 N2Slot  = SceneTriangles[TriIdx].Normal2Slot;
-                        float3 RawCross = cross(Edge01, Edge02);
-                        float  Area2    = length(RawCross);
-                        float3 RawGeom  = (Area2 > 1.0e-12) ? (RawCross / Area2) : float3(0.0, 0.0, 1.0);
-                        float3 SmoothN  = normalize(
-                            SceneTriangles[TriIdx].Normal0Pad.xyz * W0 +
-                            SceneTriangles[TriIdx].Normal1Pad.xyz * BaryUV.x +
-                            N2Slot.xyz * BaryUV.y);
-                        if (dot(RawGeom, Dir) > 0.0)
+                        float3 HitWorldPos = Origin + Dir * HitT;
+                        uint   TriClustOrd = uint(SceneTriangles[TriIdx].Edge01Pad.w + 0.5);
+                        if (!CheckInstanceClipPlaneRejected(HitWorldPos, TriClustOrd))
                         {
-                            RawGeom = -RawGeom;
-                            SmoothN = -SmoothN;
+                            Res.Hit        = true;
+                            Res.Distance   = HitT;
+                            Res.Position   = HitWorldPos;
+                            float  W0      = 1.0 - BaryUV.x - BaryUV.y;
+                            float3 Edge01  = SceneTriangles[TriIdx].Edge01Pad.xyz;
+                            float3 Edge02  = SceneTriangles[TriIdx].Edge02Pad.xyz;
+                            float4 N2Slot  = SceneTriangles[TriIdx].Normal2Slot;
+                            float3 RawCross = cross(Edge01, Edge02);
+                            float  Area2    = length(RawCross);
+                            float3 RawGeom  = (Area2 > 1.0e-12) ? (RawCross / Area2) : float3(0.0, 0.0, 1.0);
+                            float3 SmoothN  = normalize(
+                                SceneTriangles[TriIdx].Normal0Pad.xyz * W0 +
+                                SceneTriangles[TriIdx].Normal1Pad.xyz * BaryUV.x +
+                                N2Slot.xyz * BaryUV.y);
+                            if (dot(RawGeom, Dir) > 0.0)
+                            {
+                                RawGeom = -RawGeom;
+                                SmoothN = -SmoothN;
+                            }
+                            if (dot(SmoothN, -Dir) < 0.0)
+                            {
+                                // Grazing silhouette normal guard (GeometryCompiler ViewportRasterization.js parity)
+                                SmoothN = normalize(SmoothN - Dir * (dot(SmoothN, -Dir) - 0.02));
+                            }
+
+                            uint   MetaWord = asuint(SceneTriangles[TriIdx].Corner0Pad.w) & 0x3FFFFFFFu;
+                            uint   UvWordA  = asuint(SceneTriangles[TriIdx].Normal0Pad.w) & 0x3FFFFFFFu;
+                            uint   UvWordB  = asuint(SceneTriangles[TriIdx].Normal1Pad.w) & 0x3FFFFFFFu;
+                            float2 Uv0      = float2(float(UvWordA & 0x3FFu), float((UvWordA >> 10u) & 0x3FFu)) * (4.0 / 1023.0);
+                            float2 Uv1      = float2(float((UvWordA >> 20u) & 0x3FFu), float(UvWordB & 0x3FFu)) * (4.0 / 1023.0);
+                            float2 Uv2      = float2(float((UvWordB >> 10u) & 0x3FFu), float((UvWordB >> 20u) & 0x3FFu)) * (4.0 / 1023.0);
+
+                            float  DistE01  = BaryUV.y * Area2 / max(1.0e-6, length(Edge01));
+                            float  DistE12  = W0 * Area2 / max(1.0e-6, length(Edge02 - Edge01));
+                            float  DistE20  = BaryUV.x * Area2 / max(1.0e-6, length(Edge02));
+                            uint   SeamMask = (MetaWord >> 8u) & 0x7u;
+                            float  SeamDist = 1.0e9;
+                            if ((SeamMask & 1u) != 0u) SeamDist = min(SeamDist, DistE01);
+                            if ((SeamMask & 2u) != 0u) SeamDist = min(SeamDist, DistE12);
+                            if ((SeamMask & 4u) != 0u) SeamDist = min(SeamDist, DistE20);
+
+                            Res.GeomNormal      = RawGeom;
+                            Res.ShadingNormal   = SmoothN;
+                            Res.MaterialSlot    = UnpackTriangleMaterialSlot(N2Slot.w);
+                            Res.LodLevel        = MetaWord & 0xFu;
+                            Res.MaxLodLevel     = (MetaWord >> 4u) & 0xFu;
+                            Res.SeamEdgeMask    = SeamMask;
+                            Res.GroupOrdinal    = (MetaWord >> 11u) & 0x7FFFFu;
+                            Res.ClusterOrdinal  = TriClustOrd;
+                            Res.TriangleOrdinal = TriIdx;
+                            Res.SelfErrorMeters = max(0.0, SceneTriangles[TriIdx].Edge02Pad.w);
+                            Res.EdgeDistMeters  = min(DistE01, min(DistE12, DistE20));
+                            Res.SeamDistMeters  = SeamDist;
+                            Res.SurfaceUv       = Uv0 * W0 + Uv1 * BaryUV.x + Uv2 * BaryUV.y;
                         }
-                        if (dot(SmoothN, -Dir) < 0.0)
-                        {
-                            // Grazing silhouette normal guard (GeometryCompiler ViewportRasterization.js parity)
-                            SmoothN = normalize(SmoothN - Dir * (dot(SmoothN, -Dir) - 0.02));
-                        }
-
-                        uint   MetaWord = asuint(SceneTriangles[TriIdx].Corner0Pad.w) & 0x3FFFFFFFu;
-                        uint   UvWordA  = asuint(SceneTriangles[TriIdx].Normal0Pad.w) & 0x3FFFFFFFu;
-                        uint   UvWordB  = asuint(SceneTriangles[TriIdx].Normal1Pad.w) & 0x3FFFFFFFu;
-                        float2 Uv0      = float2(float(UvWordA & 0x3FFu), float((UvWordA >> 10u) & 0x3FFu)) * (4.0 / 1023.0);
-                        float2 Uv1      = float2(float((UvWordA >> 20u) & 0x3FFu), float(UvWordB & 0x3FFu)) * (4.0 / 1023.0);
-                        float2 Uv2      = float2(float((UvWordB >> 10u) & 0x3FFu), float((UvWordB >> 20u) & 0x3FFu)) * (4.0 / 1023.0);
-
-                        float  DistE01  = BaryUV.y * Area2 / max(1.0e-6, length(Edge01));
-                        float  DistE12  = W0 * Area2 / max(1.0e-6, length(Edge02 - Edge01));
-                        float  DistE20  = BaryUV.x * Area2 / max(1.0e-6, length(Edge02));
-                        uint   SeamMask = (MetaWord >> 8u) & 0x7u;
-                        float  SeamDist = 1.0e9;
-                        if ((SeamMask & 1u) != 0u) SeamDist = min(SeamDist, DistE01);
-                        if ((SeamMask & 2u) != 0u) SeamDist = min(SeamDist, DistE12);
-                        if ((SeamMask & 4u) != 0u) SeamDist = min(SeamDist, DistE20);
-
-                        Res.GeomNormal      = RawGeom;
-                        Res.ShadingNormal   = SmoothN;
-                        Res.MaterialSlot    = UnpackTriangleMaterialSlot(N2Slot.w);
-                        Res.LodLevel        = MetaWord & 0xFu;
-                        Res.MaxLodLevel     = (MetaWord >> 4u) & 0xFu;
-                        Res.SeamEdgeMask    = SeamMask;
-                        Res.GroupOrdinal    = (MetaWord >> 11u) & 0x7FFFFu;
-                        Res.ClusterOrdinal  = uint(SceneTriangles[TriIdx].Edge01Pad.w + 0.5);
-                        Res.TriangleOrdinal = TriIdx;
-                        Res.SelfErrorMeters = max(0.0, SceneTriangles[TriIdx].Edge02Pad.w);
-                        Res.EdgeDistMeters  = min(DistE01, min(DistE12, DistE20));
-                        Res.SeamDistMeters  = SeamDist;
-                        Res.SurfaceUv       = Uv0 * W0 + Uv1 * BaryUV.x + Uv2 * BaryUV.y;
                     }
                 }
             }
@@ -1471,7 +1565,7 @@ float EvaluateInstanceLocalSdf(GpuDynamicLocalSdfInstance144 Inst, uint ShapeCod
     return EvaluateAnalyticalPrimitiveLocalSdf(ShapeCode, BoxHalf, LocalP - BoxCenter);
 }
 
-float SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos, out bool OutInBounds)
+float2 SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos)
 {
     float4 CenterSpan = (CascadeIdx == 0u)
         ? WorldUniforms.GlobalDistanceFineCenterSpan
@@ -1479,18 +1573,15 @@ float SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos, out bool Out
     float HalfSpan = CenterSpan.w;
     if (HalfSpan <= 0.01)
     {
-        OutInBounds = false;
-        return 10.0;
+        return float2(10.0, 0.0);
     }
 
     float3 LogicalNorm = (WorldPos - CenterSpan.xyz) / (2.0 * HalfSpan) + 0.5;
     float  Margin      = 1.25 / float(GdfGridRes);
     if (any(LogicalNorm < float3(Margin)) || any(LogicalNorm > float3(1.0 - Margin)))
     {
-        OutInBounds = false;
-        return HalfSpan;
+        return float2(HalfSpan, 0.0);
     }
-    OutInBounds = true;
 
     int3 MinCell = (CascadeIdx == 0u)
         ? WorldUniforms.GlobalDistanceFineToroidalCell.xyz
@@ -1498,9 +1589,10 @@ float SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos, out bool Out
 
     // Hardware VK_IMAGE_TYPE_3D linear trilinear fetch with VK_SAMPLER_ADDRESS_MODE_REPEAT non-power-of-2 toroidal wrap
     float3 ToroidalUvw = LogicalNorm + float3(WrapGdfToroidalCoord(MinCell)) * (1.0 / float(GdfGridRes));
-    return (CascadeIdx == 0u)
+    float  Dist = (CascadeIdx == 0u)
         ? GdfFineTex3D.SampleLevel(ToroidalUvw, 0.0)
         : GdfCoarseTex3D.SampleLevel(ToroidalUvw, 0.0);
+    return float2(Dist, 1.0);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1576,58 +1668,55 @@ float EvaluateCascadeBorderWeight(float3 NormalizedOffsetAbs)
     return smoothstep(CascadeBorderInnerMargin, CascadeBorderOuterMargin, ClosestEdge);
 }
 
-float SampleGlobalDistanceVolumes(float3 WorldPosition, out float OutLocalVoxelSize)
+float2 SampleGlobalDistanceVolumes(float3 WorldPosition)
 {
-    bool  InsideFine   = false;
-    float FineDistance = SampleGlobalDistanceCascade(0u, WorldPosition, InsideFine);
-    if (InsideFine)
+    float2 FineRes = SampleGlobalDistanceCascade(0u, WorldPosition);
+    if (FineRes.y > 0.5)
     {
         float3 FineRelativeOffset = abs(WorldPosition - WorldUniforms.GlobalDistanceFineCenterSpan.xyz) /
                                     max(FineCascadeMinHalfSpanMeters, WorldUniforms.GlobalDistanceFineCenterSpan.w);
         float  FineBorderWeight   = EvaluateCascadeBorderWeight(FineRelativeOffset);
-        OutLocalVoxelSize = QueryFineGdfVoxelSize();
+        float  LocalVox           = QueryFineGdfVoxelSize();
         if (FineBorderWeight < FineCascadeFullWeightThreshold)
         {
-            bool  InsideCoarse   = false;
-            float CoarseDistance = SampleGlobalDistanceCascade(1u, WorldPosition, InsideCoarse);
-            if (InsideCoarse)
+            float2 CoarseRes = SampleGlobalDistanceCascade(1u, WorldPosition);
+            if (CoarseRes.y > 0.5)
             {
                 float CoarseVoxelSize =
                     (2.0 * max(CoarseCascadeMinHalfSpanMeters, WorldUniforms.GlobalDistanceCoarseCenterSpan.w)) /
                     float(GdfGridRes);
-                OutLocalVoxelSize = lerp(CoarseVoxelSize, OutLocalVoxelSize, FineBorderWeight);
-                return lerp(CoarseDistance, FineDistance, FineBorderWeight);
+                return float2(
+                    lerp(CoarseRes.x, FineRes.x, FineBorderWeight),
+                    lerp(CoarseVoxelSize, LocalVox, FineBorderWeight));
             }
         }
-        return FineDistance;
+        return float2(FineRes.x, LocalVox);
     }
 
-    bool  InsideCoarse    = false;
-    float CoarseDistance  = SampleGlobalDistanceCascade(1u, WorldPosition, InsideCoarse);
-    float CoarseVoxelSize =
+    float2 CoarseRes       = SampleGlobalDistanceCascade(1u, WorldPosition);
+    float  CoarseVoxelSize =
         (2.0 * max(CoarseCascadeMinHalfSpanMeters, WorldUniforms.GlobalDistanceCoarseCenterSpan.w)) /
         float(GdfGridRes);
-    OutLocalVoxelSize = CoarseVoxelSize;
-    if (!InsideCoarse)
+    if (CoarseRes.y <= 0.5)
     {
-        return CoarseVoxelSize * UdfTruncationVoxelMultiple;
+        return float2(CoarseVoxelSize * UdfTruncationVoxelMultiple, CoarseVoxelSize);
     }
 
     float3 CoarseRelativeOffset = abs(WorldPosition - WorldUniforms.GlobalDistanceCoarseCenterSpan.xyz) /
                                   max(CoarseCascadeMinHalfSpanMeters, WorldUniforms.GlobalDistanceCoarseCenterSpan.w);
     float  CoarseBorderWeight   = EvaluateCascadeBorderWeight(CoarseRelativeOffset);
-    return lerp(CoarseVoxelSize * UdfTruncationVoxelMultiple, CoarseDistance, CoarseBorderWeight);
+    return float2(lerp(CoarseVoxelSize * UdfTruncationVoxelMultiple, CoarseRes.x, CoarseBorderWeight), CoarseVoxelSize);
 }
 
-float SampleGlobalDistanceWorld(float3 WorldPosition, out float OutLocalVoxelSize)
+float2 SampleGlobalDistanceWorld(float3 WorldPosition)
 {
-    float FieldDistance = SampleGlobalDistanceVolumes(WorldPosition, OutLocalVoxelSize);
-    float GroundPlaneZ  = QueryGlobalDistanceAnalyticGroundZ();
+    float2 Vol          = SampleGlobalDistanceVolumes(WorldPosition);
+    float  GroundPlaneZ = QueryGlobalDistanceAnalyticGroundZ();
     if (GroundPlaneZ > ValidAnalyticGroundFloorZ)
     {
-        FieldDistance = min(FieldDistance, WorldPosition.z - GroundPlaneZ);
+        Vol.x = min(Vol.x, WorldPosition.z - GroundPlaneZ);
     }
-    return FieldDistance;
+    return Vol;
 }
 
 float EvaluateInterleavedGradientNoise01(uint2 PixelXY)
@@ -1635,67 +1724,106 @@ float EvaluateInterleavedGradientNoise01(uint2 PixelXY)
     return frac(IgnOuterMultiplier * frac(float(PixelXY.x) * IgnSpatialScaleX + float(PixelXY.y) * IgnSpatialScaleY));
 }
 
-// Fast 96^3 Signed GDF query with automatic per-instance Local Signed SDF refinement near geometry
-// (smooth C1 transition band [1.75, 2.60] * GdfVox prevents contour steps at the GDF <-> Local-SDF boundary)
-float SampleShadowSignedDistance(float3 WorldPosition, out float OutLocalVoxelSize)
+float SmoothMinQuadratic(float A, float B, float K)
 {
-    float GdfDist           = SampleGlobalDistanceVolumes(WorldPosition, OutLocalVoxelSize);
-    float GdfVox            = OutLocalVoxelSize;
-    uint  LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
-    if (LocalSdfInstCount == 0u || GdfDist > GdfVox * 2.65)
+    if (K <= 1.0e-5)
     {
-        return GdfDist;
+        return min(A, B);
     }
+    float H = saturate(0.5 + 0.5 * (B - A) / K);
+    return lerp(B, A, H) - K * H * (1.0 - H);
+}
+
+float EvaluateTaperedBoneCapsuleSdf(float3 P, GpuBoneCapsule32 Cap)
+{
+    float3 A  = Cap.JointStartRadius.xyz;
+    float3 B  = Cap.JointEndRadius.xyz;
+    float3 Pa = P - A;
+    float3 Ba = B - A;
+    float  LenSq = max(1.0e-6, dot(Ba, Ba));
+    float  H  = saturate(dot(Pa, Ba) / LenSq);
+    float  R  = lerp(Cap.JointStartRadius.w, Cap.JointEndRadius.w, H);
+    return length(Pa - Ba * H) - R;
+}
+
+float2 SampleShadowSignedDistance(float3 WorldPosition)
+{
+    float2 GdfVol            = SampleGlobalDistanceVolumes(WorldPosition);
+    float  GdfDist           = GdfVol.x;
+    float  GdfVox            = GdfVol.y;
+    float  LocalVox          = GdfVox;
+    uint   LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
+    uint   BoneCapCount      = min(64u, WorldUniforms.GiPortalCounts.y);
 
     float BestDist     = GdfDist;
     float BestLocalVox = GdfVox;
     bool  RefinedHit   = false;
-    float SearchRadius = max(GdfDist, GdfVox * 1.6);
 
-    [loop]
-    for (uint InstIdx = 0u; InstIdx < LocalSdfInstCount; ++InstIdx)
+    if (LocalSdfInstCount > 0u && GdfDist <= GdfVox * 2.65)
     {
-        GpuDynamicLocalSdfInstance144 Inst = DynamicLocalSdfInstanceBuffer[InstIdx];
-        uint PackedBits = Inst.ResolutionOffset.w;
-        if ((PackedBits >> InstanceActiveBitShift) == 0u || (PackedBits & InstanceGroundSlabBit) != 0u)
+        float SearchRadius = max(GdfDist, GdfVox * 1.6);
+        [loop]
+        for (uint InstIdx = 0u; InstIdx < LocalSdfInstCount; ++InstIdx)
         {
-            continue;
+            GpuDynamicLocalSdfInstance144 Inst = DynamicLocalSdfInstanceBuffer[InstIdx];
+            uint PackedBits = Inst.ResolutionOffset.w;
+            if ((PackedBits >> InstanceActiveBitShift) == 0u || (PackedBits & InstanceGroundSlabBit) != 0u)
+            {
+                continue;
+            }
+            float3 LocalP = float3(
+                dot(Inst.WorldToLocalRow0.xyz, WorldPosition) + Inst.WorldToLocalRow0.w,
+                dot(Inst.WorldToLocalRow1.xyz, WorldPosition) + Inst.WorldToLocalRow1.w,
+                dot(Inst.WorldToLocalRow2.xyz, WorldPosition) + Inst.WorldToLocalRow2.w);
+            float  MinWorldScale = max(MinimumBoxHalfExtentMeters, Inst.LocalToWorldNormRow0.w);
+            float3 ClampedLocal  = clamp(LocalP, Inst.LocalMinPad.xyz, Inst.LocalMaxPad.xyz);
+            float  BoxLowerWorld = length(LocalP - ClampedLocal) * MinWorldScale;
+            float  CullBound     = RefinedHit ? max(BestDist, 0.0) : SearchRadius;
+            if (BoxLowerWorld > CullBound + 0.01)
+            {
+                continue;
+            }
+            uint  ShapeCode = (Inst.ResolutionOffset.y >> InstanceActiveBitShift) & InstanceSlotMask16;
+            uint3 Res       = uint3(
+                Inst.ResolutionOffset.x & InstanceSlotMask16,
+                (Inst.ResolutionOffset.x >> InstanceActiveBitShift) & InstanceSlotMask16,
+                Inst.ResolutionOffset.y & InstanceSlotMask16);
+            float WorldD = EvaluateInstanceLocalSdf(Inst, ShapeCode, Res, LocalP) * MinWorldScale;
+            if (!RefinedHit || WorldD < BestDist)
+            {
+                BestDist   = WorldD;
+                RefinedHit = true;
+                float InstPitch = (ShapeCode == 0u)
+                    ? max(0.012, max(Inst.LocalMinPad.w, max(Inst.LocalMaxPad.w, Inst.LocalToWorldNormRow1.w)) * MinWorldScale)
+                    : 0.012;
+                BestLocalVox = min(GdfVox, InstPitch);
+            }
         }
-        float3 LocalP = float3(
-            dot(Inst.WorldToLocalRow0.xyz, WorldPosition) + Inst.WorldToLocalRow0.w,
-            dot(Inst.WorldToLocalRow1.xyz, WorldPosition) + Inst.WorldToLocalRow1.w,
-            dot(Inst.WorldToLocalRow2.xyz, WorldPosition) + Inst.WorldToLocalRow2.w);
-        float  MinWorldScale = max(MinimumBoxHalfExtentMeters, Inst.LocalToWorldNormRow0.w);
-        float3 ClampedLocal  = clamp(LocalP, Inst.LocalMinPad.xyz, Inst.LocalMaxPad.xyz);
-        float  BoxLowerWorld = length(LocalP - ClampedLocal) * MinWorldScale;
-        float  CullBound     = RefinedHit ? max(BestDist, 0.0) : SearchRadius;
-        if (BoxLowerWorld > CullBound + 0.01)
+        if (RefinedHit)
         {
-            continue;
-        }
-        uint  ShapeCode = (Inst.ResolutionOffset.y >> InstanceActiveBitShift) & InstanceSlotMask16;
-        uint3 Res       = uint3(
-            Inst.ResolutionOffset.x & InstanceSlotMask16,
-            (Inst.ResolutionOffset.x >> InstanceActiveBitShift) & InstanceSlotMask16,
-            Inst.ResolutionOffset.y & InstanceSlotMask16);
-        float WorldD = EvaluateInstanceLocalSdf(Inst, ShapeCode, Res, LocalP) * MinWorldScale;
-        if (!RefinedHit || WorldD < BestDist)
-        {
-            BestDist   = WorldD;
-            RefinedHit = true;
-            float InstPitch = (ShapeCode == 0u)
-                ? max(0.012, max(Inst.LocalMinPad.w, max(Inst.LocalMaxPad.w, Inst.LocalToWorldNormRow1.w)) * MinWorldScale)
-                : 0.012;
-            BestLocalVox = min(GdfVox, InstPitch);
+            float BlendToGdf = smoothstep(GdfVox * 1.75, GdfVox * 2.60, GdfDist);
+            BestDist         = lerp(BestDist, GdfDist, BlendToGdf);
+            LocalVox         = lerp(BestLocalVox, GdfVox, BlendToGdf);
         }
     }
-    if (RefinedHit)
+
+    // Candidate 1: Live Deforming Bone Capsules fused via exact quadratic SmoothMin (0.08 m blend radius)
+    if (BoneCapCount > 0u)
     {
-        float BlendToGdf  = smoothstep(GdfVox * 1.75, GdfVox * 2.60, GdfDist);
-        OutLocalVoxelSize = lerp(BestLocalVox, GdfVox, BlendToGdf);
-        return lerp(BestDist, GdfDist, BlendToGdf);
+        float CapUnion = 1.0e5;
+        [loop]
+        for (uint C = 0u; C < BoneCapCount; ++C)
+        {
+            float CapD = EvaluateTaperedBoneCapsuleSdf(WorldPosition, DeformingBoneCapsuleBuffer[C]);
+            CapUnion   = (C == 0u) ? CapD : SmoothMinQuadratic(CapUnion, CapD, 0.06);
+        }
+        BestDist = SmoothMinQuadratic(BestDist, CapUnion, 0.08);
+        if (CapUnion < LocalVox * 2.0)
+        {
+            LocalVox = min(LocalVox, 0.018);
+        }
     }
-    return GdfDist;
+    return float2(BestDist, LocalVox);
 }
 
 float TraceGlobalDistanceConeVisibility(
@@ -1708,21 +1836,31 @@ float TraceGlobalDistanceConeVisibility(
     uint   MaxSteps,
     float  StartJitter01 = 0.5)
 {
-    if (!IsGlobalDistanceFieldReady() || MaxDist <= 0.08)
+    if (!IsGlobalDistanceFieldReady() || MaxDist <= 0.06)
     {
         return 1.0;
     }
 
+    // Candidate 1 Hybrid + Caps: Exact 0.28 m Contact BVH phase eliminates ALL near-contact SDF leaks & ring bands!
+    float ContactReach = min(0.28, MaxDist - 0.025);
+    if (ContactReach > 0.025 && dot(GeomN, Dir) > -0.02)
+    {
+        if (TraceSceneAnyHit(Origin + GeomN * 0.014, Dir, 0.014, ContactReach))
+        {
+            return 0.0;
+        }
+    }
+
     float  Vox0         = QueryFineGdfVoxelSize();
-    float  StartLift    = max(0.015, Vox0 * 0.22); // ~1.95 cm on 96^3 (down from 9.0 cm)
+    float  StartLift    = max(0.015, Vox0 * 0.22);
     float3 StartP       = Origin + GeomN * StartLift;
     float  NdotD        = max(0.0, dot(GeomN, Dir));
-    float  EndMargin    = max(0.08, Vox0 * 1.15);
+    float  EndMargin    = max(0.06, Vox0 * 0.85);
     float  SafeMax      = MaxDist - EndMargin;
     float  MinStepScale = clamp(32.0 / float(max(MaxSteps, 8u)), 0.35, 2.2);
-    float  BaseT        = max(0.025, Vox0 * 0.32);
+    float  StartT        = max(0.22, Vox0 * 0.32); // Seamless handoff from 0.28 m Contact BVH to SmoothMin Cone!
     float  JitterSpan   = min(Vox0 * 0.22, Vox0 * 0.30 * MinStepScale);
-    float  T            = max(0.015, BaseT + (StartJitter01 - 0.5) * JitterSpan);
+    float  T            = max(0.18, StartT + (StartJitter01 - 0.5) * JitterSpan);
     if (SafeMax <= T + 0.02)
     {
         return 1.0;
@@ -1743,9 +1881,10 @@ float TraceGlobalDistanceConeVisibility(
     for (uint Step = 0u; Step < MaxSteps; ++Step)
     {
         if (T >= SafeMax) break;
-        float  LocalVox = Vox0;
         float3 SampleP  = StartP + Dir * T;
-        float  Dist     = SampleShadowSignedDistance(SampleP, LocalVox);
+        float2 SdfSample = SampleShadowSignedDistance(SampleP);
+        float  Dist     = SdfSample.x;
+        float  LocalVox = SdfSample.y;
         if (CheckGround)
         {
             Dist = min(Dist, SampleP.z - GroundPlaneZ);
@@ -1858,14 +1997,15 @@ float EvaluateGlobalDistanceAmbientOcclusion(
         return 1.0;
     }
 
-    float  OriginCellMeters = QueryFineGdfVoxelSize();
-    (void)SampleGlobalDistanceVolumes(SurfacePosition, OriginCellMeters);
+    float  OriginCellMeters = SampleGlobalDistanceVolumes(SurfacePosition).y;
     float  GroundPlaneZ     = QueryGlobalDistanceAnalyticGroundZ();
     float3 LiftDirection    = normalize(GeometricNormal * UdfAoGeomLiftBlend + ShadingNormal * UdfAoShadingLiftBlend);
     float  OriginLift       = max(UdfAoSurfaceBiasMeters, OriginCellMeters * UdfAoCellLiftScale);
     float3 RayOrigin        = SurfacePosition + LiftDirection * OriginLift;
 
-    float OriginFieldDist = SampleGlobalDistanceVolumes(RayOrigin, OriginCellMeters);
+    float2 OriginSample    = SampleGlobalDistanceVolumes(RayOrigin);
+    float  OriginFieldDist = OriginSample.x;
+    OriginCellMeters       = OriginSample.y;
     bool  CanHitAnalyticGround =
         (GroundPlaneZ > ValidAnalyticGroundFloorZ) &&
         (SurfacePosition.z > GroundPlaneZ + MinimumBoxHalfExtentMeters) &&
@@ -1928,10 +2068,11 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                 }
 
                 float3 SamplePosition  = RayOrigin + RayDir * TravelMeters;
-                float  LocalCellMeters = OriginCellMeters;
-                float  FieldDistance   = (StepIndex < 5u && TravelMeters < 0.38)
-                    ? SampleShadowSignedDistance(SamplePosition, LocalCellMeters)
-                    : SampleGlobalDistanceVolumes(SamplePosition, LocalCellMeters);
+                float2 StepSample      = (StepIndex < 5u && TravelMeters < 0.38)
+                    ? SampleShadowSignedDistance(SamplePosition)
+                    : SampleGlobalDistanceVolumes(SamplePosition);
+                float  FieldDistance   = StepSample.x;
+                float  LocalCellMeters = StepSample.y;
                 float  HitThreshold    = max(MinimumBoxHalfExtentMeters, LocalCellMeters * UdfAoHitCellScale);
                 if (FieldDistance <= HitThreshold)
                 {
@@ -1971,15 +2112,15 @@ float EvaluateGlobalDistanceAmbientOcclusion(
 }
 
 // Combined 96^3 Signed GDF + per-instance Local Signed SDF + analytic ground half-space
-float SampleDebugSignedDistanceWorld(float3 WorldPosition, out float OutLocalVoxelSize)
+float2 SampleDebugSignedDistanceWorld(float3 WorldPosition)
 {
-    float FieldDistance = SampleShadowSignedDistance(WorldPosition, OutLocalVoxelSize);
-    float GroundPlaneZ  = QueryGlobalDistanceAnalyticGroundZ();
+    float2 S = SampleShadowSignedDistance(WorldPosition);
+    float  GroundPlaneZ = QueryGlobalDistanceAnalyticGroundZ();
     if (GroundPlaneZ > ValidAnalyticGroundFloorZ)
     {
-        FieldDistance = min(FieldDistance, WorldPosition.z - GroundPlaneZ);
+        S.x = min(S.x, WorldPosition.z - GroundPlaneZ);
     }
-    return FieldDistance;
+    return S;
 }
 
 // Central-difference gradient of the 96^3 Signed Global Distance Field (+ near-field Local SDF) at the surface zero-crossing.
@@ -1989,33 +2130,28 @@ float3 EvaluateGlobalDistanceGradientNormal(float3 Pos, float3 FallbackNormal)
     {
         return FallbackNormal;
     }
-    float OriginVox = QueryFineGdfVoxelSize();
-    (void)SampleDebugSignedDistanceWorld(Pos, OriginVox);
-    float  Eps      = max(0.012, OriginVox * 0.55);
-    float3 Center   = Pos + FallbackNormal * (OriginVox * 0.12);
-    float  LocalVox = Eps;
-    float Dx = SampleDebugSignedDistanceWorld(Center + float3(Eps, 0.0, 0.0), LocalVox) -
-               SampleDebugSignedDistanceWorld(Center - float3(Eps, 0.0, 0.0), LocalVox);
-    float Dy = SampleDebugSignedDistanceWorld(Center + float3(0.0, Eps, 0.0), LocalVox) -
-               SampleDebugSignedDistanceWorld(Center - float3(0.0, Eps, 0.0), LocalVox);
-    float Dz = SampleDebugSignedDistanceWorld(Center + float3(0.0, 0.0, Eps), LocalVox) -
-               SampleDebugSignedDistanceWorld(Center - float3(0.0, 0.0, Eps), LocalVox);
-    float3 Gradient = float3(Dx, Dy, Dz);
-    float  GradLen  = length(Gradient);
+    float  OriginVox = SampleDebugSignedDistanceWorld(Pos).y;
+    float  Eps       = max(0.012, OriginVox * 0.55);
+    float3 Center    = Pos + FallbackNormal * (OriginVox * 0.12);
+    float3 Gradient  = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        float3 Step = float3(Axis == 0 ? Eps : 0.0, Axis == 1 ? Eps : 0.0, Axis == 2 ? Eps : 0.0);
+        float  Diff = SampleDebugSignedDistanceWorld(Center + Step).x - SampleDebugSignedDistanceWorld(Center - Step).x;
+        if (Axis == 0) Gradient.x = Diff;
+        else if (Axis == 1) Gradient.y = Diff;
+        else Gradient.z = Diff;
+    }
+    float GradLen = length(Gradient);
     return (GradLen > 1.0e-6) ? (Gradient / GradLen) : FallbackNormal;
 }
 
 // 0 = fine cascade, 1 = coarse cascade, 2 = outside both cascades (for the SDF Cascade debug view)
 uint QueryGlobalDistanceCascadeIndex(float3 Pos)
 {
-    bool InFine = false;
-    float FineProbe = SampleGlobalDistanceCascade(0u, Pos, InFine);
-    (void)FineProbe;
-    if (InFine) return 0u;
-    bool InCoarse = false;
-    float CoarseProbe = SampleGlobalDistanceCascade(1u, Pos, InCoarse);
-    (void)CoarseProbe;
-    return InCoarse ? 1u : 2u;
+    if (SampleGlobalDistanceCascade(0u, Pos).y > 0.5) return 0u;
+    return (SampleGlobalDistanceCascade(1u, Pos).y > 0.5) ? 1u : 2u;
 }
 
 float3 EvaluateSdfDistanceHeatColor(float SignedDistanceMeters, float VoxelMeters)
@@ -2198,8 +2334,9 @@ float3 TraceSingleRadiosityCone(
             break;
         }
 
-        bool  InSdf           = false;
-        float SdfD            = max(0.0, SampleGlobalDistanceCascade(0u, SampleP, InSdf));
+        float2 SdfC           = SampleGlobalDistanceCascade(0u, SampleP);
+        bool   InSdf          = (SdfC.y > 0.5);
+        float  SdfD           = max(0.0, SdfC.x);
         float MipVox          = Vox0 * exp2(float(MipIdx));
         float ConeRadius      = 0.5 * Diameter;
         float PlaneClearance  = dot(SampleP - Origin, GeomN);
@@ -2286,9 +2423,8 @@ float3 EvaluateGdfVoxelConeGi(
         return EvaluateHemisphereSkyGi(N, TAxis, BAxis);
     }
 
-    bool  InFineGdf = false;
-    float FineDist  = SampleGlobalDistanceCascade(0u, Pos, InFineGdf);
-    if (InFineGdf && FineDist >= WorldUniforms.GlobalDistanceFineCenterSpan.w * 0.90)
+    float2 FineGdf   = SampleGlobalDistanceCascade(0u, Pos);
+    if (FineGdf.y > 0.5 && FineGdf.x >= WorldUniforms.GlobalDistanceFineCenterSpan.w * 0.90)
     {
         return EvaluateHemisphereSkyGi(N, TAxis, BAxis);
     }
@@ -2299,17 +2435,21 @@ float3 EvaluateGdfVoxelConeGi(
     // 7-cone hemisphere (1 zenith + 6 tilted every 60 deg) with Jimenez IGN azimuthal rotation
     // eliminates axis-aligned '+' cross lobes around compact dynamic emissive sources.
     float  IgnPhase   = frac(IgnOuterMultiplier * frac(float(PixelCoord.x) * IgnSpatialScaleX + float(PixelCoord.y) * IgnSpatialScaleY));
-    float  BaseAzim   = IgnPhase * (FrontierPi / 3.0);
+    float  StartAzim   = IgnPhase * (FrontierPi / 3.0);
     const float CosTilt = 0.6156615; // cos(52 deg)
     const float SinTilt = 0.7880108; // sin(52 deg)
-    float3 GiIrr = 0.25 * TraceSingleRadiosityCone(Pos, GeomN, StartP, N, 0.60, 5u, 0.34, false);
+    float3 GiIrr = float3(0.0);
 
     [loop]
-    for (uint RingIdx = 0u; RingIdx < 6u; ++RingIdx)
+    for (uint ConeIdx = 0u; ConeIdx < 7u; ++ConeIdx)
     {
-        float  Azim    = BaseAzim + float(RingIdx) * (FrontierPi / 3.0);
-        float3 RingDir = normalize(N * CosTilt + (TAxis * cos(Azim) + BAxis * sin(Azim)) * SinTilt);
-        GiIrr += 0.125 * TraceSingleRadiosityCone(Pos, GeomN, StartP, RingDir, 0.60, 4u, 0.34, false);
+        float  Azim    = StartAzim + float(ConeIdx - 1u) * (FrontierPi / 3.0);
+        float3 ConeDir = (ConeIdx == 0u)
+            ? N
+            : normalize(N * CosTilt + (TAxis * cos(Azim) + BAxis * sin(Azim)) * SinTilt);
+        float  Weight  = (ConeIdx == 0u) ? 0.25 : 0.125;
+        uint   Steps   = (ConeIdx == 0u) ? 5u : 4u;
+        GiIrr += Weight * TraceSingleRadiosityCone(Pos, GeomN, StartP, ConeDir, 0.60, Steps, 0.34, false);
     }
     return max(float3(0.0), GiIrr);
 }
@@ -3218,7 +3358,7 @@ float3 ShadeSecondaryBounce(float3 RayOrigin, float3 RayDir)
     {
         return EvaluateSkyDome(RayDir);
     }
-    RayHitReading Hit = TraceSceneClosest(RayOrigin, RayDir, 2.0e-3, 80.0);
+    RayHitReading Hit = TraceSceneClosest(RayOrigin, RayDir, 2.0e-3, 120.0);
     return ShadeSecondaryHitNoTrace(Hit, RayDir);
 }
 
@@ -3280,6 +3420,463 @@ float3 EvaluateMatCapSurface(RayHitReading Hit)
          + float3(KeySpec * SpecGain * (1.0 - Metal))
          + float3(0.26, 0.28, 0.32) * RimGlow
          + Mat.EmissiveRadiancePad.xyz;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//      EXACT STOKES / LAMBERT (1760) EMISSIVE LIGHTING + CANDIDATE 1 HYBRID SHADOWS + 2-BOUNCE SURFEL ALBEDO GI
+//------------------------------------------------------------------------------------------------------------------------
+
+float EvaluateClippedStokesTriangleFormFactorGpu(float3 Origin, float3 Normal, float3 V0, float3 V1, float3 V2)
+{
+    // Exact Sutherland-Hodgman clip of triangle (V0, V1, V2) against tangent plane dot(P - Origin, Normal) >= 0
+    float3 InV[3]  = { V0 - Origin, V1 - Origin, V2 - Origin };
+    float  InD[3]  = { dot(InV[0], Normal), dot(InV[1], Normal), dot(InV[2], Normal) };
+    float3 Clipped[5];
+    uint   ClipCount = 0u;
+
+    for (uint E = 0u; E < 3u; ++E)
+    {
+        uint   NextE = (E + 1u) % 3u;
+        float3 A     = InV[E];
+        float3 B     = InV[NextE];
+        float  DA    = InD[E];
+        float  DB    = InD[NextE];
+        bool   InA   = (DA >= 0.0);
+        bool   InB   = (DB >= 0.0);
+        if (InA)
+        {
+            if (ClipCount < 5u) Clipped[ClipCount++] = A;
+        }
+        if (InA != InB)
+        {
+            float T = DA / max(1.0e-7, abs(DA - DB)) * ((DA > DB) ? 1.0 : -1.0);
+            T = saturate(DA / (DA - DB));
+            if (ClipCount < 5u) Clipped[ClipCount++] = lerp(A, B, T);
+        }
+    }
+    if (ClipCount < 3u)
+    {
+        return 0.0;
+    }
+
+    float3 ContourVec = float3(0.0);
+    for (uint K = 0u; K < ClipCount; ++K)
+    {
+        uint   KN  = (K + 1u) % ClipCount;
+        float3 U0  = normalize(Clipped[K]);
+        float3 U1  = normalize(Clipped[KN]);
+        float  C   = clamp(dot(U0, U1), -1.0, 1.0);
+        float3 Cr  = cross(U0, U1);
+        float  S   = length(Cr);
+        if (S > 1.0e-6)
+        {
+            ContourVec += (acos(C) / S) * Cr;
+        }
+    }
+    return abs(dot(ContourVec, Normal)) * (0.5 / FrontierPi);
+}
+
+float EvaluateCandidate1HybridEmissiveShadow(
+    float3 Origin,
+    float3 GeomN,
+    float3 Dir,
+    float  DistToCenter,
+    float  LightRadius,
+    float  Jitter01)
+{
+    float ClearDist = max(0.03, DistToCenter - LightRadius * 1.18 - 0.03);
+    if (ClearDist <= 0.04)
+    {
+        return 1.0;
+    }
+    // Exact Candidate 1: 0.28 m Contact BVH + SmoothMin Cone March over GDF + C0 Local SDF + Bone Capsules
+    float ContactReach = min(0.28, ClearDist);
+    if (ContactReach > 0.025 && TraceSceneAnyHit(Origin + GeomN * 0.014, Dir, 0.014, ContactReach))
+    {
+        return 0.0;
+    }
+    if (ClearDist <= 0.28)
+    {
+        return 1.0;
+    }
+    float ConeTan = clamp(LightRadius / max(0.35, DistToCenter), 0.032, 0.42);
+    if (IsGlobalDistanceFieldReady())
+    {
+        return TraceGlobalDistanceConeVisibility(Origin, GeomN, Dir, ClearDist, ConeTan, false, min(QuerySdfShadowMarchSteps(), 48u), Jitter01);
+    }
+    return TraceSceneAnyHit(Origin + GeomN * 0.014, Dir, 0.014, ClearDist) ? 0.0 : 1.0;
+}
+
+float3 EvaluateStokesEmissiveDirectLighting(
+    float3             SurfacePos,
+    float3             GeomN,
+    float3             ShadingN,
+    float3             ViewDir,
+    GpuWorldMaterial80 Mat,
+    uint2              PixelXY,
+    bool               DiffuseOnlyMode)
+{
+    uint ClusterCnt = min(24u, WorldUniforms.GiPortalCounts.x);
+    if (ClusterCnt == 0u)
+    {
+        return float3(0.0);
+    }
+
+    float3 TotalHdr = float3(0.0);
+    float  Metal    = saturate(Mat.SpecParams.y);
+    float  TransW   = saturate(Mat.CoatRoughnessOptics.y);
+    float3 DiffAlb  = Mat.DiffuseAlbedoRoughness.xyz * (1.0 - Metal) * (1.0 - TransW);
+
+    [loop]
+    for (uint C = 0u; C < ClusterCnt; ++C)
+    {
+        GpuEmissiveCluster64 Cl = EmissiveClusterBuffer[C];
+        float3 ToCenter = Cl.CenterRadius.xyz - SurfacePos;
+        float  DistSq   = dot(ToCenter, ToCenter);
+        float  BoundR   = max(0.05, Cl.CenterRadius.w);
+        if (DistSq <= BoundR * BoundR * 0.92 || DistSq > 1200.0)
+        {
+            continue;
+        }
+        float  Dist = sqrt(DistSq);
+        float3 LDir = ToCenter / Dist;
+        float  NdotL = dot(ShadingN, LDir);
+        float  SphereR = Cl.MeanNormalSphere.w;
+        bool   IsSphere = ((Cl.TriRangeMask.z & 1u) != 0u) || (SphereR > 0.0);
+
+        float3 Irrad = float3(0.0);
+        if (IsSphere)
+        {
+            float EffR = max(0.06, SphereR > 0.0 ? SphereR : BoundR);
+            float SkyBandFrac = saturate((Dist * NdotL + EffR) / max(1.0e-4, 2.0 * EffR));
+            if (SkyBandFrac <= 1.0e-4)
+            {
+                continue;
+            }
+            // Exact horizon-clipped spherical disk solid-angle irradiance (Lambert 1760)
+            float SolidAngleFactor = (EffR * EffR) / max(DistSq, EffR * EffR * 1.08);
+            float SunBandNdotL     = max(0.0, NdotL) + (1.0 - max(0.0, NdotL)) * 0.25 * SkyBandFrac * (EffR / max(Dist, EffR));
+            Irrad = Cl.MeanRadianceArea.xyz * (FrontierPi * SolidAngleFactor * SkyBandFrac * saturate(SunBandNdotL * 1.15 + 0.05));
+        }
+        else
+        {
+            // Exact Stokes clipped polygonal contour integration across cluster triangles
+            uint TriStart = Cl.TriRangeMask.x;
+            uint TriCount = min(64u, Cl.TriRangeMask.y);
+            if (TriCount == 0u || (NdotL * Dist + BoundR) <= 0.0)
+            {
+                continue;
+            }
+            [loop]
+            for (uint K = 0u; K < TriCount; ++K)
+            {
+                GpuEmissiveTriangle80 ET = EmissiveTriangleBuffer[TriStart + K];
+                float3 Cent = (ET.VertexAPad.xyz + ET.VertexBPad.xyz + ET.VertexCPad.xyz) * (1.0 / 3.0);
+                if (dot(SurfacePos - Cent, ET.UnitNormalPad.xyz) <= -0.02)
+                {
+                    continue;
+                }
+                float Ff = EvaluateClippedStokesTriangleFormFactorGpu(
+                    SurfacePos, ShadingN, ET.VertexAPad.xyz, ET.VertexBPad.xyz, ET.VertexCPad.xyz);
+                if (Ff > 1.0e-5)
+                {
+                    Irrad += ET.LinearRadiance.xyz * (FrontierPi * Ff);
+                }
+            }
+        }
+
+        if (dot(Irrad, float3(1.0)) <= 1.0e-5)
+        {
+            continue;
+        }
+
+        float Jitter01 = EvaluateInterleavedGradientNoise01(uint2(PixelXY.x + C * 23u, PixelXY.y + C * 41u));
+        float Vis = EvaluateCandidate1HybridEmissiveShadow(SurfacePos, GeomN, LDir, Dist, IsSphere ? max(0.06, SphereR) : BoundR, Jitter01);
+        if (Vis <= 1.0e-4)
+        {
+            continue;
+        }
+
+        if (DiffuseOnlyMode)
+        {
+            TotalHdr += Irrad * Vis;
+        }
+        else
+        {
+            // Diffuse + OpenPBR glossy/clearcoat highlight from live emissive luminaire
+            float3 DiffTerm = DiffAlb * (Irrad * (1.0 / FrontierPi));
+            float3 SpecTerm = float3(0.0);
+            if (NdotL > 0.01)
+            {
+                float3 FullBrdf = EvaluateSurfaceBrdf(Mat, ShadingN, ViewDir, LDir);
+                float3 PureDiff = DiffAlb * (NdotL / FrontierPi);
+                SpecTerm = max(float3(0.0), FullBrdf - PureDiff) * (Irrad / max(0.08, NdotL));
+            }
+            TotalHdr += (DiffTerm + SpecTerm) * Vis;
+        }
+    }
+    return TotalHdr;
+}
+
+float3 EvaluateSurfelGiGatherGpu(float3 WorldPos, float3 ShadingN, float3 GeomN)
+{
+    uint SurfelCount = min(576u, WorldUniforms.GiPortalCounts.z);
+    if (SurfelCount == 0u)
+    {
+        return float3(0.0);
+    }
+
+    float3 GatherIrr = float3(0.0);
+    float3 OffsetPos = WorldPos + GeomN * 0.035;
+
+    [loop]
+    for (uint I = 0u; I < SurfelCount; ++I)
+    {
+        GpuSurfel96 S = SurfelRadiosityBuffer[I];
+        float3 ExitRad = S.BounceExitance.xyz;
+        if (dot(ExitRad, float3(1.0)) <= 1.0e-4)
+        {
+            continue;
+        }
+        float3 Delta = S.PositionRadius.xyz - OffsetPos;
+        float  DistSq = dot(Delta, Delta);
+        if (DistSq < 0.025 || DistSq > 110.0)
+        {
+            continue;
+        }
+        float  InvDist = rsqrt(DistSq);
+        float3 Dir     = Delta * InvDist;
+        float  CosRecv = dot(ShadingN, Dir);
+        if (CosRecv <= 0.02)
+        {
+            continue;
+        }
+        float  CosSource = dot(S.NormalArea.xyz, -Dir);
+        if (CosSource <= 0.02)
+        {
+            continue;
+        }
+        // Bunnell disk-to-point radiosity form factor (smooth, firefly-free, energy-conserving)
+        float DiskArea = max(0.04, S.NormalArea.w);
+        float FormF    = (CosRecv * CosSource * DiskArea) / (FrontierPi * DistSq + DiskArea * 1.15);
+
+        // Midpoint signed-distance occlusion attenuation (prevents color bleed through solid walls/doors!)
+        float Vis = 1.0;
+        if (DistSq > 0.36 && IsGlobalDistanceFieldReady())
+        {
+            float3 MidPt  = OffsetPos + Delta * 0.5;
+            float2 MidSdf = SampleShadowSignedDistance(MidPt);
+            Vis = saturate((MidSdf.x + 0.05) / max(0.18, MidSdf.y * 2.2));
+        }
+        GatherIrr += ExitRad * (FrontierPi * FormF * Vis);
+    }
+    return min(GatherIrr, float3(12.0));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//      EXACT MULTI-WORLD 2D PLANAR PORTAL SYSTEM (RECTANGLE / CIRCLE / HEXAGON / N-GON / 32-VERT CUSTOM CUTOUT)
+//------------------------------------------------------------------------------------------------------------------------
+
+float2 QueryPortalCustomVert(uint PIdx, uint VIdx)
+{
+    uint   Pack = min(VIdx >> 1u, 15u);
+    float4 Word = PortalPairBuffer[PIdx].CustomPolyVerts[Pack];
+    return ((VIdx & 1u) == 0u) ? Word.xy : Word.zw;
+}
+
+float EvaluatePortalShapeSdf2D(uint PIdx, float LocalU, float LocalV)
+{
+    uint  ShapeCode = uint(PortalPairBuffer[PIdx].EntryRimColorShape.w + 0.5);
+    float HalfW     = max(0.05, PortalPairBuffer[PIdx].EntryCenterHalfW.w);
+    float HalfH     = max(0.05, PortalPairBuffer[PIdx].EntryRightHalfH.w);
+
+    if (ShapeCode == 0u) // Rectangle / Quad Plane
+    {
+        float2 Q = abs(float2(LocalU, LocalV)) - float2(HalfW, HalfH);
+        return length(max(Q, float2(0.0))) + min(max(Q.x, Q.y), 0.0);
+    }
+    if (ShapeCode == 1u) // Circle / Ellipse Disc
+    {
+        float2 S = float2(LocalU / HalfW, LocalV / HalfH);
+        float  R = length(S);
+        return (R - 1.0) * min(HalfW, HalfH);
+    }
+    if (ShapeCode == 2u || ShapeCode == 3u) // Regular Hexagon (2) or Regular N-gon (3)
+    {
+        uint  Sides  = (ShapeCode == 2u) ? 6u : max(3u, min(16u, uint(PortalPairBuffer[PIdx].ExitCenterPolySides.w + 0.5)));
+        float Radius = min(HalfW, HalfH);
+        float2 Pt    = float2(LocalU * (Radius / HalfW), LocalV * (Radius / HalfH));
+        float Sector = FrontierTau / float(Sides);
+        float Angle  = atan2(Pt.y, Pt.x);
+        if (Angle < 0.0) Angle += FrontierTau;
+        float LocalA = fmod(Angle, Sector) - 0.5 * Sector;
+        float Apothem = Radius * cos(0.5 * Sector);
+        return length(Pt) * cos(LocalA) - Apothem;
+    }
+    // ShapeCode == 4: Exact Arbitrary Concave/Convex Custom 2D Cutout Polygon (up to 32 vertices)
+    uint VCount = min(32u, uint(PortalPairBuffer[PIdx].ExitRightVertCount.w + 0.5));
+    if (VCount < 3u)
+    {
+        float2 Q = abs(float2(LocalU, LocalV)) - float2(HalfW, HalfH);
+        return length(max(Q, float2(0.0))) + min(max(Q.x, Q.y), 0.0);
+    }
+    float2 Pt = float2(LocalU, LocalV);
+    float  MinDistSq = 1.0e12;
+    bool   Inside    = false;
+    [loop]
+    for (uint I = 0u; I < VCount; ++I)
+    {
+        uint   J = (I + 1u) % VCount;
+        float2 A = QueryPortalCustomVert(PIdx, I);
+        float2 B = QueryPortalCustomVert(PIdx, J);
+        float2 E = B - A;
+        float2 W = Pt - A;
+        float  T = saturate(dot(W, E) / max(1.0e-7, dot(E, E)));
+        float2 D = W - E * T;
+        MinDistSq = min(MinDistSq, dot(D, D));
+        bool CondY = (A.y > Pt.y) != (B.y > Pt.y);
+        if (CondY)
+        {
+            float CrossX = A.x + (Pt.y - A.y) * (B.x - A.x) / (B.y - A.y);
+            if (Pt.x < CrossX) Inside = !Inside;
+        }
+    }
+    float Dist = sqrt(MinDistSq);
+    return Inside ? -Dist : Dist;
+}
+
+float3 EvaluatePortalWorldSkyDome(float3 RayDir, float3 SkyUpper, float3 SkyLower, float3 SunDir, float3 SunRad)
+{
+    float  Elev = saturate(RayDir.z);
+    float3 Sky  = lerp(SkyLower, SkyUpper, pow(Elev, 0.55));
+    float  CosS = max(0.0, dot(RayDir, normalize(SunDir)));
+    float  Disc = smoothstep(0.9990, 0.9997, CosS) * 14.0 + pow(CosS, 64.0) * 1.45;
+    return Sky + SunRad * Disc;
+}
+
+struct PortalTraceReading
+{
+    RayHitReading Hit;
+    float3        FinalRayO;
+    float3        FinalRayD;
+    bool          HitPortalRim;
+    float3        PortalRimHdr;
+    bool          CrossedPortal;
+    float3        PortalSkyUpper;
+    float3        PortalSkyLower;
+    float3        PortalSunDir;
+    float3        PortalSunRad;
+};
+
+PortalTraceReading TracePrimaryWithPortals(
+    float3 InRayO,
+    float3 InRayD,
+    float  MinT,
+    float  MaxT)
+{
+    PortalTraceReading Out = (PortalTraceReading)0;
+    Out.Hit.Distance     = MaxT;
+    Out.FinalRayO        = InRayO;
+    Out.FinalRayD        = InRayD;
+    Out.PortalSkyUpper  = float3(0.18, 0.34, 0.72);
+    Out.PortalSkyLower = float3(0.60, 0.72, 0.88);
+    Out.PortalSunDir     = WorldUniforms.SunDirConeTan.xyz;
+    Out.PortalSunRad     = WorldUniforms.SolarIrradiancePad.xyz;
+
+    uint  PortalCount = min(8u, WorldUniforms.GiPortalCounts.w & 0xFFu);
+    float CurMinT     = MinT;
+    float3 RayO       = InRayO;
+    float3 RayD       = InRayD;
+
+    [loop]
+    for (uint Hop = 0u; Hop < 4u; ++Hop)
+    {
+        Out.Hit       = TraceSceneClosest(RayO, RayD, CurMinT, MaxT);
+        Out.FinalRayO = RayO;
+        Out.FinalRayD = RayD;
+        if (PortalCount == 0u || Hop == 3u)
+        {
+            break;
+        }
+
+        float BestT      = Out.Hit.Hit ? Out.Hit.Distance : MaxT;
+        int   HitPIdx    = -1;
+        uint  HitSide    = 0u;
+        float HitSdf     = 1.0e5;
+        float HitLocalU  = 0.0;
+        float HitLocalV  = 0.0;
+
+        [loop]
+        for (uint PIdx = 0u; PIdx < PortalCount; ++PIdx)
+        {
+            uint PortalMask = uint(PortalPairBuffer[PIdx].ExitUpMask.w + 0.5);
+            if ((PortalMask & 1u) == 0u) continue;
+            uint SideCnt = ((PortalMask & 2u) != 0u) ? 2u : 1u;
+            [loop]
+            for (uint Side = 0u; Side < SideCnt; ++Side)
+            {
+                float3 Center = (Side == 0u) ? PortalPairBuffer[PIdx].EntryCenterHalfW.xyz : PortalPairBuffer[PIdx].ExitCenterPolySides.xyz;
+                float3 Right  = (Side == 0u) ? PortalPairBuffer[PIdx].EntryRightHalfH.xyz  : PortalPairBuffer[PIdx].ExitRightVertCount.xyz;
+                float3 Up     = (Side == 0u) ? PortalPairBuffer[PIdx].EntryUpRimThick.xyz  : PortalPairBuffer[PIdx].ExitUpMask.xyz;
+                float3 Normal = (Side == 0u) ? PortalPairBuffer[PIdx].EntryNormalRegion.xyz: PortalPairBuffer[PIdx].ExitNormalRegion.xyz;
+
+                float Denom = dot(RayD, Normal);
+                if (Denom >= -1.0e-4) continue;
+                float T = dot(Center - RayO, Normal) / Denom;
+                if (T <= CurMinT || T >= BestT) continue;
+
+                float3 Rel = (RayO + RayD * T) - Center;
+                float  LU  = dot(Rel, Right);
+                float  LV  = dot(Rel, Up);
+                float  Rim = max(0.02, PortalPairBuffer[PIdx].EntryUpRimThick.w);
+                float  Sdf = EvaluatePortalShapeSdf2D(PIdx, LU, LV);
+                if (Sdf <= Rim)
+                {
+                    BestT     = T;
+                    HitPIdx   = int(PIdx);
+                    HitSide   = Side;
+                    HitSdf    = Sdf;
+                    HitLocalU = LU;
+                    HitLocalV = LV;
+                }
+            }
+        }
+
+        if (HitPIdx < 0)
+        {
+            break;
+        }
+
+        uint HitIdxU = uint(HitPIdx);
+        if (HitSdf >= 0.0)
+        {
+            float  RimT  = max(0.02, PortalPairBuffer[HitIdxU].EntryUpRimThick.w);
+            float  EdgeF = 1.0 - saturate(HitSdf / RimT);
+            float3 RimCenterGlow = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].EntryRimColorShape.xyz : PortalPairBuffer[HitIdxU].ExitRimColorPad.xyz;
+            Out.HitPortalRim = true;
+            Out.PortalRimHdr = RimCenterGlow * (0.45 + 1.55 * EdgeF * EdgeF);
+            return Out;
+        }
+
+        float3 SrcR = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].EntryRightHalfH.xyz  : PortalPairBuffer[HitIdxU].ExitRightVertCount.xyz;
+        float3 SrcU = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].EntryUpRimThick.xyz  : PortalPairBuffer[HitIdxU].ExitUpMask.xyz;
+        float3 SrcN = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].EntryNormalRegion.xyz: PortalPairBuffer[HitIdxU].ExitNormalRegion.xyz;
+
+        float3 DstC = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitCenterPolySides.xyz : PortalPairBuffer[HitIdxU].EntryCenterHalfW.xyz;
+        float3 DstR = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitRightVertCount.xyz  : PortalPairBuffer[HitIdxU].EntryRightHalfH.xyz;
+        float3 DstU = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitUpMask.xyz         : PortalPairBuffer[HitIdxU].EntryUpRimThick.xyz;
+        float3 DstN = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitNormalRegion.xyz    : PortalPairBuffer[HitIdxU].EntryNormalRegion.xyz;
+
+        RayO    = DstC - DstR * HitLocalU + DstU * HitLocalV + DstN * 0.012;
+        RayD    = normalize(-DstR * dot(RayD, SrcR) + DstU * dot(RayD, SrcU) - DstN * dot(RayD, SrcN));
+        CurMinT = 0.008;
+        Out.CrossedPortal    = true;
+        Out.PortalSkyUpper  = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitSkyUpper.xyz  : PortalPairBuffer[HitIdxU].EntrySkyUpper.xyz;
+        Out.PortalSkyLower = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitSkyLower.xyz : PortalPairBuffer[HitIdxU].EntrySkyLower.xyz;
+        Out.PortalSunDir     = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitSunDirPad.xyz  : PortalPairBuffer[HitIdxU].EntrySunDirPad.xyz;
+        Out.PortalSunRad     = (HitSide == 0u) ? PortalPairBuffer[HitIdxU].ExitSunRadPad.xyz  : PortalPairBuffer[HitIdxU].EntrySunRadPad.xyz;
+    }
+    return Out;
 }
 
 void ShadePrimarySurfaceDemod(
@@ -3356,6 +3953,13 @@ void ShadePrimarySurfaceDemod(
         }
     }
 
+    // 2c. Exact Stokes / Lambert (1760) Clipped Polygonal & Spherical Emissive Lighting + Candidate 1 Hybrid Shadows
+    //     100% locked to every moving emissive luminaire (e.g. DynamicEmissiveOrb) with live shadow casting!
+    if (WorldUniforms.GiPortalCounts.x > 0u)
+    {
+        OutDirectBaseHdr += EvaluateStokesEmissiveDirectLighting(SafePrimaryPos, Hit.GeomNormal, N, ViewDir, Mat, PixelXY, false);
+    }
+
     // 3. Ambient Occlusion: Golden-angle cosine-hemisphere UDF Clipmap AO on GTX (Engines 1..2)
     //    Deferred to HalfResIndirectEntry (1/4 pixels + 2x2 joint bilateral upsample) when IsHalfResIndirectActive()
     float3 BasisT, BasisB;
@@ -3424,12 +4028,21 @@ void ShadePrimarySurfaceDemod(
         OutSpecReflHdr = EnvRad * Fresnel * Gloss;
     }
 
-    // 6. Demodulated Indirect Diffuse GI (Engine 2 GTX GDF GI: 5-cone 2-bounce 3D Radiosity Cone Tracing, 0 BVH4 rays)
+    // 6. Demodulated Indirect Diffuse GI (2-Bounce Surfel Albedo Color-Bleed GI + 3D GDF Radiosity Cones)
     bool EnableIndirectGi = !DeferIndirectToHalfRes && (PenumbraMode != 2u) && (dot(OutDiffuseAlbedoMatte, float3(1.0)) > 1.0e-4);
-    if (EnableIndirectGi && EngineMode == 2u && IsGlobalDistanceFieldReady())
+    if (EnableIndirectGi)
     {
-        OutIndirectIrradiance = EvaluateGdfVoxelConeGi(Hit.Position, N, Hit.GeomNormal, BasisT, BasisB);
-        OutFilterIndirect     = false;
+        float3 SurfelGi = EvaluateSurfelGiGatherGpu(Hit.Position, N, Hit.GeomNormal);
+        if (EngineMode == 2u && IsGlobalDistanceFieldReady())
+        {
+            float3 VoxelGi = EvaluateGdfVoxelConeGi(Hit.Position, N, Hit.GeomNormal, BasisT, BasisB);
+            OutIndirectIrradiance = max(VoxelGi * 0.65, float3(0.0)) + SurfelGi * 0.85;
+        }
+        else
+        {
+            OutIndirectIrradiance = SurfelGi * 0.90;
+        }
+        OutFilterIndirect = false;
     }
 }
 
@@ -3976,6 +4589,14 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     float PrimaryMaxT = max(120.0, WorldUniforms.SolarIrradiancePad.w);
     RayHitReading PrimaryHit;
+    bool   HitPortalRim     = false;
+    float3 PortalRimHdr     = float3(0.0);
+    bool   CrossedPortal    = false;
+    float3 PortalSkyUpper  = float3(0.0);
+    float3 PortalSkyLower = float3(0.0);
+    float3 PortalSunDir     = WorldUniforms.SunDirConeTan.xyz;
+    float3 PortalSunRad     = WorldUniforms.SolarIrradiancePad.xyz;
+
     if (IsPrimaryVisBufferActive())
     {
         uint VisTriPlus1 = PrimaryVisImg2D[DispatchThreadID.xy];
@@ -4009,7 +4630,29 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     }
     else
     {
-        PrimaryHit = TraceSceneClosest(CamOrigin, RayDir, 0.08, PrimaryMaxT);
+        PortalTraceReading Ptr = TracePrimaryWithPortals(CamOrigin, RayDir, 0.08, PrimaryMaxT);
+        PrimaryHit       = Ptr.Hit;
+        CamOrigin        = Ptr.FinalRayO;
+        RayDir           = Ptr.FinalRayD;
+        HitPortalRim     = Ptr.HitPortalRim;
+        PortalRimHdr     = Ptr.PortalRimHdr;
+        CrossedPortal    = Ptr.CrossedPortal;
+        PortalSkyUpper  = Ptr.PortalSkyUpper;
+        PortalSkyLower = Ptr.PortalSkyLower;
+        PortalSunDir     = Ptr.PortalSunDir;
+        PortalSunRad     = Ptr.PortalSunRad;
+    }
+
+    if (HitPortalRim && DebugMode == 0u)
+    {
+        GBufPosMask[PixelIdx]            = float4(0.0, 0.0, 0.0, 0.0);
+        GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
+        GBufDirectBase[PixelIdx]         = float4(PortalRimHdr, 4.0);
+        GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, 4.0);
+        GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
+        PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
+        PingIndirectIrradiance[PixelIdx] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
     }
 
     // Transparent thin-glass pass-through (allows clear view into/out of vehicle windshield with subtle Fresnel glint)
@@ -4079,9 +4722,8 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             else if (DebugMode == 12u)
             {
                 // Distance field heat ramp across nested UDF cascades
-                float LocalVox = 0.1;
-                float SdfDist  = SampleGlobalDistanceVolumes(PrimaryHit.Position, LocalVox);
-                DbgHdr = EvaluateSdfDistanceHeatColor(SdfDist, LocalVox);
+                float2 SdfVol = SampleGlobalDistanceVolumes(PrimaryHit.Position);
+                DbgHdr = EvaluateSdfDistanceHeatColor(SdfVol.x, SdfVol.y);
             }
             else if (DebugMode == 13u)
             {
@@ -4176,6 +4818,31 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     if (!PrimaryHit.Hit)
     {
+        uint ActivePortalCountSky = min(8u, WorldUniforms.GiPortalCounts.w & 0xFFu);
+        bool InExitWorld = false;
+        if (!CrossedPortal && ActivePortalCountSky > 0u)
+        {
+            float3 D0 = CamOrigin - PortalPairBuffer[0].EntryCenterHalfW.xyz;
+            float3 D1 = CamOrigin - PortalPairBuffer[0].ExitCenterPolySides.xyz;
+            InExitWorld = (dot(D1, D1) < dot(D0, D0));
+        }
+        if ((CrossedPortal || InExitWorld) && DebugMode == 0u)
+        {
+            // Render destination world's distinct sky & sun disc seamlessly inside the 2D portal aperture OR when camera is in World B!
+            float3 SkyZ = CrossedPortal ? PortalSkyUpper  : PortalPairBuffer[0].ExitSkyUpper.xyz;
+            float3 SkyH = CrossedPortal ? PortalSkyLower : PortalPairBuffer[0].ExitSkyLower.xyz;
+            float3 SunD = CrossedPortal ? PortalSunDir     : PortalPairBuffer[0].ExitSunDirPad.xyz;
+            float3 SunR = CrossedPortal ? PortalSunRad     : PortalPairBuffer[0].ExitSunRadPad.xyz;
+            float3 PortalSky = EvaluatePortalWorldSkyDome(RayDir, SkyZ, SkyH, SunD, SunR);
+            GBufPosMask[PixelIdx]            = float4(0.0, 0.0, 0.0, 0.0);
+            GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
+            GBufDirectBase[PixelIdx]         = float4(PortalSky + GlassGlintHdr, 250.0);
+            GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, 250.0);
+            GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
+            PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
+            PingIndirectIrradiance[PixelIdx] = float4(0.0, 0.0, 0.0, 0.0);
+            return;
+        }
         // Defer sky/cloud/celestial background shading to DenoiseCompositeEntry so ComputeEntry stays VGPR-lean!
         GBufPosMask[PixelIdx]            = float4(RayDir, -1.0);
         GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
@@ -4236,6 +4903,25 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         SpecRough,
         SpecAo);
     DirectBaseHdr += GlassGlintHdr;
+    {
+        uint ActivePortalCountShade = min(8u, WorldUniforms.GiPortalCounts.w & 0xFFu);
+        if (ActivePortalCountShade > 0u)
+        {
+            float3 D0 = PrimaryHit.Position - PortalPairBuffer[0].EntryCenterHalfW.xyz;
+            float3 D1 = PrimaryHit.Position - PortalPairBuffer[0].ExitCenterPolySides.xyz;
+            if (dot(D1, D1) < dot(D0, D0))
+            {
+                // World B distinct sunset directional sun + twilight hemisphere fill (replaces World A daylight cascade)
+                float3 WorldBSunDir = normalize(PortalPairBuffer[0].ExitSunDirPad.xyz);
+                float3 WorldBSunRad = PortalPairBuffer[0].ExitSunRadPad.xyz;
+                float  WorldBNdotL  = max(0.0, dot(PrimaryHit.ShadingNormal, WorldBSunDir));
+                float3 WorldBSkyFill = lerp(PortalPairBuffer[0].ExitSkyLower.xyz, PortalPairBuffer[0].ExitSkyUpper.xyz, saturate(PrimaryHit.ShadingNormal.z * 0.5 + 0.5)) * 0.28;
+                float3 AlbedoTint = max(DiffuseAlbedoMatte, float3(0.04));
+                UnoccludedSunHdr = (AlbedoTint * (1.0 / FrontierPi)) * WorldBSunRad * WorldBNdotL;
+                DirectBaseHdr   += (AlbedoTint * (1.0 / FrontierPi)) * WorldBSkyFill;
+            }
+        }
+    }
 
     if (QueryNaniteWireframeEnabled())
     {
@@ -4343,7 +5029,50 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             CurMaxT = 80.0;
         }
 
-        RayHitReading CurHit = TraceSceneClosest(CurRayO, CurRayD, CurMinT, CurMaxT);
+        RayHitReading CurHit;
+        bool   HitPortalRimRt     = false;
+        float3 PortalRimHdrRt     = float3(0.0);
+        bool   CrossedPortalRt    = false;
+        float3 PortalSkyUpperRt  = float3(0.0);
+        float3 PortalSkyLowerRt = float3(0.0);
+        float3 PortalSunDirRt     = WorldUniforms.SunDirConeTan.xyz;
+        float3 PortalSunRadRt     = WorldUniforms.SolarIrradiancePad.xyz;
+        if (Step == 0u)
+        {
+            PortalTraceReading PtrRt = TracePrimaryWithPortals(CurRayO, CurRayD, CurMinT, CurMaxT);
+            CurHit    = PtrRt.Hit;
+            CurRayO   = PtrRt.FinalRayO;
+            CurRayD   = PtrRt.FinalRayD;
+            CamOrigin = CurRayO;
+            RayDir    = CurRayD;
+            if (PtrRt.HitPortalRim && DebugMode == 0u)
+            {
+                GBufPosMask[PixelIdx]            = float4(0.0, 0.0, 0.0, 0.0);
+                GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
+                GBufDirectBase[PixelIdx]         = float4(PtrRt.PortalRimHdr, 4.0);
+                GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, 4.0);
+                GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
+                PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
+                PingIndirectIrradiance[PixelIdx] = float4(0.0, 0.0, 0.0, 0.0);
+                return;
+            }
+            if (!CurHit.Hit && PtrRt.CrossedPortal && DebugMode == 0u)
+            {
+                float3 PortalSky = EvaluatePortalWorldSkyDome(RayDir, PtrRt.PortalSkyUpper, PtrRt.PortalSkyLower, PtrRt.PortalSunDir, PtrRt.PortalSunRad);
+                GBufPosMask[PixelIdx]            = float4(0.0, 0.0, 0.0, 0.0);
+                GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
+                GBufDirectBase[PixelIdx]         = float4(PortalSky, 250.0);
+                GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, 250.0);
+                GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
+                PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
+                PingIndirectIrradiance[PixelIdx] = float4(0.0, 0.0, 0.0, 0.0);
+                return;
+            }
+        }
+        else
+        {
+            CurHit = TraceSceneClosest(CurRayO, CurRayD, CurMinT, CurMaxT);
+        }
 
         if (Step == 0u)
         {
@@ -4407,9 +5136,8 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
                     else if (DebugMode == 7u) DbgHdr = PrimaryHit.GeomNormal * 0.5 + 0.5;
                     else if (DebugMode == 12u)
                     {
-                        float LocalVox = 0.1;
-                        float SdfDist  = SampleGlobalDistanceVolumes(PrimaryHit.Position, LocalVox);
-                        DbgHdr = EvaluateSdfDistanceHeatColor(SdfDist, LocalVox);
+                        float2 SdfVol = SampleGlobalDistanceVolumes(PrimaryHit.Position);
+                        DbgHdr = EvaluateSdfDistanceHeatColor(SdfVol.x, SdfVol.y);
                     }
                     else if (DebugMode == 13u)
                     {
@@ -4550,6 +5278,11 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
                     DirectSurfaceHdr += EvaluatePhotometricLampGpu(
                         PhotometricLampEntries[PL], PhotoProfileCount, SafePrimaryPos, N, ViewDir, Mat, false);
                 }
+            }
+            if (WorldUniforms.GiPortalCounts.x > 0u)
+            {
+                DirectSurfaceHdr += EvaluateStokesEmissiveDirectLighting(
+                    SafePrimaryPos, PrimaryHit.GeomNormal, N, ViewDir, Mat, DispatchThreadID.xy, false);
             }
 
             float NdotV      = max(1.0e-3, dot(N, ViewDir));
@@ -4879,9 +5612,18 @@ void HalfResIndirectEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     uint   PenumbraMode = (WorldUniforms.AtmosphereMaskPad.w >> 16u) & 0x7u;
     float3 AlbedoMatte  = GBufAlbedo[FullIdx].xyz;
     float3 IndirIrrad   = float3(0.0);
-    if (GdfReady && EngineMode == 2u && PenumbraMode != 2u && dot(AlbedoMatte, float3(1.0)) > 1.0e-4)
+    if (PenumbraMode != 2u && dot(AlbedoMatte, float3(1.0)) > 1.0e-4)
     {
-        IndirIrrad = EvaluateGdfVoxelConeGi(PosMask.xyz, SurfN, SurfN, BasisT, BasisB, DispatchThreadID.xy);
+        float3 SurfelGi = EvaluateSurfelGiGatherGpu(PosMask.xyz, SurfN, SurfN);
+        if (GdfReady && EngineMode == 2u)
+        {
+            float3 VoxelGi = EvaluateGdfVoxelConeGi(PosMask.xyz, SurfN, SurfN, BasisT, BasisB, DispatchThreadID.xy);
+            IndirIrrad = max(VoxelGi * 0.65, float3(0.0)) + SurfelGi * 0.85;
+        }
+        else
+        {
+            IndirIrrad = SurfelGi * 0.90;
+        }
     }
 
     PongIndirectIrradiance[HalfIdx] = float4(IndirIrrad, DiffAo);
@@ -5333,8 +6075,7 @@ float TraceSceneShadowDepthClosest(float3 Origin, float3 Dir, float MinT, float 
                 {
                     uint TriIdx = Start + P;
                     if (SceneTriangles[TriIdx].Normal2Slot.w < 0.0) continue;
-                    float2 BaryUV;
-                    float  HitT = IntersectTriangleMT(Origin, Dir, MinT, BestT, TriIdx, BaryUV);
+                    float HitT = IntersectTriangleMT(Origin, Dir, MinT, BestT, TriIdx).x;
                     if (HitT > 0.0)
                     {
                         BestT  = HitT;
@@ -5981,3 +6722,124 @@ void MotionBlurPostEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float3 Blurred = (AccumW > 1.0e-5) ? (AccumColor / AccumW) : CenterColor;
     OutDisplayRgba8[PixelIdx] = PackLinearToSrgb8Rgba(Blurred, DispatchThreadID.xy);
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//      GPU 2-BOUNCE SURFEL RADIOSITY SOLVE ENTRY (PASS 0 = DIRECT + STOKES EMISSIVES, PASS 1 = ALBEDO COLOR BLEED)
+//------------------------------------------------------------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void SurfelRadiositySolveEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    uint SurfelCount = min(576u, WorldUniforms.GiPortalCounts.z);
+    uint SIdx        = DispatchThreadID.x;
+    if (SIdx >= SurfelCount)
+    {
+        return;
+    }
+
+    uint Phase = WorldUniforms.SurfelStepControl.x;
+    GpuSurfel96 Me = SurfelRadiosityBuffer[SIdx];
+    float3 Pos     = Me.PositionRadius.xyz;
+    float3 N       = normalize(Me.NormalArea.xyz);
+    float3 Albedo  = Me.DiffuseAlbedoPad.xyz;
+
+    if (Phase == 0u)
+    {
+        float3 DirectIrr = float3(0.0);
+
+        // 1. Direct Solar Irradiance with Candidate 1 Hybrid + Bone-Capsule Shadows
+        float3 SunDir = WorldUniforms.SunDirConeTan.xyz;
+        float3 SunIrr = WorldUniforms.SolarIrradiancePad.xyz;
+        float  NdotS  = dot(N, SunDir);
+        if (NdotS > 1.0e-4 && dot(SunIrr, float3(1.0)) > 1.0e-4)
+        {
+            float TanSun = max(0.006, WorldUniforms.SunDirConeTan.w);
+            float SunVis = TraceGlobalDistanceConeVisibility(Pos, N, SunDir, 18.0, TanSun, false, 32u, 0.5);
+            DirectIrr += SunIrr * (NdotS * SunVis);
+        }
+
+        // 2. Studio Polygonal LTC Quad Area Lights
+        uint LightCnt = min(4u, WorldUniforms.LightGlassMaterialDebug.x);
+        GpuWorldMaterial80 MatteMat;
+        MatteMat.DiffuseAlbedoRoughness = float4(1.0, 1.0, 1.0, 1.0);
+        MatteMat.SpecParams             = float4(0.95, 0.0, 1.5, 0.0);
+        MatteMat.EdgeTintCoatWeight     = float4(0.0, 0.0, 0.0, 0.0);
+        MatteMat.CoatRoughnessOptics    = float4(0.5, 0.0, 0.0, 0.0);
+        MatteMat.EmissiveRadiancePad    = float4(0.0, 0.0, 0.0, 0.0);
+        [loop]
+        for (uint L = 0u; L < LightCnt; ++L)
+        {
+            DirectIrr += EvaluateAreaQuadLight(
+                WorldUniforms.AreaLights[L], Pos + N * 0.02, N, N, N, MatteMat, SIdx * 1973u + L * 919u, 0.5) * FrontierPi;
+        }
+
+        // 3. ANSI/IESNA Photometric Point Luminaires
+        uint PackedPhotoCounts = WorldUniforms.DenoiseStepParams.z;
+        uint PhotoProfileCount = PackedPhotoCounts >> 16u;
+        uint PhotoLampCount    = PackedPhotoCounts & 0xFFFFu;
+        if (PhotoProfileCount > 0u && PhotoLampCount > 0u)
+        {
+            [loop]
+            for (uint PL = 0u; PL < PhotoLampCount; ++PL)
+            {
+                DirectIrr += EvaluatePhotometricLampGpu(PhotometricLampEntries[PL], PhotoProfileCount, Pos + N * 0.02, N, N, MatteMat, false) * FrontierPi;
+            }
+        }
+
+        // 4. Live Stokes / Spherical Emissive Luminaires (e.g. moving DynamicEmissiveOrb, headlights, emissive panels)
+        if (WorldUniforms.GiPortalCounts.x > 0u)
+        {
+            DirectIrr += EvaluateStokesEmissiveDirectLighting(Pos + N * 0.02, N, N, N, MatteMat, uint2(SIdx & 63u, SIdx >> 6u), true);
+        }
+
+        // 5. Subtle hemisphere sky fill
+        DirectIrr += EvaluateSkyDome(N) * (0.28 * FrontierPi);
+
+        float3 Exitance = (Albedo * (1.0 / FrontierPi)) * DirectIrr + Me.EmissiveSelfPad.xyz;
+        Me.DirectExitance = float4(min(Exitance, float3(28.0)), 1.0);
+        Me.BounceExitance = float4(Me.DirectExitance.xyz, Me.BounceExitance.w);
+        SurfelRadiosityBuffer[SIdx] = Me;
+    }
+    else
+    {
+        // Pass 1: Exact 2nd-Bounce Bunnell Surfel-to-Surfel Albedo Color-Bleed Integration
+        float3 BounceIrr = float3(0.0);
+        float3 OffsetP   = Pos + N * 0.035;
+
+        [loop]
+        for (uint J = 0u; J < SurfelCount; ++J)
+        {
+            if (J == SIdx) continue;
+            GpuSurfel96 OtherSurfel = SurfelRadiosityBuffer[J];
+            float3 OtherRad   = OtherSurfel.DirectExitance.xyz;
+            if (dot(OtherRad, float3(1.0)) <= 1.0e-4) continue;
+
+            float3 Delta  = OtherSurfel.PositionRadius.xyz - OffsetP;
+            float  DistSq = dot(Delta, Delta);
+            if (DistSq < 0.04 || DistSq > 160.0) continue;
+
+            float  InvD   = rsqrt(DistSq);
+            float3 Dir    = Delta * InvD;
+            float  CosI   = dot(N, Dir);
+            float  CosJ   = dot(OtherSurfel.NormalArea.xyz, -Dir);
+            if (CosI <= 0.02 || CosJ <= 0.02) continue;
+
+            float OtherArea = max(0.04, OtherSurfel.NormalArea.w);
+            float FormF    = (CosI * CosJ * OtherArea) / (FrontierPi * DistSq + OtherArea * 1.15);
+
+            float Vis = 1.0;
+            if (DistSq > 0.45 && IsGlobalDistanceFieldReady())
+            {
+                float2 MidSdf = SampleShadowSignedDistance(OffsetP + Delta * 0.5);
+                Vis = saturate((MidSdf.x + 0.05) / max(0.20, MidSdf.y * 2.2));
+            }
+            BounceIrr += OtherRad * (FrontierPi * FormF * Vis);
+        }
+
+        float3 TotalExit = Me.DirectExitance.xyz + (Albedo * (1.0 / FrontierPi)) * min(BounceIrr, float3(14.0));
+        Me.BounceExitance = float4(min(TotalExit, float3(32.0)), Me.BounceExitance.w);
+        SurfelRadiosityBuffer[SIdx] = Me;
+    }
+}
+

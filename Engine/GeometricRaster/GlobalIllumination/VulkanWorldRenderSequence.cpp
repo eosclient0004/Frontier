@@ -217,8 +217,81 @@ struct WorldViewportUniformBlockStd140
     float                        PrevCameraRightTanY[4]              {}; // xyz=PrevRight, w=PrevTanHalfFovY
     float                        PrevCameraUpPad[4]                  {}; // xyz=PrevUp, w=Reserved
     GpuCockpitDisplaySurfaceStd140 CockpitDisplays[4]                {}; // [0]=HMI, [1]=Cluster, [2]=WindshieldHUD, [3]=OnScreenHUD
+    uint32_t                     GiPortalCounts[4]                   {}; // x=EmissiveClusters, y=BoneCapsules, z=Surfels, w=Portals|(ClipRanges<<8)
+    uint32_t                     SurfelStepControl[4]                {}; // x=SurfelPhase(0/1), y=EmissiveTris, z=Flags, w=Reserved
 };
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 3472u, "WorldViewportUniformBlockStd140 must equal 3472 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 3504u, "WorldViewportUniformBlockStd140 must equal 3504 bytes.");
+
+struct GpuEmissiveTriangle80
+{
+    float VertexAPad[4]     {}; // xyz = V0, w = float(ClusterOrdinal)
+    float VertexBPad[4]     {}; // xyz = V1, w = AreaM2
+    float VertexCPad[4]     {}; // xyz = V2, w = Reserved
+    float UnitNormalPad[4]  {}; // xyz = Outward Unit Normal, w = Reserved
+    float LinearRadiance[4] {}; // xyz = Linear Radiance RGB, w = LumWeight
+};
+static_assert(sizeof(GpuEmissiveTriangle80) == 80u, "GpuEmissiveTriangle80 must equal 80 bytes.");
+
+struct GpuEmissiveCluster64
+{
+    float    CenterRadius[4]     {}; // xyz = Flux-weighted Center, w = BoundRadiusMeters
+    float    MeanNormalSphere[4] {}; // xyz = Mean Normal, w = AnalyticalSphereRadius (>0 => spherical luminaire)
+    float    MeanRadianceArea[4] {}; // xyz = Mean Linear Radiance, w = TotalAreaM2
+    uint32_t TriRangeMask[4]    {}; // x = FirstTri, y = TriCount, z = Flags (bit0=Spherical), w = ClusterInstanceIdx
+};
+static_assert(sizeof(GpuEmissiveCluster64) == 64u, "GpuEmissiveCluster64 must equal 64 bytes.");
+
+struct GpuBoneCapsule32
+{
+    float JointStartRadius[4] {}; // xyz = JointStart, w = RadiusStartMeters
+    float JointEndRadius[4]   {}; // xyz = JointEnd,   w = RadiusEndMeters
+};
+static_assert(sizeof(GpuBoneCapsule32) == 32u, "GpuBoneCapsule32 must equal 32 bytes.");
+
+struct GpuSurfel96
+{
+    float PositionRadius[4]   {}; // xyz = World Pos, w = DiskRadiusMeters
+    float NormalArea[4]       {}; // xyz = Unit Normal, w = DiskAreaM2
+    float DiffuseAlbedoPad[4] {}; // xyz = Matte Albedo, w = Metalness
+    float DirectExitance[4]   {}; // xyz = Pass 0 Direct Exitance (Albedo * DirectIrr / Pi), w = Valid
+    float BounceExitance[4]   {}; // xyz = Pass 1 Total Exitance (Direct + Bounce), w = InstanceOrdinal
+    float EmissiveSelfPad[4]  {}; // xyz = Self Emissive Radiance, w = Flags
+};
+static_assert(sizeof(GpuSurfel96) == 96u, "GpuSurfel96 must equal 96 bytes.");
+
+struct GpuPortalPair544
+{
+    float EntryCenterHalfW[4]    {};
+    float EntryRightHalfH[4]     {};
+    float EntryUpRimThick[4]     {};
+    float EntryNormalRegion[4]   {};
+    float EntryRimColorShape[4]  {};
+
+    float ExitCenterPolySides[4] {};
+    float ExitRightVertCount[4]  {};
+    float ExitUpMask[4]         {};
+    float ExitNormalRegion[4]    {};
+    float ExitRimColorPad[4]     {};
+
+    float EntrySkyUpper[4]      {};
+    float EntrySkyLower[4]     {};
+    float EntrySunDirPad[4]      {};
+    float EntrySunRadPad[4]      {};
+    float ExitSkyUpper[4]       {};
+    float ExitSkyLower[4]      {};
+    float ExitSunDirPad[4]       {};
+    float ExitSunRadPad[4]       {};
+
+    float CustomPolyVerts[16][4] {};
+};
+static_assert(sizeof(GpuPortalPair544) == 544u, "GpuPortalPair544 must equal 544 bytes.");
+
+struct GpuClipPlaneRange32
+{
+    uint32_t ClusterRangePad[4] {}; // x = FirstGlobalCluster, y = LastGlobalClusterExcl, z = Enabled, w = Reserved
+    float    ClipPlaneWorld[4]  {}; // xyz = Unit Normal, w = Offset D (keep dot(P, N) + D >= 0)
+};
+static_assert(sizeof(GpuClipPlaneRange32) == 32u, "GpuClipPlaneRange32 must equal 32 bytes.");
 
 struct GpuShadedTriangle96
 {
@@ -430,7 +503,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         return false;
     }
 
-    constexpr std::array<VkDescriptorType, 40u> SlotTypes {{
+    constexpr std::array<VkDescriptorType, 46u> SlotTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0:  WorldUniforms
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1:  SceneBvhEntries
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2:  SceneTriangles
@@ -471,6 +544,12 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 37: RadiosityBakeDstImg3D
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 38: PrimaryVisImg2D
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 39: CockpitDisplayAtlasRgba8
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 40: EmissiveTriangleBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 41: EmissiveClusterBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 42: DeformingBoneCapsuleBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 43: SurfelRadiosityBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 44: PortalPairBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 45: ClipInstanceRangeBuffer
     }};
 
     const std::filesystem::path ShaderBinaryPath = CompiledShaderDirectory / "WorldViewportRadiometricCompute.comp.spv";
@@ -577,6 +656,10 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         CompiledShaderDirectory / "WorldViewportGlobalRadiosityBake.comp.spv",
         SlotTypes,
         "GlobalRadiosityBakeEntry");
+    SurfelRadiositySolveProgramHandle = DispatchEncoder.RegisterProgram(
+        CompiledShaderDirectory / "WorldViewportSurfelRadiositySolve.comp.spv",
+        SlotTypes,
+        "SurfelRadiositySolveEntry");
     HighEndBvhProgramHandle           = UINT32_MAX;
     ViewportPathTraceProgramHandle    = UINT32_MAX;
     InstanceTransformBvhProgramHandle = UINT32_MAX;
@@ -750,6 +833,27 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         const uint32_t ZeroAtlasTexel = 0u;
         UploadToDeviceBuffer(CockpitDisplayAtlasBuffer, &ZeroAtlasTexel, sizeof(ZeroAtlasTexel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         CachedCockpitDisplayAtlasGen = 0ull;
+        const GpuEmissiveTriangle80 ZeroEmTri {};
+        UploadToDeviceBuffer(EmissiveTriangleBuffer, &ZeroEmTri, sizeof(ZeroEmTri), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const GpuEmissiveCluster64 ZeroEmCluster {};
+        UploadToDeviceBuffer(EmissiveClusterBuffer, &ZeroEmCluster, sizeof(ZeroEmCluster), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const GpuBoneCapsule32 ZeroCapsule {};
+        UploadToDeviceBuffer(DeformingBoneCapsuleBuffer, &ZeroCapsule, sizeof(ZeroCapsule), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const GpuSurfel96 ZeroSurfel {};
+        UploadToDeviceBuffer(SurfelRadiosityBuffer, &ZeroSurfel, sizeof(ZeroSurfel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const GpuPortalPair544 ZeroPortal {};
+        UploadToDeviceBuffer(PortalPairBuffer, &ZeroPortal, sizeof(ZeroPortal), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const GpuClipPlaneRange32 ZeroClip {};
+        UploadToDeviceBuffer(ClipInstanceRangeBuffer, &ZeroClip, sizeof(ZeroClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadedEmissiveTriCount     = 0u;
+        UploadedEmissiveClusterCount = 0u;
+        UploadedBoneCapsuleCount     = 0u;
+        UploadedSurfelCount          = 0u;
+        UploadedPortalPairCount      = 0u;
+        UploadedClipRangeCount       = 0u;
+        CachedSurfelGeometrySignature = 0ull;
+        CachedDynamicMoveSignature    = 0ull;
+        SurfelRadiosityDirty          = true;
         const GpuDynamicLocalSdfInstance144 ZeroInst {};
         UploadToDeviceBuffer(DynamicLocalSdfInstanceBuffer, &ZeroInst, sizeof(ZeroInst), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         MaskSliceOffsetBytes = 256ull;
@@ -828,6 +932,12 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(LunarSurfaceAtlasBuffer);
         BoundDevice->ReleaseBuffer(BakedLensFlareAtlasBuffer);
         BoundDevice->ReleaseBuffer(CockpitDisplayAtlasBuffer);
+        BoundDevice->ReleaseBuffer(EmissiveTriangleBuffer);
+        BoundDevice->ReleaseBuffer(EmissiveClusterBuffer);
+        BoundDevice->ReleaseBuffer(DeformingBoneCapsuleBuffer);
+        BoundDevice->ReleaseBuffer(SurfelRadiosityBuffer);
+        BoundDevice->ReleaseBuffer(PortalPairBuffer);
+        BoundDevice->ReleaseBuffer(ClipInstanceRangeBuffer);
         CachedCockpitDisplayAtlasGen = 0ull;
         BoundDevice->ReleaseBuffer(GBufPosMaskBuffer);
         BoundDevice->ReleaseBuffer(GBufNormAoBuffer);
@@ -874,6 +984,7 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     ShadowCascadeProgramHandle        = UINT32_MAX;
     GlobalDistanceBakeProgramHandle   = UINT32_MAX;
     GlobalRadiosityProgramHandle      = UINT32_MAX;
+    SurfelRadiositySolveProgramHandle = UINT32_MAX;
     HighEndBvhProgramHandle           = UINT32_MAX;
     ViewportPathTraceProgramHandle    = UINT32_MAX;
     InstanceTransformBvhProgramHandle = UINT32_MAX;
@@ -4769,7 +4880,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         VkImageView   RadCoarseReadView,
         VkImageLayout RadCoarseReadLayout,
         VkImageView   GdfWriteView,
-        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 40u>
+        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 46u>
     {
         return {{
             {  0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, PrecomputeUniformBuffer.BufferHandle,         sizeof(WorldViewportUniformBlockStd140), UniOffs },
@@ -4811,7 +4922,13 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             { 36u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, GdfWriteView,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 37u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, RadWriteView,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 38u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, PrimaryVisImage2D.ViewHandle, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL },
-            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle, VK_WHOLE_SIZE },
+            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle,  VK_WHOLE_SIZE },
+            { 40u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         EmissiveTriangleBuffer.BufferHandle,     VK_WHOLE_SIZE },
+            { 41u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         EmissiveClusterBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 42u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         DeformingBoneCapsuleBuffer.BufferHandle, VK_WHOLE_SIZE },
+            { 43u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         SurfelRadiosityBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 44u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PortalPairBuffer.BufferHandle,           VK_WHOLE_SIZE },
+            { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
         }};
     };
 
@@ -5315,6 +5432,702 @@ void VulkanWorldRenderSequence::UploadSolarCascadeDepth(const WorldSceneSpecific
     }
 }
 
+void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const WorldSceneSpecification& Scene)
+{
+    if (!QueryReady())
+    {
+        return;
+    }
+
+    auto TransformPointByInst = [](const RigidClusterInstance& Inst, const Mathematics::Axis3D& LocalP) noexcept -> Mathematics::Axis3D
+    {
+        const float Rad  = Inst.RotationZDegrees * Constants::DegToRadFloat;
+        const float CosZ = std::cos(Rad);
+        const float SinZ = std::sin(Rad);
+        const float SX   = LocalP.X * Inst.UniformScale;
+        const float SY   = LocalP.Y * Inst.UniformScale;
+        const float SZ   = LocalP.Z * Inst.UniformScale;
+        return {
+            Inst.WorldTranslation.X + (SX * CosZ - SY * SinZ),
+            Inst.WorldTranslation.Y + (SX * SinZ + SY * CosZ),
+            Inst.WorldTranslation.Z + SZ
+        };
+    };
+
+    auto TransformDirByInst = [](const RigidClusterInstance& Inst, const Mathematics::Axis3D& LocalD) noexcept -> Mathematics::Axis3D
+    {
+        const float Rad  = Inst.RotationZDegrees * Constants::DegToRadFloat;
+        const float CosZ = std::cos(Rad);
+        const float SinZ = std::sin(Rad);
+        return Mathematics::NormalizeAxis(
+            {
+                LocalD.X * CosZ - LocalD.Y * SinZ,
+                LocalD.X * SinZ + LocalD.Y * CosZ,
+                LocalD.Z
+            },
+            { 0.0f, 0.0f, 1.0f });
+    };
+
+    // -------------------------------------------------------------------------
+    // 1. Live World-Space Emissive Triangles & Stokes/Spherical Luminaire Clusters
+    //    Guaranteed 100% locked to every moving emissive instance (e.g. DynamicEmissiveOrb)
+    // -------------------------------------------------------------------------
+    std::vector<GpuEmissiveTriangle80> EmissiveTris;
+    std::vector<GpuEmissiveCluster64>  EmissiveClusters;
+    EmissiveTris.reserve(256u);
+    EmissiveClusters.reserve(32u);
+
+    constexpr uint32_t MaxGpuEmissiveTris     = 512u;
+    constexpr uint32_t MaxGpuEmissiveClusters = 24u;
+
+    auto AppendClusterFromTris = [&](
+        uint32_t StartIdx,
+        uint32_t EndIdx,
+        uint32_t InstOrdinal,
+        float    SphereRadiusM)
+    {
+        if (EndIdx <= StartIdx || EmissiveClusters.size() >= MaxGpuEmissiveClusters)
+        {
+            return;
+        }
+        Mathematics::Axis3D FluxCenter { 0.0f, 0.0f, 0.0f };
+        Mathematics::Axis3D MeanNormal { 0.0f, 0.0f, 0.0f };
+        float MeanR = 0.0f, MeanG = 0.0f, MeanB = 0.0f;
+        float TotalWeight = 0.0f;
+        float TotalArea   = 0.0f;
+        for (uint32_t K = StartIdx; K < EndIdx; ++K)
+        {
+            const auto& T = EmissiveTris[K];
+            const Mathematics::Axis3D Centroid {
+                (T.VertexAPad[0] + T.VertexBPad[0] + T.VertexCPad[0]) * (1.0f / 3.0f),
+                (T.VertexAPad[1] + T.VertexBPad[1] + T.VertexCPad[1]) * (1.0f / 3.0f),
+                (T.VertexAPad[2] + T.VertexBPad[2] + T.VertexCPad[2]) * (1.0f / 3.0f)
+            };
+            const float Area = std::max(1.0e-5f, T.VertexBPad[3]);
+            const float W    = Area * std::max(0.01f, T.LinearRadiance[3]);
+            FluxCenter  = FluxCenter + Centroid * W;
+            MeanNormal  = MeanNormal + Mathematics::Axis3D{ T.UnitNormalPad[0], T.UnitNormalPad[1], T.UnitNormalPad[2] } * Area;
+            MeanR      += T.LinearRadiance[0] * Area;
+            MeanG      += T.LinearRadiance[1] * Area;
+            MeanB      += T.LinearRadiance[2] * Area;
+            TotalWeight += W;
+            TotalArea   += Area;
+        }
+        if (TotalWeight <= 1.0e-6f || TotalArea <= 1.0e-6f)
+        {
+            return;
+        }
+        FluxCenter = FluxCenter * (1.0f / TotalWeight);
+        const Mathematics::Axis3D UnitMeanN = Mathematics::NormalizeAxis(MeanNormal, { 0.0f, 0.0f, 1.0f });
+        float MaxRad = SphereRadiusM;
+        for (uint32_t K = StartIdx; K < EndIdx; ++K)
+        {
+            const auto& T = EmissiveTris[K];
+            const Mathematics::Axis3D C0{ T.VertexAPad[0], T.VertexAPad[1], T.VertexAPad[2] };
+            const Mathematics::Axis3D C1{ T.VertexBPad[0], T.VertexBPad[1], T.VertexBPad[2] };
+            const Mathematics::Axis3D C2{ T.VertexCPad[0], T.VertexCPad[1], T.VertexCPad[2] };
+            MaxRad = std::max(MaxRad, Mathematics::EvaluateLength(C0 - FluxCenter));
+            MaxRad = std::max(MaxRad, Mathematics::EvaluateLength(C1 - FluxCenter));
+            MaxRad = std::max(MaxRad, Mathematics::EvaluateLength(C2 - FluxCenter));
+        }
+
+        GpuEmissiveCluster64 Cl {};
+        Cl.CenterRadius[0]     = FluxCenter.X;
+        Cl.CenterRadius[1]     = FluxCenter.Y;
+        Cl.CenterRadius[2]     = FluxCenter.Z;
+        Cl.CenterRadius[3]     = std::max(0.05f, MaxRad);
+        Cl.MeanNormalSphere[0] = UnitMeanN.X;
+        Cl.MeanNormalSphere[1] = UnitMeanN.Y;
+        Cl.MeanNormalSphere[2] = UnitMeanN.Z;
+        Cl.MeanNormalSphere[3] = SphereRadiusM;
+        Cl.MeanRadianceArea[0] = MeanR / TotalArea;
+        Cl.MeanRadianceArea[1] = MeanG / TotalArea;
+        Cl.MeanRadianceArea[2] = MeanB / TotalArea;
+        Cl.MeanRadianceArea[3] = TotalArea;
+        Cl.TriRangeMask[0]    = StartIdx;
+        Cl.TriRangeMask[1]    = EndIdx - StartIdx;
+        Cl.TriRangeMask[2]    = (SphereRadiusM > 0.0f) ? 1u : 0u;
+        Cl.TriRangeMask[3]    = InstOrdinal;
+        EmissiveClusters.push_back(Cl);
+    };
+
+    if (!Scene.ClusterInstances.empty())
+    {
+        for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
+        {
+            const RigidClusterInstance& Inst = Scene.ClusterInstances[InstIdx];
+            if (!Inst.VisibilityEnabled || Inst.PyramidAsset == nullptr || EmissiveClusters.size() >= MaxGpuEmissiveClusters)
+            {
+                continue;
+            }
+            const auto& Asset = *Inst.PyramidAsset;
+            // Fast analytical spherical luminaire path (e.g. DynamicEmissiveOrb): exact live position & color every frame!
+            if (Inst.AnalyticalShapeCode == 2u)
+            {
+                const uint16_t MatId = Inst.MaterialSlot;
+                const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(MatId);
+                if (Mat.PorosityLight.DynamicDisplaySlot == 0u)
+                {
+                    const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
+                    const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
+                    if (Lum > 0.15f)
+                    {
+                        const float SphereR = std::max(0.05f, Inst.LocalHalfExtents.X * Inst.UniformScale);
+                        GpuEmissiveCluster64 Cl {};
+                        Cl.CenterRadius[0]     = Inst.WorldTranslation.X;
+                        Cl.CenterRadius[1]     = Inst.WorldTranslation.Y;
+                        Cl.CenterRadius[2]     = Inst.WorldTranslation.Z;
+                        Cl.CenterRadius[3]     = SphereR;
+                        Cl.MeanNormalSphere[0] = 0.0f;
+                        Cl.MeanNormalSphere[1] = 0.0f;
+                        Cl.MeanNormalSphere[2] = 1.0f;
+                        Cl.MeanNormalSphere[3] = SphereR;
+                        Cl.MeanRadianceArea[0] = Em.R;
+                        Cl.MeanRadianceArea[1] = Em.G;
+                        Cl.MeanRadianceArea[2] = Em.B;
+                        Cl.MeanRadianceArea[3] = 4.0f * Constants::PiFloat * SphereR * SphereR;
+                        Cl.TriRangeMask[0]    = 0u;
+                        Cl.TriRangeMask[1]    = 0u;
+                        Cl.TriRangeMask[2]    = 1u; // Exact spherical emitter (0 triangles needed)
+                        Cl.TriRangeMask[3]    = InstIdx;
+                        EmissiveClusters.push_back(Cl);
+                        continue;
+                    }
+                }
+            }
+
+            // Collect world-space emissive triangles for polygonal luminaires (panels, headlights, taillights, orbs without analytic code)
+            uint32_t FirstClusterTri = static_cast<uint32_t>(EmissiveTris.size());
+            uint32_t InstEmTriCount  = 0u;
+            Mathematics::Axis3D BMin{  1.0e9f,  1.0e9f,  1.0e9f };
+            Mathematics::Axis3D BMax{ -1.0e9f, -1.0e9f, -1.0e9f };
+            for (const auto& Clust : Asset.Clusters)
+            {
+                if (Clust.HierarchyLevel != 0u)
+                {
+                    continue;
+                }
+                for (uint32_t K = 0u; K < Clust.TriangleCount; ++K)
+                {
+                    if (EmissiveTris.size() >= MaxGpuEmissiveTris || InstEmTriCount >= 96u)
+                    {
+                        break;
+                    }
+                    const uint32_t TriIdx = Clust.TriangleStartOffset + K;
+                    if (TriIdx >= Asset.Triangles.size())
+                    {
+                        break;
+                    }
+                    const auto& Tri = Asset.Triangles[TriIdx];
+                    const uint16_t MatId = (Tri.MaterialOrdinal < Scene.MaterialRegister.QuerySlotCount())
+                        ? Tri.MaterialOrdinal
+                        : Inst.MaterialSlot;
+                    const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(MatId);
+                    if (Mat.PorosityLight.DynamicDisplaySlot != 0u)
+                    {
+                        continue;
+                    }
+                    const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
+                    const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
+                    if (Lum <= 0.25f)
+                    {
+                        continue;
+                    }
+                    const Mathematics::Axis3D V0 = TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex0]);
+                    const Mathematics::Axis3D V1 = TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex1]);
+                    const Mathematics::Axis3D V2 = TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex2]);
+                    const Mathematics::Axis3D CrossN = Mathematics::EvaluateCross(V1 - V0, V2 - V0);
+                    const float Area = 0.5f * Mathematics::EvaluateLength(CrossN);
+                    if (Area <= 1.0e-5f)
+                    {
+                        continue;
+                    }
+                    const Mathematics::Axis3D UnitN = Mathematics::NormalizeAxis(CrossN, { 0.0f, 0.0f, 1.0f });
+                    GpuEmissiveTriangle80 OutT {};
+                    OutT.VertexAPad[0]     = V0.X; OutT.VertexAPad[1] = V0.Y; OutT.VertexAPad[2] = V0.Z; OutT.VertexAPad[3] = static_cast<float>(InstIdx);
+                    OutT.VertexBPad[0]     = V1.X; OutT.VertexBPad[1] = V1.Y; OutT.VertexBPad[2] = V1.Z; OutT.VertexBPad[3] = Area;
+                    OutT.VertexCPad[0]     = V2.X; OutT.VertexCPad[1] = V2.Y; OutT.VertexCPad[2] = V2.Z; OutT.VertexCPad[3] = 0.0f;
+                    OutT.UnitNormalPad[0]  = UnitN.X; OutT.UnitNormalPad[1] = UnitN.Y; OutT.UnitNormalPad[2] = UnitN.Z; OutT.UnitNormalPad[3] = 0.0f;
+                    OutT.LinearRadiance[0] = Em.R; OutT.LinearRadiance[1] = Em.G; OutT.LinearRadiance[2] = Em.B; OutT.LinearRadiance[3] = Lum;
+                    EmissiveTris.push_back(OutT);
+                    ++InstEmTriCount;
+                    BMin.X = std::min({ BMin.X, V0.X, V1.X, V2.X }); BMax.X = std::max({ BMax.X, V0.X, V1.X, V2.X });
+                    BMin.Y = std::min({ BMin.Y, V0.Y, V1.Y, V2.Y }); BMax.Y = std::max({ BMax.Y, V0.Y, V1.Y, V2.Y });
+                    BMin.Z = std::min({ BMin.Z, V0.Z, V1.Z, V2.Z }); BMax.Z = std::max({ BMax.Z, V0.Z, V1.Z, V2.Z });
+                }
+            }
+            if (InstEmTriCount > 0u)
+            {
+                const float ExtX = BMax.X - BMin.X;
+                const float ExtY = BMax.Y - BMin.Y;
+                const float ExtZ = BMax.Z - BMin.Z;
+                const float MaxExt = std::max({ ExtX, ExtY, ExtZ });
+                const float MinExt = std::min({ ExtX, ExtY, ExtZ });
+                // Compact spherical emissive meshes (like icosphere orbs) get analytical spherical flux radius
+                const float DetectedSphereR = (InstEmTriCount >= 12u && MaxExt < 2.2f && MinExt > MaxExt * 0.72f)
+                    ? (0.5f * (ExtX + ExtY + ExtZ) * (1.0f / 3.0f))
+                    : 0.0f;
+                AppendClusterFromTris(FirstClusterTri, static_cast<uint32_t>(EmissiveTris.size()), InstIdx, DetectedSphereR);
+            }
+        }
+    }
+    else
+    {
+        uint32_t FirstFallback = 0u;
+        for (const auto& Prim : Scene.SceneTree.Primitives)
+        {
+            if (EmissiveTris.size() >= MaxGpuEmissiveTris)
+            {
+                break;
+            }
+            const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(Prim.MaterialOrdinal);
+            if (Mat.PorosityLight.DynamicDisplaySlot != 0u)
+            {
+                continue;
+            }
+            const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
+            const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
+            if (Lum <= 0.25f)
+            {
+                continue;
+            }
+            const Mathematics::Axis3D V0 = Prim.Corner0;
+            const Mathematics::Axis3D V1 = Prim.Corner0 + Prim.Edge01;
+            const Mathematics::Axis3D V2 = Prim.Corner0 + Prim.Edge02;
+            const Mathematics::Axis3D CrossN = Mathematics::EvaluateCross(Prim.Edge01, Prim.Edge02);
+            const float Area = 0.5f * Mathematics::EvaluateLength(CrossN);
+            if (Area <= 1.0e-5f)
+            {
+                continue;
+            }
+            const Mathematics::Axis3D UnitN = Mathematics::NormalizeAxis(CrossN, { 0.0f, 0.0f, 1.0f });
+            GpuEmissiveTriangle80 OutT {};
+            OutT.VertexAPad[0]     = V0.X; OutT.VertexAPad[1] = V0.Y; OutT.VertexAPad[2] = V0.Z; OutT.VertexAPad[3] = 0.0f;
+            OutT.VertexBPad[0]     = V1.X; OutT.VertexBPad[1] = V1.Y; OutT.VertexBPad[2] = V1.Z; OutT.VertexBPad[3] = Area;
+            OutT.VertexCPad[0]     = V2.X; OutT.VertexCPad[1] = V2.Y; OutT.VertexCPad[2] = V2.Z; OutT.VertexCPad[3] = 0.0f;
+            OutT.UnitNormalPad[0]  = UnitN.X; OutT.UnitNormalPad[1] = UnitN.Y; OutT.UnitNormalPad[2] = UnitN.Z; OutT.UnitNormalPad[3] = 0.0f;
+            OutT.LinearRadiance[0] = Em.R; OutT.LinearRadiance[1] = Em.G; OutT.LinearRadiance[2] = Em.B; OutT.LinearRadiance[3] = Lum;
+            EmissiveTris.push_back(OutT);
+        }
+        if (!EmissiveTris.empty())
+        {
+            AppendClusterFromTris(FirstFallback, static_cast<uint32_t>(EmissiveTris.size()), 0u, 0.0f);
+        }
+    }
+
+    UploadedEmissiveTriCount     = static_cast<uint32_t>(EmissiveTris.size());
+    UploadedEmissiveClusterCount = static_cast<uint32_t>(EmissiveClusters.size());
+    if (EmissiveTris.empty())
+    {
+        EmissiveTris.emplace_back();
+    }
+    if (EmissiveClusters.empty())
+    {
+        EmissiveClusters.emplace_back();
+    }
+    UploadToDeviceBuffer(EmissiveTriangleBuffer, EmissiveTris.data(), EmissiveTris.size() * sizeof(GpuEmissiveTriangle80), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    UploadToDeviceBuffer(EmissiveClusterBuffer, EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    // -------------------------------------------------------------------------
+    // 2. Live Deforming Bone Capsules (Candidate 1 Hybrid + Caps Shadow Rig)
+    // -------------------------------------------------------------------------
+    std::vector<GpuBoneCapsule32> BoneCapsules;
+    if (!Scene.GtxCharacterRig.LimbCapsules.empty())
+    {
+        const uint32_t CapCount = std::min<uint32_t>(64u, static_cast<uint32_t>(Scene.GtxCharacterRig.LimbCapsules.size()));
+        BoneCapsules.resize(CapCount);
+        for (uint32_t C = 0u; C < CapCount; ++C)
+        {
+            const auto& Src = Scene.GtxCharacterRig.LimbCapsules[C];
+            BoneCapsules[C].JointStartRadius[0] = Src.JointStart.X;
+            BoneCapsules[C].JointStartRadius[1] = Src.JointStart.Y;
+            BoneCapsules[C].JointStartRadius[2] = Src.JointStart.Z;
+            BoneCapsules[C].JointStartRadius[3] = std::max(0.01f, Src.RadiusStart);
+            BoneCapsules[C].JointEndRadius[0]   = Src.JointEnd.X;
+            BoneCapsules[C].JointEndRadius[1]   = Src.JointEnd.Y;
+            BoneCapsules[C].JointEndRadius[2]   = Src.JointEnd.Z;
+            BoneCapsules[C].JointEndRadius[3]   = std::max(0.01f, Src.RadiusEnd);
+        }
+    }
+    UploadedBoneCapsuleCount = static_cast<uint32_t>(BoneCapsules.size());
+    if (BoneCapsules.empty())
+    {
+        BoneCapsules.emplace_back();
+    }
+    UploadToDeviceBuffer(DeformingBoneCapsuleBuffer, BoneCapsules.data(), BoneCapsules.size() * sizeof(GpuBoneCapsule32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    // -------------------------------------------------------------------------
+    // 3. Multi-World 2D Planar Portals (all 5 shapes + custom 32-vert cutouts)
+    // -------------------------------------------------------------------------
+    std::vector<GpuPortalPair544> GpuPortals;
+    const uint32_t PortalCount = std::min<uint32_t>(8u, static_cast<uint32_t>(Scene.Portals.size()));
+    GpuPortals.reserve(std::max(1u, PortalCount));
+    for (uint32_t PIdx = 0u; PIdx < PortalCount; ++PIdx)
+    {
+        World::PortalPairSpecification CopyP = Scene.Portals[PIdx];
+        CopyP.NormalizeAxes();
+        GpuPortalPair544 OutP {};
+        OutP.EntryCenterHalfW[0]   = CopyP.Entry.CenterWorld.X;
+        OutP.EntryCenterHalfW[1]   = CopyP.Entry.CenterWorld.Y;
+        OutP.EntryCenterHalfW[2]   = CopyP.Entry.CenterWorld.Z;
+        OutP.EntryCenterHalfW[3]   = CopyP.HalfWidthMeters;
+        OutP.EntryRightHalfH[0]    = CopyP.Entry.RightAxisWorld.X;
+        OutP.EntryRightHalfH[1]    = CopyP.Entry.RightAxisWorld.Y;
+        OutP.EntryRightHalfH[2]    = CopyP.Entry.RightAxisWorld.Z;
+        OutP.EntryRightHalfH[3]    = CopyP.HalfHeightMeters;
+        OutP.EntryUpRimThick[0]    = CopyP.Entry.UpAxisWorld.X;
+        OutP.EntryUpRimThick[1]    = CopyP.Entry.UpAxisWorld.Y;
+        OutP.EntryUpRimThick[2]    = CopyP.Entry.UpAxisWorld.Z;
+        OutP.EntryUpRimThick[3]    = CopyP.RimThicknessMeters;
+        OutP.EntryNormalRegion[0]  = CopyP.Entry.NormalAxisWorld.X;
+        OutP.EntryNormalRegion[1]  = CopyP.Entry.NormalAxisWorld.Y;
+        OutP.EntryNormalRegion[2]  = CopyP.Entry.NormalAxisWorld.Z;
+        OutP.EntryNormalRegion[3]  = static_cast<float>(CopyP.Entry.WorldRegionOrdinal);
+        OutP.EntryRimColorShape[0] = CopyP.RimColorEntryRgb.R;
+        OutP.EntryRimColorShape[1] = CopyP.RimColorEntryRgb.G;
+        OutP.EntryRimColorShape[2] = CopyP.RimColorEntryRgb.B;
+        OutP.EntryRimColorShape[3] = static_cast<float>(static_cast<uint32_t>(CopyP.Shape));
+
+        OutP.ExitCenterPolySides[0] = CopyP.Exit.CenterWorld.X;
+        OutP.ExitCenterPolySides[1] = CopyP.Exit.CenterWorld.Y;
+        OutP.ExitCenterPolySides[2] = CopyP.Exit.CenterWorld.Z;
+        OutP.ExitCenterPolySides[3] = static_cast<float>(CopyP.PolygonSides);
+        OutP.ExitRightVertCount[0]  = CopyP.Exit.RightAxisWorld.X;
+        OutP.ExitRightVertCount[1]  = CopyP.Exit.RightAxisWorld.Y;
+        OutP.ExitRightVertCount[2]  = CopyP.Exit.RightAxisWorld.Z;
+        const uint32_t VCount = std::min<uint32_t>(static_cast<uint32_t>(CopyP.CustomPolygonUv.size()), World::MaximumPortalCutoutVertices);
+        OutP.ExitRightVertCount[3]  = static_cast<float>(VCount);
+        OutP.ExitUpMask[0]         = CopyP.Exit.UpAxisWorld.X;
+        OutP.ExitUpMask[1]         = CopyP.Exit.UpAxisWorld.Y;
+        OutP.ExitUpMask[2]         = CopyP.Exit.UpAxisWorld.Z;
+        const uint32_t PortalMask = (CopyP.Enabled ? 1u : 0u) | (CopyP.Bidirectional ? 2u : 0u);
+        OutP.ExitUpMask[3]         = static_cast<float>(PortalMask);
+        OutP.ExitNormalRegion[0]    = CopyP.Exit.NormalAxisWorld.X;
+        OutP.ExitNormalRegion[1]    = CopyP.Exit.NormalAxisWorld.Y;
+        OutP.ExitNormalRegion[2]    = CopyP.Exit.NormalAxisWorld.Z;
+        OutP.ExitNormalRegion[3]    = static_cast<float>(CopyP.Exit.WorldRegionOrdinal);
+        OutP.ExitRimColorPad[0]     = CopyP.RimColorExitRgb.R;
+        OutP.ExitRimColorPad[1]     = CopyP.RimColorExitRgb.G;
+        OutP.ExitRimColorPad[2]     = CopyP.RimColorExitRgb.B;
+        OutP.ExitRimColorPad[3]     = 0.0f;
+
+        OutP.EntrySkyUpper[0]  = CopyP.Entry.SkyUpperRgb.R;
+        OutP.EntrySkyUpper[1]  = CopyP.Entry.SkyUpperRgb.G;
+        OutP.EntrySkyUpper[2]  = CopyP.Entry.SkyUpperRgb.B;
+        OutP.EntrySkyLower[0] = CopyP.Entry.SkyLowerRgb.R;
+        OutP.EntrySkyLower[1] = CopyP.Entry.SkyLowerRgb.G;
+        OutP.EntrySkyLower[2] = CopyP.Entry.SkyLowerRgb.B;
+        OutP.EntrySunDirPad[0]  = CopyP.Entry.SunDirectionWorld.X;
+        OutP.EntrySunDirPad[1]  = CopyP.Entry.SunDirectionWorld.Y;
+        OutP.EntrySunDirPad[2]  = CopyP.Entry.SunDirectionWorld.Z;
+        OutP.EntrySunRadPad[0]  = CopyP.Entry.SunRadianceRgb.R;
+        OutP.EntrySunRadPad[1]  = CopyP.Entry.SunRadianceRgb.G;
+        OutP.EntrySunRadPad[2]  = CopyP.Entry.SunRadianceRgb.B;
+
+        OutP.ExitSkyUpper[0]   = CopyP.Exit.SkyUpperRgb.R;
+        OutP.ExitSkyUpper[1]   = CopyP.Exit.SkyUpperRgb.G;
+        OutP.ExitSkyUpper[2]   = CopyP.Exit.SkyUpperRgb.B;
+        OutP.ExitSkyLower[0]  = CopyP.Exit.SkyLowerRgb.R;
+        OutP.ExitSkyLower[1]  = CopyP.Exit.SkyLowerRgb.G;
+        OutP.ExitSkyLower[2]  = CopyP.Exit.SkyLowerRgb.B;
+        OutP.ExitSunDirPad[0]   = CopyP.Exit.SunDirectionWorld.X;
+        OutP.ExitSunDirPad[1]   = CopyP.Exit.SunDirectionWorld.Y;
+        OutP.ExitSunDirPad[2]   = CopyP.Exit.SunDirectionWorld.Z;
+        OutP.ExitSunRadPad[0]   = CopyP.Exit.SunRadianceRgb.R;
+        OutP.ExitSunRadPad[1]   = CopyP.Exit.SunRadianceRgb.G;
+        OutP.ExitSunRadPad[2]   = CopyP.Exit.SunRadianceRgb.B;
+
+        for (uint32_t V = 0u; V < VCount; ++V)
+        {
+            const uint32_t PackIdx = V >> 1u;
+            if ((V & 1u) == 0u)
+            {
+                OutP.CustomPolyVerts[PackIdx][0] = CopyP.CustomPolygonUv[V].X;
+                OutP.CustomPolyVerts[PackIdx][1] = CopyP.CustomPolygonUv[V].Y;
+            }
+            else
+            {
+                OutP.CustomPolyVerts[PackIdx][2] = CopyP.CustomPolygonUv[V].X;
+                OutP.CustomPolyVerts[PackIdx][3] = CopyP.CustomPolygonUv[V].Y;
+            }
+        }
+        GpuPortals.push_back(OutP);
+    }
+    UploadedPortalPairCount = PortalCount;
+    if (GpuPortals.empty())
+    {
+        GpuPortals.emplace_back();
+    }
+    UploadToDeviceBuffer(PortalPairBuffer, GpuPortals.data(), GpuPortals.size() * sizeof(GpuPortalPair544), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    // -------------------------------------------------------------------------
+    // 4. Per-Instance Exact Half-Space Clipping Planes & Hidden Clones
+    // -------------------------------------------------------------------------
+    std::vector<GpuClipPlaneRange32> ClipRanges;
+    ClipRanges.reserve(16u);
+    for (const ResidentClusterInstanceSpan& Span : ResidentClusterInstances)
+    {
+        if (ClipRanges.size() >= 64u || Span.InstanceIndex >= Scene.ClusterInstances.size() || Span.ClusterCount == 0u)
+        {
+            continue;
+        }
+        const RigidClusterInstance& Inst = Scene.ClusterInstances[Span.InstanceIndex];
+        if (!Inst.VisibilityEnabled)
+        {
+            GpuClipPlaneRange32 OutClip {};
+            OutClip.ClusterRangePad[0] = Span.FirstGlobalClusterOrdinal;
+            OutClip.ClusterRangePad[1] = Span.FirstGlobalClusterOrdinal + Span.ClusterCount;
+            OutClip.ClusterRangePad[2] = 1u;
+            OutClip.ClipPlaneWorld[0]  = 0.0f;
+            OutClip.ClipPlaneWorld[1]  = 0.0f;
+            OutClip.ClipPlaneWorld[2]  = 1.0f;
+            OutClip.ClipPlaneWorld[3]  = -1.0e8f; // Reject all points cleanly
+            ClipRanges.push_back(OutClip);
+            continue;
+        }
+        if (!Inst.ClipPlaneEnabled)
+        {
+            continue;
+        }
+        GpuClipPlaneRange32 OutClip {};
+        OutClip.ClusterRangePad[0] = Span.FirstGlobalClusterOrdinal;
+        OutClip.ClusterRangePad[1] = Span.FirstGlobalClusterOrdinal + Span.ClusterCount;
+        OutClip.ClusterRangePad[2] = 1u;
+        OutClip.ClipPlaneWorld[0]  = Inst.ClipPlaneWorld[0];
+        OutClip.ClipPlaneWorld[1]  = Inst.ClipPlaneWorld[1];
+        OutClip.ClipPlaneWorld[2]  = Inst.ClipPlaneWorld[2];
+        OutClip.ClipPlaneWorld[3]  = Inst.ClipPlaneWorld[3];
+        ClipRanges.push_back(OutClip);
+    }
+    UploadedClipRangeCount = static_cast<uint32_t>(ClipRanges.size());
+    if (ClipRanges.empty())
+    {
+        ClipRanges.emplace_back();
+    }
+    UploadToDeviceBuffer(ClipInstanceRangeBuffer, ClipRanges.data(), ClipRanges.size() * sizeof(GpuClipPlaneRange32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    // -------------------------------------------------------------------------
+    // 5. Area-Stratified Multi-Bounce Surfel Radiosity Field (Albedo Color Bleed)
+    //    Rebuilt only when geometry, transforms, or material albedos change!
+    // -------------------------------------------------------------------------
+    uint64_t SurfelGeoSig = Constants::Fnv1a64OffsetBasis;
+    auto MixU32 = [&](uint32_t V)
+    {
+        SurfelGeoSig ^= static_cast<uint64_t>(V);
+        SurfelGeoSig *= Constants::Fnv1a64Prime;
+    };
+    auto MixF32 = [&](float V)
+    {
+        uint32_t B = 0u;
+        std::memcpy(&B, &V, sizeof(B));
+        MixU32(B);
+    };
+    MixU32(static_cast<uint32_t>(Scene.ClusterInstances.size()));
+    MixU32(static_cast<uint32_t>(Scene.SceneTree.Primitives.size()));
+    for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+    {
+        MixU32(Inst.VisibilityEnabled ? 1u : 0u);
+        MixU32(Inst.MaterialSlot);
+        MixF32(Inst.WorldTranslation.X);
+        MixF32(Inst.WorldTranslation.Y);
+        MixF32(Inst.WorldTranslation.Z);
+        MixF32(Inst.RotationZDegrees);
+    }
+    if (SurfelGeoSig == CachedSurfelGeometrySignature && UploadedSurfelCount > 0u)
+    {
+        SurfelRadiosityDirty = true;
+        return;
+    }
+    CachedSurfelGeometrySignature = SurfelGeoSig;
+
+    struct SurfelCandidate
+    {
+        Mathematics::Axis3D Pos;
+        Mathematics::Axis3D Normal;
+        float               AreaM2;
+        float               AlbR, AlbG, AlbB;
+        float               Metal;
+        float               EmR, EmG, EmB;
+        float               Weight;
+        uint32_t            InstOrd;
+    };
+    std::vector<SurfelCandidate> Pool;
+    Pool.reserve(2048u);
+
+    auto GatherTriangleForSurfels = [&](
+        const Mathematics::Axis3D& V0,
+        const Mathematics::Axis3D& V1,
+        const Mathematics::Axis3D& V2,
+        uint16_t                   MatId,
+        uint32_t                   InstOrd)
+    {
+        const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(MatId);
+        // Skip transparent thin glass & HUD displays
+        if (Mat.Transmission.TransmissionWeight > 0.45f || Mat.PorosityLight.DynamicDisplaySlot != 0u)
+        {
+            return;
+        }
+        const Mathematics::Axis3D CrossN = Mathematics::EvaluateCross(V1 - V0, V2 - V0);
+        const float Area = 0.5f * Mathematics::EvaluateLength(CrossN);
+        if (Area <= 1.0e-4f)
+        {
+            return;
+        }
+        const Mathematics::Axis3D UnitN = Mathematics::NormalizeAxis(CrossN, { 0.0f, 0.0f, 1.0f });
+        const float Metal = std::clamp(Mat.Specular.Metalness, 0.0f, 1.0f);
+        const float AlbR  = std::clamp(Mat.Diffuse.BaseColor.R * Mat.Diffuse.BaseWeight, 0.0f, 1.0f) * (1.0f - 0.72f * Metal);
+        const float AlbG  = std::clamp(Mat.Diffuse.BaseColor.G * Mat.Diffuse.BaseWeight, 0.0f, 1.0f) * (1.0f - 0.72f * Metal);
+        const float AlbB  = std::clamp(Mat.Diffuse.BaseColor.B * Mat.Diffuse.BaseWeight, 0.0f, 1.0f) * (1.0f - 0.72f * Metal);
+        const auto  Em    = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
+        const float MaxC  = std::max({ AlbR, AlbG, AlbB });
+        const float MinC  = std::min({ AlbR, AlbG, AlbB });
+        const float ChromaBoost = 1.0f + 2.2f * (MaxC - MinC);
+
+        // Subdivide large architectural floor/wall triangles into ~1.4 m surfels so localized color bleed
+        // under vehicles, near colored walls, and under moving emissive orbs has crisp spatial resolution!
+        const uint32_t Subdiv = (Area > 18.0f) ? 4u : ((Area > 4.5f) ? 3u : ((Area > 1.4f) ? 2u : 1u));
+        const float SubArea   = Area / static_cast<float>(Subdiv * Subdiv);
+        for (uint32_t Su = 0u; Su < Subdiv; ++Su)
+        {
+            for (uint32_t Sv = 0u; Sv < (Subdiv - Su); ++Sv)
+            {
+                const float U0 = (static_cast<float>(Su) + 0.3333f) / static_cast<float>(Subdiv);
+                const float V0f = (static_cast<float>(Sv) + 0.3333f) / static_cast<float>(Subdiv);
+                const float W0 = 1.0f - U0 - V0f;
+                const Mathematics::Axis3D P = V0 * W0 + V1 * U0 + V2 * V0f;
+                const float DistOrigin = Mathematics::EvaluateLength(P);
+                const float FocusWeight = 1.0f / (1.0f + 0.0025f * DistOrigin * DistOrigin);
+                Pool.push_back({
+                    P, UnitN, SubArea, AlbR, AlbG, AlbB, Metal, Em.R, Em.G, Em.B,
+                    std::sqrt(std::min(SubArea, 4.0f)) * ChromaBoost * FocusWeight,
+                    InstOrd
+                });
+                if (Su + Sv + 1u < Subdiv)
+                {
+                    const float U1 = (static_cast<float>(Su) + 0.6667f) / static_cast<float>(Subdiv);
+                    const float V1f = (static_cast<float>(Sv) + 0.6667f) / static_cast<float>(Subdiv);
+                    const float W1 = 1.0f - U1 - V1f;
+                    const Mathematics::Axis3D P2 = V0 * W1 + V1 * U1 + V2 * V1f;
+                    const float D2 = Mathematics::EvaluateLength(P2);
+                    const float FW2 = 1.0f / (1.0f + 0.0025f * D2 * D2);
+                    Pool.push_back({
+                        P2, UnitN, SubArea, AlbR, AlbG, AlbB, Metal, Em.R, Em.G, Em.B,
+                        std::sqrt(std::min(SubArea, 4.0f)) * ChromaBoost * FW2,
+                        InstOrd
+                    });
+                }
+            }
+        }
+    };
+
+    if (!Scene.ClusterInstances.empty())
+    {
+        for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
+        {
+            const RigidClusterInstance& Inst = Scene.ClusterInstances[InstIdx];
+            if (!Inst.VisibilityEnabled || Inst.PyramidAsset == nullptr || Inst.ClipPlaneEnabled)
+            {
+                continue;
+            }
+            const auto& Asset = *Inst.PyramidAsset;
+            uint32_t LeafTriTotal = 0u;
+            for (const auto& C : Asset.Clusters)
+            {
+                if (C.HierarchyLevel == 0u) LeafTriTotal += C.TriangleCount;
+            }
+            const uint32_t Stride = std::max(1u, LeafTriTotal / 180u);
+            uint32_t Seen = 0u;
+            for (const auto& C : Asset.Clusters)
+            {
+                if (C.HierarchyLevel != 0u) continue;
+                for (uint32_t K = 0u; K < C.TriangleCount; ++K)
+                {
+                    if ((Seen++ % Stride) != 0u) continue;
+                    const uint32_t TriIdx = C.TriangleStartOffset + K;
+                    if (TriIdx >= Asset.Triangles.size()) break;
+                    const auto& Tri = Asset.Triangles[TriIdx];
+                    const uint16_t MatId = (Tri.MaterialOrdinal < Scene.MaterialRegister.QuerySlotCount())
+                        ? Tri.MaterialOrdinal
+                        : Inst.MaterialSlot;
+                    GatherTriangleForSurfels(
+                        TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex0]),
+                        TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex1]),
+                        TransformPointByInst(Inst, Asset.Positions[Tri.VertexIndex2]),
+                        MatId,
+                        InstIdx);
+                }
+            }
+        }
+    }
+    else
+    {
+        const uint32_t TotalPrims = static_cast<uint32_t>(Scene.SceneTree.Primitives.size());
+        const uint32_t Stride     = std::max(1u, TotalPrims / 1200u);
+        for (uint32_t I = 0u; I < TotalPrims; I += Stride)
+        {
+            const auto& P = Scene.SceneTree.Primitives[I];
+            GatherTriangleForSurfels(P.Corner0, P.Corner0 + P.Edge01, P.Corner0 + P.Edge02, P.MaterialOrdinal, 0u);
+        }
+    }
+
+    constexpr uint32_t TargetGpuSurfels = 576u;
+    std::vector<GpuSurfel96> Surfels;
+    if (!Pool.empty())
+    {
+        double TotalWeight = 0.0;
+        for (const auto& C : Pool) TotalWeight += static_cast<double>(std::max(1.0e-5f, C.Weight));
+        const uint32_t OutCount = std::min<uint32_t>(TargetGpuSurfels, static_cast<uint32_t>(Pool.size()));
+        Surfels.reserve(OutCount);
+        const double Step = TotalWeight / static_cast<double>(OutCount);
+        double Acc = 0.0;
+        double NextSample = Step * 0.5;
+        for (std::size_t I = 0u; I < Pool.size() && Surfels.size() < OutCount; ++I)
+        {
+            Acc += static_cast<double>(std::max(1.0e-5f, Pool[I].Weight));
+            if (Acc >= NextSample)
+            {
+                const auto& C = Pool[I];
+                const float RepArea = std::clamp(C.AreaM2 * (static_cast<float>(Pool.size()) / static_cast<float>(OutCount)), 0.04f, 6.5f);
+                const float DiskR   = std::clamp(std::sqrt(RepArea / Constants::PiFloat), 0.14f, 1.45f);
+                GpuSurfel96 S {};
+                S.PositionRadius[0]   = C.Pos.X;
+                S.PositionRadius[1]   = C.Pos.Y;
+                S.PositionRadius[2]   = C.Pos.Z;
+                S.PositionRadius[3]   = DiskR;
+                S.NormalArea[0]       = C.Normal.X;
+                S.NormalArea[1]       = C.Normal.Y;
+                S.NormalArea[2]       = C.Normal.Z;
+                S.NormalArea[3]       = RepArea;
+                S.DiffuseAlbedoPad[0] = C.AlbR;
+                S.DiffuseAlbedoPad[1] = C.AlbG;
+                S.DiffuseAlbedoPad[2] = C.AlbB;
+                S.DiffuseAlbedoPad[3] = C.Metal;
+                S.DirectExitance[0]   = C.EmR;
+                S.DirectExitance[1]   = C.EmG;
+                S.DirectExitance[2]   = C.EmB;
+                S.DirectExitance[3]   = 0.0f;
+                S.BounceExitance[0]   = C.EmR;
+                S.BounceExitance[1]   = C.EmG;
+                S.BounceExitance[2]   = C.EmB;
+                S.BounceExitance[3]   = static_cast<float>(C.InstOrd);
+                S.EmissiveSelfPad[0]  = C.EmR;
+                S.EmissiveSelfPad[1]  = C.EmG;
+                S.EmissiveSelfPad[2]  = C.EmB;
+                S.EmissiveSelfPad[3]  = 0.0f;
+                Surfels.push_back(S);
+                NextSample += Step;
+            }
+        }
+    }
+    UploadedSurfelCount = static_cast<uint32_t>(Surfels.size());
+    if (Surfels.empty())
+    {
+        Surfels.emplace_back();
+    }
+    UploadToDeviceBuffer(SurfelRadiosityBuffer, Surfels.data(), Surfels.size() * sizeof(GpuSurfel96), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    SurfelRadiosityDirty = true;
+}
+
 bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldSceneSpecification& Scene)
 {
     if (!QueryReady())
@@ -5654,6 +6467,28 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
     // 3c. Upload Per-Asset Signed Local SDF Voxels (once per asset set) + Dynamic Rigid Instance Buffer
     (void)SynchronizeLocalSdfResources(Scene);
 
+    // 3d. Upload Exact Stokes Emissive Clusters/Triangles, Bone Capsules, Multi-Bounce Surfel Field, Portals & Clip Planes
+    SynchronizeStokesSurfelPortalBuffers(Scene);
+
+    // Detect dynamic rigid transform motion (e.g. moving DynamicEmissiveOrb or driving HeroVehicle)
+    uint64_t DynamicMoveSig = 14695981039346656037ull;
+    for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+    {
+        auto MixF = [&](float V)
+        {
+            uint32_t Bits = 0u;
+            std::memcpy(&Bits, &V, sizeof(Bits));
+            DynamicMoveSig ^= Bits;
+            DynamicMoveSig *= 1099511628211ull;
+        };
+        MixF(Inst.WorldTranslation.X);
+        MixF(Inst.WorldTranslation.Y);
+        MixF(Inst.WorldTranslation.Z);
+        MixF(Inst.RotationZDegrees);
+    }
+    const bool DynamicObjectsMoved = (DynamicMoveSig != CachedDynamicMoveSignature);
+    CachedDynamicMoveSignature = DynamicMoveSig;
+
     // 4. Build Two-Cascade Solar Shadow Depth + Global Distance Field + 2-Bounce Radiosity Volume on GPU
     if (RebuildShadows || !SceneUploadedOnce || SolarShadowDepthBuffer.BufferHandle == VK_NULL_HANDLE)
     {
@@ -5668,10 +6503,17 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
     }
     else if (GlobalDistanceFieldReady)
     {
-        (void)DispatchGpuScenePrecompute(
-            Scene,
-            false,
-            kPrecomputeFineShadow | kPrecomputeCoarseShadow | kPrecomputeRadiosity | kPrecomputeRadiosityFull | kPrecomputeSecondBounce);
+        uint32_t DynamicPrecomputeFlags =
+            kPrecomputeFineShadow | kPrecomputeCoarseShadow |
+            kPrecomputeRadiosity | kPrecomputeRadiosityFull | kPrecomputeSecondBounce;
+        if (DynamicObjectsMoved)
+        {
+            // Critical fix: re-bake Fine GDF & GlobalSurfaceShellBuffer when dynamic objects (e.g. DynamicEmissiveOrb
+            // or driving HeroVehicle) move so voxelized emissive/occluder shells NEVER freeze at t = 0!
+            PendingFineGeometryReset = true;
+            DynamicPrecomputeFlags  |= kPrecomputeFineGdf;
+        }
+        (void)DispatchGpuScenePrecompute(Scene, false, DynamicPrecomputeFlags);
     }
 
     CachedNaniteCutSignature = 0u;
@@ -6419,14 +7261,10 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 PrecomputeMask |= kPrecomputeFineGdf;
                 if (UsesRadiosityField)
                 {
-                    PrecomputeMask |= kPrecomputeRadiosity;
+                    PrecomputeMask |= (kPrecomputeRadiosity | kPrecomputeSecondBounce);
                     if (PendingRadiosityRefresh)
                     {
                         PrecomputeMask |= kPrecomputeRadiosityFull;
-                    }
-                    if (CopyToReadbackStaging)
-                    {
-                        PrecomputeMask |= kPrecomputeSecondBounce;
                     }
                 }
                 else
@@ -6436,11 +7274,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             }
             else if (UsesRadiosityField && PendingRadiosityRefresh)
             {
-                PrecomputeMask |= (kPrecomputeRadiosity | kPrecomputeRadiosityFull);
-                if (CopyToReadbackStaging)
-                {
-                    PrecomputeMask |= kPrecomputeSecondBounce;
-                }
+                PrecomputeMask |= (kPrecomputeRadiosity | kPrecomputeRadiosityFull | kPrecomputeSecondBounce);
             }
 
             const float CoarseAxisDrift = std::max({
@@ -7027,11 +7861,14 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     RetireLiveFrameSlot(SlotIdx, true);
     AsyncLiveFrameSlot& ActiveSlot = LiveFrameSlots[SlotIdx];
-    EnsureBufferCapacity(ActiveSlot.UniformBuffer, UniformStrideBytes * 12ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    EnsureBufferCapacity(ActiveSlot.UniformBuffer, UniformStrideBytes * 14ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     if (ActiveSlot.UniformBuffer.HostAddress == nullptr)
     {
         return false;
     }
+
+    // Keep live Stokes emissives, bone capsules, multi-world portals, clip planes & surfel field synchronized
+    SynchronizeStokesSurfelPortalBuffers(Scene);
 
     std::memcpy(&CachedFineToroidalMinCell[3], &ActiveAnalyticGroundPlaneZ, sizeof(float));
     std::memcpy(&CachedCoarseToroidalMinCell[3], &ActiveAnalyticGroundMaterialSlot, sizeof(uint32_t));
@@ -7150,12 +7987,23 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         }
     }
 
+    Uniforms.GiPortalCounts[0]    = UploadedEmissiveClusterCount;
+    Uniforms.GiPortalCounts[1]    = UploadedBoneCapsuleCount;
+    Uniforms.GiPortalCounts[2]    = UploadedSurfelCount;
+    Uniforms.GiPortalCounts[3]    = (UploadedPortalPairCount & 0xFFu) | ((UploadedClipRangeCount & 0xFFu) << 8u);
+    Uniforms.SurfelStepControl[0] = 0u;
+    Uniforms.SurfelStepControl[1] = UploadedEmissiveTriCount;
+    Uniforms.SurfelStepControl[2] = 1u; // Candidate 1 Hybrid+Caps Shadows + Stokes Emissive + 2-Bounce Surfel Albedo GI active
+    Uniforms.SurfelStepControl[3] = 0u;
+
     const uint32_t EngIdxPre             = static_cast<uint32_t>(Config.Engine);
     const uint32_t DirectPbrOrdinalPre   = static_cast<uint32_t>(WorldRenderEngine::OpenPbrDirect);
     const uint32_t LowEndGtxOrdinalPre   = static_cast<uint32_t>(WorldRenderEngine::RealTimeGiGtxLowEnd);
     const bool     PathTracePre          = (EngIdxPre == 4u || EngIdxPre == 5u) && (Config.DebugChannel == 0u);
+    const bool     PortalsOrClipsActive  = (UploadedPortalPairCount > 0u) || (UploadedClipRangeCount > 0u);
     const bool     UseHardwarePrimaryVis =
         !PathTracePre &&
+        !PortalsOrClipsActive &&
         (EngIdxPre != 3u) &&
         (PrimaryVisPipeline != VK_NULL_HANDLE) &&
         (UploadedTriangleCount > 0u) &&
@@ -7225,7 +8073,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     WriteStamp(1u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     EnsureBufferCapacity(ActiveClusterMaskBuffer, MaskSliceOffsetBytes * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 40u>
+    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 46u>
     {
         const auto& InShadow  = SwapPingPong ? PongShadowAoBuffer : PingShadowAoBuffer;
         const auto& OutShadow = SwapPingPong ? PingShadowAoBuffer : PongShadowAoBuffer;
@@ -7271,7 +8119,13 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             { 36u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, DummyFloat1x1x1Image3D.ViewHandle, VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 37u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, DummyRgba1x1x1Image3D.ViewHandle,  VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 38u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, PrimaryVisImage2D.ViewHandle,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
-            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle, VK_WHOLE_SIZE },
+            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle,  VK_WHOLE_SIZE },
+            { 40u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         EmissiveTriangleBuffer.BufferHandle,     VK_WHOLE_SIZE },
+            { 41u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         EmissiveClusterBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 42u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         DeformingBoneCapsuleBuffer.BufferHandle, VK_WHOLE_SIZE },
+            { 43u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         SurfelRadiosityBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 44u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PortalPairBuffer.BufferHandle,           VK_WHOLE_SIZE },
+            { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
         }};
     };
 
@@ -7313,9 +8167,34 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    auto MakeLazyViewportSlots = []() -> std::array<VkDescriptorType, 40u>
+    // Real-time 2-Bounce Surfel Radiosity Solve on GPU (Pass 0: Direct Sun + Area + IES + Stokes Emissive w/ Candidate 1 Hybrid Shadows;
+    // Pass 1: Surfel-to-Surfel Bunnell Disk Albedo Color-Bleed Bounce!) — executes live on EVERY interactive & offscreen frame!
+    if (SurfelRadiositySolveProgramHandle != UINT32_MAX && UploadedSurfelCount > 0u)
     {
-        std::array<VkDescriptorType, 40u> LazySlots {};
+        const uint32_t SurfelGroups = (UploadedSurfelCount + 63u) / 64u;
+        const uint64_t UniOffsStep0 = 12ull * UniformStrideBytes;
+        const uint64_t UniOffsStep1 = 13ull * UniformStrideBytes;
+
+        WorldViewportUniformBlockStd140 Step0Uni = Uniforms;
+        Step0Uni.SurfelStepControl[0] = 0u;
+        std::memcpy(UniformBytes + UniOffsStep0, &Step0Uni, sizeof(Step0Uni));
+        const auto Step0Slots = ConstructStepSlots(UniOffsStep0, false);
+        if (DispatchEncoder.EncodeComputeDispatch(Cmd, SurfelRadiositySolveProgramHandle, Step0Slots, SurfelGroups, 1u, 1u))
+        {
+            InsertComputeSyncBarrier();
+            WorldViewportUniformBlockStd140 Step1Uni = Uniforms;
+            Step1Uni.SurfelStepControl[0] = 1u;
+            std::memcpy(UniformBytes + UniOffsStep1, &Step1Uni, sizeof(Step1Uni));
+            const auto Step1Slots = ConstructStepSlots(UniOffsStep1, false);
+            (void)DispatchEncoder.EncodeComputeDispatch(Cmd, SurfelRadiositySolveProgramHandle, Step1Slots, SurfelGroups, 1u, 1u);
+            InsertComputeSyncBarrier();
+        }
+        SurfelRadiosityDirty = false;
+    }
+
+    auto MakeLazyViewportSlots = []() -> std::array<VkDescriptorType, 46u>
+    {
+        std::array<VkDescriptorType, 46u> LazySlots {};
         LazySlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         LazySlots[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         LazySlots[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

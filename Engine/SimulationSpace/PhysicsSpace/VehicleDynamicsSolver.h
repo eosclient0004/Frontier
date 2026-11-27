@@ -12,6 +12,7 @@
 #include "Engine/ComponentClass/ComponentClassDefinition.h"
 #include "Engine/ComponentClass/ComponentInstanceCategories.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
+#include "Engine/World/PortalSystem.h"
 #include "Engine/SimulationSpace/PhysicsSpace/VehicleSpecifications.h"
 #include "Engine/Threading/Sync/ThreadBoundaryExchange.h"
 
@@ -280,8 +281,16 @@ public:
     [[nodiscard]] bool                          SubmitControlDirective(const VehicleControlDirective& Directive) noexcept;
     [[nodiscard]] VehicleReadingLease           AcquireVehicleReading() const noexcept;
     [[nodiscard]] const VehicleReadingExchange& InspectVehicleReadingExchange() const noexcept;
-    [[nodiscard]] RigidBodyToken                QueryChassisBodyToken() const noexcept;
-    [[nodiscard]] bool                          QueryInitialized() const noexcept;
+    [[nodiscard]] RigidBodyToken QueryChassisBodyToken() const noexcept;
+    [[nodiscard]] bool           QueryInitialized() const noexcept;
+
+    // Exact split-portal physics coupling (per-wheel cross-world suspension/grip + per-half exposed force + exact CoM transit)
+    void AssignActivePortals(const std::vector<World::PortalPairSpecification>& Portals) noexcept;
+    [[nodiscard]] uint32_t QueryPortalTransitCount() const noexcept { return PortalTransitCount; }
+    [[nodiscard]] uint32_t QueryWheelPortalSide(uint32_t CornerIdx) const noexcept
+    {
+        return (CornerIdx < MaxVehicleWheelCorners) ? WheelPortalSide[CornerIdx] : 0u;
+    }
 
 private:
     struct InternalWheelRuntime
@@ -447,6 +456,21 @@ private:
 
     // Kinematics runtime
     float                   PrevForwardSpeedMps = 0.0f;
+
+    // Multi-world split-portal physics state
+    std::vector<World::PortalPairSpecification> ActivePortals            {};
+    std::array<uint32_t, MaxVehicleWheelCorners> WheelPortalSide         { 0u, 0u, 0u, 0u };
+    std::array<float, MaxVehicleWheelCorners>    WheelPortalGripScale    { 1.0f, 1.0f, 1.0f, 1.0f };
+    Mathematics::Axis3D                          PrevChassisPosZUp       { 0.0f, 0.0f, 0.0f };
+    bool                                         HasPrevChassisPosZUp    = false;
+    float                                        PortalTransitCooldownS  = 0.0f;
+    uint32_t                                     PortalTransitCount      = 0u;
+
+    [[nodiscard]] RayCastHitReading ExecutePortalAwareWheelRayCast(
+        PhysicsExtension&   Physics,
+        const RayCastQuery& RayYUp,
+        uint32_t            CornerIdx,
+        float&              OutPortalGripScale) noexcept;
     float                   PrevLateralSpeedMps = 0.0f;
     float                   ForwardSpeedMps     = 0.0f;
     float                   LateralSpeedMps     = 0.0f;

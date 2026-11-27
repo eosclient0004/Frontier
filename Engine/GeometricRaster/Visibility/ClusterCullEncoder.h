@@ -56,6 +56,9 @@ struct RigidClusterInstance
     uint32_t                                             AnalyticalShapeCode = DistanceShapeBakedVolume; // [-]   - DistanceShape* volume or analytical primitive tag
     const DistanceFieldSpace::LocalSignedDistanceVolume* LocalSdfVolume      = nullptr;                  // [-]   - Optional per-asset local distance volume
     bool                                                 CastShadows         = true;                     // [-]   - False excludes receiver/fixture geometry from GDF & shadow rays
+    bool                                                 VisibilityEnabled   = true;                     // [-]   - False hides instance completely from primary/shadow/reflection rays
+    bool                                                 ClipPlaneEnabled    = false;                    // [-]   - Enables exact world-space half-space clipping (straddling portals)
+    float                                                ClipPlaneWorld[4]   { 0.0f, 0.0f, 1.0f, 1.0e6f }; // [m] - Keep points with dot(P, N) + D >= 0
 };
 
 struct VisibleClusterCommand

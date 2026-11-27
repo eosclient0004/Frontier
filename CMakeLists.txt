@@ -472,6 +472,7 @@ frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   DenoiseCom
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ShadowCascadeComputeEntry compute  WorldViewportShadowCascadeCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   GlobalDistanceBakeEntry   compute  WorldViewportGlobalDistanceBake.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   GlobalRadiosityBakeEntry  compute  WorldViewportGlobalRadiosityBake.comp.spv)
+frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   SurfelRadiositySolveEntry compute  WorldViewportSurfelRadiositySolve.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ViewportPathTraceEntry    compute  WorldViewportPathTraceCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   MotionBlurPostEntry       compute  WorldViewportMotionBlurCompute.comp.spv)
 frontier_compile_slang_shader(WorldPrimaryVisRaster.slang             PrimaryVisVertexEntry     vertex   WorldPrimaryVisRaster.vert.spv)
@@ -1254,6 +1255,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/World/WorldInstanceRegister.cpp
     Engine/World/CategoryInstances.cpp
     Engine/World/WorldSceneSyncBridge.cpp
+    Engine/World/PortalSystem.cpp
     Engine/Tools/DefaultContentGenerator.cpp
     Engine/ComponentClass/ComponentInstanceStorage.cpp
     Engine/ComponentClass/ComponentClassDefinition.cpp
@@ -1754,6 +1756,14 @@ if(BUILD_TESTING)
     target_compile_definitions(AutoSpaceStudioValidation PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
     target_link_libraries(AutoSpaceStudioValidation PRIVATE AutoSpaceProject)
     add_test(NAME AutoSpaceStudioValidation COMMAND AutoSpaceStudioValidation)
+
+    add_executable(PortalVehicleVerification Exhibits/PortalVehicleVerification.cpp)
+    target_include_directories(PortalVehicleVerification PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/Projects/AutoSpace")
+    target_compile_definitions(PortalVehicleVerification PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(PortalVehicleVerification PRIVATE AutoSpaceProject)
+    add_test(NAME PortalVehicleVerification COMMAND PortalVehicleVerification)
 
     add_test(
         NAME AutoSpaceGameModeSmoke

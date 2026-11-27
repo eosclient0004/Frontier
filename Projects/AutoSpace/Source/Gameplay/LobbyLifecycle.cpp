@@ -62,6 +62,10 @@ void LobbyLifecycle::ClearLobbyObjects() noexcept
     HeroVehiclePhysicsActive     = false;
     HeroTireSmokeActive          = false;
     HeroVehicleEntityToken       = {};
+    HeroPortalCloneEntityToken   = {};
+    HeroVehicleClusterIdx        = UINT32_MAX;
+    HeroPortalCloneClusterIdx    = UINT32_MAX;
+    HeroVehicleBakedYawDeg       = 0.0f;
     HeroVehicleSpawnZUp          = {};
     HeroCurrentPositionZUp       = {};
     HeroCurrentYawZUpDegrees     = 0.0f;
@@ -72,6 +76,7 @@ void LobbyLifecycle::ClearLobbyObjects() noexcept
     DynamicEmissiveOrbToken      = {};
     DynamicEmissiveOrbClusterIdx = UINT32_MAX;
     DynamicEmissiveOrbMatSlot    = 0u;
+    WorldScene.Portals.clear();
 
     // Destroy RAII CategoryInstanceHandles before clearing WorldRegister or unbinding Outliner
     ManagedCategoryHandles.clear();
@@ -400,7 +405,13 @@ InstanceToken LobbyLifecycle::AppendSurfaceEntity(
     if (StableId == "vehicle-hero")
     {
         HeroVehicleEntityToken = Tok;
+        HeroVehicleClusterIdx  = ClusterIdx;
         HeroVehicleSpawnZUp    = WorldTranslation;
+    }
+    else if (StableId == "vehicle-hero-portal-clone")
+    {
+        HeroPortalCloneEntityToken = Tok;
+        HeroPortalCloneClusterIdx  = ClusterIdx;
     }
     ManagedCategoryHandles.push_back(std::move(Handle));
     return Tok;
@@ -651,6 +662,27 @@ void LobbyLifecycle::InitializeHeroVehicleSimulation() noexcept
     FloorDesc.CollisionChannel        = static_cast<uint16_t>(CollisionLayerChannel::StaticEnvironment);
     (void)HeroPhysics->IssueRigidBody(FloorDesc);
 
+    // Register World B's elevated proving deck collider in Jolt (Z_world = +18 m -> Y_jolt = +18 m, X = +160, Z_jolt = -80)
+    if (!WorldScene.Portals.empty())
+    {
+        RigidBodyDescriptor WorldBDeck {};
+        WorldBDeck.Shape.ShapeCategory     = CollisionShapeCategory::Box;
+        WorldBDeck.Shape.HalfExtentsMeters = { 65.0f, 0.5f, 65.0f };
+        WorldBDeck.MotionCategory          = RigidMotionCategory::Static;
+        WorldBDeck.PositionMeters          = { 0.0f, -0.5f, 680.0f };
+        WorldBDeck.CollisionChannel        = static_cast<uint16_t>(CollisionLayerChannel::StaticEnvironment);
+        (void)HeroPhysics->IssueRigidBody(WorldBDeck);
+    }
+
+    switch (ActivePolicy.SelectedLobby)
+    {
+        case StudioLobbyId::StudioLobby1Cyclorama:     HeroVehicleBakedYawDeg = -16.0f;  break;
+        case StudioLobbyId::StudioLobby2ForestStage:   HeroVehicleBakedYawDeg = -22.0f;  break;
+        case StudioLobbyId::StudioLobby3RacingGarage:  HeroVehicleBakedYawDeg = -146.0f; break;
+        case StudioLobbyId::StudioLobby4TrainingGround:
+        default:                                       HeroVehicleBakedYawDeg = 0.0f;    break;
+    }
+
     HeroVehicleSpec =
         VehiclePhysicsRig::ConstructSpecificationFromControlVehicle(ControlVehicleClass.ClassDefinition);
     HeroVehicleSpec.WheelContactMode          = WheelContactQueryMode::HeroThreeLaneFanArc;
@@ -672,7 +704,21 @@ void LobbyLifecycle::InitializeHeroVehicleSimulation() noexcept
         return;
     }
 
-    // Settle suspension cleanly onto Z = 0 flat deck so tyres rest flush at startup
+    // Bind live multi-world portals to split-portal Jolt suspension & center-of-mass transit
+    HeroVehicleRig->AssignActivePortals(WorldScene.Portals);
+
+    // Orient Jolt chassis body to match showcase baked heading in Lobbies 1..3 so W drives forward along the hood
+    if (std::fabs(HeroVehicleBakedYawDeg) > 1.0e-3f)
+    {
+        const float HalfRad = 0.5f * HeroVehicleBakedYawDeg * Frontier::Constants::DegToRadFloat;
+        const RigidOrientationQuaternion YawQ { 0.0f, std::sin(HalfRad), 0.0f, std::cos(HalfRad) };
+        HeroPhysics->TeleportBody(
+            HeroVehicleRig->QueryChassisBodyToken(),
+            { SpawnYUp.X, SpawnYUp.Y + InitialChassisOffsetY, SpawnYUp.Z },
+            YawQ);
+    }
+
+    // Settle suspension cleanly onto deck so tyres rest flush at startup
     VehicleControlDirective SettleBrake {};
     SettleBrake.Category        = VehicleDirectiveCategory::DriverInput;
     SettleBrake.BrakeNormalized = 0.50f;
@@ -695,7 +741,7 @@ void LobbyLifecycle::InitializeHeroVehicleSimulation() noexcept
     }
 
     HeroCurrentPositionZUp   = HeroVehicleSpawnZUp;
-    HeroCurrentYawZUpDegrees = 0.0f;
+    HeroCurrentYawZUpDegrees = HeroVehicleBakedYawDeg;
     (void)WorldRegister.AssignWorldTransform(
         HeroVehicleEntityToken,
         HeroVehicleSpawnZUp.X,
@@ -704,6 +750,7 @@ void LobbyLifecycle::InitializeHeroVehicleSimulation() noexcept
         0.0f,
         0.0f,
         0.0f);
+    SyncHeroPortalStraddlingProjection();
     (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
 
     if (ActivePolicy.EnableTireFluidSmoke)
@@ -749,6 +796,208 @@ void LobbyLifecycle::ResetHeroVehicleToSpawn() noexcept
         WorldScene.Atmosphere.Fog.LocalFogs.resize(StaticLocalFogBaselineCount);
     }
     InitializeHeroVehicleSimulation();
+}
+
+void LobbyLifecycle::SelectActivePortalShape(Frontier::World::PortalApertureShapeCategory Shape) noexcept
+{
+    using namespace Frontier::World;
+    if (WorldScene.Portals.empty())
+    {
+        return;
+    }
+    auto& P = WorldScene.Portals[0];
+    P.Shape = Shape;
+    if (Shape == PortalApertureShapeCategory::Rectangle)
+    {
+        P.HalfWidthMeters       = 2.75f;
+        P.HalfHeightMeters      = 1.75f;
+        P.Entry.CenterWorld.Z   = 1.75f;
+        P.Exit.CenterWorld.Z    = 1.75f;
+    }
+    else if (Shape == PortalApertureShapeCategory::Circle)
+    {
+        P.HalfWidthMeters       = 2.35f;
+        P.HalfHeightMeters      = 2.15f;
+        P.Entry.CenterWorld.Z   = 2.15f;
+        P.Exit.CenterWorld.Z    = 2.15f;
+    }
+    else if (Shape == PortalApertureShapeCategory::Hexagon)
+    {
+        P.HalfWidthMeters       = 2.85f;
+        P.HalfHeightMeters      = 1.80f;
+        P.Entry.CenterWorld.Z   = 1.56f;
+        P.Exit.CenterWorld.Z    = 1.56f;
+    }
+    else if (Shape == PortalApertureShapeCategory::RegularPolygon)
+    {
+        P.PolygonSides          = 8u;
+        P.HalfWidthMeters       = 2.65f;
+        P.HalfHeightMeters      = 1.95f;
+        P.Entry.CenterWorld.Z   = 1.82f;
+        P.Exit.CenterWorld.Z    = 1.82f;
+    }
+    else
+    {
+        // Concave asymmetric 2D shield/star-arch cutout proving arbitrary 2D polygon shapes!
+        P.HalfWidthMeters       = 2.85f;
+        P.HalfHeightMeters      = 2.10f;
+        P.Entry.CenterWorld.Z   = 1.85f;
+        P.Exit.CenterWorld.Z    = 1.85f;
+        P.CustomPolygonUv       = {
+            { -2.45f, -1.85f },
+            {  2.45f, -1.85f },
+            {  2.75f,  0.15f },
+            {  1.65f,  0.65f },
+            {  2.05f,  1.65f },
+            {  0.00f,  2.08f },
+            { -2.05f,  1.65f },
+            { -1.65f,  0.65f },
+            { -2.75f,  0.15f }
+        };
+    }
+    P.NormalizeAxes();
+    if (HeroVehicleRig)
+    {
+        HeroVehicleRig->AssignActivePortals(WorldScene.Portals);
+    }
+    SyncHeroPortalStraddlingProjection();
+}
+
+void LobbyLifecycle::CycleActivePortalShape() noexcept
+{
+    using namespace Frontier::World;
+    if (WorldScene.Portals.empty())
+    {
+        return;
+    }
+    switch (WorldScene.Portals[0].Shape)
+    {
+        case PortalApertureShapeCategory::Hexagon:        SelectActivePortalShape(PortalApertureShapeCategory::Circle); break;
+        case PortalApertureShapeCategory::Circle:         SelectActivePortalShape(PortalApertureShapeCategory::Rectangle); break;
+        case PortalApertureShapeCategory::Rectangle:      SelectActivePortalShape(PortalApertureShapeCategory::CustomCutout); break;
+        case PortalApertureShapeCategory::CustomCutout:   SelectActivePortalShape(PortalApertureShapeCategory::RegularPolygon); break;
+        case PortalApertureShapeCategory::RegularPolygon:
+        default:                                          SelectActivePortalShape(PortalApertureShapeCategory::Hexagon); break;
+    }
+}
+
+void LobbyLifecycle::SyncHeroPortalStraddlingProjection() noexcept
+{
+    if (HeroVehicleClusterIdx >= WorldScene.ClusterInstances.size())
+    {
+        return;
+    }
+    auto& HeroInst = WorldScene.ClusterInstances[HeroVehicleClusterIdx];
+    const bool HasClone = (HeroPortalCloneClusterIdx < WorldScene.ClusterInstances.size());
+
+    if (WorldScene.Portals.empty())
+    {
+        HeroInst.ClipPlaneEnabled = false;
+        if (HasClone)
+        {
+            WorldScene.ClusterInstances[HeroPortalCloneClusterIdx].VisibilityEnabled = false;
+            WorldScene.ClusterInstances[HeroPortalCloneClusterIdx].ClipPlaneEnabled  = false;
+        }
+        return;
+    }
+
+    const auto Overlap = Frontier::World::EvaluateVehiclePortalOverlap(
+        WorldScene.Portals,
+        HeroCurrentPositionZUp,
+        HeroCurrentYawZUpDegrees,
+        2.38f,
+        0.98f,
+        0.72f);
+
+    if (Overlap.OverlapActive)
+    {
+        HeroInst.ClipPlaneEnabled = true;
+        for (int K = 0; K < 4; ++K)
+        {
+            HeroInst.ClipPlaneWorld[K] = Overlap.ClipPlanePrimary[K];
+        }
+        if (HasClone && HeroPortalCloneEntityToken.QueryValid())
+        {
+            auto& CloneInst = WorldScene.ClusterInstances[HeroPortalCloneClusterIdx];
+            CloneInst.VisibilityEnabled = true;
+            CloneInst.ClipPlaneEnabled  = true;
+            for (int K = 0; K < 4; ++K)
+            {
+                CloneInst.ClipPlaneWorld[K] = Overlap.ClipPlaneClone[K];
+            }
+            const float CloneDeltaYaw = Overlap.CloneYawZUpDegrees - HeroVehicleBakedYawDeg;
+            (void)WorldRegister.AssignWorldTransform(
+                HeroPortalCloneEntityToken,
+                Overlap.ClonePositionWorld.X,
+                Overlap.ClonePositionWorld.Y,
+                Overlap.ClonePositionWorld.Z,
+                0.0f,
+                0.0f,
+                CloneDeltaYaw);
+        }
+    }
+    else
+    {
+        HeroInst.ClipPlaneEnabled = false;
+        if (HasClone)
+        {
+            WorldScene.ClusterInstances[HeroPortalCloneClusterIdx].VisibilityEnabled = false;
+            WorldScene.ClusterInstances[HeroPortalCloneClusterIdx].ClipPlaneEnabled  = false;
+        }
+    }
+}
+
+void LobbyLifecycle::PlaceHeroVehicleForPortalStraddleTest(float PenetrationMeters) noexcept
+{
+    if (!HeroVehiclePhysicsActive || !HeroPhysics || !HeroVehicleRig || WorldScene.Portals.empty())
+    {
+        return;
+    }
+    const auto& P = WorldScene.Portals[0];
+    // Position car center so nose protrudes PenetrationMeters past World A Entry plane (X = 11.5 - 2.38 + PenetrationMeters)
+    const Axis3D TargetZUp {
+        P.Entry.CenterWorld.X - 2.38f + PenetrationMeters,
+        P.Entry.CenterWorld.Y,
+        0.0f
+    };
+    const Axis3D TargetYUp = ConvertVectorBetweenBases(
+        TargetZUp,
+        WorldCoordinateBasis::RightHandedZUp,
+        WorldCoordinateBasis::RightHandedYUp);
+    const Frontier::SimulationSpace::PhysicsSpace::RigidOrientationQuaternion IdentityQ { 0.0f, 0.0f, 0.0f, 1.0f };
+    HeroPhysics->TeleportBody(
+        HeroVehicleRig->QueryChassisBodyToken(),
+        { TargetYUp.X, TargetYUp.Y + HeroSettledChassisHeightY, TargetYUp.Z },
+        IdentityQ);
+    HeroPhysics->AssignBodyVelocity(HeroVehicleRig->QueryChassisBodyToken(), { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f });
+
+    // Run 6 fixed physics substeps so front wheels query World B (Y = 18 m, friction 0.48) and rear wheels query World A (Y = 0 m, friction 1.12)!
+    Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective HoldBrake {};
+    HoldBrake.Category        = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::DriverInput;
+    HoldBrake.BrakeNormalized = 0.65f;
+    (void)HeroVehicleRig->SubmitControlDirective(HoldBrake);
+    for (int S = 0; S < 6; ++S)
+    {
+        HeroVehicleRig->StepOnPhysicsThread(*HeroPhysics, 1.0 / 120.0);
+        HeroPhysics->Tick(1.0 / 120.0);
+    }
+
+    HeroCurrentPositionZUp   = TargetZUp;
+    HeroCurrentYawZUpDegrees = 0.0f;
+    (void)WorldRegister.AssignWorldTransform(
+        HeroVehicleEntityToken, TargetZUp.X, TargetZUp.Y, TargetZUp.Z, 0.0f, 0.0f, 0.0f);
+    SyncHeroPortalStraddlingProjection();
+    (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
+}
+
+uint32_t LobbyLifecycle::QueryHeroPortalTransitCount() const noexcept
+{
+    return HeroVehicleRig ? HeroVehicleRig->QueryPortalTransitCount() : 0u;
+}
+
+uint32_t LobbyLifecycle::QueryHeroWheelPortalSide(uint32_t CornerIdx) const noexcept
+{
+    return HeroVehicleRig ? HeroVehicleRig->QueryWheelPortalSide(CornerIdx) : 0u;
 }
 
 void LobbyLifecycle::QueryHeroVehicleWorldPose(
@@ -991,6 +1240,7 @@ void LobbyLifecycle::TickSimulation(double FixedDeltaSeconds) noexcept
             HeroCurrentPositionZUp   = WorldZUp;
             HeroCurrentYawZUpDegrees = YawZUpDeg;
 
+            const float VisualDeltaYaw = YawZUpDeg - HeroVehicleBakedYawDeg;
             (void)WorldRegister.AssignWorldTransform(
                 HeroVehicleEntityToken,
                 WorldZUp.X,
@@ -998,7 +1248,9 @@ void LobbyLifecycle::TickSimulation(double FixedDeltaSeconds) noexcept
                 WorldZUp.Z,
                 0.0f,
                 0.0f,
-                YawZUpDeg);
+                VisualDeltaYaw);
+
+            SyncHeroPortalStraddlingProjection();
 
             if (HeroTireSmokeActive && HeroTireSmoke)
             {

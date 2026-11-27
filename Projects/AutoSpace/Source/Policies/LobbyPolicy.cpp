@@ -24,7 +24,7 @@ LobbyPolicy LobbyPolicyEngine::BuildDefault(StudioLobbyId Lobby) noexcept
     Policy.EnableCameraRigs           = true;
     Policy.EnableCrewProps            = true;
     Policy.EnableConfiguratorOrbit    = (Lobby != StudioLobbyId::StudioLobby4TrainingGround);
-    Policy.EnableHeroVehiclePhysics   = (Lobby == StudioLobbyId::StudioLobby4TrainingGround);
+    Policy.EnableHeroVehiclePhysics   = true;
     Policy.EnableTireFluidSmoke       = (Lobby == StudioLobbyId::StudioLobby4TrainingGround);
     Policy.ActiveCameraPresetIndex    = 0u;
     ClampToSafeBounds(Policy);

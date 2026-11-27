@@ -153,7 +153,7 @@ bool AutoSpaceLifecycle::SelectStudioLobby(StudioLobbyId LobbyId, std::string& O
         OutDiagnostic = "AutoSpaceLifecycle is not initialized.";
         return false;
     }
-    Policies.Lobby.SelectedLobby = LobbyId;
+    Policies.Lobby = LobbyPolicyEngine::BuildDefault(LobbyId);
     LobbyPolicyEngine::ClampToSafeBounds(Policies.Lobby);
     if (!Lobby.InitializeAndBuild(RepositoryRoot, Policies.Lobby, OutDiagnostic))
     {

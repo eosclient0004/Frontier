@@ -117,7 +117,7 @@ void PrintDrivingControlsLegend()
 {
     std::cout
         << "\n================ AutoSpace Driving & Cockpit Controls ================\n"
-        << "  1 / 2 / 3 / 4        Switch Lobby (4 = Training Ground Flat Plane)\n"
+        << "  1 / 2 / 3 / 4        Switch Lobby (1-3 = Studios, 4 = Training Ground + Multi-World 2D Portal)\n"
         << "  W / Up               Throttle / Accelerate\n"
         << "  S / Down             Brake (auto-Reverse when stopped)\n"
         << "  A / D  or Left/Right Steer Left / Right\n"
@@ -125,7 +125,8 @@ void PrintDrivingControlsLegend()
         << "  B                    Burnout Line-Lock (front brake + full rear throttle smoke)\n"
         << "  E / Q or Shift/Ctrl  Manual Gear Shift Up / Down\n"
         << "  T                    Cycle Assists (Sport -> Drift/Off -> Safe)\n"
-        << "  C / V / Tab          Cycle Camera (Chase / Drift / Interior Cockpit / HMI Focus / Orbit)\n"
+        << "  C / V / Tab          Cycle Camera (Chase / Drift / Interior Cockpit / HMI / Orbit / Portal B)\n"
+        << "  P / O                Cycle 2D Portal Shape (Rect/Circle/Hex/Octagon/Cutout) / Toggle World B Cam\n"
         << "  H                    Toggle HMI Touchscreen Focus View (click 3D HMI buttons with mouse)\n"
         << "  U / G                Toggle On-Screen HUD / Windshield Glass Optical HUD\n"
         << "  F5 / F6 / F7 / F8    Switch Render Engine (PBR / SDF+GI / MatCap / PathTracer) - HMI syncs live\n"
@@ -237,6 +238,8 @@ int main(int ArgumentCount, char** ArgumentVector)
     uint32_t              InitialCameraPreset = 0u;
     double                InitialSimTimeSec   = -1.0;
     std::string           DriveTestScenario   {};
+    std::string           PortalShapeArg      {};
+    float                 PortalStraddleM     = -1.0f;
     AutoSpace::StudioLobbyId InitialLobby     = AutoSpace::StudioLobbyId::StudioLobby1Cyclorama;
     Frontier::GeometricRaster::WorldRenderEngine ActiveRenderEngine =
         Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd;
@@ -331,6 +334,18 @@ int main(int ArgumentCount, char** ArgumentVector)
         else if (Arg.starts_with("--drive-test="))
         {
             DriveTestScenario = std::string(Arg.substr(13u));
+        }
+        else if (Arg.starts_with("--portal-shape="))
+        {
+            PortalShapeArg = std::string(Arg.substr(15u));
+        }
+        else if (Arg.starts_with("--portal-straddle="))
+        {
+            const double Parsed = std::strtod(RawArg + 18, nullptr);
+            if (std::isfinite(Parsed) && Parsed >= 0.0 && Parsed <= 8.0)
+            {
+                PortalStraddleM = static_cast<float>(Parsed);
+            }
         }
         else if (Arg.starts_with("--render-engine="))
         {
@@ -656,6 +671,35 @@ int main(int ArgumentCount, char** ArgumentVector)
         TriggerHmiButtonCommand(static_cast<AutoSpace::HmiButtonId>(AutoClickHmiBtnIdx));
     }
 
+    if (!PortalShapeArg.empty())
+    {
+        using Frontier::World::PortalApertureShapeCategory;
+        if (PortalShapeArg == "rect" || PortalShapeArg == "rectangle" || PortalShapeArg == "quad")
+        {
+            Session.AccessLobbyLifecycle().SelectActivePortalShape(PortalApertureShapeCategory::Rectangle);
+        }
+        else if (PortalShapeArg == "circle" || PortalShapeArg == "disc")
+        {
+            Session.AccessLobbyLifecycle().SelectActivePortalShape(PortalApertureShapeCategory::Circle);
+        }
+        else if (PortalShapeArg == "hex" || PortalShapeArg == "hexagon")
+        {
+            Session.AccessLobbyLifecycle().SelectActivePortalShape(PortalApertureShapeCategory::Hexagon);
+        }
+        else if (PortalShapeArg == "poly" || PortalShapeArg == "octagon")
+        {
+            Session.AccessLobbyLifecycle().SelectActivePortalShape(PortalApertureShapeCategory::RegularPolygon);
+        }
+        else if (PortalShapeArg == "cutout" || PortalShapeArg == "custom" || PortalShapeArg == "star")
+        {
+            Session.AccessLobbyLifecycle().SelectActivePortalShape(PortalApertureShapeCategory::CustomCutout);
+        }
+    }
+    if (PortalStraddleM >= 0.0f)
+    {
+        Session.AccessLobbyLifecycle().PlaceHeroVehicleForPortalStraddleTest(PortalStraddleM);
+    }
+
     auto PreviousClock = std::chrono::steady_clock::now();
 
     while (RuntimeLoop.QueryRunning())
@@ -811,11 +855,24 @@ int main(int ArgumentCount, char** ArgumentVector)
             (void)Session.AccessLobbyLifecycle().SubmitHeroVehicleDirective(AssistCmd);
         }
 
+        // Portal 2D shape cycling (P key: Hexagon -> Circle -> Rectangle -> Concave Cutout -> Octagon)
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::P))
+        {
+            Session.AccessLobbyLifecycle().CycleActivePortalShape();
+        }
+        // Portal Exit World B observer camera toggle (O key)
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::O) &&
+            ActiveLobby == AutoSpace::StudioLobbyId::StudioLobby4TrainingGround)
+        {
+            CameraPresetIndex = (CameraPresetIndex == 5u) ? 0u : 5u;
+            SeedCameraFromActivePreset();
+        }
+
         // Smooth mouse orbit & wheel zoom (in Cockpit / HMI Focus modes, Left-Click interacts with HMI buttons; Right-Drag glances)
         const bool DrivingCamActive =
             Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive() &&
             (ActiveLobby == AutoSpace::StudioLobbyId::StudioLobby4TrainingGround);
-        const uint32_t DrivingCamMode = DrivingCamActive ? (CameraPresetIndex % 5u) : 0u;
+        const uint32_t DrivingCamMode = DrivingCamActive ? (CameraPresetIndex % 6u) : 0u;
         const bool     InteriorViewActive = DrivingCamActive && (DrivingCamMode == 2u || DrivingCamMode == 3u);
 
         const bool OrbitDragDown = InteriorViewActive
@@ -947,7 +1004,7 @@ int main(int ArgumentCount, char** ArgumentVector)
                 TitleRefreshAccumSec = 0.0;
                 const auto Reading   = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading();
                 const auto SmokeTel  = Session.InspectLobbyLifecycle().InspectTireSmokeTelemetry();
-                static constexpr const char* kCamLabels[5]    = { "Chase", "Drift Quarter", "Interior Cockpit", "HMI Focus", "Orbit" };
+                static constexpr const char* kCamLabels[6]    = { "Chase", "Drift Quarter", "Interior Cockpit", "HMI Focus", "Orbit", "World B Portal Exit" };
                 static constexpr const char* kAssistLabels[3] = { "Sport", "Drift/Off", "Safe" };
                 char TitleBuf[256] {};
                 const float Kph = Reading.Valid() ? std::fabs(Reading->SpeedKph) : 0.0f;
@@ -1022,7 +1079,12 @@ int main(int ArgumentCount, char** ArgumentVector)
                 };
             };
 
-            if (DrivingCamMode == 4u)
+            if (DrivingCamMode == 5u)
+            {
+                // World B Portal Exit Observer Cam (authored static/orbit vantage facing World B's sunset exit portal!)
+                ActiveCamera = CameraRig.ConstructCamera(RenderWidthPx, RenderHeightPx);
+            }
+            else if (DrivingCamMode == 4u)
             {
                 // Orbit Showcase Cam centered around live moving vehicle
                 CameraRig.TargetWorld = { HeroPosWorld.X, HeroPosWorld.Y, HeroPosWorld.Z + 0.78f };
@@ -1234,8 +1296,8 @@ int main(int ArgumentCount, char** ArgumentVector)
             Tel.StabilityAssistOn     = (AssistModeIndex != 1u);
             Tel.AutomaticTransmission = AutomaticShiftUi;
             Tel.InteriorViewActive    = InteriorViewActive;
-            static constexpr const char* kCamShort[5] = { "CHASE", "DRIFT", "COCKPIT", "HMI", "ORBIT" };
-            Tel.ActiveCameraLabel     = kCamShort[DrivingCamMode];
+            static constexpr const char* kCamShort[6] = { "CHASE", "DRIFT", "COCKPIT", "HMI", "ORBIT", "PORTAL B" };
+            Tel.ActiveCameraLabel     = kCamShort[DrivingCamMode % 6u];
             Tel.MainRenderEngine      = RenderConfiguration.Engine;
             Tel.ActiveHmiRenderEngine = ActiveHmiEngine;
 

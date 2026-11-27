@@ -10,6 +10,7 @@
 #include "Engine/SimulationSpace/PhysicsSpace/VehicleDynamicsSolver.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Constants/PhysicsConstants.h"
+#include "Engine/Mathematics/CoordinateSpace.h"
 #include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
@@ -1194,6 +1195,177 @@ bool VehiclePhysicsRig::QueryInitialized() const noexcept
     return Initialized;
 }
 
+void VehiclePhysicsRig::AssignActivePortals(const std::vector<World::PortalPairSpecification>& Portals) noexcept
+{
+    ActivePortals = Portals;
+    for (auto& P : ActivePortals)
+    {
+        P.NormalizeAxes();
+    }
+}
+
+namespace
+{
+
+[[nodiscard]] RigidOrientationQuaternion BuildQuaternionFromOrthonormalBasis(
+    const Mathematics::Axis3D& AxisX,
+    const Mathematics::Axis3D& AxisY,
+    const Mathematics::Axis3D& AxisZ) noexcept
+{
+    // Columns are AxisX (col 0), AxisY (col 1), AxisZ (col 2)
+    const float M00 = AxisX.X, M01 = AxisY.X, M02 = AxisZ.X;
+    const float M10 = AxisX.Y, M11 = AxisY.Y, M12 = AxisZ.Y;
+    const float M20 = AxisX.Z, M21 = AxisY.Z, M22 = AxisZ.Z;
+    const float Trace = M00 + M11 + M22;
+    RigidOrientationQuaternion Q {};
+    if (Trace > 0.0f)
+    {
+        const float S = std::sqrt(Trace + 1.0f) * 2.0f;
+        Q.W = 0.25f * S;
+        Q.X = (M21 - M12) / S;
+        Q.Y = (M02 - M20) / S;
+        Q.Z = (M10 - M01) / S;
+    }
+    else if (M00 > M11 && M00 > M22)
+    {
+        const float S = std::sqrt(std::max(1.0e-6f, 1.0f + M00 - M11 - M22)) * 2.0f;
+        Q.W = (M21 - M12) / S;
+        Q.X = 0.25f * S;
+        Q.Y = (M01 + M10) / S;
+        Q.Z = (M02 + M20) / S;
+    }
+    else if (M11 > M22)
+    {
+        const float S = std::sqrt(std::max(1.0e-6f, 1.0f + M11 - M00 - M22)) * 2.0f;
+        Q.W = (M02 - M20) / S;
+        Q.X = (M01 + M10) / S;
+        Q.Y = 0.25f * S;
+        Q.Z = (M12 + M21) / S;
+    }
+    else
+    {
+        const float S = std::sqrt(std::max(1.0e-6f, 1.0f + M22 - M00 - M11)) * 2.0f;
+        Q.W = (M10 - M01) / S;
+        Q.X = (M02 + M20) / S;
+        Q.Y = (M12 + M21) / S;
+        Q.Z = 0.25f * S;
+    }
+    const float Len = std::sqrt(Q.X * Q.X + Q.Y * Q.Y + Q.Z * Q.Z + Q.W * Q.W);
+    if (Len > 1.0e-6f)
+    {
+        const float InvL = 1.0f / Len;
+        Q.X *= InvL; Q.Y *= InvL; Q.Z *= InvL; Q.W *= InvL;
+    }
+    return Q;
+}
+
+} // namespace
+
+RayCastHitReading VehiclePhysicsRig::ExecutePortalAwareWheelRayCast(
+    PhysicsExtension&   Physics,
+    const RayCastQuery& RayYUp,
+    uint32_t            CornerIdx,
+    float&              OutPortalGripScale) noexcept
+{
+    OutPortalGripScale = 1.0f;
+    if (ActivePortals.empty())
+    {
+        if (CornerIdx < MaxVehicleWheelCorners)
+        {
+            WheelPortalSide[CornerIdx] = 0u;
+        }
+        return Physics.ExecuteRayCastIgnoringBody(RayYUp, ChassisBody);
+    }
+
+    const Mathematics::Axis3D OriginZUp = Mathematics::ConvertVectorBetweenBases(
+        RayYUp.OriginMeters,
+        Mathematics::WorldCoordinateBasis::RightHandedYUp,
+        Mathematics::WorldCoordinateBasis::RightHandedZUp);
+    const Mathematics::Axis3D DirZUp = Mathematics::ConvertVectorBetweenBases(
+        RayYUp.DirectionUnit,
+        Mathematics::WorldCoordinateBasis::RightHandedYUp,
+        Mathematics::WorldCoordinateBasis::RightHandedZUp);
+
+    for (const auto& Portal : ActivePortals)
+    {
+        if (!Portal.Enabled)
+        {
+            continue;
+        }
+        const uint32_t EndpointCount = Portal.Bidirectional ? 2u : 1u;
+        for (uint32_t Side = 0u; Side < EndpointCount; ++Side)
+        {
+            const auto& Src = (Side == 0u) ? Portal.Entry : Portal.Exit;
+            const auto& Dst = (Side == 0u) ? Portal.Exit  : Portal.Entry;
+
+            const Mathematics::Axis3D Rel = OriginZUp - Src.CenterWorld;
+            const float LocalU  = Mathematics::EvaluateDot(Rel, Src.RightAxisWorld);
+            const float LocalV  = Mathematics::EvaluateDot(Rel, Src.UpAxisWorld);
+            const float SignedW = Mathematics::EvaluateDot(Rel, Src.NormalAxisWorld);
+
+            // If this wheel corner has crossed behind the source portal plane inside the 2D aperture,
+            // query its suspension & tyre contact strictly against the destination world across the portal!
+            if (SignedW < 0.0f && SignedW > -3.5f && Portal.EvaluateShapeSignedDistance2D(LocalU, LocalV) <= 0.40f)
+            {
+                const Mathematics::Axis3D TransportedOriginZUp = (Side == 0u)
+                    ? Portal.TransformPointEntryToExit(OriginZUp)
+                    : Portal.TransformPointExitToEntry(OriginZUp);
+                const Mathematics::Axis3D TransportedDirZUp = (Side == 0u)
+                    ? Portal.TransformVectorEntryToExit(DirZUp)
+                    : Portal.TransformVectorExitToEntry(DirZUp);
+
+                RayCastQuery TransportedRay = RayYUp;
+                TransportedRay.OriginMeters = Mathematics::ConvertVectorBetweenBases(
+                    TransportedOriginZUp,
+                    Mathematics::WorldCoordinateBasis::RightHandedZUp,
+                    Mathematics::WorldCoordinateBasis::RightHandedYUp);
+                TransportedRay.DirectionUnit = Mathematics::NormalizeAxis(
+                    Mathematics::ConvertVectorBetweenBases(
+                        TransportedDirZUp,
+                        Mathematics::WorldCoordinateBasis::RightHandedZUp,
+                        Mathematics::WorldCoordinateBasis::RightHandedYUp),
+                    RayYUp.DirectionUnit);
+
+                RayCastHitReading DstHit = Physics.ExecuteRayCastIgnoringBody(TransportedRay, ChassisBody);
+                OutPortalGripScale = std::clamp(Dst.SurfaceFrictionMultiplier, 0.15f, 2.0f);
+                if (CornerIdx < MaxVehicleWheelCorners)
+                {
+                    WheelPortalSide[CornerIdx] = Dst.WorldRegionOrdinal;
+                }
+                if (DstHit.HitDetected)
+                {
+                    // Transform World-B contact normal & contact point back into World-A rigid-body frame
+                    const Mathematics::Axis3D HitNrmDstZUp = Mathematics::ConvertVectorBetweenBases(
+                        DstHit.SurfaceNormal,
+                        Mathematics::WorldCoordinateBasis::RightHandedYUp,
+                        Mathematics::WorldCoordinateBasis::RightHandedZUp);
+                    const Mathematics::Axis3D HitNrmSrcZUp = (Side == 0u)
+                        ? Portal.TransformVectorExitToEntry(HitNrmDstZUp)
+                        : Portal.TransformVectorEntryToExit(HitNrmDstZUp);
+                    DstHit.SurfaceNormal = Mathematics::NormalizeAxis(
+                        Mathematics::ConvertVectorBetweenBases(
+                            HitNrmSrcZUp,
+                            Mathematics::WorldCoordinateBasis::RightHandedZUp,
+                            Mathematics::WorldCoordinateBasis::RightHandedYUp),
+                        { 0.0f, 1.0f, 0.0f });
+                    DstHit.WorldPoint = AddAxis(RayYUp.OriginMeters, ScaleAxis(RayYUp.DirectionUnit, DstHit.DistanceMeters));
+                }
+                return DstHit;
+            }
+            if (SignedW >= 0.0f && SignedW < 25.0f && std::fabs(LocalU) < 25.0f)
+            {
+                OutPortalGripScale = std::clamp(Src.SurfaceFrictionMultiplier, 0.15f, 2.0f);
+                if (CornerIdx < MaxVehicleWheelCorners)
+                {
+                    WheelPortalSide[CornerIdx] = Src.WorldRegionOrdinal;
+                }
+            }
+        }
+    }
+
+    return Physics.ExecuteRayCastIgnoringBody(RayYUp, ChassisBody);
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                             DIRECTIVE APPLICATION
 //------------------------------------------------------------------------------------------------------------------------
@@ -1316,6 +1488,7 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
         Mathematics::Axis3D ContactNormal  = AxisUp;
         const uint32_t      TraceChanMask  = ~BroadphaseSolver::ChannelBit(CollisionLayerChannel::SensorTrigger);
 
+        float               PortalGripScale = 1.0f;
         if (Specification.WheelContactMode == WheelContactQueryMode::SingleRay)
         {
             RayCastQuery Ray {};
@@ -1324,7 +1497,7 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
             Ray.MaxDistanceMeters = FullDroopReach;
             Ray.ChannelMask       = TraceChanMask;
 
-            const RayCastHitReading Hit = Physics.ExecuteRayCastIgnoringBody(Ray, ChassisBody);
+            const RayCastHitReading Hit = ExecutePortalAwareWheelRayCast(Physics, Ray, I, PortalGripScale);
             if (Hit.HitDetected)
             {
                 HasContact     = true;
@@ -1384,13 +1557,15 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
                     Ray.MaxDistanceMeters = RayReach;
                     Ray.ChannelMask       = TraceChanMask;
 
-                    const RayCastHitReading Hit = Physics.ExecuteRayCastIgnoringBody(Ray, ChassisBody);
+                    float SampleGrip = 1.0f;
+                    const RayCastHitReading Hit = ExecutePortalAwareWheelRayCast(Physics, Ray, I, SampleGrip);
                     if (!Hit.HitDetected)
                     {
                         RayHit[Idx]  = false;
                         RayComp[Idx] = -1.0e6f;
                         continue;
                     }
+                    PortalGripScale = SampleGrip;
                     ++HitCount;
                     LaneHitMask |= static_cast<uint8_t>(1u << Lane);
                     RayHit[Idx]  = true;
@@ -1524,8 +1699,9 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
         W.SurfaceMaterialId  = HitMatId;
 
         const PhysicsMaterialSpecification SurfaceMat = Physics.InspectPhysicsMaterial(HitMatId);
-        W.SurfaceGripScale    = std::clamp(SurfaceMat.TireGripScale, 0.12f, 2.0f);
-        W.SurfaceRollingScale = std::clamp(SurfaceMat.RollingResistScale, 0.5f, 6.0f);
+        WheelPortalGripScale[I] = PortalGripScale;
+        W.SurfaceGripScale      = std::clamp(SurfaceMat.TireGripScale * PortalGripScale, 0.12f, 2.0f);
+        W.SurfaceRollingScale   = std::clamp(SurfaceMat.RollingResistScale, 0.5f, 6.0f);
 
         if (Specification.EnableDebugLogging && I == 0u && W.PrevSurfaceMatId != HitMatId && CompletedSteps > 2ull)
         {
@@ -3266,8 +3442,95 @@ void VehiclePhysicsRig::StepOnPhysicsThread(PhysicsExtension& Physics, double Fi
         ApplyDirective(Dir);
     });
 
-    // 1. Read authoritative Jolt chassis pose & populate ALL body-axis derived kinematics (fixes GRIT zero-kinematics bug)
-    const RigidBodyReading Body = Physics.InspectBodyReading(ChassisBody);
+    // 1. Read authoritative Jolt chassis pose & check seamless multi-world portal CoM transit
+    RigidBodyReading Body = Physics.InspectBodyReading(ChassisBody);
+    PortalTransitCooldownS = std::max(0.0f, PortalTransitCooldownS - Dt);
+    if (!ActivePortals.empty())
+    {
+        const Mathematics::Axis3D CurrPosZUp = Mathematics::ConvertVectorBetweenBases(
+            Body.PositionMeters,
+            Mathematics::WorldCoordinateBasis::RightHandedYUp,
+            Mathematics::WorldCoordinateBasis::RightHandedZUp);
+
+        if (HasPrevChassisPosZUp && PortalTransitCooldownS <= 0.0f)
+        {
+            for (const auto& Portal : ActivePortals)
+            {
+                if (!Portal.Enabled)
+                {
+                    continue;
+                }
+                const uint32_t EndpointCount = Portal.Bidirectional ? 2u : 1u;
+                bool Teleported = false;
+                for (uint32_t Side = 0u; Side < EndpointCount; ++Side)
+                {
+                    const auto& Src = (Side == 0u) ? Portal.Entry : Portal.Exit;
+                    const float PrevW = Mathematics::EvaluateDot(PrevChassisPosZUp - Src.CenterWorld, Src.NormalAxisWorld);
+                    const float CurrW = Mathematics::EvaluateDot(CurrPosZUp - Src.CenterWorld, Src.NormalAxisWorld);
+                    if (PrevW >= 0.0f && CurrW < 0.0f && (PrevW - CurrW) < 4.0f)
+                    {
+                        const Mathematics::Axis3D Rel = CurrPosZUp - Src.CenterWorld;
+                        const float LocalU = Mathematics::EvaluateDot(Rel, Src.RightAxisWorld);
+                        const float LocalV = Mathematics::EvaluateDot(Rel, Src.UpAxisWorld);
+                        if (Portal.EvaluateShapeSignedDistance2D(LocalU, LocalV) <= 0.35f)
+                        {
+                            // Exact rigid-body frame transport across portal (preserves momentum, yaw, roll, pitch, spin)
+                            const Mathematics::Axis3D NewPosZUp = (Side == 0u)
+                                ? Portal.TransformPointEntryToExit(CurrPosZUp)
+                                : Portal.TransformPointExitToEntry(CurrPosZUp);
+
+                            const Mathematics::Axis3D FwdY  = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 1.0f, 0.0f, 0.0f }), { 1.0f, 0.0f, 0.0f });
+                            const Mathematics::Axis3D UpY   = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 0.0f, 1.0f, 0.0f }), { 0.0f, 1.0f, 0.0f });
+                            const Mathematics::Axis3D RgtY  = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 0.0f, 0.0f, 1.0f }), { 0.0f, 0.0f, 1.0f });
+
+                            auto TransportDirYUp = [&](const Mathematics::Axis3D& DirY) -> Mathematics::Axis3D
+                            {
+                                const auto DZ = Mathematics::ConvertVectorBetweenBases(
+                                    DirY, Mathematics::WorldCoordinateBasis::RightHandedYUp, Mathematics::WorldCoordinateBasis::RightHandedZUp);
+                                const auto TZ = (Side == 0u)
+                                    ? Portal.TransformVectorEntryToExit(DZ)
+                                    : Portal.TransformVectorExitToEntry(DZ);
+                                return Mathematics::ConvertVectorBetweenBases(
+                                    TZ, Mathematics::WorldCoordinateBasis::RightHandedZUp, Mathematics::WorldCoordinateBasis::RightHandedYUp);
+                            };
+
+                            const Mathematics::Axis3D NewFwdY = Mathematics::NormalizeAxis(TransportDirYUp(FwdY), { 1.0f, 0.0f, 0.0f });
+                            const Mathematics::Axis3D NewUpY  = Mathematics::NormalizeAxis(TransportDirYUp(UpY),  { 0.0f, 1.0f, 0.0f });
+                            const Mathematics::Axis3D NewRgtY = Mathematics::NormalizeAxis(TransportDirYUp(RgtY), { 0.0f, 0.0f, 1.0f });
+                            const RigidOrientationQuaternion NewOrient = BuildQuaternionFromOrthonormalBasis(NewFwdY, NewUpY, NewRgtY);
+
+                            const Mathematics::Axis3D NewPosY = Mathematics::ConvertVectorBetweenBases(
+                                NewPosZUp, Mathematics::WorldCoordinateBasis::RightHandedZUp, Mathematics::WorldCoordinateBasis::RightHandedYUp);
+                            const Mathematics::Axis3D NewLinVelY = TransportDirYUp(Body.LinearVelocity);
+                            const Mathematics::Axis3D NewAngVelY = TransportDirYUp(Body.AngularVelocity);
+
+                            Physics.TeleportBody(ChassisBody, NewPosY, NewOrient);
+                            Physics.AssignBodyVelocity(ChassisBody, NewLinVelY, NewAngVelY);
+                            Body = Physics.InspectBodyReading(ChassisBody);
+                            PrevChassisPosZUp      = NewPosZUp;
+                            PortalTransitCooldownS = 0.25f;
+                            ++PortalTransitCount;
+                            Teleported = true;
+                            break;
+                        }
+                    }
+                }
+                if (Teleported)
+                {
+                    break;
+                }
+            }
+        }
+        if (!HasPrevChassisPosZUp || PortalTransitCooldownS <= 0.24f)
+        {
+            PrevChassisPosZUp = Mathematics::ConvertVectorBetweenBases(
+                Body.PositionMeters,
+                Mathematics::WorldCoordinateBasis::RightHandedYUp,
+                Mathematics::WorldCoordinateBasis::RightHandedZUp);
+            HasPrevChassisPosZUp = true;
+        }
+    }
+
     const Mathematics::Axis3D AxisForward = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 1.0f, 0.0f, 0.0f }), { 1.0f, 0.0f, 0.0f });
     const Mathematics::Axis3D AxisUp      = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 0.0f, 1.0f, 0.0f }), { 0.0f, 1.0f, 0.0f });
     const Mathematics::Axis3D AxisRight   = Mathematics::NormalizeAxis(RotateByQuaternion(Body.Orientation, { 0.0f, 0.0f, 1.0f }), { 0.0f, 0.0f, 1.0f });
@@ -3294,6 +3557,44 @@ void VehiclePhysicsRig::StepOnPhysicsThread(PhysicsExtension& Physics, double Fi
     ComputeSteeringRack(ForwardSpeedMps, LateralSpeedMps, Dt);
     SolveSuspensionKinematics(Physics, Body, AxisForward, AxisUp, AxisRight, Dt);
     ComputeAntiRollForces();
+
+    // Split-portal exposed-half gravity/body-force coupling: world forces act ONLY on the half exposed on each portal side
+    if (!ActivePortals.empty())
+    {
+        const Mathematics::Axis3D PosZUp = Mathematics::ConvertVectorBetweenBases(
+            Body.PositionMeters,
+            Mathematics::WorldCoordinateBasis::RightHandedYUp,
+            Mathematics::WorldCoordinateBasis::RightHandedZUp);
+        const Mathematics::Axis3D FwdZUp = Mathematics::ConvertVectorBetweenBases(
+            AxisForward,
+            Mathematics::WorldCoordinateBasis::RightHandedYUp,
+            Mathematics::WorldCoordinateBasis::RightHandedZUp);
+        const float YawZDeg = std::atan2(FwdZUp.Y, FwdZUp.X) * Constants::RadToDegFloat;
+        const auto Overlap = World::EvaluateVehiclePortalOverlap(
+            ActivePortals,
+            PosZUp,
+            YawZDeg,
+            2.35f,
+            0.96f,
+            0.68f);
+        if (Overlap.OverlapActive && Overlap.PortalPairIndex < ActivePortals.size())
+        {
+            const auto& P   = ActivePortals[Overlap.PortalPairIndex];
+            const auto& Src = Overlap.EnteredFromExitSide ? P.Exit  : P.Entry;
+            const auto& Dst = Overlap.EnteredFromExitSide ? P.Entry : P.Exit;
+            const float EffGravityScale = Src.GravityScale * Overlap.ExposedFractionSrc
+                                        + Dst.GravityScale * Overlap.ExposedFractionDst;
+            const float DeltaG = (EffGravityScale - 1.0f) * Constants::StandardGravityFloat;
+            if (std::fabs(DeltaG) > 1.0e-3f)
+            {
+                const float TotalMassKg = std::max(500.0f, LiveTotalMassKg);
+                // Apply differential gravity at the centroid of the emerging half (creates realistic nose-lift/dip torque!)
+                const float HalfArmM = (Overlap.ExposedFractionDst > 0.01f) ? (1.15f * Overlap.ExposedFractionSrc) : 0.0f;
+                const Mathematics::Axis3D ApplyPt = AddAxis(Body.PositionMeters, ScaleAxis(AxisForward, HalfArmM));
+                Physics.ApplyForceAtPoint(ChassisBody, { 0.0f, -TotalMassKg * DeltaG, 0.0f }, ApplyPt);
+            }
+        }
+    }
     ComputeBodyAxisAerodynamics(ForwardSpeedMps, LateralSpeedMps, VerticalSpeedMps, InputBrake, AxisForward, AxisUp, AxisRight, Physics, Body);
     StepAttachmentConstraintRig(Physics, Body, AxisForward, AxisUp, AxisRight);
     ComputeForcedInduction(EngineRpm, InputThrottle, Dt);

@@ -82,7 +82,7 @@ bool ComputeDispatchEncoder::InitializeEncoder(VulkanInterchange* BoundDevice, u
     MaxDispatchesPerAllocator = std::clamp(MaxDispatchesPerAllocator, 1u, 4096u);
     const std::array<VkDescriptorPoolSize, 6u> AllocatorCapacities {{
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         MaxDispatchesPerAllocator * 2u },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 36u },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 48u },
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxDispatchesPerAllocator * 8u },
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 8u },
         { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxDispatchesPerAllocator * 12u },
@@ -375,7 +375,7 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
         }
         const std::array<VkDescriptorPoolSize, 6u> AllocatorSizes {{
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         MaxDispatchesPerAllocator * 2u },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 36u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 48u },
             { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxDispatchesPerAllocator * 8u },
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 8u },
             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxDispatchesPerAllocator * 12u },

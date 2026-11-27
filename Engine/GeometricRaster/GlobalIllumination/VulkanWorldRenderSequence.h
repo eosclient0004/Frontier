@@ -317,6 +317,7 @@ private:
     uint32_t               ShadowCascadeProgramHandle      = UINT32_MAX;
     uint32_t               GlobalDistanceBakeProgramHandle     = UINT32_MAX;
     uint32_t               GlobalRadiosityProgramHandle        = UINT32_MAX;
+    uint32_t               SurfelRadiositySolveProgramHandle   = UINT32_MAX;
     uint32_t               HighEndBvhProgramHandle             = UINT32_MAX;
     uint32_t               ViewportPathTraceProgramHandle      = UINT32_MAX;
     uint32_t               InstanceTransformBvhProgramHandle   = UINT32_MAX;
@@ -365,7 +366,24 @@ private:
     DeviceBufferResource   DynamicLocalSdfInstanceBuffer   {};
     DeviceBufferResource   ActiveClusterMaskBuffer         {};
     DeviceBufferResource   CockpitDisplayAtlasBuffer       {};
+    DeviceBufferResource   EmissiveTriangleBuffer          {};
+    DeviceBufferResource   EmissiveClusterBuffer           {};
+    DeviceBufferResource   DeformingBoneCapsuleBuffer      {};
+    DeviceBufferResource   SurfelRadiosityBuffer           {};
+    DeviceBufferResource   PortalPairBuffer                {};
+    DeviceBufferResource   ClipInstanceRangeBuffer         {};
     uint64_t               CachedCockpitDisplayAtlasGen    = 0ull;
+    uint32_t               UploadedEmissiveTriCount        = 0u;
+    uint32_t               UploadedEmissiveClusterCount    = 0u;
+    uint32_t               UploadedBoneCapsuleCount        = 0u;
+    uint32_t               UploadedSurfelCount             = 0u;
+    uint32_t               UploadedPortalPairCount         = 0u;
+    uint32_t               UploadedClipRangeCount          = 0u;
+    uint64_t               CachedSurfelGeometrySignature   = 0ull;
+    uint64_t               CachedDynamicMoveSignature      = 0ull;
+    bool                   SurfelRadiosityDirty            = true;
+
+    void SynchronizeStokesSurfelPortalBuffers(const WorldSceneSpecification& Scene);
 
     DeviceImageResource    DisplayOutputImage2D            {};
     std::vector<RetiredDisplayImageEntry> RetiredDisplayImages {};

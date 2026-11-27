@@ -111,6 +111,11 @@ public:
     void               SetTireSmokeEnabled(bool Enabled) noexcept;
     [[nodiscard]] bool QueryDynamicEmissiveOrbActive() const noexcept { return DynamicEmissiveOrbClusterIdx != UINT32_MAX; }
     void               ResetHeroVehicleToSpawn() noexcept;
+    void               CycleActivePortalShape() noexcept;
+    void               SelectActivePortalShape(Frontier::World::PortalApertureShapeCategory Shape) noexcept;
+    void               PlaceHeroVehicleForPortalStraddleTest(float PenetrationMeters) noexcept;
+    [[nodiscard]] uint32_t QueryHeroPortalTransitCount() const noexcept;
+    [[nodiscard]] uint32_t QueryHeroWheelPortalSide(uint32_t CornerIdx) const noexcept;
     void               QueryHeroVehicleWorldPose(
         Frontier::Mathematics::Axis3D& OutPositionZUp,
         float&                         OutYawZUpDegrees) const noexcept;
@@ -227,6 +232,10 @@ private:
     bool                                                                 HeroVehiclePhysicsActive    = false;
     bool                                                                 HeroTireSmokeActive         = false;
     Frontier::World::InstanceToken                                       HeroVehicleEntityToken      {};
+    Frontier::World::InstanceToken                                       HeroPortalCloneEntityToken  {};
+    uint32_t                                                             HeroVehicleClusterIdx       = UINT32_MAX;
+    uint32_t                                                             HeroPortalCloneClusterIdx   = UINT32_MAX;
+    float                                                                HeroVehicleBakedYawDeg      = 0.0f;
     Frontier::Mathematics::Axis3D                                        HeroVehicleSpawnZUp         {};
     Frontier::Mathematics::Axis3D                                        HeroCurrentPositionZUp      {};
     float                                                                HeroCurrentYawZUpDegrees    = 0.0f;
@@ -247,6 +256,7 @@ private:
 
     void UpdateDynamicEmissiveOrb(double ElapsedSeconds) noexcept;
     void InitializeHeroVehicleSimulation() noexcept;
+    void SyncHeroPortalStraddlingProjection() noexcept;
     void ProjectTireFluidSmokeToLocalFogs(
         const Frontier::SimulationSpace::PhysicsSpace::VehicleReading& Reading) noexcept;
 
