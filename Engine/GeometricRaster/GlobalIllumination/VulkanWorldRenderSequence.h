@@ -93,6 +93,8 @@ public:
         const WorldSceneSpecification& Scene,
         bool                           RebuildShadows = true);
 
+    bool SynchronizeMaterialEntriesIfChanged(const WorldSceneSpecification& Scene);
+
     [[nodiscard]] bool RenderWorldViewportWithEngine(
         const WorldRenderConfiguration& Config,
         uint32_t                        FrameIndex,
@@ -404,8 +406,9 @@ private:
     OrthographicShadowCascade CachedSunCascade             {};
     float                  CachedFineGdfCenterSpan[4]      { 0.0f, 0.0f, 0.0f, 3.5f };
     float                  CachedCoarseGdfCenterSpan[4]    { 0.0f, 0.0f, 0.0f, 8.75f };
-    int32_t                CachedFineToroidalMinCell[4]    { -32, -32, -32, 0 };
-    int32_t                CachedCoarseToroidalMinCell[4]  { -32, -32, -32, 0 };
+    int32_t                CachedFineToroidalMinCell[4]    { -48, -48, -48, 0 };
+    int32_t                CachedCoarseToroidalMinCell[4]  { -48, -48, -48, 0 };
+    uint64_t               CachedMaterialEntriesSignature  = 0ull;
     bool                   FineToroidalValid               = false;
     bool                   CoarseToroidalValid             = false;
     bool                   PendingFineGeometryReset        = true;

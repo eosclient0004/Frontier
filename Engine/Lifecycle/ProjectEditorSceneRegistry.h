@@ -75,6 +75,12 @@ struct ProjectEditorSceneAdapter
         GeometricRaster::ShowcaseWorldSceneBundle& OutBundle,
         ProjectEditorSceneResult&                  OutResult,
         std::string&                               OutDiagnostic)> ConstructEditorScene {};
+
+    std::function<bool(
+        uint32_t                                   SceneVariantIndex,
+        double                                     ElapsedSeconds,
+        GeometricRaster::ShowcaseWorldSceneBundle& InOutBundle,
+        bool&                                      OutMaterialsMutated)> TickEditorScene {};
 };
 
 //------------------------------------------------------------------------------------------------------------------------

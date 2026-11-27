@@ -911,7 +911,7 @@ float CameraSettingsInspector::Construct(
     {
         if (ActivePage == 1u)
         {
-            const Rectangle2D S { LeftX, CursorY, InnerWidth, 736.0f };
+            const Rectangle2D S { LeftX, CursorY, InnerWidth, 780.0f };
             InspectorPrimitives::ConstructSectionSurface(Surface, S, "Distance-field shadows");
             float Y = CursorY + InspectorMetrics::SectionPadTop + 28.0f;
             static constexpr std::array<const char*, 6u> PenTitles = {{
@@ -926,11 +926,11 @@ float CameraSettingsInspector::Construct(
                 "High-sample Monte Carlo reference penumbra."
             }};
             const uint32_t PenIdx = std::min(Data.SdfPenumbraIndex, 5u);
-            char NumBuf[8]{}, SubBuf[72]{};
+            char NumBuf[8]{}, SubBuf[80]{};
             std::snprintf(NumBuf, sizeof(NumBuf), "%u", PenIdx);
-            std::snprintf(SubBuf, sizeof(SubBuf), "SDF penumbra · %.0f rays · %.0f march steps", Data.SmrtShadowRays, Data.SmrtMarchSteps);
+            std::snprintf(SubBuf, sizeof(SubBuf), "96³ Signed SDF · %.0f shadow steps · %.0f SMRT rays", Data.SdfShadowMarchSteps, Data.SmrtShadowRays);
             Y = InspectorPrimitives::ConstructMetricReadout(Surface, LeftX + PadX, Y, NumBuf, PenTitles[PenIdx], SubBuf);
-            PaintShadowStudyWell(Surface, { LeftX + PadX, Y, BodyW, 108.0f }, PenIdx, Data.SmrtMarchSteps);
+            PaintShadowStudyWell(Surface, { LeftX + PadX, Y, BodyW, 108.0f }, PenIdx, Data.SdfShadowMarchSteps);
             Y += 120.0f;
 
             bool Local = false;
@@ -949,6 +949,7 @@ float CameraSettingsInspector::Construct(
                 Y += 50.0f;
             }
             Y += 6.0f;
+            Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8709u, "SDF shadow steps", "steps", "%.0f", 32.0f, 96.0f, Data.SdfShadowMarchSteps, ActiveDragId, Input, Local);
             Y = InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8710u, "SMRT shadow rays",  "rays",  "%.0f", 1.0f, 8.0f,  Data.SmrtShadowRays, ActiveDragId, Input, Local);
             (void)InspectorPrimitives::ConstructScalarFieldRow(Surface, LeftX + PadX, Y, BodyW, 8711u, "SMRT march steps","steps", "%.0f", 4.0f, 16.0f, Data.SmrtMarchSteps, ActiveDragId, Input, Local);
             if (Local) { OutMutated = true; SyncLiveNow(); }

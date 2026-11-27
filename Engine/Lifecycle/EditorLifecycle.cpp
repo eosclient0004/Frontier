@@ -473,6 +473,9 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
                     ActiveSceneLightingMode          = AdapterSceneResult.PreferredLightingMode;
                     ActiveSceneSkipStaticClipmapBake = AdapterSceneResult.DisableStaticClipmapBake;
                     ActiveProjectVariantTitle        = AdapterSceneResult.ActiveVariantTitle;
+                    ActiveProjectSceneAdapter        = SceneAdapter;
+                    ActiveProjectSceneVariant        = StartupConfig.ProjectSceneVariantIndex;
+                    ProjectSceneSimSeconds           = 0.0;
                 }
                 else
                 {
@@ -2586,6 +2589,7 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     RenderConfig.XeGtaoStepsPerSide     = std::clamp(DisplayCfg.XeGtaoStepsPerSide, 2u, 8u);
     RenderConfig.XeGtaoSearchRadiusM    = std::clamp(DisplayCfg.XeGtaoSearchRadiusM, 0.25f, 3.0f);
     RenderConfig.SdfConeSteps           = std::clamp(DisplayCfg.SdfConeSteps, 3u, 12u);
+    RenderConfig.SdfShadowMarchSteps    = std::clamp(DisplayCfg.SdfShadowMarchSteps, 16u, 96u);
     RenderConfig.SdfGiIntensity         = std::clamp(DisplayCfg.SdfGiIntensity, 0.0f, 2.5f);
     RenderConfig.SdfAoRadiusM           = std::clamp(DisplayCfg.SdfAoRadiusM, 0.35f, 3.5f);
     RenderConfig.SdfAoContrast          = std::clamp(DisplayCfg.SdfAoContrast, 0.40f, 3.5f);
@@ -3212,6 +3216,7 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 std::abs(DisplayCfg.XeGtaoSearchRadiusM - LastXeGtaoRadiusM) > 0.001f ||
                 DisplayCfg.GiCandidateIndex != LastGiCandidate ||
                 DisplayCfg.SdfConeSteps != LastSdfConeSteps ||
+                DisplayCfg.SdfShadowMarchSteps != LastSdfShadowSteps ||
                 std::abs(DisplayCfg.SdfGiIntensity - LastSdfGiIntensity) > 0.001f ||
                 std::abs(DisplayCfg.SdfAoRadiusM - LastSdfAoRadiusM) > 0.001f ||
                 std::abs(DisplayCfg.SdfAoContrast - LastSdfAoContrast) > 0.001f ||
@@ -3267,6 +3272,7 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             LastXeGtaoRadiusM      = DisplayCfg.XeGtaoSearchRadiusM;
             LastGiCandidate        = DisplayCfg.GiCandidateIndex;
             LastSdfConeSteps       = DisplayCfg.SdfConeSteps;
+            LastSdfShadowSteps     = DisplayCfg.SdfShadowMarchSteps;
             LastSdfGiIntensity     = DisplayCfg.SdfGiIntensity;
             LastSdfAoRadiusM       = DisplayCfg.SdfAoRadiusM;
             LastSdfAoContrast      = DisplayCfg.SdfAoContrast;
@@ -3360,13 +3366,33 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                     SafeStep);
             }
 
+            bool ProjectAdapterMutated     = false;
+            bool ProjectAdapterMaterialsDirty = false;
+            if (ActiveProjectSceneAdapter != nullptr && ActiveProjectSceneAdapter->TickEditorScene)
+            {
+                ProjectSceneSimSeconds += SafeStep;
+                ProjectAdapterMutated = ActiveProjectSceneAdapter->TickEditorScene(
+                    ActiveProjectSceneVariant,
+                    ProjectSceneSimSeconds,
+                    *ShowcaseBundle,
+                    ProjectAdapterMaterialsDirty);
+            }
+
             bool       NeedsPrep = false;
             const bool UseGpuDynamicSync = GpuReady;
             const bool SceneMutated = GeometricRaster::SynchronizeShowcaseGallerySceneLive(
                 Panes->Outliner,
                 *ShowcaseBundle,
                 NeedsPrep,
-                UseGpuDynamicSync) || ApocalypticSimMutated || WorldRegisterMutated;
+                UseGpuDynamicSync) || ApocalypticSimMutated || WorldRegisterMutated || ProjectAdapterMutated;
+            if (ProjectAdapterMutated && GpuReady && GpuWorldRenderer != nullptr)
+            {
+                if (ProjectAdapterMaterialsDirty)
+                {
+                    (void)GpuWorldRenderer->SynchronizeMaterialEntriesIfChanged(ShowcaseBundle->Scene);
+                }
+                GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
+            }
             if (InteractionSceneSync && !NeedsPrep && !InteractionFastDrag && !WorldTransformGizmo.QueryDragging())
             {
                 if (!GpuReady)

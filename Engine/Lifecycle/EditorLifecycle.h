@@ -58,6 +58,8 @@ class ImGuiOverlayRasterization;
 namespace Frontier::Lifecycle
 {
 
+struct ProjectEditorSceneAdapter;
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
@@ -250,6 +252,7 @@ private:
     float                                                            LastXeGtaoRadiusM    = 0.85f;
     uint32_t                                                         LastGiCandidate      = 1u;
     uint32_t                                                         LastSdfConeSteps     = 6u;
+    uint32_t                                                         LastSdfShadowSteps   = 32u;
     float                                                            LastSdfGiIntensity   = 1.0f;
     float                                                            LastSdfAoRadiusM     = 1.55f;
     float                                                            LastSdfAoContrast    = 1.50f;
@@ -313,6 +316,9 @@ private:
     std::function<void()>                                            ReturnToBrowserCallback {};
     std::string                                                      ActiveProjectTitle   {};
     std::string                                                      ActiveProjectVariantTitle {};
+    const ProjectEditorSceneAdapter*                                 ActiveProjectSceneAdapter = nullptr;
+    uint32_t                                                         ActiveProjectSceneVariant = 0u;
+    double                                                           ProjectSceneSimSeconds    = 0.0;
     std::vector<ComponentClass::ComponentClassDefinition> ComponentDefinitions {}; // [-] - Loaded .ComponentSpace definitions
     ComponentClass::ComponentWorldPlacementRegister     WorldPlacements     {};   // [-]  - Placed ComponentClass instances
     std::vector<OutlinerPlacementLink>                  PlacementLinks      {};   // [-]  - Outliner slot <-> ComponentWorldPlacement map

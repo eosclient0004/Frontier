@@ -1146,6 +1146,7 @@ void InspectorInstanceRegister::SyncCameraSettingsToDisplay(
     DisplaySettings->SdfShadowPenumbraIndex  = std::min<uint32_t>(Data.SdfPenumbraIndex, 5u);
     DisplaySettings->GiCandidateIndex        = std::min<uint32_t>(Data.GiCandidateIndex, 1u);
     DisplaySettings->SdfConeSteps            = static_cast<uint32_t>(std::clamp(std::lround(Data.SdfConeSteps), 3l, 12l));
+    DisplaySettings->SdfShadowMarchSteps     = static_cast<uint32_t>(std::clamp(std::lround(Data.SdfShadowMarchSteps), 32l, 96l));
     DisplaySettings->SdfGiIntensity          = std::clamp(Data.SdfGiIntensity, 0.0f, 2.5f);
     DisplaySettings->SdfAoRadiusM            = std::clamp(Data.SdfAoRadiusM, 0.35f, 3.5f);
     DisplaySettings->SdfAoContrast           = std::clamp(Data.SdfAoContrast, 0.40f, 3.5f);

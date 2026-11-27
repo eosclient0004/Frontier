@@ -321,15 +321,24 @@ struct QuantizedCornerTriangleEntry
 //                                        UDF CLIPMAP & BILATERAL DENOISE CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
+constexpr uint32_t kGdfGridRes                   = 96u;                    // [count] - Nested signed GDF & Radiosity Mip0 grid resolution (96^3)
+constexpr uint32_t kGdfHalfRes                   = kGdfGridRes / 2u;       // [count] - Half grid resolution (48) for toroidal center offset
+constexpr uint32_t kGdfVoxelCount                = kGdfGridRes * kGdfGridRes * kGdfGridRes; // [count] - 884,736 voxels per cascade
+constexpr uint32_t kRadiosityCoarseBaseRes       = kGdfGridRes / 2u;       // [count] - Mip1 resolution (48 -> 24 -> 12 across 3 coarse mips)
+constexpr uint32_t kRadiosityTotalVoxels         =
+    kGdfVoxelCount +
+    (kGdfGridRes / 2u) * (kGdfGridRes / 2u) * (kGdfGridRes / 2u) +
+    (kGdfGridRes / 4u) * (kGdfGridRes / 4u) * (kGdfGridRes / 4u) +
+    (kGdfGridRes / 8u) * (kGdfGridRes / 8u) * (kGdfGridRes / 8u);          // [count] - 96^3 + 48^3 + 24^3 + 12^3 = 1,010,880 voxels
 constexpr float    FallbackLocalHalfExtentMeters = 0.40f;                  // [m]     - Default half-extent when pyramid empty
 constexpr float    MinimumValidScaleFloor        = 1.0e-4f;                // [-]     - Minimum positive world scale threshold
 constexpr float    DatumChangeToleranceMeters    = 1.0e-4f;                // [m]     - Minimum ground datum shift triggering sync
-constexpr float    AutoPyramidMinSpanMeters      = 0.08f;                  // [m]     - Minimum axis span for on-demand UDF bake
-constexpr float    AutoPyramidTargetCells        = 40.0f;                  // [count] - Target longest-axis cell count per pyramid
-constexpr float    AutoPyramidMinPitchMeters     = 0.035f;                 // [m]     - Finest voxel pitch for on-demand pyramid UDF
-constexpr uint32_t AutoPyramidAlignmentQuantum   = 4u;                     // [count] - Brick alignment multiple for pyramid UDF
-constexpr uint32_t AutoPyramidMinAxisCells       = 12u;                    // [count] - Minimum axis cells for on-demand pyramid UDF
-constexpr uint32_t AutoPyramidMaxAxisCells       = 44u;                    // [count] - Maximum axis cells for on-demand pyramid UDF
+constexpr float    AutoPyramidMinSpanMeters      = 0.08f;                  // [m]     - Minimum axis span for on-demand signed SDF bake
+constexpr float    AutoPyramidTargetCells        = 64.0f;                  // [count] - Target longest-axis cell count per pyramid (high-res signed SDF)
+constexpr float    AutoPyramidMinPitchMeters     = 0.020f;                 // [m]     - Finest voxel pitch (2.0 cm) for on-demand pyramid signed SDF
+constexpr uint32_t AutoPyramidAlignmentQuantum   = 4u;                     // [count] - Brick alignment multiple for pyramid signed SDF
+constexpr uint32_t AutoPyramidMinAxisCells       = 16u;                    // [count] - Minimum axis cells for on-demand pyramid signed SDF
+constexpr uint32_t AutoPyramidMaxAxisCells       = 80u;                    // [count] - Maximum axis cells for on-demand pyramid signed SDF
 constexpr float    AutoPyramidMarginFraction     = 0.08f;                  // [-]     - Exterior AABB padding fraction of max span
 constexpr float    AutoPyramidMinMarginMeters    = 0.06f;                  // [m]     - Minimum exterior AABB padding around pyramid
 constexpr float    AutoPyramidMaxMarginMeters    = 0.28f;                  // [m]     - Maximum exterior AABB padding around pyramid
@@ -621,9 +630,9 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     {
         EnsureBufferCapacity(Slot.UniformBuffer, 8192ull * 12ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * 262144ull * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, 299520ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, 262144ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     if (!EnsureVolume3DResources())
     {
         TeardownSequence();
@@ -1186,11 +1195,11 @@ bool VulkanWorldRenderSequence::EnsureVolume3DResources()
         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
-    GdfFineImage3D = BoundDevice->AllocateImage3D(64u, 64u, 64u, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    GdfCoarseImage3D = BoundDevice->AllocateImage3D(64u, 64u, 64u, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    RadiosityMip0Image3D = BoundDevice->AllocateImage3D(64u, 64u, 64u, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    RadiosityMip0ScratchImage3D = BoundDevice->AllocateImage3D(64u, 64u, 64u, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    RadiosityCoarseImage3D = BoundDevice->AllocateImage3D(32u, 32u, 32u, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 3u);
+    GdfFineImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    GdfCoarseImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    RadiosityMip0Image3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    RadiosityMip0ScratchImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    RadiosityCoarseImage3D = BoundDevice->AllocateImage3D(kRadiosityCoarseBaseRes, kRadiosityCoarseBaseRes, kRadiosityCoarseBaseRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 3u);
     DummyFloat1x1x1Image3D = BoundDevice->AllocateImage3D(1u, 1u, 1u, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
     DummyRgba1x1x1Image3D = BoundDevice->AllocateImage3D(1u, 1u, 1u, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
 
@@ -2513,7 +2522,7 @@ VulkanWorldRenderSequence::AcquirePyramidDistanceVolume(
             MaximumSpanMeters * AutoPyramidMarginFraction,
             AutoPyramidMinMarginMeters,
             AutoPyramidMaxMarginMeters);
-        (void)PreparedEntry.Volume.BakeFromTrianglesAspect(
+        (void)PreparedEntry.Volume.BakeSignedFromTrianglesAspect(
             LocalPrimitives,
             ResolveAxisResolution(SpanX),
             ResolveAxisResolution(SpanY),
@@ -4027,17 +4036,20 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
             Dst.ResolutionOffset[0] = 0u;
             Dst.ResolutionOffset[1] = (ShapeCode & PackedResolutionMask16) << PackedUpperWordShift16;
 
-            // 💡 Separate horizontal ground slabs from non-ground clipmap voxels so open floors have zero self-darkening
+            const float SlabTopZ = T.Z + BoxMax.Z * ScaleZ;
+            // Separate low-elevation horizontal ground slabs from non-ground clipmap voxels so open floors
+            // have zero self-darkening, while never misclassifying high overhead ceilings or roof canopies.
             AnalyticGroundSlab =
                 (ShapeCode == DistanceShapeBox) &&
                 (std::fabs(Inst.RotationZDegrees) < MaximumGroundDeckTiltDegrees) &&
                 ((BoxMax.X - BoxMin.X) * ScaleX >= MinimumGroundDeckSpanMeters) &&
                 ((BoxMax.Y - BoxMin.Y) * ScaleY >= MinimumGroundDeckSpanMeters) &&
-                ((BoxMax.Z - BoxMin.Z) * ScaleZ <= MaximumGroundDeckHeightMeters);
+                ((BoxMax.Z - BoxMin.Z) * ScaleZ <= MaximumGroundDeckHeightMeters) &&
+                (SlabTopZ <= 0.50f) &&
+                (SlabTopZ >= -2.50f);
             if (AnalyticGroundSlab)
             {
-                const float SlabTopZ = T.Z + BoxMax.Z * ScaleZ;
-                if (NextAnalyticGroundZ < ValidAnalyticGroundFloorZ || SlabTopZ > NextAnalyticGroundZ)
+                if (NextAnalyticGroundZ < ValidAnalyticGroundFloorZ || SlabTopZ < NextAnalyticGroundZ)
                 {
                     NextAnalyticGroundZ            = SlabTopZ;
                     NextAnalyticGroundMaterialSlot = static_cast<uint32_t>(Inst.MaterialSlot);
@@ -4342,8 +4354,8 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     }
     const float FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.25f, 4.25f) * 8.0f) * 0.125f;
     const float CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
-    const float FineVoxelM    = (2.0f * FineGdfHalf) / 64.0f;
-    const float CoarseVoxelM  = (2.0f * CoarseGdfHalf) / 64.0f;
+    const float FineVoxelM    = (2.0f * FineGdfHalf) / static_cast<float>(kGdfGridRes);
+    const float CoarseVoxelM  = (2.0f * CoarseGdfHalf) / static_cast<float>(kGdfGridRes);
 
     const Mathematics::Axis3D SceneObjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
     const Mathematics::Axis3D FocusCenter = ActiveClipFocusInitialized
@@ -4389,7 +4401,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     struct ToroidalSlabBox
     {
         uint32_t MinCoord[3] { 0u, 0u, 0u };
-        uint32_t MaxCoord[3] { 64u, 64u, 64u };
+        uint32_t MaxCoord[3] { kGdfGridRes, kGdfGridRes, kGdfGridRes };
     };
 
     auto SnapMinCellStep4 = [](
@@ -4398,14 +4410,14 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         int32_t PrevMinCell,
         bool    ForceSnap) noexcept -> int32_t
     {
-        const float PrevCenterMeters = (static_cast<float>(PrevMinCell) + 32.0f) * VoxelMeters;
+        const float PrevCenterMeters = (static_cast<float>(PrevMinCell) + static_cast<float>(kGdfHalfRes)) * VoxelMeters;
         if (!ForceSnap && std::abs(FocusMeters - PrevCenterMeters) < VoxelMeters * 4.35f)
         {
             return PrevMinCell;
         }
         const float   StepMeters = VoxelMeters * 4.0f;
         const int32_t CenterCell = static_cast<int32_t>(std::lround(FocusMeters / StepMeters)) * 4;
-        return CenterCell - 32;
+        return CenterCell - static_cast<int32_t>(kGdfHalfRes);
     };
 
     auto ConstructToroidalDirtySlabs = [](
@@ -4417,8 +4429,8 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     {
         if (ForceFullBox)
         {
-            OutSlabs[0]   = ToroidalSlabBox{ { 0u, 0u, 0u }, { 64u, 64u, 64u } };
-            OutVoxelCount = 262144u;
+            OutSlabs[0]   = ToroidalSlabBox{ { 0u, 0u, 0u }, { kGdfGridRes, kGdfGridRes, kGdfGridRes } };
+            OutVoxelCount = kGdfVoxelCount;
             return 1u;
         }
 
@@ -4427,15 +4439,17 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             NextMin[1] - PrevMin[1],
             NextMin[2] - PrevMin[2],
         };
-        if (std::abs(Delta[0]) >= 64 || std::abs(Delta[1]) >= 64 || std::abs(Delta[2]) >= 64)
+        if (std::abs(Delta[0]) >= static_cast<int32_t>(kGdfGridRes) ||
+            std::abs(Delta[1]) >= static_cast<int32_t>(kGdfGridRes) ||
+            std::abs(Delta[2]) >= static_cast<int32_t>(kGdfGridRes))
         {
-            OutSlabs[0]   = ToroidalSlabBox{ { 0u, 0u, 0u }, { 64u, 64u, 64u } };
-            OutVoxelCount = 262144u;
+            OutSlabs[0]   = ToroidalSlabBox{ { 0u, 0u, 0u }, { kGdfGridRes, kGdfGridRes, kGdfGridRes } };
+            OutVoxelCount = kGdfVoxelCount;
             return 1u;
         }
 
         uint32_t KeepMin[3]  { 0u, 0u, 0u };
-        uint32_t KeepMax[3]  { 64u, 64u, 64u };
+        uint32_t KeepMax[3]  { kGdfGridRes, kGdfGridRes, kGdfGridRes };
         uint32_t DirtyMin[3] { 0u, 0u, 0u };
         uint32_t DirtyMax[3] { 0u, 0u, 0u };
         for (int Axis = 0; Axis < 3; ++Axis)
@@ -4444,15 +4458,15 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             {
                 const uint32_t Shift = static_cast<uint32_t>(Delta[Axis]);
                 KeepMin[Axis]  = 0u;
-                KeepMax[Axis]  = 64u - Shift;
-                DirtyMin[Axis] = 64u - Shift;
-                DirtyMax[Axis] = 64u;
+                KeepMax[Axis]  = kGdfGridRes - Shift;
+                DirtyMin[Axis] = kGdfGridRes - Shift;
+                DirtyMax[Axis] = kGdfGridRes;
             }
             else if (Delta[Axis] < 0)
             {
                 const uint32_t Shift = static_cast<uint32_t>(-Delta[Axis]);
                 KeepMin[Axis]  = Shift;
-                KeepMax[Axis]  = 64u;
+                KeepMax[Axis]  = kGdfGridRes;
                 DirtyMin[Axis] = 0u;
                 DirtyMax[Axis] = Shift;
             }
@@ -4471,11 +4485,11 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
 
         if (Delta[0] != 0)
         {
-            AppendSlab(DirtyMin[0], DirtyMax[0], 0u, 64u, 0u, 64u);
+            AppendSlab(DirtyMin[0], DirtyMax[0], 0u, kGdfGridRes, 0u, kGdfGridRes);
         }
         if (Delta[1] != 0)
         {
-            AppendSlab(KeepMin[0], KeepMax[0], DirtyMin[1], DirtyMax[1], 0u, 64u);
+            AppendSlab(KeepMin[0], KeepMax[0], DirtyMin[1], DirtyMax[1], 0u, kGdfGridRes);
         }
         if (Delta[2] != 0)
         {
@@ -4546,13 +4560,13 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         PendingCoarseGeometryReset     = false;
     }
 
-    CachedFineGdfCenterSpan[0]   = (static_cast<float>(CachedFineToroidalMinCell[0]) + 32.0f) * FineVoxelM;
-    CachedFineGdfCenterSpan[1]   = (static_cast<float>(CachedFineToroidalMinCell[1]) + 32.0f) * FineVoxelM;
-    CachedFineGdfCenterSpan[2]   = (static_cast<float>(CachedFineToroidalMinCell[2]) + 32.0f) * FineVoxelM;
+    CachedFineGdfCenterSpan[0]   = (static_cast<float>(CachedFineToroidalMinCell[0]) + static_cast<float>(kGdfHalfRes)) * FineVoxelM;
+    CachedFineGdfCenterSpan[1]   = (static_cast<float>(CachedFineToroidalMinCell[1]) + static_cast<float>(kGdfHalfRes)) * FineVoxelM;
+    CachedFineGdfCenterSpan[2]   = (static_cast<float>(CachedFineToroidalMinCell[2]) + static_cast<float>(kGdfHalfRes)) * FineVoxelM;
     CachedFineGdfCenterSpan[3]   = FineGdfHalf;
-    CachedCoarseGdfCenterSpan[0] = (static_cast<float>(CachedCoarseToroidalMinCell[0]) + 32.0f) * CoarseVoxelM;
-    CachedCoarseGdfCenterSpan[1] = (static_cast<float>(CachedCoarseToroidalMinCell[1]) + 32.0f) * CoarseVoxelM;
-    CachedCoarseGdfCenterSpan[2] = (static_cast<float>(CachedCoarseToroidalMinCell[2]) + 32.0f) * CoarseVoxelM;
+    CachedCoarseGdfCenterSpan[0] = (static_cast<float>(CachedCoarseToroidalMinCell[0]) + static_cast<float>(kGdfHalfRes)) * CoarseVoxelM;
+    CachedCoarseGdfCenterSpan[1] = (static_cast<float>(CachedCoarseToroidalMinCell[1]) + static_cast<float>(kGdfHalfRes)) * CoarseVoxelM;
+    CachedCoarseGdfCenterSpan[2] = (static_cast<float>(CachedCoarseToroidalMinCell[2]) + static_cast<float>(kGdfHalfRes)) * CoarseVoxelM;
     CachedCoarseGdfCenterSpan[3] = CoarseGdfHalf;
 
     DistanceFieldStats.FineCascadeCenterWorld[0]   = CachedFineGdfCenterSpan[0];
@@ -4598,9 +4612,9 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         static_cast<uint64_t>(CachedSunCascade.ResolutionTexels) * static_cast<uint64_t>(CachedSunCascade.ResolutionTexels);
     const uint64_t ShadowDepthBytes = ShadowDepthTexels * sizeof(float);
     EnsureDeviceBufferCapacity(SolarShadowDepthBuffer, ShadowDepthBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * 262144ull * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, 299520ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, 262144ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
     EnsureDeviceBufferCapacity(OutputPixelBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(AccumulationHdrBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -4973,7 +4987,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                 if (CascadeIdx == 0u)
                 {
                     DistanceFieldStats.LastFineUpdatedVoxelCount = FineVoxWritten;
-                    if (!FullFineReset && FineVoxWritten < 262144u)
+                    if (!FullFineReset && FineVoxWritten < kGdfVoxelCount)
                     {
                         IncrementalScrolled = true;
                     }
@@ -4982,7 +4996,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                 {
                     DistanceFieldStats.LastCoarseUpdatedVoxelCount = CoarseVoxWritten;
                     DistanceFieldStats.CoarseCascadeBakeCount     += 1u;
-                    if (!FullCoarseReset && CoarseVoxWritten < 262144u)
+                    if (!FullCoarseReset && CoarseVoxWritten < kGdfVoxelCount)
                     {
                         IncrementalScrolled = true;
                     }
@@ -5007,7 +5021,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                 !FullFineReset &&
                 ((EffectiveMask & kPrecomputeRadiosityFull) == 0u);
             const std::array<ToroidalSlabBox, 3u> FullVolumeSlabs {{
-                ToroidalSlabBox{ { 0u, 0u, 0u }, { 64u, 64u, 64u } },
+                ToroidalSlabBox{ { 0u, 0u, 0u }, { kGdfGridRes, kGdfGridRes, kGdfGridRes } },
                 ToroidalSlabBox{},
                 ToroidalSlabBox{},
             }};
@@ -5017,7 +5031,8 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             if (RadSlabCount > 0u)
             {
                 const uint32_t PhaseCount = ((EffectiveMask & kPrecomputeSecondBounce) != 0u) ? 8u : 4u;
-                constexpr std::array<uint32_t, 8u> PhaseGroupCounts {{ 16u, 8u, 4u, 2u, 16u, 8u, 4u, 2u }};
+                // 96 -> 48 -> 24 -> 12 voxels divided by 4x4x4 workgroups = 24, 12, 6, 3 groups per axis
+                constexpr std::array<uint32_t, 8u> PhaseGroupCounts {{ 24u, 12u, 6u, 3u, 24u, 12u, 6u, 3u }};
                 for (uint32_t Phase = 0u; Phase < PhaseCount; ++Phase)
                 {
                     if (Phase == 0u)
@@ -5081,7 +5096,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                             VkImageCopy SeedCopy {};
                             SeedCopy.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
                             SeedCopy.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                            SeedCopy.extent         = { 64u, 64u, 64u };
+                            SeedCopy.extent         = { kGdfGridRes, kGdfGridRes, kGdfGridRes };
                             vkCmdCopyImage(
                                 Cmd,
                                 RadiosityMip0Image3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -5143,7 +5158,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                         VkImageCopy Copy2nd {};
                         Copy2nd.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
                         Copy2nd.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                        Copy2nd.extent         = { 64u, 64u, 64u };
+                        Copy2nd.extent         = { kGdfGridRes, kGdfGridRes, kGdfGridRes };
                         vkCmdCopyImage(
                             Cmd,
                             RadiosityMip0ScratchImage3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -5279,6 +5294,80 @@ void VulkanWorldRenderSequence::UploadSolarCascadeDepth(const WorldSceneSpecific
         const float FallbackDepth[4]{ 60.0f, 60.0f, 60.0f, 60.0f };
         UploadToDeviceBuffer(SolarShadowDepthBuffer, FallbackDepth, sizeof(FallbackDepth), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     }
+}
+
+bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldSceneSpecification& Scene)
+{
+    if (!QueryReady())
+    {
+        return false;
+    }
+
+    const uint32_t MatCount = std::max(1u, Scene.MaterialRegister.QuerySlotCount());
+    std::vector<GpuWorldMaterial80> GpuMats(MatCount);
+    uint64_t MatSig = 14695981039346656037ull;
+    const auto MixWord = [&MatSig](uint32_t Bits) noexcept
+    {
+        MatSig = (MatSig ^ static_cast<uint64_t>(Bits)) * 1099511628211ull;
+    };
+    const auto MixFloat = [&MixWord](float V) noexcept
+    {
+        uint32_t Bits = 0u;
+        std::memcpy(&Bits, &V, sizeof(Bits));
+        MixWord(Bits);
+    };
+    MixWord(MatCount);
+
+    for (uint32_t Slot = 0u; Slot < Scene.MaterialRegister.QuerySlotCount(); ++Slot)
+    {
+        const auto& Src = Scene.MaterialRegister.InspectAuthoredMaterial(static_cast<uint16_t>(Slot));
+        const Mathematics::LinearRGB Emis = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Src.PorosityLight);
+        GpuWorldMaterial80 Dst {};
+        Dst.DiffuseAlbedoRoughness[0] = Src.Diffuse.BaseColor.R * Src.Diffuse.BaseWeight;
+        Dst.DiffuseAlbedoRoughness[1] = Src.Diffuse.BaseColor.G * Src.Diffuse.BaseWeight;
+        Dst.DiffuseAlbedoRoughness[2] = Src.Diffuse.BaseColor.B * Src.Diffuse.BaseWeight;
+        Dst.DiffuseAlbedoRoughness[3] = Src.Diffuse.DiffuseRoughness;
+        Dst.SpecParams[0]             = Src.Specular.Roughness;
+        Dst.SpecParams[1]             = Src.Specular.Metalness;
+        Dst.SpecParams[2]             = Src.Specular.DielectricIOR;
+        Dst.SpecParams[3]             = Src.Specular.Anisotropy;
+        Dst.EdgeTintCoatWeight[0]     = Src.Specular.EdgeTintF82.R;
+        Dst.EdgeTintCoatWeight[1]     = Src.Specular.EdgeTintF82.G;
+        Dst.EdgeTintCoatWeight[2]     = Src.Specular.EdgeTintF82.B;
+        Dst.EdgeTintCoatWeight[3]     = Src.Clearcoat.CoatWeight;
+        Dst.CoatRoughnessOptics[0]    = Src.Clearcoat.CoatRoughness;
+        Dst.CoatRoughnessOptics[1]    = Src.Transmission.TransmissionWeight;
+        Dst.CoatRoughnessOptics[2]    = Src.Transmission.AbbeDispersionNumber;
+        Dst.CoatRoughnessOptics[3]    = 0.0f;
+        Dst.EmissiveRadiancePad[0]    = Emis.R;
+        Dst.EmissiveRadiancePad[1]    = Emis.G;
+        Dst.EmissiveRadiancePad[2]    = Emis.B;
+        Dst.EmissiveRadiancePad[3]    = 0.0f;
+        GpuMats[Slot]                 = Dst;
+
+        MixFloat(Dst.DiffuseAlbedoRoughness[0]);
+        MixFloat(Dst.DiffuseAlbedoRoughness[1]);
+        MixFloat(Dst.DiffuseAlbedoRoughness[2]);
+        MixFloat(Dst.SpecParams[0]);
+        MixFloat(Dst.SpecParams[1]);
+        MixFloat(Dst.EmissiveRadiancePad[0]);
+        MixFloat(Dst.EmissiveRadiancePad[1]);
+        MixFloat(Dst.EmissiveRadiancePad[2]);
+    }
+
+    if (MatSig == CachedMaterialEntriesSignature &&
+        MaterialEntryBuffer.BufferHandle != VK_NULL_HANDLE &&
+        UploadedMaterialCount == MatCount)
+    {
+        return false;
+    }
+
+    const uint64_t MatBytes = GpuMats.size() * sizeof(GpuWorldMaterial80);
+    UploadToDeviceBuffer(MaterialEntryBuffer, GpuMats.data(), MatBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    UploadedMaterialCount          = MatCount;
+    CachedMaterialEntriesSignature = MatSig;
+    PendingRadiosityRefresh        = true;
+    return true;
 }
 
 void VulkanWorldRenderSequence::SynchronizeSceneResources(
@@ -5476,39 +5565,9 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
         NaniteLodStats.GeometryRebuildCount += 1u;
     }
 
-    // 3. Upload 80-byte OpenPBR surface material entries
-    const uint32_t MatCount = std::max(1u, Scene.MaterialRegister.QuerySlotCount());
-    std::vector<GpuWorldMaterial80> GpuMats(MatCount);
-    for (uint32_t Slot = 0u; Slot < Scene.MaterialRegister.QuerySlotCount(); ++Slot)
-    {
-        const auto& Src = Scene.MaterialRegister.InspectAuthoredMaterial(static_cast<uint16_t>(Slot));
-        const Mathematics::LinearRGB Emis = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Src.PorosityLight);
-        GpuWorldMaterial80 Dst {};
-        Dst.DiffuseAlbedoRoughness[0] = Src.Diffuse.BaseColor.R * Src.Diffuse.BaseWeight;
-        Dst.DiffuseAlbedoRoughness[1] = Src.Diffuse.BaseColor.G * Src.Diffuse.BaseWeight;
-        Dst.DiffuseAlbedoRoughness[2] = Src.Diffuse.BaseColor.B * Src.Diffuse.BaseWeight;
-        Dst.DiffuseAlbedoRoughness[3] = Src.Diffuse.DiffuseRoughness;
-        Dst.SpecParams[0]             = Src.Specular.Roughness;
-        Dst.SpecParams[1]             = Src.Specular.Metalness;
-        Dst.SpecParams[2]             = Src.Specular.DielectricIOR;
-        Dst.SpecParams[3]             = Src.Specular.Anisotropy;
-        Dst.EdgeTintCoatWeight[0]     = Src.Specular.EdgeTintF82.R;
-        Dst.EdgeTintCoatWeight[1]     = Src.Specular.EdgeTintF82.G;
-        Dst.EdgeTintCoatWeight[2]     = Src.Specular.EdgeTintF82.B;
-        Dst.EdgeTintCoatWeight[3]     = Src.Clearcoat.CoatWeight;
-        Dst.CoatRoughnessOptics[0]    = Src.Clearcoat.CoatRoughness;
-        Dst.CoatRoughnessOptics[1]    = Src.Transmission.TransmissionWeight;
-        Dst.CoatRoughnessOptics[2]    = Src.Transmission.AbbeDispersionNumber;
-        Dst.CoatRoughnessOptics[3]    = 0.0f;
-        Dst.EmissiveRadiancePad[0]    = Emis.R;
-        Dst.EmissiveRadiancePad[1]    = Emis.G;
-        Dst.EmissiveRadiancePad[2]    = Emis.B;
-        Dst.EmissiveRadiancePad[3]    = 0.0f;
-        GpuMats[Slot]                 = Dst;
-    }
-    const uint64_t MatBytes = GpuMats.size() * sizeof(GpuWorldMaterial80);
-    UploadToDeviceBuffer(MaterialEntryBuffer, GpuMats.data(), MatBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    UploadedMaterialCount = MatCount;
+    // 3. Upload 80-byte OpenPBR surface material entries (force full signature sync)
+    CachedMaterialEntriesSignature = 0ull;
+    (void)SynchronizeMaterialEntriesIfChanged(Scene);
 
     // 3b. Upload Resampled 128x32 LM-63 Photometric Tables & Point Emitters
     {
@@ -6164,9 +6223,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     EnsureDeviceBufferCapacity(PongShadowAoBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PingIndirectIrradianceBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PongIndirectIrradianceBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * 262144ull * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, 299520ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, 262144ull * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(CloudRadiometricBuffer, CloudBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     const uint32_t StarTileCols  = (std::max(1u, WidthPx) + 15u) / 16u;
     const uint32_t StarTileRows  = (std::max(1u, HeightPx) + 15u) / 16u;
@@ -6321,8 +6380,10 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             }
             const float               FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.25f, 4.25f) * 8.0f) * 0.125f;
             const float               CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
-            const float               FineVoxelM    = (2.0f * FineGdfHalf) / 64.0f;
-            const float               CoarseVoxelM  = (2.0f * CoarseGdfHalf) / 64.0f;
+            const float               FineVoxelM    = (2.0f * FineGdfHalf) / static_cast<float>(kGdfGridRes);
+            const float               CoarseVoxelM  = (2.0f * CoarseGdfHalf) / static_cast<float>(kGdfGridRes);
+
+            (void)SynchronizeMaterialEntriesIfChanged(Scene);
 
             const bool UsesRadiosityField =
                 (Config.DebugChannel == 14u || Config.DebugChannel == 15u) ||
@@ -6970,7 +7031,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
 
     Uniforms.SelectionOutlineSpan[0]       = 0u;
     Uniforms.SelectionOutlineSpan[1]       = 0u;
-    Uniforms.SelectionOutlineSpan[2]       = 0u;
+    Uniforms.SelectionOutlineSpan[2]       = std::clamp(Config.SdfShadowMarchSteps, 16u, 96u);
     Uniforms.SelectionOutlineSpan[3]       = 0u;
     Uniforms.SelectionOutlineColorWidth[0] = std::pow(std::clamp(Config.SelectionOutlineColor.X, 0.0f, 1.0f), 2.2f);
     Uniforms.SelectionOutlineColorWidth[1] = std::pow(std::clamp(Config.SelectionOutlineColor.Y, 0.0f, 1.0f), 2.2f);

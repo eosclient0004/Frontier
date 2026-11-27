@@ -58,7 +58,7 @@ struct WorldViewportUniformBlock
     int4                        GlobalDistanceFineToroidalCell;   // xyz = FineMinCellWorld,   w = Reserved
     int4                        GlobalDistanceCoarseToroidalCell; // xyz = CoarseMinCellWorld, w = Reserved
     uint4                       GlobalDistanceSlabBounds;         // xyz = (SlabMin | (SlabMax << 16)), w = SlabActiveFlag
-    uint4                       SelectionOutlineSpan;             // x = FirstClusterOrd, y = ClusterCount, z/w = Reserved
+    uint4                       SelectionOutlineSpan;             // x = FirstClusterOrd, y = ClusterCount, z = SdfShadowMarchSteps [16..96], w = Reserved
     float4                      SelectionOutlineColorWidth;       // xyz = LinearOutlineRGB, w = WidthPx
     float4                      PostProcessParams;                // x = ExposureGain, y = Saturation, z = Contrast, w = Vignette
     float4                      MotionBlurParams0;                // x = Enabled(0/1), y = ShutterScale*Intensity, z = SampleCount, w = MaxBlurRadiusPx
@@ -169,12 +169,12 @@ bool QueryClusterBitActive(uint ClusterOrdinal)
 static const float PiConst    = 3.14159265359;
 static const float TauConst   = 6.28318530718;
 static const float InvPiConst = 0.31830988618;
-static const uint  GdfGridRes = 64u;
-static const uint  GdfVoxCnt  = 262144u; // 64^3
+static const uint  GdfGridRes = 96u;
+static const uint  GdfVoxCnt  = 884736u;  // 96^3
 static const uint  RadMip0Off = 0u;
-static const uint  RadMip1Off = 262144u; // + 64^3
-static const uint  RadMip2Off = 294912u; // + 32^3
-static const uint  RadMip3Off = 299008u; // + 16^3 (+ 8^3 = 299520 total)
+static const uint  RadMip1Off = 884736u;  // + 96^3
+static const uint  RadMip2Off = 995328u;  // + 48^3 (110,592)
+static const uint  RadMip3Off = 1009152u; // + 24^3 (13,824) (+ 12^3 = 1,010,880 total)
 
 struct RayHitReading
 {
@@ -1238,7 +1238,7 @@ bool TraceSceneAnyHit(float3 Origin, float3 Dir, float MinT, float MaxT)
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                  BAKED GLOBAL DISTANCE FIELD (2-CASCADE 64^3) & 2-BOUNCE 3D RADIOSITY PYRAMID
+//                  BAKED GLOBAL DISTANCE FIELD (2-CASCADE 96^3 SIGNED SDF) & 2-BOUNCE 3D RADIOSITY PYRAMID
 //------------------------------------------------------------------------------------------------------------------------
 
 bool IsGlobalDistanceFieldReady()
@@ -1247,9 +1247,121 @@ bool IsGlobalDistanceFieldReady()
            (WorldUniforms.GlobalDistanceFineCenterSpan.w > 0.05);
 }
 
+uint QuerySdfShadowMarchSteps()
+{
+    uint Steps = WorldUniforms.SelectionOutlineSpan.z;
+    return (Steps >= 8u && Steps <= 128u) ? Steps : 32u;
+}
+
+uint3 WrapGdfToroidalCoord(int3 WorldCell)
+{
+    int  Res = int(GdfGridRes);
+    int3 Rem = WorldCell % Res;
+    return uint3(Rem + select(Rem < int3(0), int3(Res), int3(0)));
+}
+
 float QueryFineGdfVoxelSize()
 {
     return (2.0 * max(0.25, WorldUniforms.GlobalDistanceFineCenterSpan.w)) / float(GdfGridRes);
+}
+
+float SampleLocalAssetSignedSdf(
+    uint   VoxelFloatOffset,
+    uint3  Res,
+    float3 LocalMin,
+    float3 LocalMax,
+    float3 LocalP)
+{
+    float3 Span     = max(float3(1.0e-5), LocalMax - LocalMin);
+    float3 ClampedP = clamp(LocalP, LocalMin, LocalMax);
+    float3 Outside  = LocalP - ClampedP;
+    float  OutDist  = length(Outside);
+
+    float3 MaxIdxF = float3(max(uint3(1u), Res) - 1u);
+    float3 GridF   = saturate((ClampedP - LocalMin) / Span) * MaxIdxF;
+    uint3  Idx0    = min(uint3(floor(GridF)), max(uint3(1u), Res) - 1u);
+    uint3  Idx1    = min(Idx0 + 1u, max(uint3(1u), Res) - 1u);
+    float3 Frac    = GridF - float3(Idx0);
+
+    uint StrideY   = Res.x;
+    uint StrideZ   = Res.x * Res.y;
+    uint Origin000 = VoxelFloatOffset + Idx0.z * StrideZ + Idx0.y * StrideY + Idx0.x;
+    uint OffX      = Idx1.x - Idx0.x;
+    uint OffY      = (Idx1.y - Idx0.y) * StrideY;
+    uint OffZ      = (Idx1.z - Idx0.z) * StrideZ;
+
+    float C000 = LocalAssetSdfVoxelBuffer[Origin000];
+    float C100 = LocalAssetSdfVoxelBuffer[Origin000 + OffX];
+    float C010 = LocalAssetSdfVoxelBuffer[Origin000 + OffY];
+    float C110 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffY];
+    float C001 = LocalAssetSdfVoxelBuffer[Origin000 + OffZ];
+    float C101 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffZ];
+    float C011 = LocalAssetSdfVoxelBuffer[Origin000 + OffY + OffZ];
+    float C111 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffY + OffZ];
+
+    float C00 = lerp(C000, C100, Frac.x);
+    float C10 = lerp(C010, C110, Frac.x);
+    float C01 = lerp(C001, C101, Frac.x);
+    float C11 = lerp(C011, C111, Frac.x);
+    float C0  = lerp(C00, C10, Frac.y);
+    float C1  = lerp(C01, C11, Frac.y);
+    float GridDist = lerp(C0, C1, Frac.z);
+    return (OutDist > 1.0e-5) ? sqrt(max(0.0, GridDist) * max(0.0, GridDist) + OutDist * OutDist) : GridDist;
+}
+
+float EvaluateAnalyticalPrimitiveLocalSdf(uint ShapeCode, float3 HalfExt, float3 P)
+{
+    if (ShapeCode == 2u) // Sphere
+    {
+        float R = max(1.0e-4, max(HalfExt.x, max(HalfExt.y, HalfExt.z)));
+        return length(P) - R;
+    }
+    if (ShapeCode == 3u) // Cylinder (Z-axis)
+    {
+        float Rad = max(1.0e-4, max(HalfExt.x, HalfExt.y));
+        float Hz  = max(1.0e-4, HalfExt.z);
+        float2 D  = float2(length(P.xy) - Rad, abs(P.z) - Hz);
+        return min(max(D.x, D.y), 0.0) + length(max(D, float2(0.0)));
+    }
+    if (ShapeCode == 4u) // Cone (Z-axis, tip at +Hz, foot radius Rad at -Hz)
+    {
+        float Rad = max(1.0e-4, max(HalfExt.x, HalfExt.y));
+        float Hz  = max(1.0e-4, HalfExt.z);
+        float H2  = 2.0 * Hz;
+        float2 Q  = float2(length(P.xy), P.z - Hz);
+        float2 K1 = float2(0.0, 0.0);
+        float2 K2 = float2(-Rad, H2);
+        float2 Ca = float2(Q.x - min(Q.x, (Q.y < 0.0) ? 0.0 : Rad), abs(Q.y + Hz) - Hz);
+        float2 Cb = Q - K1 + K2 * saturate(dot(K1 - Q, K2) / max(1.0e-8, dot(K2, K2)));
+        float  S  = (Cb.x < 0.0 && Ca.y < 0.0) ? -1.0 : 1.0;
+        return S * sqrt(max(0.0, min(dot(Ca, Ca), dot(Cb, Cb))));
+    }
+    if (ShapeCode == 5u) // Torus (XY-plane)
+    {
+        float MinorR = max(1.0e-4, HalfExt.z);
+        float MajorR = max(MinorR, max(HalfExt.x, HalfExt.y) - MinorR);
+        float2 Q = float2(length(P.xy) - MajorR, P.z);
+        return length(Q) - MinorR;
+    }
+    // Default ShapeCode == 1u: Box
+    float3 Q = abs(P) - HalfExt;
+    return length(max(Q, float3(0.0))) + min(max(Q.x, max(Q.y, Q.z)), 0.0);
+}
+
+float EvaluateInstanceLocalSdf(GpuDynamicLocalSdfInstance144 Inst, uint ShapeCode, uint3 Res, float3 LocalP)
+{
+    if (ShapeCode == 0u)
+    {
+        return SampleLocalAssetSignedSdf(
+            Inst.ResolutionOffset.z,
+            Res,
+            Inst.LocalMinPad.xyz,
+            Inst.LocalMaxPad.xyz,
+            LocalP);
+    }
+    float3 BoxCenter = 0.5 * (Inst.LocalMinPad.xyz + Inst.LocalMaxPad.xyz);
+    float3 BoxHalf   = max(float3(1.0e-4), 0.5 * (Inst.LocalMaxPad.xyz - Inst.LocalMinPad.xyz));
+    return EvaluateAnalyticalPrimitiveLocalSdf(ShapeCode, BoxHalf, LocalP - BoxCenter);
 }
 
 float SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos, out bool OutInBounds)
@@ -1277,48 +1389,48 @@ float SampleGlobalDistanceCascade(uint CascadeIdx, float3 WorldPos, out bool Out
         ? WorldUniforms.GlobalDistanceFineToroidalCell.xyz
         : WorldUniforms.GlobalDistanceCoarseToroidalCell.xyz;
 
-    // Hardware VK_IMAGE_TYPE_3D linear trilinear fetch with VK_SAMPLER_ADDRESS_MODE_REPEAT toroidal wrap
-    float3 ToroidalUvw = LogicalNorm + float3(MinCell & 63) * (1.0 / float(GdfGridRes));
+    // Hardware VK_IMAGE_TYPE_3D linear trilinear fetch with VK_SAMPLER_ADDRESS_MODE_REPEAT non-power-of-2 toroidal wrap
+    float3 ToroidalUvw = LogicalNorm + float3(WrapGdfToroidalCoord(MinCell)) * (1.0 / float(GdfGridRes));
     return (CascadeIdx == 0u)
         ? GdfFineTex3D.SampleLevel(ToroidalUvw, 0.0)
         : GdfCoarseTex3D.SampleLevel(ToroidalUvw, 0.0);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                        UDF CLIPMAP & BILATERAL AO CONSTANTS
+//                                        SDF CLIPMAP & BILATERAL AO CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-static const float UdfTruncationVoxelMultiple     = 8.0;        // [count] - Truncation ceiling in local voxel multiples
+static const float UdfTruncationVoxelMultiple     = 28.0;       // [count] - Truncation ceiling in local voxel multiples (2.48m fine / 6.19m coarse on 96^3)
 static const float CascadeBorderInnerMargin       = 0.0;        // [-]     - Outer normalized margin where cascade fades out
 static const float CascadeBorderOuterMargin       = 0.10;       // [-]     - Inner normalized margin where cascade reaches 1
 static const float FineCascadeFullWeightThreshold = 0.999;      // [-]     - Weight threshold skipping coarse cascade blend
 static const float FineCascadeMinHalfSpanMeters   = 0.1;        // [m]     - Safety floor on fine clipmap half-extent
 static const float CoarseCascadeMinHalfSpanMeters = 0.5;        // [m]     - Safety floor on coarse clipmap half-extent
 static const float ValidAnalyticGroundFloorZ      = -1.0e8;     // [m]     - Lower validity floor for analytic ground datum
-static const float CoarseAoOuterFadeRatio         = 0.98;       // [-]     - Normalized coarse radius where UDF AO fades to 1
-static const float CoarseAoInnerFadeRatio         = 0.76;       // [-]     - Normalized coarse radius of full UDF AO weight
+static const float CoarseAoOuterFadeRatio         = 0.98;       // [-]     - Normalized coarse radius where SDF AO fades to 1
+static const float CoarseAoInnerFadeRatio         = 0.76;       // [-]     - Normalized coarse radius of full SDF AO weight
 static const float GoldenAngleRadians             = 2.39996323; // [rad]   - Fibonacci hemisphere golden angle pi*(3-sqrt(5))
 static const float IgnSpatialScaleX               = 0.06711056; // [-]     - Jimenez interleaved gradient noise X frequency
 static const float IgnSpatialScaleY               = 0.00583715; // [-]     - Jimenez interleaved gradient noise Y frequency
 static const float IgnOuterMultiplier             = 52.9829189; // [-]     - Jimenez interleaved gradient noise outer scale
-static const uint  UdfAoRayCount                  = 6u;         // [count] - Cosine-hemisphere UDF sphere-trace rays/pixel
-static const uint  UdfAoMaxMarchSteps             = 14u;        // [count] - Maximum sphere-tracing steps along each AO ray
-static const float UdfAoTraceRadiusMeters         = 0.85;       // [m]     - Physical ambient occlusion reach in world space
-static const float UdfAoSurfaceBiasMeters         = 0.025;      // [m]     - Minimum normal lift preventing receiver self-hit
-static const float UdfAoCellLiftScale             = 0.65;       // [-]     - Origin normal lift in fine clipmap voxel units
-static const float UdfAoGeomLiftBlend             = 0.55;       // [-]     - Geometric normal weight in ray origin lift axis
-static const float UdfAoShadingLiftBlend          = 0.45;       // [-]     - Shading normal weight in ray origin lift axis
-static const float UdfAoMinGeomCosine             = 0.04;       // [-]     - Grazing clamp lifting rays above triangle plane
+static const uint  UdfAoRayCount                  = 8u;         // [count] - Cosine-hemisphere signed SDF sphere-trace rays/pixel
+static const uint  UdfAoMaxMarchSteps             = 16u;        // [count] - Maximum sphere-tracing steps along each AO ray
+static const float UdfAoTraceRadiusMeters         = 1.15;       // [m]     - Physical ambient occlusion reach in world space
+static const float UdfAoSurfaceBiasMeters         = 0.014;      // [m]     - Minimum normal lift preventing receiver self-hit
+static const float UdfAoCellLiftScale             = 0.28;       // [-]     - Origin normal lift in fine clipmap voxel units (~2.5 cm on 96^3)
+static const float UdfAoGeomLiftBlend             = 0.60;       // [-]     - Geometric normal weight in ray origin lift axis
+static const float UdfAoShadingLiftBlend          = 0.40;       // [-]     - Shading normal weight in ray origin lift axis
+static const float UdfAoMinGeomCosine             = 0.05;       // [-]     - Grazing clamp lifting rays above triangle plane
 static const float UdfAoGroundRaySlopeFloor       = 1.0e-4;     // [-]     - Downward Z slope threshold for exact floor hit
-static const float UdfAoDirectHitOcclusion        = 1.0;        // [-]     - Full ray occlusion assigned on direct UDF hit
+static const float UdfAoDirectHitOcclusion        = 1.0;        // [-]     - Full ray occlusion assigned on direct SDF hit
 static const float UdfAoInitialPreviousDist       = 1.0e5;      // [m]     - Uninitialized previous-step distance floor
-static const float UdfAoHitCellScale              = 0.18;       // [-]     - Direct surface hit threshold in local voxels
-static const float UdfAoMinApproachCellScale      = 0.10;       // [-]     - Step denominator floor for approach gradient
-static const float UdfAoNearCellScale             = 0.45;       // [-]     - Near-surface cone floor in local voxel units
-static const float UdfAoNearConeExpansion         = 1.15;       // [-]     - Cone aperture growth per meter of march travel
-static const float UdfAoProximityStrength         = 0.82;       // [-]     - Soft proximity occlusion gain on approaching rays
-static const float UdfAoUnderRelaxation           = 0.75;       // [-]     - Under-relaxed UDF step factor guarding voxel seams
-static const float UdfAoMaxStepMeters             = 0.85;       // [m]     - Upper clamp on single UDF sphere-trace advance
+static const float UdfAoHitCellScale              = 0.14;       // [-]     - Direct surface hit threshold in local voxels (~1.2 cm)
+static const float UdfAoMinApproachCellScale      = 0.08;       // [-]     - Step denominator floor for approach gradient
+static const float UdfAoNearCellScale             = 0.65;       // [-]     - Near-surface cone floor in local voxel units
+static const float UdfAoNearConeExpansion         = 1.05;       // [-]     - Cone aperture growth per meter of march travel
+static const float UdfAoProximityStrength         = 0.88;       // [-]     - Soft proximity occlusion gain on approaching rays
+static const float UdfAoUnderRelaxation           = 0.82;       // [-]     - Signed SDF sphere-trace step relaxation factor
+static const float UdfAoMaxStepMeters             = 0.90;       // [m]     - Upper clamp on single SDF sphere-trace advance
 static const float UdfAoMinimumStepFloor          = 1.0e-5;     // [m]     - Step termination floor avoiding thin-wall skips
 static const uint  DenoiseFinalToneStackBit       = 1u;         // [mask]  - Final step tone-stack & display output bit
 static const uint  DenoiseSpatialAoBit            = 2u;         // [mask]  - Joint-bilateral UDF AO spatial filter bit
@@ -1406,9 +1518,70 @@ float SampleGlobalDistanceWorld(float3 WorldPosition, out float OutLocalVoxelSiz
     float GroundPlaneZ  = QueryGlobalDistanceAnalyticGroundZ();
     if (GroundPlaneZ > ValidAnalyticGroundFloorZ)
     {
-        FieldDistance = min(FieldDistance, abs(WorldPosition.z - GroundPlaneZ));
+        FieldDistance = min(FieldDistance, WorldPosition.z - GroundPlaneZ);
     }
     return FieldDistance;
+}
+
+// Fast 96^3 Signed GDF query with automatic per-instance Local Signed SDF refinement near geometry
+// (eliminates coarse GDF voxel bloat on tires, fenders, tripod legs, and analytical orbs during shadow & AO marching)
+float SampleShadowSignedDistance(float3 WorldPosition, out float OutLocalVoxelSize)
+{
+    float GdfDist           = SampleGlobalDistanceVolumes(WorldPosition, OutLocalVoxelSize);
+    uint  LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
+    if (LocalSdfInstCount == 0u || GdfDist > OutLocalVoxelSize * 2.4)
+    {
+        return GdfDist;
+    }
+
+    float BestDist     = GdfDist;
+    float BestLocalVox = OutLocalVoxelSize;
+    bool  RefinedHit   = false;
+    float SearchRadius = max(GdfDist, OutLocalVoxelSize * 1.5);
+
+    [loop]
+    for (uint InstIdx = 0u; InstIdx < LocalSdfInstCount; ++InstIdx)
+    {
+        GpuDynamicLocalSdfInstance144 Inst = DynamicLocalSdfInstanceBuffer[InstIdx];
+        uint PackedBits = Inst.ResolutionOffset.w;
+        if ((PackedBits >> InstanceActiveBitShift) == 0u || (PackedBits & InstanceGroundSlabBit) != 0u)
+        {
+            continue;
+        }
+        float3 LocalP = float3(
+            dot(Inst.WorldToLocalRow0.xyz, WorldPosition) + Inst.WorldToLocalRow0.w,
+            dot(Inst.WorldToLocalRow1.xyz, WorldPosition) + Inst.WorldToLocalRow1.w,
+            dot(Inst.WorldToLocalRow2.xyz, WorldPosition) + Inst.WorldToLocalRow2.w);
+        float  MinWorldScale = max(MinimumBoxHalfExtentMeters, Inst.LocalToWorldNormRow0.w);
+        float3 ClampedLocal  = clamp(LocalP, Inst.LocalMinPad.xyz, Inst.LocalMaxPad.xyz);
+        float  BoxLowerWorld = length(LocalP - ClampedLocal) * MinWorldScale;
+        float  CullBound     = RefinedHit ? max(BestDist, 0.0) : SearchRadius;
+        if (BoxLowerWorld > CullBound + 0.01)
+        {
+            continue;
+        }
+        uint  ShapeCode = (Inst.ResolutionOffset.y >> InstanceActiveBitShift) & InstanceSlotMask16;
+        uint3 Res       = uint3(
+            Inst.ResolutionOffset.x & InstanceSlotMask16,
+            (Inst.ResolutionOffset.x >> InstanceActiveBitShift) & InstanceSlotMask16,
+            Inst.ResolutionOffset.y & InstanceSlotMask16);
+        float WorldD = EvaluateInstanceLocalSdf(Inst, ShapeCode, Res, LocalP) * MinWorldScale;
+        if (!RefinedHit || WorldD < BestDist)
+        {
+            BestDist   = WorldD;
+            RefinedHit = true;
+            float InstPitch = (ShapeCode == 0u)
+                ? max(0.012, max(Inst.LocalMinPad.w, max(Inst.LocalMaxPad.w, Inst.LocalToWorldNormRow1.w)) * MinWorldScale)
+                : 0.012;
+            BestLocalVox = min(OutLocalVoxelSize, InstPitch);
+        }
+    }
+    if (RefinedHit)
+    {
+        OutLocalVoxelSize = BestLocalVox;
+        return BestDist;
+    }
+    return GdfDist;
 }
 
 float TraceGlobalDistanceConeVisibility(
@@ -1420,83 +1593,85 @@ float TraceGlobalDistanceConeVisibility(
     bool   PointHard,
     uint   MaxSteps)
 {
-    if (!IsGlobalDistanceFieldReady() || MaxDist <= 0.12)
+    if (!IsGlobalDistanceFieldReady() || MaxDist <= 0.08)
     {
         return 1.0;
     }
 
     float  Vox0      = QueryFineGdfVoxelSize();
-    float  StartLift = Vox0 * 0.68;
+    float  StartLift = max(0.015, Vox0 * 0.22); // ~1.95 cm on 96^3 (down from 9.0 cm)
     float3 StartP    = Origin + GeomN * StartLift;
     float  NdotD     = max(0.0, dot(GeomN, Dir));
-    float  EndMargin = max(0.22, Vox0 * 2.35);
+    float  EndMargin = max(0.08, Vox0 * 1.15);
     float  SafeMax   = MaxDist - EndMargin;
-    float  T         = Vox0 * 0.65;
+    float  T         = max(0.025, Vox0 * 0.32);
     if (SafeMax <= T + 0.02)
     {
         return 1.0;
     }
 
-    float MinVis       = 1.0;
-    float PrevDist     = 0.0;
-    float PrevStep     = 0.0;
+    // Step granularity scales smoothly with configured step budget (16..96, default 32)
+    // while allowing full sphere-trace jumps across open studio air so lights up to 14m are always reached.
+    float MinStepScale = clamp(32.0 / float(max(MaxSteps, 8u)), 0.35, 2.2);
     float GroundPlaneZ = QueryGlobalDistanceAnalyticGroundZ();
     bool  CheckGround  = (GroundPlaneZ > ValidAnalyticGroundFloorZ) && (Dir.z < -1.0e-4);
+
+    float MinVis = 1.0;
     [loop]
     for (uint Step = 0u; Step < MaxSteps; ++Step)
     {
         if (T >= SafeMax) break;
         float  LocalVox = Vox0;
         float3 SampleP  = StartP + Dir * T;
-        float  Dist     = SampleGlobalDistanceVolumes(SampleP, LocalVox);
+        float  Dist     = SampleShadowSignedDistance(SampleP, LocalVox);
         if (CheckGround)
         {
-            Dist = min(Dist, abs(SampleP.z - GroundPlaneZ));
+            Dist = min(Dist, SampleP.z - GroundPlaneZ);
         }
+
+        float SelfPlaneDist = StartLift + T * NdotD;
+        float ClearWeight   = 1.0 - smoothstep(
+            SelfPlaneDist - max(0.022, LocalVox * 0.55),
+            SelfPlaneDist - max(0.004, LocalVox * 0.08),
+            abs(Dist));
 
         if (PointHard)
         {
-            float SelfPlaneDist = StartLift + T * NdotD;
-            float ClearWeight   = 1.0 - smoothstep(SelfPlaneDist - max(0.05, LocalVox * 0.95), SelfPlaneDist - LocalVox * 0.12, Dist);
             if (ClearWeight > 1.0e-3)
             {
-                float HardBand = saturate((Dist - LocalVox * 0.06) / max(1.0e-3, LocalVox * 0.28));
+                float HardBand = saturate((Dist + LocalVox * 0.04) / max(1.0e-3, LocalVox * 0.24));
                 MinVis = min(MinVis, lerp(1.0, HardBand, ClearWeight));
                 if (MinVis <= 0.005) return 0.0;
             }
-            T += max(LocalVox * 0.55, max(0.0, Dist) * 0.85);
+            T += max(LocalVox * 0.18 * MinStepScale, max(0.0, Dist) * 0.85);
         }
         else
         {
-            // General-step closest-point-of-approach along [T - PrevStep, T] using exact triangle geometry
-            // y = (r_k^2 - r_{k-1}^2 + h^2) / (2h), clamped to [0, h] — zero rings for arbitrary clamped steps
-            float SafeDist      = max(0.0, Dist);
-            float BackstepY     = (Step > 0u && PrevStep > 1.0e-4)
-                ? clamp((SafeDist * SafeDist - PrevDist * PrevDist + PrevStep * PrevStep) / (2.0 * PrevStep), 0.0, PrevStep)
-                : 0.0;
-            float ClosestD      = sqrt(max(0.0, SafeDist * SafeDist - BackstepY * BackstepY));
-            float ClosestT      = max(LocalVox * 0.25, T - BackstepY);
-            float RemSpan       = max(1.0e-3, SafeMax - ClosestT);
-            float Aperture      = max(LocalVox * 0.24, min(ClosestT * max(0.020, ConeTan), RemSpan * 0.55));
-            float SelfPlaneDist = StartLift + ClosestT * NdotD;
-            float ClearWeight   = 1.0 - smoothstep(SelfPlaneDist - max(0.06, LocalVox * 1.15), SelfPlaneDist - LocalVox * 0.15, ClosestD);
+            float RemSpan  = max(1.0e-3, SafeMax - T);
+            float Aperture = max(0.018, min(T * max(0.015, ConeTan), RemSpan * 0.55));
             if (ClearWeight > 1.0e-3)
             {
-                float ConeVis = saturate((ClosestD + Aperture * 0.12) / (1.12 * Aperture));
+                // Oscillation-free true signed-SDF cone visibility: exact 0.0 umbra inside solids (Dist <= 0)
+                float ConeVis = saturate((Dist + Aperture * 0.12) / (1.12 * Aperture));
                 MinVis = min(MinVis, lerp(1.0, ConeVis, ClearWeight));
-                if (MinVis <= 0.01) return 0.0;
+                if (MinVis <= 0.005) return 0.0;
             }
-            float StepAdv = clamp(SafeDist * 0.65, LocalVox * 0.28, max(LocalVox * 0.65, Aperture * 0.34));
-            PrevDist = SafeDist;
-            PrevStep = StepAdv;
-            T       += StepAdv;
+
+            float SafeDist = max(0.0, Dist);
+            float FineCap  = max(LocalVox * 0.34, Aperture * 0.42) * MinStepScale;
+            float StepAdv  = max(LocalVox * 0.14 * MinStepScale, min(SafeDist * 0.78, FineCap));
+            if (Dist > Aperture * 1.45)
+            {
+                StepAdv = max(StepAdv, SafeDist * 0.84);
+            }
+            T += StepAdv;
         }
     }
-    return PointHard ? smoothstep(0.25, 0.75, MinVis) : (MinVis * MinVis * (3.0 - 2.0 * MinVis));
+    return PointHard ? smoothstep(0.20, 0.80, MinVis) : (MinVis * MinVis * (3.0 - 2.0 * MinVis));
 }
 
-// 💡 Golden-angle cosine-hemisphere sphere tracing over the nested Unsigned Distance Field clipmap
-// plus analytic ground datum, rotated per pixel by Jimenez interleaved gradient noise
+// Golden-angle cosine-hemisphere sphere tracing over the nested 96^3 Signed Distance Field clipmap
+// with near-surface per-instance Local Signed SDF refinement & analytic ground datum
 float EvaluateGlobalDistanceAmbientOcclusion(
     float3 SurfacePosition,
     float3 ShadingNormal,
@@ -1529,8 +1704,6 @@ float EvaluateGlobalDistanceAmbientOcclusion(
     float  OriginLift       = max(UdfAoSurfaceBiasMeters, OriginCellMeters * UdfAoCellLiftScale);
     float3 RayOrigin        = SurfacePosition + LiftDirection * OriginLift;
 
-    // Exact empty-space early-out: if the nearest non-ground geometry is beyond the AO reach and
-    // no analytic ground plane lies below within reach, zero AO rays can intersect anything.
     float OriginFieldDist = SampleGlobalDistanceVolumes(RayOrigin, OriginCellMeters);
     bool  CanHitAnalyticGround =
         (GroundPlaneZ > ValidAnalyticGroundFloorZ) &&
@@ -1574,7 +1747,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
             float GroundHitMeters = (GroundPlaneZ - SurfacePosition.z) / RayDir.z;
             if (GroundHitMeters > 0.0 && GroundHitMeters < UdfAoTraceRadiusMeters)
             {
-                RayOcclusion = UdfAoDirectHitOcclusion;
+                RayOcclusion = UdfAoDirectHitOcclusion * saturate(1.0 - GroundHitMeters / UdfAoTraceRadiusMeters);
             }
         }
 
@@ -1595,15 +1768,17 @@ float EvaluateGlobalDistanceAmbientOcclusion(
 
                 float3 SamplePosition  = RayOrigin + RayDir * TravelMeters;
                 float  LocalCellMeters = OriginCellMeters;
-                float  FieldDistance   = SampleGlobalDistanceVolumes(SamplePosition, LocalCellMeters);
+                float  FieldDistance   = (StepIndex < 5u && TravelMeters < 0.38)
+                    ? SampleShadowSignedDistance(SamplePosition, LocalCellMeters)
+                    : SampleGlobalDistanceVolumes(SamplePosition, LocalCellMeters);
                 float  HitThreshold    = max(MinimumBoxHalfExtentMeters, LocalCellMeters * UdfAoHitCellScale);
-                if (FieldDistance < HitThreshold)
+                if (FieldDistance <= HitThreshold)
                 {
-                    RayOcclusion = UdfAoDirectHitOcclusion;
+                    float HitFade = saturate(1.0 - (TravelMeters / UdfAoTraceRadiusMeters) * 0.65);
+                    RayOcclusion  = max(RayOcclusion, UdfAoDirectHitOcclusion * HitFade);
                     break;
                 }
 
-                // ① Gate proximity occlusion on positive approach rate so parallel open ground planes contribute zero darkening
                 float ApproachRate = PreviousValid
                     ? saturate((PreviousDistance - FieldDistance) / max(PreviousStep, LocalCellMeters * UdfAoMinApproachCellScale))
                     : 0.0;
@@ -1614,9 +1789,8 @@ float EvaluateGlobalDistanceAmbientOcclusion(
                     RayOcclusion,
                     (1.0 - NearRatio) * ApproachRate * DistanceFade * UdfAoProximityStrength);
 
-                // ② Advance with under-relaxed unsigned distance without a fixed minimum step that could jump thin blockers
                 float StepLength = min(
-                    FieldDistance * UdfAoUnderRelaxation,
+                    max(0.0, FieldDistance) * UdfAoUnderRelaxation,
                     min(UdfAoMaxStepMeters, UdfAoTraceRadiusMeters - TravelMeters));
                 if (StepLength <= UdfAoMinimumStepFloor)
                 {
@@ -1635,7 +1809,19 @@ float EvaluateGlobalDistanceAmbientOcclusion(
     return lerp(1.0, UnfilteredAo, CascadeWeight);
 }
 
-// Central-difference gradient of the Global Distance Field on the exterior side of the surface.
+// Combined 96^3 Signed GDF + per-instance Local Signed SDF + analytic ground half-space
+float SampleDebugSignedDistanceWorld(float3 WorldPosition, out float OutLocalVoxelSize)
+{
+    float FieldDistance = SampleShadowSignedDistance(WorldPosition, OutLocalVoxelSize);
+    float GroundPlaneZ  = QueryGlobalDistanceAnalyticGroundZ();
+    if (GroundPlaneZ > ValidAnalyticGroundFloorZ)
+    {
+        FieldDistance = min(FieldDistance, WorldPosition.z - GroundPlaneZ);
+    }
+    return FieldDistance;
+}
+
+// Central-difference gradient of the 96^3 Signed Global Distance Field (+ near-field Local SDF) at the surface zero-crossing.
 float3 EvaluateGlobalDistanceGradientNormal(float3 Pos, float3 FallbackNormal)
 {
     if ((WorldUniforms.GlobalDistanceBakeControl.z == 0u) || (WorldUniforms.GlobalDistanceFineCenterSpan.w <= 0.05))
@@ -1643,16 +1829,16 @@ float3 EvaluateGlobalDistanceGradientNormal(float3 Pos, float3 FallbackNormal)
         return FallbackNormal;
     }
     float OriginVox = QueryFineGdfVoxelSize();
-    (void)SampleGlobalDistanceWorld(Pos, OriginVox);
-    float  Eps      = max(0.012, OriginVox * 0.65);
-    float3 Center   = Pos + FallbackNormal * (OriginVox * 0.75);
+    (void)SampleDebugSignedDistanceWorld(Pos, OriginVox);
+    float  Eps      = max(0.012, OriginVox * 0.55);
+    float3 Center   = Pos + FallbackNormal * (OriginVox * 0.12);
     float  LocalVox = Eps;
-    float Dx = SampleGlobalDistanceWorld(Center + float3(Eps, 0.0, 0.0), LocalVox) -
-               SampleGlobalDistanceWorld(Center - float3(Eps, 0.0, 0.0), LocalVox);
-    float Dy = SampleGlobalDistanceWorld(Center + float3(0.0, Eps, 0.0), LocalVox) -
-               SampleGlobalDistanceWorld(Center - float3(0.0, Eps, 0.0), LocalVox);
-    float Dz = SampleGlobalDistanceWorld(Center + float3(0.0, 0.0, Eps), LocalVox) -
-               SampleGlobalDistanceWorld(Center - float3(0.0, 0.0, Eps), LocalVox);
+    float Dx = SampleDebugSignedDistanceWorld(Center + float3(Eps, 0.0, 0.0), LocalVox) -
+               SampleDebugSignedDistanceWorld(Center - float3(Eps, 0.0, 0.0), LocalVox);
+    float Dy = SampleDebugSignedDistanceWorld(Center + float3(0.0, Eps, 0.0), LocalVox) -
+               SampleDebugSignedDistanceWorld(Center - float3(0.0, Eps, 0.0), LocalVox);
+    float Dz = SampleDebugSignedDistanceWorld(Center + float3(0.0, 0.0, Eps), LocalVox) -
+               SampleDebugSignedDistanceWorld(Center - float3(0.0, 0.0, Eps), LocalVox);
     float3 Gradient = float3(Dx, Dy, Dz);
     float  GradLen  = length(Gradient);
     return (GradLen > 1.0e-6) ? (Gradient / GradLen) : FallbackNormal;
@@ -1682,10 +1868,10 @@ float3 EvaluateSdfDistanceHeatColor(float SignedDistanceMeters, float VoxelMeter
 
 void QueryRadiosityMipLayout(uint MipIdx, out uint OutRes, out uint OutOffset)
 {
-    if (MipIdx == 0u)      { OutRes = 64u; OutOffset = RadMip0Off; }
-    else if (MipIdx == 1u) { OutRes = 32u; OutOffset = RadMip1Off; }
-    else if (MipIdx == 2u) { OutRes = 16u; OutOffset = RadMip2Off; }
-    else                   { OutRes = 8u;  OutOffset = RadMip3Off; }
+    if (MipIdx == 0u)      { OutRes = 96u; OutOffset = RadMip0Off; }
+    else if (MipIdx == 1u) { OutRes = 48u; OutOffset = RadMip1Off; }
+    else if (MipIdx == 2u) { OutRes = 24u; OutOffset = RadMip2Off; }
+    else                   { OutRes = 12u; OutOffset = RadMip3Off; }
 }
 
 float4 SampleRadiosityMipTrilinear(uint MipIdx, float3 WorldPos, out bool OutInBounds)
@@ -1711,7 +1897,7 @@ float4 SampleRadiosityMipTrilinear(uint MipIdx, float3 WorldPos, out bool OutInB
         float  HalfTexel   = 0.5 / float(GdfGridRes);
         float3 ClampedNorm = clamp(NormCoord, float3(HalfTexel), float3(1.0 - HalfTexel));
         int3   FineMinCell = WorldUniforms.GlobalDistanceFineToroidalCell.xyz;
-        float3 ToroidalUvw = ClampedNorm + float3(FineMinCell & 63) * (1.0 / float(GdfGridRes));
+        float3 ToroidalUvw = ClampedNorm + float3(WrapGdfToroidalCoord(FineMinCell)) * (1.0 / float(GdfGridRes));
         return RadiosityMip0Tex3D.SampleLevel(ToroidalUvw, 0.0);
     }
     return RadiosityCoarseTex3D.SampleLevel(NormCoord, float(min(MipIdx, 3u) - 1u));
@@ -1852,7 +2038,7 @@ float3 TraceSingleRadiosityCone(
         }
 
         bool  InSdf           = false;
-        float SdfD            = SampleGlobalDistanceCascade(0u, SampleP, InSdf);
+        float SdfD            = max(0.0, SampleGlobalDistanceCascade(0u, SampleP, InSdf));
         float MipVox          = Vox0 * exp2(float(MipIdx));
         float ConeRadius      = 0.5 * Diameter;
         float PlaneClearance  = dot(SampleP - Origin, GeomN);
@@ -1920,7 +2106,13 @@ float3 EvaluateHemisphereSkyGi(float3 N, float3 TAxis, float3 BAxis)
     return max(float3(0.0), SkyIrr * 0.34);
 }
 
-float3 EvaluateGdfVoxelConeGi(float3 Pos, float3 N, float3 GeomN, float3 TAxis, float3 BAxis)
+float3 EvaluateGdfVoxelConeGi(
+    float3 Pos,
+    float3 N,
+    float3 GeomN,
+    float3 TAxis,
+    float3 BAxis,
+    uint2  PixelCoord = uint2(0u, 0u))
 {
     if (!IsGlobalDistanceFieldReady())
     {
@@ -1943,21 +2135,20 @@ float3 EvaluateGdfVoxelConeGi(float3 Pos, float3 N, float3 GeomN, float3 TAxis, 
     float  Vox0   = QueryFineGdfVoxelSize();
     float3 StartP = Pos + GeomN * (Vox0 * 0.88) + N * (Vox0 * 0.35);
 
-    const float CosTilt = 0.6427876; // cos(50 deg)
-    const float SinTilt = 0.7660444; // sin(50 deg)
-    float3 GiIrr = float3(0.0);
+    // 7-cone hemisphere (1 zenith + 6 tilted every 60 deg) with Jimenez IGN azimuthal rotation
+    // eliminates axis-aligned '+' cross lobes around compact dynamic emissive sources.
+    float  IgnPhase   = frac(IgnOuterMultiplier * frac(float(PixelCoord.x) * IgnSpatialScaleX + float(PixelCoord.y) * IgnSpatialScaleY));
+    float  BaseAzim   = IgnPhase * (PiConst / 3.0);
+    const float CosTilt = 0.6156615; // cos(52 deg)
+    const float SinTilt = 0.7880108; // sin(52 deg)
+    float3 GiIrr = 0.25 * TraceSingleRadiosityCone(Pos, GeomN, StartP, N, 0.60, 5u, 0.34, false);
 
     [loop]
-    for (uint ConeIdx = 0u; ConeIdx < 5u; ++ConeIdx)
+    for (uint RingIdx = 0u; RingIdx < 6u; ++RingIdx)
     {
-        float3 ConeDir = N;
-        float  ConeWt  = 0.28;
-        uint   Steps   = 5u;
-        if (ConeIdx == 1u)      { ConeDir = normalize(N * CosTilt + TAxis * SinTilt); ConeWt = 0.18; Steps = 4u; }
-        else if (ConeIdx == 2u) { ConeDir = normalize(N * CosTilt - TAxis * SinTilt); ConeWt = 0.18; Steps = 4u; }
-        else if (ConeIdx == 3u) { ConeDir = normalize(N * CosTilt + BAxis * SinTilt); ConeWt = 0.18; Steps = 4u; }
-        else if (ConeIdx == 4u) { ConeDir = normalize(N * CosTilt - BAxis * SinTilt); ConeWt = 0.18; Steps = 4u; }
-        GiIrr += ConeWt * TraceSingleRadiosityCone(Pos, GeomN, StartP, ConeDir, 0.577, Steps, 0.34, false);
+        float  Azim    = BaseAzim + float(RingIdx) * (PiConst / 3.0);
+        float3 RingDir = normalize(N * CosTilt + (TAxis * cos(Azim) + BAxis * sin(Azim)) * SinTilt);
+        GiIrr += 0.125 * TraceSingleRadiosityCone(Pos, GeomN, StartP, RingDir, 0.60, 4u, 0.34, false);
     }
     return max(float3(0.0), GiIrr);
 }
@@ -2189,7 +2380,7 @@ float3 EvaluateAreaQuadLightGdfFast(GpuAreaQuadLight Quad, float3 Pos, float3 Ge
     if (IsGlobalDistanceFieldReady())
     {
         float Radius = max(0.04, 0.65 * (Quad.CenterHalfWidth.w + Quad.RightHalfHeight.w));
-        VisFactor    = TraceGlobalDistanceConeVisibility(Pos, GeomN, DirL, Dist, Radius / Dist, false, 6u);
+        VisFactor    = TraceGlobalDistanceConeVisibility(Pos, GeomN, DirL, Dist, Radius / Dist, false, max(12u, QuerySdfShadowMarchSteps() / 2u));
     }
     else if (TraceSceneAnyHit(Pos + GeomN * 0.015, DirL, 0.03, max(0.04, Dist - 0.04)))
     {
@@ -2228,7 +2419,7 @@ float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, fl
         float EffRadius = max(0.035, 0.72 * (Quad.CenterHalfWidth.w + Quad.RightHalfHeight.w));
         float ConeTan   = clamp(EffRadius / CenterDist, 0.025, 0.65);
         if (PenumbraMode == 1u) ConeTan *= 0.85;
-        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, 14u);
+        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, QuerySdfShadowMarchSteps());
     }
     else if (PenumbraMode == 0u)
     {
@@ -2244,7 +2435,7 @@ float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, fl
         if (UseGdf && PenumbraMode == 4u)
         {
             float EffRadius = max(0.035, 0.78 * (Quad.CenterHalfWidth.w + Quad.RightHalfHeight.w));
-            float GdfVis    = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, EffRadius / CenterDist, false, 7u);
+            float GdfVis    = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, EffRadius / CenterDist, false, max(12u, QuerySdfShadowMarchSteps() / 2u));
             if (GdfVis >= 0.985)
             {
                 return EvaluateAreaQuadBrdfAnalytic(Quad, Pos, N, V, Mat);
@@ -2358,7 +2549,7 @@ float3 EvaluatePhotometricLampGpu(
     float LampVis = 1.0;
     if (UseFastGdfVis && IsGlobalDistanceFieldReady())
     {
-        LampVis = TraceGlobalDistanceConeVisibility(SafePos, N, LDir, max(0.04, Dist - Radius), Radius / max(0.1, Dist), false, 8u);
+        LampVis = TraceGlobalDistanceConeVisibility(SafePos, N, LDir, max(0.04, Dist - Radius), Radius / max(0.1, Dist), false, QuerySdfShadowMarchSteps());
         if (LampVis <= 1.0e-3) return float3(0.0);
     }
     else if (TraceSceneAnyHit(SafePos, LDir, 2.5e-3, max(0.02, Dist - Radius)))
@@ -2518,7 +2709,7 @@ float SampleCascadedSunShadowFast(float3 WorldPos, float3 GeomN, float3 N, float
     }
     if (IsGlobalDistanceFieldReady())
     {
-        return TraceGlobalDistanceConeVisibility(BiasedPos, GeomN, SunDir, 12.0, max(0.01, WorldUniforms.SunDirConeTan.w), false, 8u) * TermFade;
+        return TraceGlobalDistanceConeVisibility(BiasedPos, GeomN, SunDir, 12.0, max(0.01, WorldUniforms.SunDirConeTan.w), false, QuerySdfShadowMarchSteps()) * TermFade;
     }
     return (TraceSceneAnyHit(BiasedPos + GeomN * 0.010, SunDir, 0.02, 80.0) ? 0.0 : 1.0) * TermFade;
 }
@@ -2562,7 +2753,7 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
     {
         if (EngineMode <= 2u && IsGlobalDistanceFieldReady())
         {
-            float GdfVis = TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 12.0, TanSun * 2.0, false, 8u);
+            float GdfVis = TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 12.0, TanSun * 2.0, false, QuerySdfShadowMarchSteps());
             if (GdfVis >= 0.99)
             {
                 return TermFade;
@@ -2586,7 +2777,7 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
     {
         if (EngineMode <= 2u && IsGlobalDistanceFieldReady())
         {
-            return TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 14.0, TanSun, false, 8u) * TermFade;
+            return TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 14.0, TanSun, false, QuerySdfShadowMarchSteps()) * TermFade;
         }
         float3 Orig = SmoothPos + Hit.GeomNormal * 0.008;
         return (TraceSceneAnyHit(Orig, SunDir, 0.020, 90.0) ? 0.0 : 1.0) * TermFade;
@@ -2782,7 +2973,7 @@ float3 EvaluatePhotometricLampSecondaryFast(
     float LampVis = 1.0;
     if (IsGlobalDistanceFieldReady() && Dist > 0.45)
     {
-        LampVis = TraceGlobalDistanceConeVisibility(SafePos, N, LDir, max(0.04, Dist - max(Radius, 0.35)), Radius / max(0.1, Dist), false, 6u);
+        LampVis = TraceGlobalDistanceConeVisibility(SafePos, N, LDir, max(0.04, Dist - max(Radius, 0.35)), Radius / max(0.1, Dist), false, max(10u, QuerySdfShadowMarchSteps() / 2u));
         if (LampVis <= 1.0e-3) return float3(0.0);
     }
 
@@ -4449,7 +4640,7 @@ void HalfResIndirectEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float3 IndirIrrad   = float3(0.0);
     if (GdfReady && EngineMode == 2u && PenumbraMode != 2u && dot(AlbedoMatte, float3(1.0)) > 1.0e-4)
     {
-        IndirIrrad = EvaluateGdfVoxelConeGi(PosMask.xyz, SurfN, SurfN, BasisT, BasisB);
+        IndirIrrad = EvaluateGdfVoxelConeGi(PosMask.xyz, SurfN, SurfN, BasisT, BasisB, DispatchThreadID.xy);
     }
 
     PongIndirectIrradiance[HalfIdx] = float4(IndirIrrad, DiffAo);
@@ -4995,105 +5186,6 @@ float3 ClosestPointOnTriangleBary(float3 P, float3 A, float3 AB, float3 AC, out 
     return A + AB * V + AC * W;
 }
 
-float SampleLocalAssetSignedSdf(
-    uint   VoxelFloatOffset,
-    uint3  Res,
-    float3 LocalMin,
-    float3 LocalMax,
-    float3 LocalP)
-{
-    float3 Span     = max(float3(1.0e-5), LocalMax - LocalMin);
-    float3 ClampedP = clamp(LocalP, LocalMin, LocalMax);
-    float3 Outside  = LocalP - ClampedP;
-    float  OutDist  = length(Outside);
-
-    float3 MaxIdxF = float3(max(uint3(1u), Res) - 1u);
-    float3 GridF   = saturate((ClampedP - LocalMin) / Span) * MaxIdxF;
-    uint3  Idx0    = min(uint3(floor(GridF)), max(uint3(1u), Res) - 1u);
-    uint3  Idx1    = min(Idx0 + 1u, max(uint3(1u), Res) - 1u);
-    float3 Frac    = GridF - float3(Idx0);
-
-    uint StrideY   = Res.x;
-    uint StrideZ   = Res.x * Res.y;
-    uint Origin000 = VoxelFloatOffset + Idx0.z * StrideZ + Idx0.y * StrideY + Idx0.x;
-    uint OffX      = Idx1.x - Idx0.x;
-    uint OffY      = (Idx1.y - Idx0.y) * StrideY;
-    uint OffZ      = (Idx1.z - Idx0.z) * StrideZ;
-
-    float C000 = LocalAssetSdfVoxelBuffer[Origin000];
-    float C100 = LocalAssetSdfVoxelBuffer[Origin000 + OffX];
-    float C010 = LocalAssetSdfVoxelBuffer[Origin000 + OffY];
-    float C110 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffY];
-    float C001 = LocalAssetSdfVoxelBuffer[Origin000 + OffZ];
-    float C101 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffZ];
-    float C011 = LocalAssetSdfVoxelBuffer[Origin000 + OffY + OffZ];
-    float C111 = LocalAssetSdfVoxelBuffer[Origin000 + OffX + OffY + OffZ];
-
-    float C00 = lerp(C000, C100, Frac.x);
-    float C10 = lerp(C010, C110, Frac.x);
-    float C01 = lerp(C001, C101, Frac.x);
-    float C11 = lerp(C011, C111, Frac.x);
-    float C0  = lerp(C00, C10, Frac.y);
-    float C1  = lerp(C01, C11, Frac.y);
-    float GridDist = lerp(C0, C1, Frac.z);
-    return (OutDist > 1.0e-5) ? sqrt(max(0.0, GridDist) * max(0.0, GridDist) + OutDist * OutDist) : GridDist;
-}
-
-float EvaluateAnalyticalPrimitiveLocalSdf(uint ShapeCode, float3 HalfExt, float3 P)
-{
-    if (ShapeCode == 2u) // Sphere
-    {
-        float R = max(1.0e-4, max(HalfExt.x, max(HalfExt.y, HalfExt.z)));
-        return length(P) - R;
-    }
-    if (ShapeCode == 3u) // Cylinder (Z-axis)
-    {
-        float Rad = max(1.0e-4, max(HalfExt.x, HalfExt.y));
-        float Hz  = max(1.0e-4, HalfExt.z);
-        float2 D  = float2(length(P.xy) - Rad, abs(P.z) - Hz);
-        return min(max(D.x, D.y), 0.0) + length(max(D, float2(0.0)));
-    }
-    if (ShapeCode == 4u) // Cone (Z-axis, tip at +Hz, foot radius Rad at -Hz)
-    {
-        float Rad = max(1.0e-4, max(HalfExt.x, HalfExt.y));
-        float Hz  = max(1.0e-4, HalfExt.z);
-        float H2  = 2.0 * Hz;
-        float2 Q  = float2(length(P.xy), P.z - Hz);
-        float2 K1 = float2(0.0, 0.0);
-        float2 K2 = float2(-Rad, H2);
-        float2 Ca = float2(Q.x - min(Q.x, (Q.y < 0.0) ? 0.0 : Rad), abs(Q.y + Hz) - Hz);
-        float2 Cb = Q - K1 + K2 * saturate(dot(K1 - Q, K2) / max(1.0e-8, dot(K2, K2)));
-        float  S  = (Cb.x < 0.0 && Ca.y < 0.0) ? -1.0 : 1.0;
-        return S * sqrt(max(0.0, min(dot(Ca, Ca), dot(Cb, Cb))));
-    }
-    if (ShapeCode == 5u) // Torus (XY-plane)
-    {
-        float MinorR = max(1.0e-4, HalfExt.z);
-        float MajorR = max(MinorR, max(HalfExt.x, HalfExt.y) - MinorR);
-        float2 Q = float2(length(P.xy) - MajorR, P.z);
-        return length(Q) - MinorR;
-    }
-    // Default ShapeCode == 1u: Box
-    float3 Q = abs(P) - HalfExt;
-    return length(max(Q, float3(0.0))) + min(max(Q.x, max(Q.y, Q.z)), 0.0);
-}
-
-float EvaluateInstanceLocalSdf(GpuDynamicLocalSdfInstance144 Inst, uint ShapeCode, uint3 Res, float3 LocalP)
-{
-    if (ShapeCode == 0u)
-    {
-        return SampleLocalAssetSignedSdf(
-            Inst.ResolutionOffset.z,
-            Res,
-            Inst.LocalMinPad.xyz,
-            Inst.LocalMaxPad.xyz,
-            LocalP);
-    }
-    float3 BoxCenter = 0.5 * (Inst.LocalMinPad.xyz + Inst.LocalMaxPad.xyz);
-    float3 BoxHalf   = max(float3(MinimumBoxHalfExtentMeters), 0.5 * (Inst.LocalMaxPad.xyz - Inst.LocalMinPad.xyz));
-    return EvaluateAnalyticalPrimitiveLocalSdf(ShapeCode, BoxHalf, LocalP - BoxCenter);
-}
-
 void QueryActiveToroidalSlab(out uint3 OutSlabMin, out uint3 OutSlabMax)
 {
     if (WorldUniforms.GlobalDistanceSlabBounds.w != 0u)
@@ -5132,12 +5224,12 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float  VoxSize    = (2.0 * HalfSpan) / float(GdfGridRes);
     int3   WorldCell  = MinCell + int3(LogicalCoord);
     float3 VoxelPos   = (float3(WorldCell) + 0.5) * VoxSize;
-    uint3  PhysCoord  = uint3(WorldCell & 63);
+    uint3  PhysCoord  = WrapGdfToroidalCoord(WorldCell);
 
     uint   LinearIdx         = PhysCoord.z * (GdfGridRes * GdfGridRes) + PhysCoord.y * GdfGridRes + PhysCoord.x;
     uint   LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
     float  MaxDist           = VoxSize * UdfTruncationVoxelMultiple;
-    float  UnsignedFieldDist = MaxDist;
+    float  SignedFieldDist   = MaxDist;
     float  SurfaceAbsDist    = MaxDist;
     float3 BestNormal        = float3(0.0, 0.0, 1.0);
     uint   BestMat           = 0u;
@@ -5176,9 +5268,10 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             float  MinWorldScale = max(MinimumBoxHalfExtentMeters, Inst.LocalToWorldNormRow0.w);
             float3 ClampedLocal  = clamp(LocalP, Inst.LocalMinPad.xyz, Inst.LocalMaxPad.xyz);
             float  BoxLowerWorld = length(LocalP - ClampedLocal) * MinWorldScale;
+            float  SafeVolBound  = max(BestVolumeDist, 0.0);
             float  CullBound     = AnalyticGroundSlab
                 ? SurfaceBandDist
-                : ((CascadeIdx == 0u) ? max(BestVolumeDist, min(BestAbsDist, SurfaceBandDist)) : BestVolumeDist);
+                : ((CascadeIdx == 0u) ? max(SafeVolBound, min(BestAbsDist, SurfaceBandDist)) : SafeVolBound);
             if (BoxLowerWorld > CullBound + MinimumBoxHalfExtentMeters)
             {
                 continue;
@@ -5194,10 +5287,11 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             float WorldD = LocalD * MinWorldScale;
             float AbsD   = abs(WorldD);
 
-            // 💡 Keep horizontal ground slabs out of non-ground UDF voxels while storing unsigned surface distance on all shapes
+            // Preserve TRUE SIGNED DISTANCE (WorldD < 0 inside closed geometry, > 0 outside)
+            // Eliminates the unsigned |d| V-kink, diagonal zebra gradient stripes, and blunted shadow leaks!
             if (!AnalyticGroundSlab)
             {
-                BestVolumeDist = min(BestVolumeDist, AbsD);
+                BestVolumeDist = min(BestVolumeDist, WorldD);
             }
 
             if (!FoundSurface || AbsD < BestAbsDist)
@@ -5228,8 +5322,8 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             }
         }
 
-        UnsignedFieldDist = clamp(BestVolumeDist, 0.0, MaxDist);
-        SurfaceAbsDist    = BestAbsDist;
+        SignedFieldDist = clamp(BestVolumeDist, -MaxDist, MaxDist);
+        SurfaceAbsDist  = BestAbsDist;
     }
     else
     {
@@ -5316,12 +5410,12 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             }
         }
 
-        UnsignedFieldDist = FoundSurface ? min(sqrt(BestDistSq), MaxDist) : MaxDist;
-        SurfaceAbsDist    = UnsignedFieldDist;
+        SignedFieldDist = FoundSurface ? min(sqrt(BestDistSq), MaxDist) : MaxDist;
+        SurfaceAbsDist  = abs(SignedFieldDist);
     }
 
-    GlobalDistanceFieldBuffer[CascadeIdx * GdfVoxCnt + LinearIdx] = UnsignedFieldDist;
-    GdfBakeTargetImg3D[int3(PhysCoord)] = UnsignedFieldDist;
+    GlobalDistanceFieldBuffer[CascadeIdx * GdfVoxCnt + LinearIdx] = SignedFieldDist;
+    GdfBakeTargetImg3D[int3(PhysCoord)] = SignedFieldDist;
 
     if (CascadeIdx == 0u)
     {
@@ -5343,7 +5437,7 @@ void GlobalDistanceBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
 void DownsampleRadiosityMipStep(uint3 Coord, uint DstMip)
 {
-    uint SrcRes = 64u, SrcOff = 0u, DstRes = 32u, DstOff = 0u;
+    uint SrcRes = 96u, SrcOff = 0u, DstRes = 48u, DstOff = 0u;
     QueryRadiosityMipLayout(DstMip - 1u, SrcRes, SrcOff);
     QueryRadiosityMipLayout(DstMip, DstRes, DstOff);
     if (any(Coord >= uint3(DstRes))) return;
@@ -5359,7 +5453,7 @@ void DownsampleRadiosityMipStep(uint3 Coord, uint DstMip)
             {
                 uint3  LogicalSrc = BaseSrc + uint3(DX, DY, DZ);
                 uint3  P = (DstMip == 1u)
-                    ? uint3((WorldUniforms.GlobalDistanceFineToroidalCell.xyz + int3(LogicalSrc)) & 63)
+                    ? WrapGdfToroidalCoord(WorldUniforms.GlobalDistanceFineToroidalCell.xyz + int3(LogicalSrc))
                     : LogicalSrc;
                 // For DstMip == 1: read Mip 0 3D texture; for DstMip == 2,3: C++ binds source mip view as mip 0 of RadiosityCoarseTex3D
                 float4 V = (DstMip == 1u)
@@ -5405,7 +5499,7 @@ void GlobalRadiosityBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     int3  FineMinCell = WorldUniforms.GlobalDistanceFineToroidalCell.xyz;
     int3  WorldCell   = FineMinCell + int3(LogicalCoord);
-    uint3 PhysCoord   = uint3(WorldCell & 63);
+    uint3 PhysCoord   = WrapGdfToroidalCoord(WorldCell);
     uint  LinearIdx   = PhysCoord.z * (GdfGridRes * GdfGridRes) + PhysCoord.y * GdfGridRes + PhysCoord.x;
     uint2 ShellMeta   = GlobalSurfaceShellBuffer[LinearIdx];
     float Opacity     = float((ShellMeta.y >> 16u) & 0xFFFFu) * (1.0 / 65535.0);
@@ -5426,10 +5520,10 @@ void GlobalRadiosityBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float  GroundZ    = QueryGlobalDistanceAnalyticGroundZ();
     if (GroundZ > ValidAnalyticGroundFloorZ)
     {
-        FieldDist = min(FieldDist, abs(VoxelPos.z - GroundZ));
+        FieldDist = min(FieldDist, VoxelPos.z - GroundZ);
     }
     float3 SurfN      = UnpackOctNormal32(ShellMeta.x);
-    float3 SurfPos    = VoxelPos - SurfN * clamp(FieldDist, 0.0, VoxSize);
+    float3 SurfPos    = VoxelPos - SurfN * clamp(FieldDist, -VoxSize, VoxSize);
 
     uint MatCount = max(1u, WorldUniforms.LightGlassMaterialDebug.z);
     uint MatSlot  = min(ShellMeta.y & InstanceSlotMask16, MatCount - 1u);
