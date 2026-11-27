@@ -107,7 +107,7 @@ jobs:
           cp -r EngineContent/* "$payload/EngineContent/"
           cp -r Content/* "$payload/Content/"
           cp -r Projects/AutoSpace/* "$payload/Projects/AutoSpace/"
-          (cd "$payload" && ./AutoSpace --headless --verify)
+          (cd "$payload" && ./AutoSpace --verify --frames=1 --width=320 --height=180 --no-gpu)
           tar -czf Build/Frontier-Workspaces-Linux-x64.tar.gz -C "$payload" .
 
       - name: Upload Linux x64 standalone workspaces package

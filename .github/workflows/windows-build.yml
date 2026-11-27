@@ -275,9 +275,9 @@ jobs:
           }
           Push-Location $Payload
           try {
-            & "$Payload/AutoSpace.exe" --headless --verify
+            & "$Payload/AutoSpace.exe" --verify --frames=1 --width=320 --height=180 --no-gpu
             if ($LASTEXITCODE -ne 0) {
-              Write-Error "Packaged AutoSpace.exe headless verification failed with exit code $LASTEXITCODE"
+              Write-Error "Packaged AutoSpace.exe Game Mode verification failed with exit code $LASTEXITCODE"
               exit $LASTEXITCODE
             }
           } finally {
@@ -289,7 +289,7 @@ jobs:
           Executables included:
             - Frontier.exe  : Project Browser, 3D World Editor & Integrated Workspaces
             - SolidArc.exe  : Standalone Parametric B-Rep CAD & Sketching Studio
-            - AutoSpace.exe : Standalone AutoSpace Runtime (Sun & Clear Sky blank world)
+            - AutoSpace.exe : Standalone AutoSpace Game Mode (Cyclorama, Forest Stage & Racing Garage)
 
           Keep CompiledShaders, EngineContent, Content, Projects, and Binaries/Win64 beside the executables.
           A Windows Vulkan 1.2+ graphics driver is required.
