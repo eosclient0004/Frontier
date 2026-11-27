@@ -310,6 +310,11 @@ void BuildLobby1CycloramaLevel(IStudioLobbySceneBuilderContext& Ctx, const Lobby
     Scene.Atmosphere.Medium.AtmosphereEnabled = false;
     Scene.Atmosphere.Solar.SolarEnabled       = false;
     Scene.Atmosphere.Clouds.CloudsEnabled     = false;
+    Scene.Atmosphere.Stars.StarfieldEnabled   = false;
+    for (auto& Moon : Scene.Atmosphere.Moons)
+    {
+        Moon.Visible = false;
+    }
     Scene.Sun.DirectionToSun                   = NormalizeAxis({ 0.25f, -0.45f, 0.85f }, { 0.0f, 0.0f, 1.0f });
     Scene.Sun.SolarIrradiance                  = { 0.0f, 0.0f, 0.0f };
     Scene.SkyRadiance                          = { 0.014f, 0.018f, 0.026f };

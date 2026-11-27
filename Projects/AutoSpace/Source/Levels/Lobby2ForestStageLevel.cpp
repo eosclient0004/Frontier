@@ -157,6 +157,11 @@ void BuildLobby2ForestStageLevel(IStudioLobbySceneBuilderContext& Ctx, const Lob
     Scene.Atmosphere.Medium.AtmosphereEnabled = false;
     Scene.Atmosphere.Solar.SolarEnabled       = false;
     Scene.Atmosphere.Clouds.CloudsEnabled     = false;
+    Scene.Atmosphere.Stars.StarfieldEnabled   = false;
+    for (auto& Moon : Scene.Atmosphere.Moons)
+    {
+        Moon.Visible = false;
+    }
     Scene.Sun.SolarIrradiance                  = { 0.0f, 0.0f, 0.0f };
     Scene.SkyRadiance                          = { 0.018f, 0.024f, 0.022f };
 

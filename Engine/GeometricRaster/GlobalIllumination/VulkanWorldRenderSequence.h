@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <span>
 #include <string_view>
@@ -41,7 +42,8 @@ public:
 
     [[nodiscard]] bool InitializeSequence(
         VulkanInterchange&           TargetDevice,
-        const std::filesystem::path& CompiledShaderDirectory);
+        const std::filesystem::path& CompiledShaderDirectory,
+        std::function<void()>        EventPumpCallback = {});
 
     void TeardownSequence() noexcept;
 
@@ -226,6 +228,19 @@ private:
         uint64_t              ByteCount,
         VkBufferUsageFlags    UsageMask);
 
+    bool UploadHostVisibleBuffer(
+        DeviceBufferResource& TargetBuffer,
+        const void*           SourceBytes,
+        uint64_t              ByteCount,
+        VkBufferUsageFlags    UsageMask);
+
+    bool EnsureCloudLayerProgram();
+    bool EnsureMotionBlurProgram();
+    bool EnsureSkyLutPrograms();
+    bool EnsureStellarPrograms();
+    bool EnsureBackgroundSkyProgram();
+    bool EnsureVolumetricMediaProgram();
+
     bool UploadDualDeviceBuffers(
         DeviceBufferResource& TargetBufferA,
         const void*           SourceDataA,
@@ -303,11 +318,14 @@ private:
 
     VulkanInterchange*     BoundDevice                   = nullptr;
     std::filesystem::path  CachedCompiledShaderDir       {};
+    std::function<void()>  ActiveEventPump               {};
     ComputeDispatchEncoder DispatchEncoder               {};
     uint32_t               RadiometricProgramHandle      = UINT32_MAX;
     uint32_t               CloudLayerProgramHandle       = UINT32_MAX;
     uint32_t               HalfResIndirectProgramHandle  = UINT32_MAX;
     uint32_t               DenoiseProgramHandle          = UINT32_MAX;
+    uint32_t               BackgroundSkyProgramHandle    = UINT32_MAX;
+    uint32_t               VolumetricMediaProgramHandle  = UINT32_MAX;
     uint32_t               MotionBlurProgramHandle       = UINT32_MAX;
     uint32_t               TransmittanceLutProgramHandle = UINT32_MAX;
     uint32_t               MultiScatterLutProgramHandle  = UINT32_MAX;
@@ -381,6 +399,11 @@ private:
     uint32_t               UploadedClipRangeCount          = 0u;
     uint64_t               CachedSurfelGeometrySignature   = 0ull;
     uint64_t               CachedDynamicMoveSignature      = 0ull;
+    uint64_t               CachedPhotometricSignature      = 0ull;
+    uint64_t               CachedEmissiveBufferSignature   = 0ull;
+    uint64_t               CachedPortalBufferSignature     = 0ull;
+    uint64_t               CachedClipBufferSignature       = 0ull;
+    uint64_t               CachedSurfelLightSignature      = 0ull;
     bool                   SurfelRadiosityDirty            = true;
 
     void SynchronizeStokesSurfelPortalBuffers(const WorldSceneSpecification& Scene);

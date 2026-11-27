@@ -237,7 +237,7 @@ bool LobbyLifecycle::InitializeAndBuild(
             InitialPos,
             DynamicEmissiveOrbMatSlot,
             LightingFolder,
-            true);
+            false);
         if (!WorldScene.ClusterInstances.empty())
         {
             DynamicEmissiveOrbClusterIdx = static_cast<uint32_t>(WorldScene.ClusterInstances.size() - 1u);

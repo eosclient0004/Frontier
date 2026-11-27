@@ -460,14 +460,24 @@ int main(int ArgumentCount, char** ArgumentVector)
     bool PresenterReady = false;
     if (!DisableGpu)
     {
+        auto StartupEventPump = [&]()
+        {
+            if (DesktopWindow != nullptr)
+            {
+                DesktopWindow->PollOperatingEvents(RuntimeLoop.AccessInput());
+            }
+        };
+
         std::string VkDiag {};
         if (VulkanDevice.InitializeInterchange(RepositoryRoot, &VkDiag))
         {
-            GpuWorldReady = GpuRenderer.InitializeSequence(VulkanDevice, ShaderDirectory);
+            StartupEventPump();
+            GpuWorldReady = GpuRenderer.InitializeSequence(VulkanDevice, ShaderDirectory, StartupEventPump);
             if (!GpuWorldReady)
             {
                 std::cerr << "[AutoSpace] VulkanWorldRenderSequence unavailable; falling back to CPU renderer.\n";
             }
+            StartupEventPump();
 
             std::string PresDiag {};
             const bool EnableVSync = RuntimeLoop.InspectBootConfiguration().RuntimeConfiguration.EnableVerticalSync;
@@ -483,6 +493,7 @@ int main(int ArgumentCount, char** ArgumentVector)
             {
                 std::cerr << "[AutoSpace] ViewportSwapchainPresenter unavailable (" << PresDiag << ").\n";
             }
+            StartupEventPump();
         }
         else
         {
@@ -1236,10 +1247,11 @@ int main(int ArgumentCount, char** ArgumentVector)
                 SyncedGpuThisCycle = true;
             }
 
-            // Render live secondary engine pass for the in-car HMI feed (disabling CockpitDisplays to prevent recursive HUD)
+            // Render live secondary engine pass ONLY when inside the cockpit / HMI view (never in exterior Chase/Drift/Orbit views!)
             const bool ShouldRenderHmiFeed =
                 GpuWorldReady &&
-                (InteriorViewActive || GpuRenderer.QueryHardwareGpuActive());
+                InteriorViewActive &&
+                (HmiFeedRgba8.empty() || ((PresentedCycles & 1u) == 0u));
             if (ShouldRenderHmiFeed)
             {
                 for (auto& Disp : Scene.CockpitDisplays)

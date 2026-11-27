@@ -487,13 +487,23 @@ VulkanWorldRenderSequence::~VulkanWorldRenderSequence()
 
 bool VulkanWorldRenderSequence::InitializeSequence(
     VulkanInterchange&           TargetDevice,
-    const std::filesystem::path& CompiledShaderDirectory)
+    const std::filesystem::path& CompiledShaderDirectory,
+    std::function<void()>        EventPumpCallback)
 {
     TeardownSequence();
     if (!TargetDevice.Ready())
     {
         return false;
     }
+
+    ActiveEventPump = std::move(EventPumpCallback);
+    auto PumpEvents = [&]()
+    {
+        if (ActiveEventPump)
+        {
+            ActiveEventPump();
+        }
+    };
 
     BoundDevice = &TargetDevice;
     CachedCompiledShaderDir = CompiledShaderDirectory;
@@ -502,6 +512,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         BoundDevice = nullptr;
         return false;
     }
+    PumpEvents();
 
     constexpr std::array<VkDescriptorType, 46u> SlotTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0:  WorldUniforms
@@ -567,28 +578,14 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         TeardownSequence();
         return false;
     }
-
-    const std::filesystem::path CloudShaderPath = CompiledShaderDirectory / "WorldViewportCloudCompute.comp.spv";
-    CloudLayerProgramHandle = DispatchEncoder.RegisterProgram(
-        CloudShaderPath,
-        SlotTypes,
-        "CloudComputeEntry");
-    if (CloudLayerProgramHandle == UINT32_MAX)
-    {
-        const std::string PathText = CloudShaderPath.generic_string();
-        std::fprintf(
-            stderr,
-            "[FrontierWorld] WARNING: Failed to load GPU cloud shader %s — falling back to CPU renderer.\n",
-            PathText.c_str());
-        TeardownSequence();
-        return false;
-    }
+    PumpEvents();
 
     const std::filesystem::path HalfResShaderPath = CompiledShaderDirectory / "WorldViewportHalfResIndirectCompute.comp.spv";
     HalfResIndirectProgramHandle = DispatchEncoder.RegisterProgram(
         HalfResShaderPath,
         SlotTypes,
         "HalfResIndirectEntry");
+    PumpEvents();
 
     const std::filesystem::path DenoiseShaderPath = CompiledShaderDirectory / "WorldViewportDenoiseCompute.comp.spv";
     DenoiseProgramHandle = DispatchEncoder.RegisterProgram(
@@ -605,63 +602,42 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         TeardownSequence();
         return false;
     }
+    PumpEvents();
 
-    const std::filesystem::path MotionBlurShaderPath = CompiledShaderDirectory / "WorldViewportMotionBlurCompute.comp.spv";
-    MotionBlurProgramHandle = DispatchEncoder.RegisterProgram(
-        MotionBlurShaderPath,
-        SlotTypes,
-        "MotionBlurPostEntry");
-
-    constexpr std::array<VkDescriptorType, 2u> SkySlotTypes {{
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    }};
-    TransmittanceLutProgramHandle = DispatchEncoder.RegisterProgram(
-        CompiledShaderDirectory / "TransmittanceLutCompute.comp.spv",
-        SkySlotTypes,
-        "TransmittanceLutComputeEntry");
-    MultiScatterLutProgramHandle = DispatchEncoder.RegisterProgram(
-        CompiledShaderDirectory / "MultiScatterLutCompute.comp.spv",
-        SkySlotTypes,
-        "MultiScatterLutComputeEntry");
-    SkyViewLutProgramHandle = DispatchEncoder.RegisterProgram(
-        CompiledShaderDirectory / "SkyViewTransmittanceCompute.comp.spv",
-        SkySlotTypes,
-        "ComputeEntry");
-
-    constexpr std::array<VkDescriptorType, 4u> StellarCullSlotTypes {{
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    }};
-    StellarClearProgramHandle = DispatchEncoder.RegisterProgram(
-        CompiledShaderDirectory / "StellarTileClearCompute.comp.spv",
-        StellarCullSlotTypes,
-        "ClearStellarTilesEntry");
-    StellarCullProgramHandle = DispatchEncoder.RegisterProgram(
-        CompiledShaderDirectory / "StellarTileCullCompute.comp.spv",
-        StellarCullSlotTypes,
-        "ProjectCullStellarTilesEntry");
+    // Optional feature pipelines compile lazily on first active dispatch and persist to disk pipeline cache
+    // so cold startup memory stays lean and the OS window never stalls before first frame presentation.
+    CloudLayerProgramHandle           = UINT32_MAX;
+    BackgroundSkyProgramHandle        = UINT32_MAX;
+    VolumetricMediaProgramHandle      = UINT32_MAX;
+    MotionBlurProgramHandle           = UINT32_MAX;
+    TransmittanceLutProgramHandle     = UINT32_MAX;
+    MultiScatterLutProgramHandle      = UINT32_MAX;
+    SkyViewLutProgramHandle           = UINT32_MAX;
+    StellarClearProgramHandle         = UINT32_MAX;
+    StellarCullProgramHandle          = UINT32_MAX;
+    HighEndBvhProgramHandle           = UINT32_MAX;
+    ViewportPathTraceProgramHandle    = UINT32_MAX;
 
     ShadowCascadeProgramHandle = DispatchEncoder.RegisterProgram(
         CompiledShaderDirectory / "WorldViewportShadowCascadeCompute.comp.spv",
         SlotTypes,
         "ShadowCascadeComputeEntry");
+    PumpEvents();
     GlobalDistanceBakeProgramHandle = DispatchEncoder.RegisterProgram(
         CompiledShaderDirectory / "WorldViewportGlobalDistanceBake.comp.spv",
         SlotTypes,
         "GlobalDistanceBakeEntry");
+    PumpEvents();
     GlobalRadiosityProgramHandle = DispatchEncoder.RegisterProgram(
         CompiledShaderDirectory / "WorldViewportGlobalRadiosityBake.comp.spv",
         SlotTypes,
         "GlobalRadiosityBakeEntry");
+    PumpEvents();
     SurfelRadiositySolveProgramHandle = DispatchEncoder.RegisterProgram(
         CompiledShaderDirectory / "WorldViewportSurfelRadiositySolve.comp.spv",
         SlotTypes,
         "SurfelRadiositySolveEntry");
-    HighEndBvhProgramHandle           = UINT32_MAX;
-    ViewportPathTraceProgramHandle    = UINT32_MAX;
+    PumpEvents();
     InstanceTransformBvhProgramHandle = UINT32_MAX;
     InstanceTransformTriProgramHandle = UINT32_MAX;
     {
@@ -686,18 +662,8 @@ bool VulkanWorldRenderSequence::InitializeSequence(
                 "TransformTrianglesEntry");
         }
     }
-    if (TargetDevice.QueryHardwareAccelerated())
-    {
-        HighEndBvhProgramHandle = DispatchEncoder.RegisterProgram(
-            CompiledShaderDirectory / "WorldViewportHighEndCompute.comp.spv",
-            SlotTypes,
-            "HighEndBvhComputeEntry");
-        ViewportPathTraceProgramHandle = DispatchEncoder.RegisterProgram(
-            CompiledShaderDirectory / "WorldViewportPathTraceCompute.comp.spv",
-            SlotTypes,
-            "ViewportPathTraceEntry");
-        DispatchEncoder.PersistProgramCache();
-    }
+    DispatchEncoder.PersistProgramCache();
+    PumpEvents();
 
     if (TargetDevice.QueryTimestampValidBits() > 0u)
     {
@@ -718,13 +684,13 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         }
     }
 
-    EnsureBufferCapacity(UniformBuffer, 8192ull * 12ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    EnsureBufferCapacity(UniformBuffer, 8192ull * 16ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     EnsureBufferCapacity(PrecomputeUniformBuffer, 8192ull * 24ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     EnsureBufferCapacity(InstanceTransformUniformBuffer, 256ull * 64ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     EnsureBufferCapacity(TopNodeStagingBuffer, 64ull * sizeof(SpatialAcceleration::WideTreeEntry), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     for (AsyncLiveFrameSlot& Slot : LiveFrameSlots)
     {
-        EnsureBufferCapacity(Slot.UniformBuffer, 8192ull * 12ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        EnsureBufferCapacity(Slot.UniformBuffer, 8192ull * 16ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
     EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -831,31 +797,36 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         UploadToDeviceBuffer(PhotometricLampEntryBuffer, &ZeroLamp, sizeof(ZeroLamp), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         UploadToDeviceBuffer(LocalAssetSdfVoxelBuffer, &ZeroFloat, sizeof(ZeroFloat), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const uint32_t ZeroAtlasTexel = 0u;
-        UploadToDeviceBuffer(CockpitDisplayAtlasBuffer, &ZeroAtlasTexel, sizeof(ZeroAtlasTexel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(CockpitDisplayAtlasBuffer, &ZeroAtlasTexel, sizeof(ZeroAtlasTexel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         CachedCockpitDisplayAtlasGen = 0ull;
         const GpuEmissiveTriangle80 ZeroEmTri {};
-        UploadToDeviceBuffer(EmissiveTriangleBuffer, &ZeroEmTri, sizeof(ZeroEmTri), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(EmissiveTriangleBuffer, &ZeroEmTri, sizeof(ZeroEmTri), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const GpuEmissiveCluster64 ZeroEmCluster {};
-        UploadToDeviceBuffer(EmissiveClusterBuffer, &ZeroEmCluster, sizeof(ZeroEmCluster), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(EmissiveClusterBuffer, &ZeroEmCluster, sizeof(ZeroEmCluster), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const GpuBoneCapsule32 ZeroCapsule {};
-        UploadToDeviceBuffer(DeformingBoneCapsuleBuffer, &ZeroCapsule, sizeof(ZeroCapsule), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(DeformingBoneCapsuleBuffer, &ZeroCapsule, sizeof(ZeroCapsule), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const GpuSurfel96 ZeroSurfel {};
-        UploadToDeviceBuffer(SurfelRadiosityBuffer, &ZeroSurfel, sizeof(ZeroSurfel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(SurfelRadiosityBuffer, &ZeroSurfel, sizeof(ZeroSurfel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const GpuPortalPair544 ZeroPortal {};
-        UploadToDeviceBuffer(PortalPairBuffer, &ZeroPortal, sizeof(ZeroPortal), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(PortalPairBuffer, &ZeroPortal, sizeof(ZeroPortal), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         const GpuClipPlaneRange32 ZeroClip {};
-        UploadToDeviceBuffer(ClipInstanceRangeBuffer, &ZeroClip, sizeof(ZeroClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        UploadedEmissiveTriCount     = 0u;
-        UploadedEmissiveClusterCount = 0u;
-        UploadedBoneCapsuleCount     = 0u;
-        UploadedSurfelCount          = 0u;
-        UploadedPortalPairCount      = 0u;
-        UploadedClipRangeCount       = 0u;
+        UploadHostVisibleBuffer(ClipInstanceRangeBuffer, &ZeroClip, sizeof(ZeroClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadedEmissiveTriCount      = 0u;
+        UploadedEmissiveClusterCount  = 0u;
+        UploadedBoneCapsuleCount      = 0u;
+        UploadedSurfelCount           = 0u;
+        UploadedPortalPairCount       = 0u;
+        UploadedClipRangeCount        = 0u;
         CachedSurfelGeometrySignature = 0ull;
         CachedDynamicMoveSignature    = 0ull;
+        CachedPhotometricSignature    = 0ull;
+        CachedEmissiveBufferSignature = 0ull;
+        CachedPortalBufferSignature   = 0ull;
+        CachedClipBufferSignature     = 0ull;
+        CachedSurfelLightSignature    = 0ull;
         SurfelRadiosityDirty          = true;
         const GpuDynamicLocalSdfInstance144 ZeroInst {};
-        UploadToDeviceBuffer(DynamicLocalSdfInstanceBuffer, &ZeroInst, sizeof(ZeroInst), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(DynamicLocalSdfInstanceBuffer, &ZeroInst, sizeof(ZeroInst), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         MaskSliceOffsetBytes = 256ull;
         EnsureBufferCapacity(ActiveClusterMaskBuffer, MaskSliceOffsetBytes * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         if (ActiveClusterMaskBuffer.HostAddress != nullptr)
@@ -975,6 +946,8 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     CloudLayerProgramHandle           = UINT32_MAX;
     HalfResIndirectProgramHandle      = UINT32_MAX;
     DenoiseProgramHandle              = UINT32_MAX;
+    BackgroundSkyProgramHandle        = UINT32_MAX;
+    VolumetricMediaProgramHandle      = UINT32_MAX;
     MotionBlurProgramHandle           = UINT32_MAX;
     TransmittanceLutProgramHandle     = UINT32_MAX;
     MultiScatterLutProgramHandle      = UINT32_MAX;
@@ -1001,6 +974,7 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     UploadedPhotometricLamps        = 0u;
     UploadedLocalSdfInstanceCount   = 0u;
     CachedLocalSdfAssetSignature    = 0ull;
+    ActiveEventPump                 = nullptr;
     CachedDynamicSdfSignature       = 0ull;
     ActiveClipFocusWorld            = { 0.0f, 0.0f, 0.0f };
     LastFineShadowFocusWorld        = { 0.0f, 0.0f, 0.0f };
@@ -1017,6 +991,14 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     ActiveAnalyticGroundPlaneZ       = UnsetAnalyticGroundPlaneZ;
     ActiveAnalyticGroundMaterialSlot = 0u;
     CachedLocalSdfOffsets.clear();
+    CachedSurfelGeometrySignature   = 0ull;
+    CachedDynamicMoveSignature      = 0ull;
+    CachedPhotometricSignature      = 0ull;
+    CachedEmissiveBufferSignature   = 0ull;
+    CachedPortalBufferSignature     = 0ull;
+    CachedClipBufferSignature       = 0ull;
+    CachedSurfelLightSignature      = 0ull;
+    SurfelRadiosityDirty            = true;
     MaskSliceOffsetBytes            = 256ull;
     CachedNaniteCutSignature        = 0u;
     CachedResidentTransformSig      = 0u;
@@ -1041,7 +1023,6 @@ bool VulkanWorldRenderSequence::QueryReady() const noexcept
 {
     return BoundDevice != nullptr && BoundDevice->Ready() &&
            RadiometricProgramHandle != UINT32_MAX &&
-           CloudLayerProgramHandle != UINT32_MAX &&
            DenoiseProgramHandle != UINT32_MAX;
 }
 
@@ -2017,6 +1998,258 @@ bool VulkanWorldRenderSequence::UploadToDeviceBuffer(
     return Ok;
 }
 
+bool VulkanWorldRenderSequence::UploadHostVisibleBuffer(
+    DeviceBufferResource& TargetBuffer,
+    const void*           SourceBytes,
+    uint64_t              ByteCount,
+    VkBufferUsageFlags    UsageMask)
+{
+    if (BoundDevice == nullptr || !BoundDevice->Ready() || SourceBytes == nullptr)
+    {
+        return false;
+    }
+    const uint64_t SafeBytes = std::max<uint64_t>(4ull, ByteCount);
+    EnsureBufferCapacity(TargetBuffer, SafeBytes, UsageMask);
+    if (TargetBuffer.BufferHandle == VK_NULL_HANDLE || TargetBuffer.HostAddress == nullptr)
+    {
+        return false;
+    }
+    std::memcpy(TargetBuffer.HostAddress, SourceBytes, static_cast<std::size_t>(ByteCount));
+    return true;
+}
+
+bool VulkanWorldRenderSequence::EnsureCloudLayerProgram()
+{
+    if (CloudLayerProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    std::array<VkDescriptorType, 46u> SlotTypes {};
+    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    CloudLayerProgramHandle = DispatchEncoder.RegisterProgram(
+        CachedCompiledShaderDir / "WorldViewportCloudCompute.comp.spv",
+        SlotTypes,
+        "CloudComputeEntry");
+    if (CloudLayerProgramHandle != UINT32_MAX)
+    {
+        DispatchEncoder.PersistProgramCache();
+        return true;
+    }
+    return false;
+}
+
+bool VulkanWorldRenderSequence::EnsureMotionBlurProgram()
+{
+    if (MotionBlurProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    std::array<VkDescriptorType, 46u> SlotTypes {};
+    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    MotionBlurProgramHandle = DispatchEncoder.RegisterProgram(
+        CachedCompiledShaderDir / "WorldViewportMotionBlurCompute.comp.spv",
+        SlotTypes,
+        "MotionBlurPostEntry");
+    if (MotionBlurProgramHandle != UINT32_MAX)
+    {
+        DispatchEncoder.PersistProgramCache();
+        return true;
+    }
+    return false;
+}
+
+bool VulkanWorldRenderSequence::EnsureSkyLutPrograms()
+{
+    if (TransmittanceLutProgramHandle != UINT32_MAX &&
+        MultiScatterLutProgramHandle != UINT32_MAX &&
+        SkyViewLutProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    constexpr std::array<VkDescriptorType, 2u> SkySlotTypes {{
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+    }};
+    if (TransmittanceLutProgramHandle == UINT32_MAX)
+    {
+        TransmittanceLutProgramHandle = DispatchEncoder.RegisterProgram(
+            CachedCompiledShaderDir / "TransmittanceLutCompute.comp.spv",
+            SkySlotTypes,
+            "TransmittanceLutComputeEntry");
+    }
+    if (MultiScatterLutProgramHandle == UINT32_MAX)
+    {
+        MultiScatterLutProgramHandle = DispatchEncoder.RegisterProgram(
+            CachedCompiledShaderDir / "MultiScatterLutCompute.comp.spv",
+            SkySlotTypes,
+            "MultiScatterLutComputeEntry");
+    }
+    if (SkyViewLutProgramHandle == UINT32_MAX)
+    {
+        SkyViewLutProgramHandle = DispatchEncoder.RegisterProgram(
+            CachedCompiledShaderDir / "SkyViewTransmittanceCompute.comp.spv",
+            SkySlotTypes,
+            "ComputeEntry");
+    }
+    const bool ReadyAll =
+        TransmittanceLutProgramHandle != UINT32_MAX &&
+        MultiScatterLutProgramHandle != UINT32_MAX &&
+        SkyViewLutProgramHandle != UINT32_MAX;
+    if (ReadyAll)
+    {
+        DispatchEncoder.PersistProgramCache();
+    }
+    return ReadyAll;
+}
+
+bool VulkanWorldRenderSequence::EnsureStellarPrograms()
+{
+    if (StellarClearProgramHandle != UINT32_MAX && StellarCullProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    constexpr std::array<VkDescriptorType, 4u> StellarCullSlotTypes {{
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+    }};
+    if (StellarClearProgramHandle == UINT32_MAX)
+    {
+        StellarClearProgramHandle = DispatchEncoder.RegisterProgram(
+            CachedCompiledShaderDir / "StellarTileClearCompute.comp.spv",
+            StellarCullSlotTypes,
+            "ClearStellarTilesEntry");
+    }
+    if (StellarCullProgramHandle == UINT32_MAX)
+    {
+        StellarCullProgramHandle = DispatchEncoder.RegisterProgram(
+            CachedCompiledShaderDir / "StellarTileCullCompute.comp.spv",
+            StellarCullSlotTypes,
+            "ProjectCullStellarTilesEntry");
+    }
+    const bool ReadyAll =
+        StellarClearProgramHandle != UINT32_MAX &&
+        StellarCullProgramHandle != UINT32_MAX;
+    if (ReadyAll)
+    {
+        DispatchEncoder.PersistProgramCache();
+    }
+    return ReadyAll;
+}
+
+bool VulkanWorldRenderSequence::EnsureBackgroundSkyProgram()
+{
+    if (BackgroundSkyProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    std::array<VkDescriptorType, 46u> SlotTypes {};
+    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    if (ActiveEventPump)
+    {
+        ActiveEventPump();
+    }
+    BackgroundSkyProgramHandle = DispatchEncoder.RegisterProgram(
+        CachedCompiledShaderDir / "WorldViewportBackgroundSkyCompute.comp.spv",
+        SlotTypes,
+        "BackgroundSkyCompositeEntry");
+    if (ActiveEventPump)
+    {
+        ActiveEventPump();
+    }
+    if (BackgroundSkyProgramHandle != UINT32_MAX)
+    {
+        DispatchEncoder.PersistProgramCache();
+        return true;
+    }
+    return false;
+}
+
+bool VulkanWorldRenderSequence::EnsureVolumetricMediaProgram()
+{
+    if (VolumetricMediaProgramHandle != UINT32_MAX)
+    {
+        return true;
+    }
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
+    {
+        return false;
+    }
+    std::array<VkDescriptorType, 46u> SlotTypes {};
+    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    if (ActiveEventPump)
+    {
+        ActiveEventPump();
+    }
+    VolumetricMediaProgramHandle = DispatchEncoder.RegisterProgram(
+        CachedCompiledShaderDir / "WorldViewportVolumetricMediaCompute.comp.spv",
+        SlotTypes,
+        "VolumetricMediaCompositeEntry");
+    if (ActiveEventPump)
+    {
+        ActiveEventPump();
+    }
+    if (VolumetricMediaProgramHandle != UINT32_MAX)
+    {
+        DispatchEncoder.PersistProgramCache();
+        return true;
+    }
+    return false;
+}
+
 bool VulkanWorldRenderSequence::UploadDualDeviceBuffers(
     DeviceBufferResource& TargetBufferA,
     const void*           SourceDataA,
@@ -2596,6 +2829,10 @@ VulkanWorldRenderSequence::AcquirePyramidDistanceVolume(
         }
     }
 
+    if (ActiveEventPump)
+    {
+        ActiveEventPump();
+    }
     std::vector<SpatialAcceleration::RayTrianglePrimitive> LocalPrimitives;
     LocalPrimitives.reserve(PyramidAsset->Triangles.size());
     for (const auto& SourceTriangle : PyramidAsset->Triangles)
@@ -2734,6 +2971,8 @@ uint64_t VulkanWorldRenderSequence::ComputeResidentClusterTransformSignature(
         Mix(reinterpret_cast<uintptr_t>(Inst.PyramidAsset));
         Mix(Inst.PyramidAsset != nullptr ? static_cast<uint64_t>(Inst.PyramidAsset->Clusters.size()) : 0ull);
         Mix(static_cast<uint64_t>(Inst.MaterialSlot));
+        Mix(Inst.VisibilityEnabled ? 1u : 0u);
+        Mix(Inst.CastShadows ? 1u : 0u);
         Mix(static_cast<uint64_t>(std::lround(Inst.RotationZDegrees * 100.0f)));
         Mix(static_cast<uint64_t>(std::lround(ScaleX * 1000.0f)));
         Mix(static_cast<uint64_t>(std::lround(ScaleY * 1000.0f)));
@@ -2987,18 +3226,21 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
         const float CosZ   = HasYaw ? std::cos(YawRad) : 1.0f;
         const float SinZ   = HasYaw ? std::sin(YawRad) : 0.0f;
 
-        for (uint32_t LocalClusterIdx = 0u; LocalClusterIdx < Span.ClusterCount; ++LocalClusterIdx)
+        if (Inst.VisibilityEnabled)
         {
-            if (Inst.PyramidAsset->Clusters[LocalClusterIdx].HierarchyLevel == 0u)
+            for (uint32_t LocalClusterIdx = 0u; LocalClusterIdx < Span.ClusterCount; ++LocalClusterIdx)
             {
-                const uint32_t GlobalOrd = Span.FirstGlobalClusterOrdinal + LocalClusterIdx;
-                FinestClusterMaskWords[GlobalOrd >> 5u] |= (1u << (GlobalOrd & 31u));
+                if (Inst.PyramidAsset->Clusters[LocalClusterIdx].HierarchyLevel == 0u)
+                {
+                    const uint32_t GlobalOrd = Span.FirstGlobalClusterOrdinal + LocalClusterIdx;
+                    FinestClusterMaskWords[GlobalOrd >> 5u] |= (1u << (GlobalOrd & 31u));
+                }
             }
-        }
-        if (Span.LevelGateOrdinals[0u] != UINT32_MAX)
-        {
-            const uint32_t Gate0 = Span.LevelGateOrdinals[0u];
-            FinestClusterMaskWords[Gate0 >> 5u] |= (1u << (Gate0 & 31u));
+            if (Span.LevelGateOrdinals[0u] != UINT32_MAX)
+            {
+                const uint32_t Gate0 = Span.LevelGateOrdinals[0u];
+                FinestClusterMaskWords[Gate0 >> 5u] |= (1u << (Gate0 & 31u));
+            }
         }
 
         for (uint32_t Level = 0u; Level < static_cast<uint32_t>(Hierarchy.LevelSubtrees.size()) && Level < 8u; ++Level)
@@ -3646,7 +3888,7 @@ bool VulkanWorldRenderSequence::AssembleResidentClusterSceneBvh(
                 vkCmdPipelineBarrier(
                     Cmd,
                     VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
                     0u,
                     1u,
                     &DoneBarrier,
@@ -4049,7 +4291,9 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
 
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
-        if (Inst.TransparentGlass ||
+        if (!Inst.VisibilityEnabled ||
+            !Inst.CastShadows ||
+            Inst.TransparentGlass ||
             Inst.UniformScale <= MinimumValidScaleFloor ||
             Inst.AnalyticalShapeCode == DistanceShapeExcluded)
         {
@@ -4223,14 +4467,17 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
         {
             GpuInstances.emplace_back();
         }
-        UploadToDeviceBuffer(
+        UploadHostVisibleBuffer(
             DynamicLocalSdfInstanceBuffer,
             GpuInstances.data(),
             static_cast<uint64_t>(GpuInstances.size()) * sizeof(GpuDynamicLocalSdfInstance144),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         CachedDynamicSdfSignature = DynSig;
         DistanceFieldStats.DynamicInstanceUploadCount += 1u;
-        ResourcesChanged = true;
+        if (!GlobalDistanceFieldReady)
+        {
+            ResourcesChanged = true;
+        }
     }
     if (ResourcesChanged)
     {
@@ -4254,7 +4501,7 @@ Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
     float               ForegroundWeight = 0.0f;
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
-        if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= 1.0e-4f)
+        if (!Inst.VisibilityEnabled || Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= 1.0e-4f)
         {
             continue;
         }
@@ -4286,7 +4533,15 @@ Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
         {
             const Mathematics::Axis3D ToTargetInst = InstCenter - OptionalCamera->TargetPoint;
             const float DistToTarget = std::sqrt(std::max(0.0f, Mathematics::EvaluateDot(ToTargetInst, ToTargetInst)));
+            if (DistToTarget > 80.0f)
+            {
+                continue; // Exclude distant disconnected portal regions (e.g. World B at Y = -680 m)
+            }
             Weight *= 1.0f / (1.0f + 0.18f * DistToTarget * DistToTarget);
+        }
+        else if (Mathematics::EvaluateLength(InstCenter) > 80.0f)
+        {
+            continue; // Keep initial clipmap focus anchored to primary World A region
         }
         ForegroundSum      = ForegroundSum + InstCenter * Weight;
         ForegroundWeight  += Weight;
@@ -4409,6 +4664,10 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     {
         return true;
     }
+    if (PendingTransformCmd != VK_NULL_HANDLE)
+    {
+        RetirePendingTransform(true);
+    }
     if ((EffectiveMask & kPrecomputeRadiosity) != 0u)
     {
         PendingRadiosityRefresh = false;
@@ -4436,9 +4695,14 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             std::numeric_limits<float>::lowest()
         };
         bool AnyCasterBounds = false;
+        const Mathematics::Axis3D FocusAnchor = ActiveClipFocusInitialized ? ActiveClipFocusWorld : Mathematics::Axis3D{ 0.0f, 0.0f, 0.0f };
         for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
         {
-            if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+            if (!Inst.VisibilityEnabled || Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+            {
+                continue;
+            }
+            if (Mathematics::EvaluateLength(Inst.WorldTranslation - FocusAnchor) > 85.0f)
             {
                 continue;
             }
@@ -5454,20 +5718,6 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         };
     };
 
-    auto TransformDirByInst = [](const RigidClusterInstance& Inst, const Mathematics::Axis3D& LocalD) noexcept -> Mathematics::Axis3D
-    {
-        const float Rad  = Inst.RotationZDegrees * Constants::DegToRadFloat;
-        const float CosZ = std::cos(Rad);
-        const float SinZ = std::sin(Rad);
-        return Mathematics::NormalizeAxis(
-            {
-                LocalD.X * CosZ - LocalD.Y * SinZ,
-                LocalD.X * SinZ + LocalD.Y * CosZ,
-                LocalD.Z
-            },
-            { 0.0f, 0.0f, 1.0f });
-    };
-
     // -------------------------------------------------------------------------
     // 1. Live World-Space Emissive Triangles & Stokes/Spherical Luminaire Clusters
     //    Guaranteed 100% locked to every moving emissive instance (e.g. DynamicEmissiveOrb)
@@ -5477,8 +5727,8 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     EmissiveTris.reserve(256u);
     EmissiveClusters.reserve(32u);
 
-    constexpr uint32_t MaxGpuEmissiveTris     = 512u;
-    constexpr uint32_t MaxGpuEmissiveClusters = 24u;
+    constexpr uint32_t MaxGpuEmissiveTris     = 256u;
+    constexpr uint32_t MaxGpuEmissiveClusters = 16u;
 
     auto AppendClusterFromTris = [&](
         uint32_t StartIdx,
@@ -5515,9 +5765,32 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         }
         if (TotalWeight <= 1.0e-6f || TotalArea <= 1.0e-6f)
         {
+            EmissiveTris.resize(StartIdx);
             return;
         }
         FluxCenter = FluxCenter * (1.0f / TotalWeight);
+        // Avoid double-lighting & double-shadowing physical fixture diffusers already represented
+        // by explicit Scene.AreaLights or Scene.PhotometricRadiators at the same location.
+        if (SphereRadiusM <= 0.0f)
+        {
+            for (const auto& Quad : Scene.AreaLights)
+            {
+                const float MatchRadius = std::max(0.95f, std::max(Quad.HalfWidthMeters, Quad.HalfHeightMeters) * 1.15f);
+                if (Mathematics::EvaluateLength(FluxCenter - Quad.CenterWorld) <= MatchRadius)
+                {
+                    EmissiveTris.resize(StartIdx);
+                    return;
+                }
+            }
+            for (const auto& Lamp : Scene.PhotometricRadiators)
+            {
+                if (Mathematics::EvaluateLength(FluxCenter - Lamp.PositionWorld) <= 0.95f)
+                {
+                    EmissiveTris.resize(StartIdx);
+                    return;
+                }
+            }
+        }
         const Mathematics::Axis3D UnitMeanN = Mathematics::NormalizeAxis(MeanNormal, { 0.0f, 0.0f, 1.0f });
         float MaxRad = SphereRadiusM;
         for (uint32_t K = StartIdx; K < EndIdx; ++K)
@@ -5609,7 +5882,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                 }
                 for (uint32_t K = 0u; K < Clust.TriangleCount; ++K)
                 {
-                    if (EmissiveTris.size() >= MaxGpuEmissiveTris || InstEmTriCount >= 96u)
+                    if (EmissiveTris.size() >= MaxGpuEmissiveTris || InstEmTriCount >= 32u)
                     {
                         break;
                     }
@@ -5725,8 +5998,28 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         EmissiveClusters.emplace_back();
     }
-    UploadToDeviceBuffer(EmissiveTriangleBuffer, EmissiveTris.data(), EmissiveTris.size() * sizeof(GpuEmissiveTriangle80), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    UploadToDeviceBuffer(EmissiveClusterBuffer, EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    auto HashBytes64 = [](const void* Ptr, std::size_t Len, uint64_t Seed = Constants::Fnv1a64OffsetBasis) noexcept -> uint64_t
+    {
+        uint64_t H = Seed;
+        const auto* Bytes = reinterpret_cast<const uint8_t*>(Ptr);
+        for (std::size_t I = 0u; I < Len; ++I)
+        {
+            H ^= static_cast<uint64_t>(Bytes[I]);
+            H *= Constants::Fnv1a64Prime;
+        }
+        return H;
+    };
+    uint64_t EmissiveSig = HashBytes64(EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64));
+    EmissiveSig = HashBytes64(EmissiveTris.data(), EmissiveTris.size() * sizeof(GpuEmissiveTriangle80), EmissiveSig);
+    EmissiveSig ^= (static_cast<uint64_t>(UploadedEmissiveClusterCount) << 32u) | UploadedEmissiveTriCount;
+    const bool EmissivesChanged = (EmissiveSig != CachedEmissiveBufferSignature) || (EmissiveClusterBuffer.BufferHandle == VK_NULL_HANDLE);
+    if (EmissivesChanged)
+    {
+        UploadHostVisibleBuffer(EmissiveTriangleBuffer, EmissiveTris.data(), EmissiveTris.size() * sizeof(GpuEmissiveTriangle80), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        UploadHostVisibleBuffer(EmissiveClusterBuffer, EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        CachedEmissiveBufferSignature = EmissiveSig;
+        SurfelRadiosityDirty = true;
+    }
 
     // -------------------------------------------------------------------------
     // 2. Live Deforming Bone Capsules (Candidate 1 Hybrid + Caps Shadow Rig)
@@ -5749,12 +6042,16 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             BoneCapsules[C].JointEndRadius[3]   = std::max(0.01f, Src.RadiusEnd);
         }
     }
+    const uint32_t PrevBoneCaps = UploadedBoneCapsuleCount;
     UploadedBoneCapsuleCount = static_cast<uint32_t>(BoneCapsules.size());
     if (BoneCapsules.empty())
     {
         BoneCapsules.emplace_back();
     }
-    UploadToDeviceBuffer(DeformingBoneCapsuleBuffer, BoneCapsules.data(), BoneCapsules.size() * sizeof(GpuBoneCapsule32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    if (UploadedBoneCapsuleCount > 0u || PrevBoneCaps > 0u || DeformingBoneCapsuleBuffer.BufferHandle == VK_NULL_HANDLE)
+    {
+        UploadHostVisibleBuffer(DeformingBoneCapsuleBuffer, BoneCapsules.data(), BoneCapsules.size() * sizeof(GpuBoneCapsule32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    }
 
     // -------------------------------------------------------------------------
     // 3. Multi-World 2D Planar Portals (all 5 shapes + custom 32-vert cutouts)
@@ -5858,10 +6155,16 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         GpuPortals.emplace_back();
     }
-    UploadToDeviceBuffer(PortalPairBuffer, GpuPortals.data(), GpuPortals.size() * sizeof(GpuPortalPair544), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const uint64_t PortalSig = HashBytes64(GpuPortals.data(), GpuPortals.size() * sizeof(GpuPortalPair544)) ^
+                               (static_cast<uint64_t>(UploadedPortalPairCount) << 40u);
+    if (PortalSig != CachedPortalBufferSignature || PortalPairBuffer.BufferHandle == VK_NULL_HANDLE)
+    {
+        UploadHostVisibleBuffer(PortalPairBuffer, GpuPortals.data(), GpuPortals.size() * sizeof(GpuPortalPair544), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        CachedPortalBufferSignature = PortalSig;
+    }
 
     // -------------------------------------------------------------------------
-    // 4. Per-Instance Exact Half-Space Clipping Planes & Hidden Clones
+    // 4. Per-Instance Exact Half-Space Clipping Planes (hidden clones are masked in ActiveClusterBitmask)
     // -------------------------------------------------------------------------
     std::vector<GpuClipPlaneRange32> ClipRanges;
     ClipRanges.reserve(16u);
@@ -5872,20 +6175,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             continue;
         }
         const RigidClusterInstance& Inst = Scene.ClusterInstances[Span.InstanceIndex];
-        if (!Inst.VisibilityEnabled)
-        {
-            GpuClipPlaneRange32 OutClip {};
-            OutClip.ClusterRangePad[0] = Span.FirstGlobalClusterOrdinal;
-            OutClip.ClusterRangePad[1] = Span.FirstGlobalClusterOrdinal + Span.ClusterCount;
-            OutClip.ClusterRangePad[2] = 1u;
-            OutClip.ClipPlaneWorld[0]  = 0.0f;
-            OutClip.ClipPlaneWorld[1]  = 0.0f;
-            OutClip.ClipPlaneWorld[2]  = 1.0f;
-            OutClip.ClipPlaneWorld[3]  = -1.0e8f; // Reject all points cleanly
-            ClipRanges.push_back(OutClip);
-            continue;
-        }
-        if (!Inst.ClipPlaneEnabled)
+        if (!Inst.VisibilityEnabled || !Inst.ClipPlaneEnabled)
         {
             continue;
         }
@@ -5904,11 +6194,17 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         ClipRanges.emplace_back();
     }
-    UploadToDeviceBuffer(ClipInstanceRangeBuffer, ClipRanges.data(), ClipRanges.size() * sizeof(GpuClipPlaneRange32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const uint64_t ClipSig = HashBytes64(ClipRanges.data(), ClipRanges.size() * sizeof(GpuClipPlaneRange32)) ^
+                             (static_cast<uint64_t>(UploadedClipRangeCount) << 40u);
+    if (ClipSig != CachedClipBufferSignature || ClipInstanceRangeBuffer.BufferHandle == VK_NULL_HANDLE)
+    {
+        UploadHostVisibleBuffer(ClipInstanceRangeBuffer, ClipRanges.data(), ClipRanges.size() * sizeof(GpuClipPlaneRange32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        CachedClipBufferSignature = ClipSig;
+    }
 
     // -------------------------------------------------------------------------
     // 5. Area-Stratified Multi-Bounce Surfel Radiosity Field (Albedo Color Bleed)
-    //    Rebuilt only when geometry, transforms, or material albedos change!
+    //    Rebuilt ONLY when static scene topology changes — never rebuilt per-frame during motion!
     // -------------------------------------------------------------------------
     uint64_t SurfelGeoSig = Constants::Fnv1a64OffsetBasis;
     auto MixU32 = [&](uint32_t V)
@@ -5916,26 +6212,43 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         SurfelGeoSig ^= static_cast<uint64_t>(V);
         SurfelGeoSig *= Constants::Fnv1a64Prime;
     };
-    auto MixF32 = [&](float V)
-    {
-        uint32_t B = 0u;
-        std::memcpy(&B, &V, sizeof(B));
-        MixU32(B);
-    };
     MixU32(static_cast<uint32_t>(Scene.ClusterInstances.size()));
     MixU32(static_cast<uint32_t>(Scene.SceneTree.Primitives.size()));
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
-        MixU32(Inst.VisibilityEnabled ? 1u : 0u);
+        MixU32(reinterpret_cast<uintptr_t>(Inst.PyramidAsset) & 0xFFFFFFFFu);
         MixU32(Inst.MaterialSlot);
-        MixF32(Inst.WorldTranslation.X);
-        MixF32(Inst.WorldTranslation.Y);
-        MixF32(Inst.WorldTranslation.Z);
-        MixF32(Inst.RotationZDegrees);
+    }
+    // Check whether dynamic lights or sun changed so the lightweight 128-surfel GPU solve refreshes cleanly
+    uint64_t SurfelLightSig = CachedEmissiveBufferSignature ^ CachedMaterialEntriesSignature;
+    auto MixLightF32 = [&](float V)
+    {
+        uint32_t B = 0u;
+        std::memcpy(&B, &V, sizeof(B));
+        SurfelLightSig ^= static_cast<uint64_t>(B);
+        SurfelLightSig *= Constants::Fnv1a64Prime;
+    };
+    MixLightF32(Scene.Sun.DirectionToSun.X);
+    MixLightF32(Scene.Sun.DirectionToSun.Y);
+    MixLightF32(Scene.Sun.DirectionToSun.Z);
+    MixLightF32(Scene.Sun.SolarIrradiance.R);
+    MixLightF32(Scene.Sun.SolarIrradiance.G);
+    MixLightF32(Scene.Sun.SolarIrradiance.B);
+    for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+    {
+        if (Inst.VisibilityEnabled && Inst.CastShadows)
+        {
+            MixLightF32(std::round(Inst.WorldTranslation.X * 10.0f));
+            MixLightF32(std::round(Inst.WorldTranslation.Y * 10.0f));
+        }
+    }
+    if (SurfelLightSig != CachedSurfelLightSignature)
+    {
+        CachedSurfelLightSignature = SurfelLightSig;
+        SurfelRadiosityDirty       = true;
     }
     if (SurfelGeoSig == CachedSurfelGeometrySignature && UploadedSurfelCount > 0u)
     {
-        SurfelRadiosityDirty = true;
         return;
     }
     CachedSurfelGeometrySignature = SurfelGeoSig;
@@ -6025,7 +6338,8 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
         {
             const RigidClusterInstance& Inst = Scene.ClusterInstances[InstIdx];
-            if (!Inst.VisibilityEnabled || Inst.PyramidAsset == nullptr || Inst.ClipPlaneEnabled)
+            if (!Inst.VisibilityEnabled || Inst.PyramidAsset == nullptr || Inst.ClipPlaneEnabled ||
+                (Inst.AnalyticalShapeCode == 2u && !Inst.CastShadows))
             {
                 continue;
             }
@@ -6070,7 +6384,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         }
     }
 
-    constexpr uint32_t TargetGpuSurfels = 576u;
+    constexpr uint32_t TargetGpuSurfels = 128u;
     std::vector<GpuSurfel96> Surfels;
     if (!Pool.empty())
     {
@@ -6124,7 +6438,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         Surfels.emplace_back();
     }
-    UploadToDeviceBuffer(SurfelRadiosityBuffer, Surfels.data(), Surfels.size() * sizeof(GpuSurfel96), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    UploadHostVisibleBuffer(SurfelRadiosityBuffer, Surfels.data(), Surfels.size() * sizeof(GpuSurfel96), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     SurfelRadiosityDirty = true;
 }
 
@@ -6196,10 +6510,10 @@ bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldS
     }
 
     const uint64_t MatBytes = GpuMats.size() * sizeof(GpuWorldMaterial80);
-    UploadToDeviceBuffer(MaterialEntryBuffer, GpuMats.data(), MatBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    UploadHostVisibleBuffer(MaterialEntryBuffer, GpuMats.data(), MatBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     UploadedMaterialCount          = MatCount;
     CachedMaterialEntriesSignature = MatSig;
-    PendingRadiosityRefresh        = true;
+    SurfelRadiosityDirty           = true;
     return true;
 }
 
@@ -6398,98 +6712,127 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
         NaniteLodStats.GeometryRebuildCount += 1u;
     }
 
-    // 3. Upload 80-byte OpenPBR surface material entries (force full signature sync)
-    CachedMaterialEntriesSignature = 0ull;
+    // 3. Upload 80-byte OpenPBR surface material entries (force full sync only on full scene rebuild)
+    if (RebuildShadows || !SceneUploadedOnce)
+    {
+        CachedMaterialEntriesSignature = 0ull;
+    }
     (void)SynchronizeMaterialEntriesIfChanged(Scene);
 
-    // 3b. Upload Resampled 128x32 LM-63 Photometric Tables & Point Emitters
+    // 3b. Upload Resampled 128x32 LM-63 Photometric Tables & Point Emitters (only when changed!)
     {
-        if (!Scene.PhotometricProfiles.empty())
+        uint64_t PhotoSig = Constants::Fnv1a64OffsetBasis;
+        auto MixPhotoU32 = [&](uint32_t V)
         {
-            std::vector<float> FlatTables;
-            FlatTables.reserve(Scene.PhotometricProfiles.size() * Codecs::PhotometricGridStride);
-            for (const auto& Profile : Scene.PhotometricProfiles)
+            PhotoSig ^= static_cast<uint64_t>(V);
+            PhotoSig *= Constants::Fnv1a64Prime;
+        };
+        auto MixPhotoF32 = [&](float V)
+        {
+            uint32_t B = 0u;
+            std::memcpy(&B, &V, sizeof(B));
+            MixPhotoU32(B);
+        };
+        MixPhotoU32(static_cast<uint32_t>(Scene.PhotometricProfiles.size()));
+        MixPhotoU32(static_cast<uint32_t>(Scene.PhotometricRadiators.size()));
+        for (const auto& Profile : Scene.PhotometricProfiles)
+        {
+            if (!Profile.NormalizedCandela.empty())
             {
-                FlatTables.insert(
-                    FlatTables.end(),
-                    Profile.NormalizedCandela.begin(),
-                    Profile.NormalizedCandela.end());
+                MixPhotoF32(Profile.NormalizedCandela.front());
+                MixPhotoF32(Profile.NormalizedCandela[Profile.NormalizedCandela.size() / 2u]);
+                MixPhotoF32(Profile.NormalizedCandela.back());
             }
-            UploadToDeviceBuffer(
-                PhotometricProfileTableBuffer,
-                FlatTables.data(),
-                static_cast<uint64_t>(FlatTables.size()) * sizeof(float),
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            UploadedPhotometricProfiles = static_cast<uint32_t>(Scene.PhotometricProfiles.size());
         }
-        else
+        for (const auto& Src : Scene.PhotometricRadiators)
         {
-            UploadedPhotometricProfiles = 0u;
+            MixPhotoF32(Src.PositionWorld.X);
+            MixPhotoF32(Src.PositionWorld.Y);
+            MixPhotoF32(Src.PositionWorld.Z);
+            MixPhotoF32(Src.RangeMeters);
+            MixPhotoF32(Src.BeamAxis.X);
+            MixPhotoF32(Src.BeamAxis.Y);
+            MixPhotoF32(Src.BeamAxis.Z);
+            MixPhotoF32(Src.PeakIntensityRgb.R);
+            MixPhotoF32(Src.PeakIntensityRgb.G);
+            MixPhotoF32(Src.PeakIntensityRgb.B);
+            MixPhotoU32(Src.ProfileOrdinal);
         }
 
-        if (!Scene.PhotometricRadiators.empty())
+        if (PhotoSig != CachedPhotometricSignature || RebuildShadows || !SceneUploadedOnce)
         {
-            std::vector<GpuPhotometricLamp64> GpuLamps(Scene.PhotometricRadiators.size());
-            for (std::size_t L = 0u; L < Scene.PhotometricRadiators.size(); ++L)
+            if (!Scene.PhotometricProfiles.empty())
             {
-                const auto& Src = Scene.PhotometricRadiators[L];
-                auto&       Dst = GpuLamps[L];
-                Dst.PositionRange[0]      = Src.PositionWorld.X;
-                Dst.PositionRange[1]      = Src.PositionWorld.Y;
-                Dst.PositionRange[2]      = Src.PositionWorld.Z;
-                Dst.PositionRange[3]      = Src.RangeMeters;
-                Dst.BeamAxisRadius[0]     = Src.BeamAxis.X;
-                Dst.BeamAxisRadius[1]     = Src.BeamAxis.Y;
-                Dst.BeamAxisRadius[2]     = Src.BeamAxis.Z;
-                Dst.BeamAxisRadius[3]     = Src.RadiusMeters;
-                Dst.ZeroAzimuthProfile[0] = Src.ZeroAzimuthAxis.X;
-                Dst.ZeroAzimuthProfile[1] = Src.ZeroAzimuthAxis.Y;
-                Dst.ZeroAzimuthProfile[2] = Src.ZeroAzimuthAxis.Z;
-                Dst.ZeroAzimuthProfile[3] = static_cast<float>(Src.ProfileOrdinal);
-                Dst.PeakIntensityPad[0]   = Src.PeakIntensityRgb.R;
-                Dst.PeakIntensityPad[1]   = Src.PeakIntensityRgb.G;
-                Dst.PeakIntensityPad[2]   = Src.PeakIntensityRgb.B;
-                Dst.PeakIntensityPad[3]   = 0.0f;
+                std::vector<float> FlatTables;
+                FlatTables.reserve(Scene.PhotometricProfiles.size() * Codecs::PhotometricGridStride);
+                for (const auto& Profile : Scene.PhotometricProfiles)
+                {
+                    FlatTables.insert(
+                        FlatTables.end(),
+                        Profile.NormalizedCandela.begin(),
+                        Profile.NormalizedCandela.end());
+                }
+                UploadToDeviceBuffer(
+                    PhotometricProfileTableBuffer,
+                    FlatTables.data(),
+                    static_cast<uint64_t>(FlatTables.size()) * sizeof(float),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                UploadedPhotometricProfiles = static_cast<uint32_t>(Scene.PhotometricProfiles.size());
             }
-            UploadToDeviceBuffer(
-                PhotometricLampEntryBuffer,
-                GpuLamps.data(),
-                static_cast<uint64_t>(GpuLamps.size()) * sizeof(GpuPhotometricLamp64),
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            UploadedPhotometricLamps = static_cast<uint32_t>(GpuLamps.size());
-        }
-        else
-        {
-            UploadedPhotometricLamps = 0u;
+            else
+            {
+                UploadedPhotometricProfiles = 0u;
+            }
+
+            if (!Scene.PhotometricRadiators.empty())
+            {
+                std::vector<GpuPhotometricLamp64> GpuLamps(Scene.PhotometricRadiators.size());
+                for (std::size_t L = 0u; L < Scene.PhotometricRadiators.size(); ++L)
+                {
+                    const auto& Src = Scene.PhotometricRadiators[L];
+                    auto&       Dst = GpuLamps[L];
+                    Dst.PositionRange[0]      = Src.PositionWorld.X;
+                    Dst.PositionRange[1]      = Src.PositionWorld.Y;
+                    Dst.PositionRange[2]      = Src.PositionWorld.Z;
+                    Dst.PositionRange[3]      = Src.RangeMeters;
+                    Dst.BeamAxisRadius[0]     = Src.BeamAxis.X;
+                    Dst.BeamAxisRadius[1]     = Src.BeamAxis.Y;
+                    Dst.BeamAxisRadius[2]     = Src.BeamAxis.Z;
+                    Dst.BeamAxisRadius[3]     = Src.RadiusMeters;
+                    Dst.ZeroAzimuthProfile[0] = Src.ZeroAzimuthAxis.X;
+                    Dst.ZeroAzimuthProfile[1] = Src.ZeroAzimuthAxis.Y;
+                    Dst.ZeroAzimuthProfile[2] = Src.ZeroAzimuthAxis.Z;
+                    Dst.ZeroAzimuthProfile[3] = static_cast<float>(Src.ProfileOrdinal);
+                    Dst.PeakIntensityPad[0]   = Src.PeakIntensityRgb.R;
+                    Dst.PeakIntensityPad[1]   = Src.PeakIntensityRgb.G;
+                    Dst.PeakIntensityPad[2]   = Src.PeakIntensityRgb.B;
+                    Dst.PeakIntensityPad[3]   = 0.0f;
+                }
+                UploadHostVisibleBuffer(
+                    PhotometricLampEntryBuffer,
+                    GpuLamps.data(),
+                    static_cast<uint64_t>(GpuLamps.size()) * sizeof(GpuPhotometricLamp64),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                UploadedPhotometricLamps = static_cast<uint32_t>(GpuLamps.size());
+            }
+            else
+            {
+                UploadedPhotometricLamps = 0u;
+            }
+            CachedPhotometricSignature = PhotoSig;
         }
     }
 
-    // 3c. Upload Per-Asset Signed Local SDF Voxels (once per asset set) + Dynamic Rigid Instance Buffer
+    // 3c. Upload Per-Asset Signed Local SDF Voxels (once per asset set) + Dynamic Rigid Instance Buffer (host-visible memcpy)
     (void)SynchronizeLocalSdfResources(Scene);
 
     // 3d. Upload Exact Stokes Emissive Clusters/Triangles, Bone Capsules, Multi-Bounce Surfel Field, Portals & Clip Planes
     SynchronizeStokesSurfelPortalBuffers(Scene);
 
-    // Detect dynamic rigid transform motion (e.g. moving DynamicEmissiveOrb or driving HeroVehicle)
-    uint64_t DynamicMoveSig = 14695981039346656037ull;
-    for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
-    {
-        auto MixF = [&](float V)
-        {
-            uint32_t Bits = 0u;
-            std::memcpy(&Bits, &V, sizeof(Bits));
-            DynamicMoveSig ^= Bits;
-            DynamicMoveSig *= 1099511628211ull;
-        };
-        MixF(Inst.WorldTranslation.X);
-        MixF(Inst.WorldTranslation.Y);
-        MixF(Inst.WorldTranslation.Z);
-        MixF(Inst.RotationZDegrees);
-    }
-    const bool DynamicObjectsMoved = (DynamicMoveSig != CachedDynamicMoveSignature);
-    CachedDynamicMoveSignature = DynamicMoveSig;
-
     // 4. Build Two-Cascade Solar Shadow Depth + Global Distance Field + 2-Bounce Radiosity Volume on GPU
+    //    ONLY on initial scene load or explicit static rebuild! Moving vehicles & emissive orbs are handled
+    //    live on GPU via GPU-transformed BVH4, DynamicLocalSdfInstanceBuffer, Stokes Emissives & 128-Surfel Radiosity
+    //    with ZERO per-frame 96^3 Fine GDF or 2-Bounce 3D Radiosity rebakes!
     if (RebuildShadows || !SceneUploadedOnce || SolarShadowDepthBuffer.BufferHandle == VK_NULL_HANDLE)
     {
         ActiveClipFocusWorld       = ResolveDynamicClipFocusWorld(nullptr, Scene);
@@ -6500,25 +6843,11 @@ void VulkanWorldRenderSequence::SynchronizeSceneResources(
         PendingFineGeometryReset   = true;
         PendingCoarseGeometryReset = true;
         UploadSolarCascadeDepth(Scene);
-    }
-    else if (GlobalDistanceFieldReady)
-    {
-        uint32_t DynamicPrecomputeFlags =
-            kPrecomputeFineShadow | kPrecomputeCoarseShadow |
-            kPrecomputeRadiosity | kPrecomputeRadiosityFull | kPrecomputeSecondBounce;
-        if (DynamicObjectsMoved)
-        {
-            // Critical fix: re-bake Fine GDF & GlobalSurfaceShellBuffer when dynamic objects (e.g. DynamicEmissiveOrb
-            // or driving HeroVehicle) move so voxelized emissive/occluder shells NEVER freeze at t = 0!
-            PendingFineGeometryReset = true;
-            DynamicPrecomputeFlags  |= kPrecomputeFineGdf;
-        }
-        (void)DispatchGpuScenePrecompute(Scene, false, DynamicPrecomputeFlags);
+        CachedNaniteCutSignature   = 0u;
+        ProgressiveSampleCount     = 0u;
     }
 
-    CachedNaniteCutSignature = 0u;
-    SceneUploadedOnce        = true;
-    ProgressiveSampleCount   = 0u;
+    SceneUploadedOnce = true;
     const auto SyncEnd = std::chrono::steady_clock::now();
     LastSceneSyncMilliseconds = static_cast<float>(std::chrono::duration<double, std::milli>(SyncEnd - SyncStart).count());
 }
@@ -6614,6 +6943,10 @@ void VulkanWorldRenderSequence::RefreshNaniteLodGeometry(
     {
         const ResidentClusterInstanceSpan& Span = ResidentClusterInstances[SpanOrd];
         const RigidClusterInstance&        Inst = Scene.ClusterInstances[Span.InstanceIndex];
+        if (!Inst.VisibilityEnabled)
+        {
+            continue;
+        }
         const float ScaleU = std::max(1.0e-4f, Inst.UniformScale);
         const float ScaleX = (Inst.NonUniformScale.X > 1.0e-4f) ? Inst.NonUniformScale.X : ScaleU;
         const float ScaleY = (Inst.NonUniformScale.Y > 1.0e-4f) ? Inst.NonUniformScale.Y : ScaleU;
@@ -6743,9 +7076,7 @@ bool VulkanWorldRenderSequence::RenderWorldViewportRgba8(
 
 void VulkanWorldRenderSequence::DispatchGpuSkyViewLut(VkCommandBuffer Cmd, const WorldSceneSpecification& Scene)
 {
-    if (TransmittanceLutProgramHandle == UINT32_MAX ||
-        MultiScatterLutProgramHandle == UINT32_MAX ||
-        SkyViewLutProgramHandle == UINT32_MAX ||
+    if (!EnsureSkyLutPrograms() ||
         SkyViewUniformBuffer.HostAddress == nullptr ||
         AtmosphericSkyViewLutBuffer.BufferHandle == VK_NULL_HANDLE)
     {
@@ -6865,7 +7196,7 @@ void VulkanWorldRenderSequence::DispatchGpuStellarTileCull(
     const uint32_t TileCount = TileCols * TileRows;
     const uint64_t TileBytes = static_cast<uint64_t>(TileCount) * 65ull * sizeof(uint32_t);
 
-    if (StellarClearProgramHandle == UINT32_MAX || StellarCullProgramHandle == UINT32_MAX)
+    if (!EnsureStellarPrograms())
     {
         vkCmdFillBuffer(Cmd, StellarTileBinsBuffer.BufferHandle, 0ull, TileBytes, 0u);
         VkMemoryBarrier FillBarrier {};
@@ -7197,7 +7528,11 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 bool AnyCasterBounds = false;
                 for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
                 {
-                    if (Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+                    if (!Inst.VisibilityEnabled || Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
+                    {
+                        continue;
+                    }
+                    if (Mathematics::EvaluateLength(Inst.WorldTranslation - DesiredClipFocus) > 85.0f)
                     {
                         continue;
                     }
@@ -7901,13 +8236,13 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     Uniforms.PostProcessParams[2] = std::clamp(Config.PostProcessContrast, 0.25f, 2.5f);
     Uniforms.PostProcessParams[3] = std::clamp(Config.PostProcessVignette, 0.0f, 1.0f);
 
-    // Motion Blur post-pass parameters (0.000 ms overhead when disabled)
-    const bool MotionBlurActive =
+    // Motion Blur post-pass parameters (0.000 ms overhead when disabled; shader compiled lazily on first use)
+    const bool MotionBlurRequested =
         Config.MotionBlurEnabled &&
         Config.DebugChannel == 0u &&
-        MotionBlurProgramHandle != UINT32_MAX &&
         Config.MotionBlurIntensity > 1.0e-4f &&
         Config.MotionBlurShutterAngleDeg > 0.5f;
+    const bool MotionBlurActive = MotionBlurRequested && EnsureMotionBlurProgram();
     const float ShutterNorm = std::clamp(Config.MotionBlurShutterAngleDeg / 360.0f, 0.01f, 1.0f);
     Uniforms.MotionBlurParams0[0] = MotionBlurActive ? 1.0f : 0.0f;
     Uniforms.MotionBlurParams0[1] = ShutterNorm * std::clamp(Config.MotionBlurIntensity, 0.0f, 3.0f);
@@ -7934,12 +8269,12 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     Uniforms.PrevCameraUpPad[2]        = PrevMotionBlurCameraBasis.UpAxis.Z;
     Uniforms.PrevCameraUpPad[3]        = 0.0f;
 
-    // Upload dynamic cockpit display atlas (HMI + Cluster + Windshield HUD + On-Screen HUD) when updated
+    // Upload dynamic cockpit display atlas (HMI + Cluster + Windshield HUD + On-Screen HUD) via host-visible memcpy (0 GPU stall!)
     if (!Scene.CockpitDisplayAtlasRgba8.empty() &&
         Scene.CockpitDisplayAtlasGeneration != CachedCockpitDisplayAtlasGen)
     {
         const uint64_t AtlasBytes = static_cast<uint64_t>(Scene.CockpitDisplayAtlasRgba8.size()) * sizeof(uint32_t);
-        UploadToDeviceBuffer(
+        UploadHostVisibleBuffer(
             CockpitDisplayAtlasBuffer,
             Scene.CockpitDisplayAtlasRgba8.data(),
             AtlasBytes,
@@ -8000,10 +8335,13 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     const uint32_t DirectPbrOrdinalPre   = static_cast<uint32_t>(WorldRenderEngine::OpenPbrDirect);
     const uint32_t LowEndGtxOrdinalPre   = static_cast<uint32_t>(WorldRenderEngine::RealTimeGiGtxLowEnd);
     const bool     PathTracePre          = (EngIdxPre == 4u || EngIdxPre == 5u) && (Config.DebugChannel == 0u);
-    const bool     PortalsOrClipsActive  = (UploadedPortalPairCount > 0u) || (UploadedClipRangeCount > 0u);
+    // Keep Hardware Primary Vis active even when 2D portals are present; ComputeEntry tests the O(1) portal
+    // aperture plane and invokes TracePrimaryWithPortals ONLY on portal-aperture pixels (~5-15% of screen!).
+    // Fall back to full BVH4 primary only while a vehicle actively straddles a portal with half-space clip planes.
+    const bool     ActiveClipPlanes      = (UploadedClipRangeCount > 0u);
     const bool     UseHardwarePrimaryVis =
         !PathTracePre &&
-        !PortalsOrClipsActive &&
+        !ActiveClipPlanes &&
         (EngIdxPre != 3u) &&
         (PrimaryVisPipeline != VK_NULL_HANDLE) &&
         (UploadedTriangleCount > 0u) &&
@@ -8016,6 +8354,24 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
          (Config.DebugChannel >= DebugChannelSunShadow && Config.DebugChannel <= DebugChannelSpecular)) &&
         (Config.DebugChannel != DebugChannelFilteredAo);
 
+    const bool UseBackgroundSkyComposite =
+        !PathTracePre &&
+        (Config.DebugChannel == 0u) &&
+        (AtmoActive || CelestialOrCloudsActive) &&
+        EnsureBackgroundSkyProgram();
+    const bool VolumetricMediaActive =
+        (Uniforms.FogParams.HeightParams0[0] > 0.5f) ||
+        (Uniforms.FogParams.AerialParams[0] > 0.5f) ||
+        (Uniforms.FogParams.FogMeta[0] > 0.5f) ||
+        (Uniforms.CloudParams.FormationOptics[3] > 0.5f) ||
+        (Uniforms.FogParams.GodRayParams0[0] > 0.5f) ||
+        (Uniforms.LensFlareParams.GhostRotationTint[3] > 0.5f);
+    const bool UseVolumetricMediaComposite =
+        !PathTracePre &&
+        (Config.DebugChannel == 0u) &&
+        VolumetricMediaActive &&
+        EnsureVolumetricMediaProgram();
+
     if (UseHardwarePrimaryVis)
     {
         Uniforms.AtmosphereMaskPad[3] |= (1u << 24u);
@@ -8023,6 +8379,14 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     if (UseHalfResIndirect)
     {
         Uniforms.AtmosphereMaskPad[3] |= (1u << 25u);
+    }
+    if (UseBackgroundSkyComposite)
+    {
+        Uniforms.AtmosphereMaskPad[3] |= (1u << 26u);
+    }
+    if (UseVolumetricMediaComposite)
+    {
+        Uniforms.AtmosphereMaskPad[3] |= (1u << 27u);
     }
 
     uint8_t* UniformBytes = reinterpret_cast<uint8_t*>(ActiveSlot.UniformBuffer.HostAddress);
@@ -8156,7 +8520,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     const auto     InitialSlots = ConstructStepSlots(0ull, false);
 
     WriteStamp(2u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    if (AtmoActive && Scene.Atmosphere.Clouds.CloudsEnabled && Config.DebugChannel == 0u)
+    if (AtmoActive && Scene.Atmosphere.Clouds.CloudsEnabled && Config.DebugChannel == 0u && EnsureCloudLayerProgram())
     {
         if (!DispatchEncoder.EncodeComputeDispatch(Cmd, CloudLayerProgramHandle, InitialSlots, CloudGroupsX, CloudGroupsY, 1u))
         {
@@ -8167,9 +8531,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    // Real-time 2-Bounce Surfel Radiosity Solve on GPU (Pass 0: Direct Sun + Area + IES + Stokes Emissive w/ Candidate 1 Hybrid Shadows;
-    // Pass 1: Surfel-to-Surfel Bunnell Disk Albedo Color-Bleed Bounce!) — executes live on EVERY interactive & offscreen frame!
-    if (SurfelRadiositySolveProgramHandle != UINT32_MAX && UploadedSurfelCount > 0u)
+    // Real-time 2-Bounce Surfel Radiosity Solve on GPU (Step 0: Direct Sun + Area + IES + Exact BVH4 Stokes Emissive;
+    // Step 1: 128-Surfel Bunnell Disk Albedo Color-Bleed Bounce) — dispatches whenever lighting, emissives, or scene changed!
+    if (SurfelRadiosityDirty && SurfelRadiositySolveProgramHandle != UINT32_MAX && UploadedSurfelCount > 0u)
     {
         const uint32_t SurfelGroups = (UploadedSurfelCount + 63u) / 64u;
         const uint64_t UniOffsStep0 = 12ull * UniformStrideBytes;
@@ -8291,6 +8655,16 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             return false;
         }
         InsertComputeSyncBarrier();
+
+        if (UseBackgroundSkyComposite)
+        {
+            if (!DispatchEncoder.EncodeComputeDispatch(Cmd, BackgroundSkyProgramHandle, InitialSlots, GroupsX, GroupsY, 1u))
+            {
+                BoundDevice->FreeCommandBuffer(Cmd);
+                return false;
+            }
+            InsertComputeSyncBarrier();
+        }
 
         constexpr uint32_t EnableHalfResIndirectBit = 8u;
         const uint32_t HalfW       = (WidthPx  + 1u) >> 1u;
@@ -8416,6 +8790,16 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
 
             const auto StepSlots = ConstructStepSlots(UniformOffset, false);
             if (!DispatchEncoder.EncodeComputeDispatch(Cmd, DenoiseProgramHandle, StepSlots, GroupsX, GroupsY, 1u))
+            {
+                BoundDevice->FreeCommandBuffer(Cmd);
+                return false;
+            }
+        }
+        if (UseVolumetricMediaComposite)
+        {
+            InsertComputeSyncBarrier();
+            const auto MediaSlots = ConstructStepSlots(0ull, MotionBlurSourceSwapPingPong);
+            if (!DispatchEncoder.EncodeComputeDispatch(Cmd, VolumetricMediaProgramHandle, MediaSlots, GroupsX, GroupsY, 1u))
             {
                 BoundDevice->FreeCommandBuffer(Cmd);
                 return false;

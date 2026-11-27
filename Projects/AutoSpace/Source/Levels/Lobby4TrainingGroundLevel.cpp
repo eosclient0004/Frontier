@@ -265,7 +265,7 @@ void BuildLobby4TrainingGroundLevel(IStudioLobbySceneBuilderContext& Ctx, const 
         HeroPortal.Exit.GravityScale               = 0.82f; // Slightly lighter elevated world gravity
         HeroPortal.Exit.SkyUpperRgb               = { 0.11f, 0.07f, 0.30f }; // Deep twilight violet zenith
         HeroPortal.Exit.SkyLowerRgb              = { 2.15f, 0.66f, 0.22f }; // Glowing golden-crimson sunset horizon
-        HeroPortal.Exit.SunDirectionWorld          = NormalizeAxis({ 0.96f, 0.14f, 0.22f }, { 1.0f, 0.0f, 0.0f });
+        HeroPortal.Exit.SunDirectionWorld          = NormalizeAxis({ 0.84f, 0.28f, 0.46f }, { 1.0f, 0.0f, 0.0f });
         HeroPortal.Exit.SunRadianceRgb             = { 3.80f, 1.65f, 0.55f };
         HeroPortal.NormalizeAxes();
 
