@@ -1055,10 +1055,10 @@ namespace
             if (Blended.empty()) return {};
             // ⚠️ A variable sheet ends in a plain cap or a mitre with one other blend at a degree-3 vertex (its contacts do not
             //    share the spine's τ, see VariableCondition, so the mitre takes the general carrier section).
-            const bool MitrePair = Blended.size() == 2 && Blended[0].first != Blended[1].first && Ends.size() == 3;   // [-] - Two blends + one sharp edge
+            const bool MitrePair = Blended.size() == 2 && Blended[0].first != Blended[1].first && (Ends.size() == 3 || Ends.size() == 4);   // [-] - Two blends + one/two sharp edges
             for (const auto& End : Blended)
             {
-                if (SheetOf(End.first)->VariableCondition() && !((Blended.size() == 1 && Ends.size() == 3) || MitrePair))
+                if (SheetOf(End.first)->VariableCondition() && !((Blended.size() == 1 && Ends.size() >= 3) || MitrePair))
                     return "variable size where three blends meet or at a vertex of degree ≠ 3 (🚧)";
                 if (!SheetOf(End.first)->LawCondition()) continue;
                 // 📝 A ball-law sheet ends in a cap, runs through a seam (continuation) or meets its own curve's next edge at
@@ -1066,7 +1066,7 @@ namespace
                 const bool Continuation = Blended.size() == 2 && Blended[0].first == Blended[1].first;   // [-] - Closed rim through a seam
                 bool SeamsOnly = Blended.size() == 2 && !Continuation && !Sharp.empty();             // [-] - Every sharp edge is a seam
                 for (const auto& Other : Sharp) { const auto Faces = FacesOfEdge(Other.first); SeamsOnly = SeamsOnly && Faces.first == Faces.second; }
-                if (!SeamsOnly && (!(Blended.size() == 1 || Continuation) || Ends.size() != 3)) return LawSubject() + " where blends meet or at a vertex of degree ≠ 3 (🚧)";
+                if (!SeamsOnly && !((Blended.size() == 1 && Ends.size() >= 3) || (Continuation && Ends.size() == 3))) return LawSubject() + " where blends meet or at a vertex of degree ≠ 3 (🚧)";
             }
             const bool Convex = SheetOf(Blended.front().first)->ConvexCondition;
             for (const auto& End : Blended)
@@ -1085,6 +1085,9 @@ namespace
             if (Ends.size() != 3)
             {
                 if (Sharp.empty()) return ResolveSetback(Vertex, Ends);
+                if (Blended.size() == 1 && Sharp.size() >= 3) return ResolveMultiFaceCap(Vertex, Blended[0], Sharp);
+                if (Ends.size() == 4 && Blended.size() == 2 && Blended[0].first != Blended[1].first && Sharp.size() == 2)
+                    return ResolveDegree4Mitre(Vertex, Blended[0], Blended[1], Sharp[0].first, Sharp[1].first);
                 return "degree " + std::to_string(Ends.size()) + " vertex with blended and sharp edges (🚧)";
             }
             if (Blended.size() == 2 && Blended[0].first == Blended[1].first) return ResolveContinuation(Vertex, Blended[0].first, Sharp[0].first);
@@ -1672,6 +1675,420 @@ namespace
             Terminations[{ End.first.Slot, End.second }]       = { { Cap, Feet[0], Feet[1] } };
             CapEdges[{ Third.Slot, Vertex.Slot }]              = Cap;
             ++Outcome.Statistics.Vertices[static_cast<int>(VertexBlendCategory::Cap)];
+            return {};
+        }
+
+        // Exact transversal meeting of a blend contact rail with an incident sharp edge bounding FarFace.
+        // Prefers curve-curve intersection against the sharp edge (exact even when FarFace meets the support G1-tangently),
+        // falling back to curve-surface intersection on FarFace.
+        [[nodiscard]] std::optional<Vector3> CrossRailSharpEdge(const CurveGeometry& Contact, EdgeToken SharpEdge, FaceToken FarFace, Vector3 Near)
+        {
+            const CurveGeometry&   SharpCurve = Partition.Curves.Resolve(Partition.Edges.Resolve(SharpEdge).Curve);
+            const SurfaceGeometry& FarSurface = SurfaceOf(FarFace);
+            if (std::holds_alternative<StraightLine>(Contact) && std::holds_alternative<StraightLine>(SharpCurve))
+            {
+                if (const std::optional<Vector3> Hit = MeetLines(Contact, SharpCurve))
+                {
+                    if (Distance(ProjectPointOntoSurface(FarSurface, *Hit), *Hit) <= Agreement) return Hit;
+                }
+            }
+            else if (const std::optional<std::pair<double, double>> Meet = MeetRails(Contact, SharpCurve, Near))
+            {
+                const Vector3 Hit = (EvaluateCurve(Contact, Meet->first).Position + EvaluateCurve(SharpCurve, Meet->second).Position) * 0.5;
+                if (Distance(ProjectPointOntoSurface(FarSurface, Hit), Hit) <= Agreement) return Hit;
+            }
+            return CrossCurveFace(Contact, Near, FarFace);
+        }
+
+        // Exact section of a blend carrier against a cap/ledge face between two blueprint vertices lying on both.
+        [[nodiscard]] int IssueBlendFaceSection(const EdgeBlendSheet& Sheet, const SurfaceGeometry& FaceSurface, int From, int To, Vector3 OriginalVertex)
+        {
+            const auto* Cylinder = std::get_if<CylinderSurface>(&Sheet.Surface);
+            const auto* Plane    = std::get_if<PlaneSurface>(&FaceSurface);
+            if (Cylinder && Plane)
+            {
+                if (const std::optional<CurveGeometry> Conic = SectionCylinderByPlane(*Cylinder, Plane->Frame.Origin, Plane->Frame.ZAxis))
+                {
+                    const int Arc = IssueConicArc(*Conic, From, To);
+                    if (Arc >= 0) return Arc;
+                }
+            }
+            if (Sheet.AsymmetricMiddleWeight > 0.0 && Plane)
+            {
+                const CurveGeometry& EdgeCurve = Partition.Curves.Resolve(Partition.Edges.Resolve(Sheet.Edge).Curve);
+                const Vector3        Peak      = CrossCurveSurface(EdgeCurve, OriginalVertex, FaceSurface).value_or(OriginalVertex);
+                if (const std::optional<NurbsCurve> CapArc = ConstructNurbsCurve(
+                        2,
+                        { 0.0, 0.0, 0.0, 1.0, 1.0, 1.0 },
+                        { PositionOf(From), Peak, PositionOf(To) },
+                        { 1.0, Sheet.AsymmetricMiddleWeight, 1.0 }))
+                {
+                    const int Edge = IssueEdge(*CapArc, 0.0, 1.0, From, To);
+                    if (Edge >= 0) return Edge;
+                }
+            }
+            return IssueSection(Sheet.Surface, FaceSurface, From, To);
+        }
+
+        // 📝 Degree >= 4 vertex with one blended edge and K >= 3 sharp edges forming a face fan from Support 0 to Support 1
+        //    (e.g. a pocket's vertical or sloped bevel edges terminating where N walls meet N bottom bevel/fillet strips).
+        //    Each interior sharp edge pierces the blend surface at an exact ridge vertex; the blend ends in a multi-segment
+        //    cap chain across the fan faces, and every sharp edge trims/extends cleanly onto its intersection vertex.
+        [[nodiscard]] std::string ResolveMultiFaceCap(VertexToken Vertex, std::pair<EdgeToken, int> End, const std::vector<std::pair<EdgeToken, int>>& SharpEnds)
+        {
+            const EdgeBlendSheet& Sheet = *SheetOf(End.first);
+            const FaceToken       Sup0  = Sheet.Faces[0];
+            const FaceToken       Sup1  = Sheet.Faces[1];
+            const Vector3         Position = Partition.Vertices.Resolve(Vertex).Position;
+
+            // ① Walk the face fan around Vertex from Sup0 across the sharp edges to Sup1.
+            std::vector<EdgeToken> OrderedSharp;
+            std::vector<FaceToken> CapFaces;
+            std::vector<bool>      Taken(SharpEnds.size(), false);
+            FaceToken              Current = Sup0;
+            OrderedSharp.reserve(SharpEnds.size());
+            CapFaces.reserve(SharpEnds.size() - 1);
+            for (size_t Step = 0; Step < SharpEnds.size(); ++Step)
+            {
+                bool Found = false;
+                for (size_t Index = 0; Index < SharpEnds.size(); ++Index)
+                {
+                    if (Taken[Index]) continue;
+                    const EdgeToken Candidate = SharpEnds[Index].first;
+                    const auto      Around    = FacesOfEdge(Candidate);
+                    if (Around.first != Current && Around.second != Current) continue;
+                    const FaceToken Next = Around.first == Current ? Around.second : Around.first;
+                    if (Next == Current) continue;
+                    if (Step + 1 < SharpEnds.size() && (Next == Sup0 || Next == Sup1)) continue;
+                    if (Step + 1 == SharpEnds.size() && Next != Sup1) continue;
+                    Taken[Index] = true;
+                    OrderedSharp.push_back(Candidate);
+                    if (Step + 1 < SharpEnds.size()) CapFaces.push_back(Next);
+                    Current = Next;
+                    Found   = true;
+                    break;
+                }
+                if (!Found) return "multi-face cap: sharp edges do not form a face fan between supports";
+            }
+            if (Current != Sup1 || CapFaces.size() + 1 != OrderedSharp.size()) return "multi-face cap: fan does not close between supports";
+            std::set<uint32_t> UniqueCaps{ Sup0.Slot, Sup1.Slot };
+            for (FaceToken CapFace : CapFaces)
+            {
+                if (!UniqueCaps.insert(CapFace.Slot).second) return "multi-face cap: repeated face in fan";
+            }
+
+            // ② Outer feet where each contact rail meets the boundary sharp edge of its support.
+            const std::optional<Vector3> Point0 = CrossRailSharpEdge(Sheet.Contacts[0], OrderedSharp.front(), CapFaces.front(), Position);
+            const std::optional<Vector3> Point1 = CrossRailSharpEdge(Sheet.Contacts[1], OrderedSharp.back(), CapFaces.back(), Position);
+            if (!Point0 || !Point1) return "multi-face cap: contact rail misses adjacent cap face";
+            const int     Foot0   = IssueVertex(*Point0);
+            const int     Foot1   = IssueVertex(*Point1);
+            const Vector3 MidSeed = (*Point0 + *Point1) * 0.5;
+
+            // ③ Interior ridge intersections: each interior sharp edge S_k pierces Sheet.Surface.
+            //    Test seeds both near MidSeed and along the surviving edge interval, preferring the hit that lies
+            //    inside the edge interval, on the active angular arc of cylindrical sheets (never the far side of
+            //    the 360° cylinder), and closest to MidSeed (never the symmetric ghost branch of curved ridges).
+            const auto* CylinderSheet = std::get_if<CylinderSurface>(&Sheet.Surface);
+            Vector3     RadialMid{};
+            double      RadialCosFloor = -2.0;
+            if (CylinderSheet)
+            {
+                const auto RadialOf = [&](Vector3 Point)
+                {
+                    const Vector3 Delta = Point - CylinderSheet->Frame.Origin;
+                    return Normalize(Delta - CylinderSheet->Frame.ZAxis * Dot(Delta, CylinderSheet->Frame.ZAxis));
+                };
+                const Vector3 R0 = RadialOf(*Point0);
+                const Vector3 R1 = RadialOf(*Point1);
+                if (Length(R0 + R1) > 1.0e-6)
+                {
+                    RadialMid      = Normalize(R0 + R1);
+                    RadialCosFloor = std::min(Dot(R0, RadialMid), Dot(R1, RadialMid)) - 1.0e-5;
+                }
+            }
+            const auto WithinActiveArc = [&](Vector3 Point)
+            {
+                if (!CylinderSheet || RadialCosFloor <= -1.5) return true;
+                const Vector3 Delta = Point - CylinderSheet->Frame.Origin;
+                const Vector3 Rad   = Delta - CylinderSheet->Frame.ZAxis * Dot(Delta, CylinderSheet->Frame.ZAxis);
+                if (Length(Rad) <= Tolerance) return false;
+                return Dot(Normalize(Rad), RadialMid) >= RadialCosFloor;
+            };
+            std::vector<int> ChainVerts;
+            ChainVerts.reserve(CapFaces.size() + 1);
+            ChainVerts.push_back(Foot0);
+            for (size_t Index = 1; Index < OrderedSharp.size() - 1; ++Index)
+            {
+                const EdgeToken      Ridge = OrderedSharp[Index];
+                const EdgeProfile&   Prof  = Partition.Edges.Resolve(Ridge);
+                const CurveGeometry& Curve = Partition.Curves.Resolve(Prof.Curve);
+                const int            EndIx = EndAt(Ridge, Vertex);
+                const double         Span  = Prof.IntervalHigh - Prof.IntervalLow;
+                const double         ParamScale = std::max(MeasureParameterScale(Curve), 1.0e-300);
+                const double         Slack = Agreement / ParamScale;
+                const auto SurfaceHitValid = [&](const std::optional<Vector3>& Cand)
+                {
+                    return Cand && DistanceToCurve(Curve, *Cand) <= Agreement
+                        && Distance(ProjectPointOntoSurface(Sheet.Surface, *Cand), *Cand) <= Agreement
+                        && WithinActiveArc(*Cand);
+                };
+                const auto InsideInterval = [&](const Vector3& Pt)
+                {
+                    const double Fold  = PeriodicCondition(Curve) ? Prof.IntervalLow - 0.5 * (2.0 * std::numbers::pi - Span) : Prof.IntervalLow - 0.25 * Span;
+                    const double Param = ProjectOntoCurve(Curve, Pt, Fold);
+                    return Param >= Prof.IntervalLow - Slack && Param <= Prof.IntervalHigh + Slack;
+                };
+                std::optional<Vector3> BestInside;
+                double                 BestInsideDist = std::numeric_limits<double>::infinity();
+                std::optional<Vector3> BestOutside;
+                double                 BestOutsideDist = std::numeric_limits<double>::infinity();
+                const auto Consider = [&](const std::optional<Vector3>& Cand)
+                {
+                    if (!SurfaceHitValid(Cand)) return;
+                    const double Dist = Distance(*Cand, MidSeed);
+                    if (InsideInterval(*Cand))
+                    {
+                        if (Dist < BestInsideDist) { BestInside = Cand; BestInsideDist = Dist; }
+                    }
+                    else if (Dist < BestOutsideDist)
+                    {
+                        BestOutside = Cand; BestOutsideDist = Dist;
+                    }
+                };
+                Consider(CrossCurveSurface(Curve, MidSeed, Sheet.Surface));
+                for (const double Frac : { 0.02, 0.06, 0.14, 0.30, 0.55 })
+                {
+                    const double  SeedParam = EndIx == 0 ? Prof.IntervalLow + Frac * Span : Prof.IntervalHigh - Frac * Span;
+                    const Vector3 SeedPt    = EvaluateCurve(Curve, SeedParam).Position;
+                    Consider(CrossCurveSurface(Curve, SeedPt, Sheet.Surface));
+                }
+                Consider(CrossCurveSurface(Curve, Position, Sheet.Surface));
+                const std::optional<Vector3> Hit = BestInside ? BestInside : BestOutside;
+                if (!Hit) return "multi-face cap: ridge edge misses blend surface";
+                ChainVerts.push_back(IssueVertex(*Hit));
+            }
+            ChainVerts.push_back(Foot1);
+
+            // ④ Cap curve chain across each fan face from ChainVerts[k] to ChainVerts[k + 1].
+            std::vector<ChainLink> TerminationChain;
+            TerminationChain.reserve(CapFaces.size());
+            for (size_t Index = 0; Index < CapFaces.size(); ++Index)
+            {
+                const int From = ChainVerts[Index], To = ChainVerts[Index + 1];
+                const int Cap  = IssueBlendFaceSection(Sheet, SurfaceOf(CapFaces[Index]), From, To, Position);
+                if (Cap < 0)
+                {
+                    return std::string("multi-face cap: no exact section of the ") + SurfaceCategoryLabel(Sheet.Surface)
+                         + " blend and " + SurfaceCategoryLabel(SurfaceOf(CapFaces[Index])) + " face";
+                }
+                if (!Agree(MeasureEdgeDeparture(Cap, Sheet.Surface, 5)) || !Agree(MeasureEdgeDeparture(Cap, SurfaceOf(CapFaces[Index]), 5)))
+                    return "multi-face cap: cap curve leaves blend or cap face";
+                CapEdges[{ CapFaces[Index].Slot, Vertex.Slot }] = Cap;
+                TerminationChain.push_back({ Cap, From, To });
+            }
+
+            // ⑤ Trim/extend every sharp edge in the fan to its exact intersection vertex.
+            for (size_t Index = 0; Index < OrderedSharp.size(); ++Index)
+            {
+                const EdgeToken SharpEdge = OrderedSharp[Index];
+                const int       EndIdx    = EndAt(SharpEdge, Vertex);
+                const int       TrimVert  = ChainVerts[Index];
+                TrimVertices[{ SharpEdge.Slot, EndIdx }] = TrimVert;
+                const EdgeProfile&   Prof  = Partition.Edges.Resolve(SharpEdge);
+                const CurveGeometry& Curve = Partition.Curves.Resolve(Prof.Curve);
+                const double         Param = ProjectOntoCurve(Curve, PositionOf(TrimVert), EndIdx == 0 ? Prof.IntervalLow : Prof.IntervalHigh);
+                if ((EndIdx == 0 && Param < Prof.IntervalLow - Tolerance) || (EndIdx == 1 && Param > Prof.IntervalHigh + Tolerance))
+                {
+                    if (!Sheet.ConvexCondition || !ConvexEdge(SharpEdge)) Extensions.insert({ SharpEdge.Slot, EndIdx });
+                }
+            }
+            ContactVertices[{ End.first.Slot, 0, End.second }] = Foot0;
+            ContactVertices[{ End.first.Slot, 1, End.second }] = Foot1;
+            Terminations[{ End.first.Slot, End.second }]       = std::move(TerminationChain);
+            ++Outcome.Statistics.Vertices[static_cast<int>(VertexBlendCategory::Cap)];
+            return {};
+        }
+
+        // 📝 Degree-4 vertex with two opposite blended edges and two opposite sharp edges (e.g. a horizontal transition crease
+        //    loop around a beveled pocket, or a vertical+sloped corner spine). Each sharp edge receives both outer rails; when
+        //    they coincide it is a clean equal mitre, and when one blend sets back farther along the sharp edge the shallower
+        //    support receives an exact ledge section up to the dominant blend surface (identical to ResolveUnequalMitre).
+        [[nodiscard]] std::string ResolveDegree4Mitre(VertexToken Vertex, std::pair<EdgeToken, int> EndA, std::pair<EdgeToken, int> EndB, EdgeToken Sharp0, EdgeToken Sharp1)
+        {
+            const EdgeBlendSheet& SheetA   = *SheetOf(EndA.first);
+            const EdgeBlendSheet& SheetB   = *SheetOf(EndB.first);
+            const Vector3         Position = Partition.Vertices.Resolve(Vertex).Position;
+            for (FaceToken Face : SheetA.Faces)
+            {
+                if (SideOn(SheetB, Face) >= 0) return "degree 4 vertex with adjacent blended and sharp edges (🚧)";
+            }
+
+            // ① Pair each side k of SheetA with its incident sharp edge S[k] and the opposite face FB[k] on SheetB.
+            EdgeToken SharpSide[2] = {};
+            FaceToken FaceA[2]     = { SheetA.Faces[0], SheetA.Faces[1] };
+            FaceToken FaceB[2]     = {};
+            int       SideB[2]     = { -1, -1 };
+            for (int Side = 0; Side < 2; ++Side)
+            {
+                for (EdgeToken Candidate : { Sharp0, Sharp1 })
+                {
+                    const auto Around = FacesOfEdge(Candidate);
+                    if (Around.first != FaceA[Side] && Around.second != FaceA[Side]) continue;
+                    const FaceToken Across = Around.first == FaceA[Side] ? Around.second : Around.first;
+                    const int       BSide  = SideOn(SheetB, Across);
+                    if (BSide < 0) continue;
+                    SharpSide[Side] = Candidate;
+                    FaceB[Side]     = Across;
+                    SideB[Side]     = BSide;
+                    break;
+                }
+            }
+            if (!SharpSide[0].PresentCondition() || !SharpSide[1].PresentCondition() || SharpSide[0] == SharpSide[1] || SideB[0] == SideB[1])
+                return "degree 4 mitre: blended and sharp edges do not alternate around the vertex";
+
+            // ② Resolve each sharp edge side (equal crossing vs dominant/shallow ledge).
+            int Dominant[2] = { 0, 0 };                                                      // 0 equal · 1 SheetA dominates · 2 SheetB dominates
+            int Deep[2]     = { -1, -1 };
+            int Knee[2]     = { -1, -1 };
+            int FootA[2]    = { -1, -1 };
+            int FootB[2]    = { -1, -1 };
+            int Ledge[2]    = { -1, -1 };
+            for (int Side = 0; Side < 2; ++Side)
+            {
+                const EdgeToken              Sk     = SharpSide[Side];
+                const std::optional<Vector3> PointA = CrossRailSharpEdge(SheetA.Contacts[Side], Sk, FaceB[Side], Position);
+                const std::optional<Vector3> PointB = CrossRailSharpEdge(SheetB.Contacts[SideB[Side]], Sk, FaceA[Side], Position);
+                if (!PointA || !PointB) return "degree 4 mitre: contact rails miss sharp edge";
+                const EdgeProfile&   ProfS  = Partition.Edges.Resolve(Sk);
+                const CurveGeometry& CurveS = Partition.Curves.Resolve(ProfS.Curve);
+                const int            EndS   = EndAt(Sk, Vertex);
+                const Vector3        AwayS  = Normalize(EvaluateCurve(CurveS, EndS == 0 ? ProfS.IntervalLow : ProfS.IntervalHigh).Derivative * (EndS == 0 ? 1.0 : -1.0));
+                if (Distance(*PointA, *PointB) <= Agreement)
+                {
+                    const int SharedVert = IssueVertex((*PointA + *PointB) * 0.5);
+                    Dominant[Side] = 0;
+                    Deep[Side]     = SharedVert;
+                    Knee[Side]     = SharedVert;
+                    FootA[Side]    = SharedVert;
+                    FootB[Side]    = SharedVert;
+                }
+                else
+                {
+                    const double DistA = Dot(*PointA - Position, AwayS);
+                    const double DistB = Dot(*PointB - Position, AwayS);
+                    if (DistA > DistB)
+                    {
+                        Dominant[Side] = 1;
+                        Deep[Side]     = IssueVertex(*PointA);
+                        const std::optional<Vector3> Meet = CrossCurveSurface(SheetB.Contacts[SideB[Side]], *PointB, SheetA.Surface);
+                        if (!Meet) return "degree 4 mitre: shallow contact misses dominant blend";
+                        Knee[Side]  = IssueVertex(*Meet);
+                        Ledge[Side] = IssueBlendFaceSection(SheetA, SurfaceOf(FaceB[Side]), Deep[Side], Knee[Side], Position);
+                        if (Ledge[Side] < 0) return "degree 4 mitre: no exact ledge section on shallow face";
+                        if (!Agree(MeasureEdgeDeparture(Ledge[Side], SurfaceOf(FaceB[Side]), 5)) || !Agree(MeasureEdgeDeparture(Ledge[Side], SheetA.Surface, 5)))
+                            return "degree 4 mitre: ledge section leaves face or blend";
+                        CapEdges[{ FaceB[Side].Slot, Vertex.Slot }] = Ledge[Side];
+                        FootA[Side] = Deep[Side];
+                        FootB[Side] = Knee[Side];
+                    }
+                    else
+                    {
+                        Dominant[Side] = 2;
+                        Deep[Side]     = IssueVertex(*PointB);
+                        const std::optional<Vector3> Meet = CrossCurveSurface(SheetA.Contacts[Side], *PointA, SheetB.Surface);
+                        if (!Meet) return "degree 4 mitre: shallow contact misses dominant blend";
+                        Knee[Side]  = IssueVertex(*Meet);
+                        Ledge[Side] = IssueBlendFaceSection(SheetB, SurfaceOf(FaceA[Side]), Deep[Side], Knee[Side], Position);
+                        if (Ledge[Side] < 0) return "degree 4 mitre: no exact ledge section on shallow face";
+                        if (!Agree(MeasureEdgeDeparture(Ledge[Side], SurfaceOf(FaceA[Side]), 5)) || !Agree(MeasureEdgeDeparture(Ledge[Side], SheetB.Surface, 5)))
+                            return "degree 4 mitre: ledge section leaves face or blend";
+                        CapEdges[{ FaceA[Side].Slot, Vertex.Slot }] = Ledge[Side];
+                        FootA[Side] = Knee[Side];
+                        FootB[Side] = Deep[Side];
+                    }
+                }
+                TrimVertices[{ Sk.Slot, EndS }] = Deep[Side];
+                const double Param = ProjectOntoCurve(CurveS, PositionOf(Deep[Side]), EndS == 0 ? ProfS.IntervalLow : ProfS.IntervalHigh);
+                if ((EndS == 0 && Param < ProfS.IntervalLow - Tolerance) || (EndS == 1 && Param > ProfS.IntervalHigh + Tolerance))
+                {
+                    if (!SheetA.ConvexCondition || !ConvexEdge(Sk)) Extensions.insert({ Sk.Slot, EndS });
+                }
+            }
+
+            // ③ Mitre curve SheetA ∩ SheetB from Knee[0] to Knee[1]:
+            //    (a) Equal-radius intersecting cylinders -> exact bisector-plane ellipse arc.
+            //    (b) G1-smooth cylinder-to-rolling-ball/cylinder continuation -> exact normal cross-section circular arc.
+            //    (c) General surface-surface intersection -> IssueSection.
+            int Mitre = -1;
+            const auto* CylinderA = std::get_if<CylinderSurface>(&SheetA.Surface);
+            const auto* CylinderB = std::get_if<CylinderSurface>(&SheetB.Surface);
+            if (CylinderA && CylinderB && std::fabs(CylinderA->Radius - CylinderB->Radius) <= Agreement)
+            {
+                const StraightLine AxisA{ CylinderA->Frame.Origin, CylinderA->Frame.ZAxis };
+                const StraightLine AxisB{ CylinderB->Frame.Origin, CylinderB->Frame.ZAxis };
+                if (const std::optional<Vector3> AxisMeet = MeetLines(AxisA, AxisB))
+                {
+                    const Vector3 Normal = Cross(PositionOf(Knee[0]) - *AxisMeet, PositionOf(Knee[1]) - *AxisMeet);
+                    if (Length(Normal) > Tolerance * Tolerance)
+                    {
+                        if (const std::optional<CurveGeometry> Conic = SectionCylinderByPlane(*CylinderA, *AxisMeet, Normal))
+                        {
+                            const int Candidate = IssueConicArc(*Conic, Knee[0], Knee[1]);
+                            if (Candidate >= 0 && MeasureEdgeDeparture(Candidate, SheetB.Surface, 5) <= Agreement) Mitre = Candidate;
+                        }
+                    }
+                }
+            }
+            if (Mitre < 0 && CylinderA)
+            {
+                if (const std::optional<CurveGeometry> Conic = SectionCylinderByPlane(*CylinderA, PositionOf(Knee[0]), CylinderA->Frame.ZAxis))
+                {
+                    const int Candidate = IssueConicArc(*Conic, Knee[0], Knee[1]);
+                    if (Candidate >= 0 && MeasureEdgeDeparture(Candidate, SheetB.Surface, 5) <= Agreement) Mitre = Candidate;
+                }
+            }
+            if (Mitre < 0 && CylinderB)
+            {
+                if (const std::optional<CurveGeometry> Conic = SectionCylinderByPlane(*CylinderB, PositionOf(Knee[0]), CylinderB->Frame.ZAxis))
+                {
+                    const int Candidate = IssueConicArc(*Conic, Knee[0], Knee[1]);
+                    if (Candidate >= 0 && MeasureEdgeDeparture(Candidate, SheetA.Surface, 5) <= Agreement) Mitre = Candidate;
+                }
+            }
+            if (Mitre < 0) Mitre = IssueSection(SheetA.Surface, SheetB.Surface, Knee[0], Knee[1]);
+            if (Mitre < 0) Mitre = IssueSection(SheetB.Surface, SheetA.Surface, Knee[1], Knee[0]);
+            if (Mitre < 0)
+            {
+                return std::string("degree 4 mitre: no exact section of the ") + SurfaceCategoryLabel(SheetA.Surface)
+                     + " and " + SurfaceCategoryLabel(SheetB.Surface) + " blends";
+            }
+            if (!Agree(MeasureEdgeDeparture(Mitre, SheetA.Surface, 5)) || !Agree(MeasureEdgeDeparture(Mitre, SheetB.Surface, 5)))
+                return "degree 4 mitre: mitre curve leaves a blend";
+
+            // ④ Wire ContactVertices and multi-link Terminations for both sheets (ordered Faces[0] -> Faces[1]).
+            ContactVertices[{ EndA.first.Slot, 0, EndA.second }] = FootA[0];
+            ContactVertices[{ EndA.first.Slot, 1, EndA.second }] = FootA[1];
+            std::vector<ChainLink> TermA;
+            if (Dominant[0] == 1) TermA.push_back({ Ledge[0], Deep[0], Knee[0] });
+            TermA.push_back({ Mitre, Knee[0], Knee[1] });
+            if (Dominant[1] == 1) TermA.push_back({ Ledge[1], Knee[1], Deep[1] });
+            Terminations[{ EndA.first.Slot, EndA.second }] = std::move(TermA);
+
+            ContactVertices[{ EndB.first.Slot, SideB[0], EndB.second }] = FootB[0];
+            ContactVertices[{ EndB.first.Slot, SideB[1], EndB.second }] = FootB[1];
+            std::vector<ChainLink> TermB;
+            if (Dominant[0] == 2) TermB.push_back({ Ledge[0], Deep[0], Knee[0] });
+            TermB.push_back({ Mitre, Knee[0], Knee[1] });
+            if (Dominant[1] == 2) TermB.push_back({ Ledge[1], Knee[1], Deep[1] });
+            if (SideB[0] == 1)
+            {
+                std::reverse(TermB.begin(), TermB.end());
+                for (ChainLink& Link : TermB) std::swap(Link.From, Link.To);
+            }
+            Terminations[{ EndB.first.Slot, EndB.second }] = std::move(TermB);
+
+            ++Outcome.Statistics.Vertices[static_cast<int>(VertexBlendCategory::Mitre)];
             return {};
         }
 

@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 // 🧩 Validation exhibit for Phase 2 Parametric Sketcher Document, Codec, Scene, DrawingSheet & MatCap layer
 
+#include "Engine/GeometrySpace/Parametric/Audit/ModelAudit.h"
 #include "Engine/GeometrySpace/Parametric/Geometry/NurbsCarrier.h"
 #include "Engine/GeometrySpace/Parametric/Geometry/SurfaceGeometry.h"
 #include "Engine/GeometrySpace/Parametric/Intersection/CurveSurfaceIntersection.h"
@@ -20,6 +21,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <map>
+#include <set>
 #include <string>
 
 namespace
@@ -667,6 +670,291 @@ int main()
             }
             ++Passed;
         }
+    }
+
+    // 10. Degree-4 vertex blends on beveled polygonal pockets & bosses (Multi-Face Cap + Degree-4 Mitre)
+    {
+        const auto VerifyManifoldSolid = [](const SketcherDocument& Candidate) -> bool
+        {
+            if (!Candidate.Partition || Candidate.Regeneration.Bodies.empty() || !Candidate.Summary.SoundCondition) return false;
+            const auto& Body = Candidate.Regeneration.Bodies.front();
+            const auto& Part = *Candidate.Partition;
+            if (!AuditBody(Part, Body.Body).Findings.empty()) return false;
+            std::map<uint32_t, int> EdgeRadialCounts;
+            for (FaceToken Face : Part.CollectInventory(Body.Body).Faces)
+            {
+                for (LoopToken Loop : Part.Faces.Resolve(Face).Loops)
+                {
+                    const auto& LoopRec = Part.Loops.Resolve(Loop);
+                    FinToken    Fin     = LoopRec.FirstFin;
+                    for (int Guard = 0; Guard < 256 && Fin.PresentCondition(); ++Guard)
+                    {
+                        const auto& FinRec = Part.Fins.Resolve(Fin);
+                        EdgeRadialCounts[FinRec.Edge.Slot]++;
+                        Fin = FinRec.Successor;
+                        if (Fin == LoopRec.FirstFin) break;
+                    }
+                }
+            }
+            for (const auto& [EdgeSlot, Count] : EdgeRadialCounts)
+                if (Count != 2) return false;
+            return true;
+        };
+
+        const auto ConstructPolygonalFeature = [](int SideCount, bool OutwardBoss, BlendProfile EndShape, double EndSize) -> SketcherDocument
+        {
+            SketcherDocument FeatureDoc = CreateSketcherDocument("PolygonalFeature");
+            SketcherConstructRequest BlockReq {};
+            BlockReq.Kind     = SketcherConstructCategory::Block;
+            BlockReq.Position = { -2.0, -2.0, 0.0 };
+            BlockReq.Width    = 4.0;
+            BlockReq.Depth    = 4.0;
+            BlockReq.Height   = 2.0;
+            (void)ConstructSketcherPrimitive(FeatureDoc, BlockReq);
+            const std::string BodyKey = FeatureDoc.Regeneration.Bodies.front().Key;
+
+            SketcherDrawingRequest PolygonReq {};
+            PolygonReq.Kind            = SketcherDrawingCategory::Polygon;
+            PolygonReq.Sides           = SideCount;
+            PolygonReq.CentreCondition = true;
+            PolygonReq.FillCondition   = true;
+            PolygonReq.PlaneCondition  = true;
+            PolygonReq.Plane           = OrthonormalBasis{};
+            PolygonReq.Plane.Origin    = { 0.0, 0.0, 2.0 };
+            PolygonReq.Points          = { { 0.0, 0.0 }, { 0.8, 0.0 } };
+            (void)DrawSketcherSketch(FeatureDoc, PolygonReq);
+            const std::string SketchLabel = FeatureDoc.Tree.Steps.back().Label;
+            (void)ImprintSketcherSketch(FeatureDoc, SketchLabel, BodyKey);
+
+            const auto LocatePolygonalFace = [&](double TargetZ) -> std::string
+            {
+                const auto& Body = FeatureDoc.Regeneration.Bodies.front();
+                const auto& Part = *FeatureDoc.Partition;
+                for (FaceToken Face : Part.CollectInventory(Body.Body).Faces)
+                {
+                    const auto& FaceRec = Part.Faces.Resolve(Face);
+                    if (FaceRec.Loops.size() != 1) continue;
+                    const auto& LoopRec = Part.Loops.Resolve(FaceRec.Loops.front());
+                    FinToken    Fin     = LoopRec.FirstFin;
+                    int         Count   = 0;
+                    double      SumZ    = 0.0;
+                    for (int Guard = 0; Guard < 64 && Fin.PresentCondition(); ++Guard)
+                    {
+                        const auto& FinRec = Part.Fins.Resolve(Fin);
+                        SumZ += Part.Vertices.Resolve(Part.Edges.Resolve(FinRec.Edge).Start).Position.Z;
+                        ++Count;
+                        Fin = FinRec.Successor;
+                        if (Fin == LoopRec.FirstFin) break;
+                    }
+                    if (Count == SideCount && std::fabs(SumZ / Count - TargetZ) < 1.0e-3)
+                    {
+                        if (const auto Found = Body.Naming.Faces.find(Face.Slot); Found != Body.Naming.Faces.end())
+                            return Found->second;
+                    }
+                }
+                return {};
+            };
+
+            const std::string ImprintedFace = LocatePolygonalFace(2.0);
+            FeatureDoc.Selection            = {};
+            FeatureDoc.Selection.Faces      = { ImprintedFace };
+            FeatureDoc.Selection.LastKind   = SketcherSelectionCategory::Face;
+            FeatureDoc.Selection.PickedBody = BodyKey;
+            (void)ChangeSketcherSelection(FeatureDoc, FaceOperationCategory::Extrude, OutwardBoss ? 0.8 : -0.8);
+
+            const std::string EndFace = LocatePolygonalFace(OutwardBoss ? 2.8 : 1.2);
+            std::vector<std::string> EndLoopEdges;
+            {
+                const auto& Body = FeatureDoc.Regeneration.Bodies.front();
+                const auto& Part = *FeatureDoc.Partition;
+                for (const auto& [Slot, Name] : Body.Naming.Faces)
+                {
+                    if (Name != EndFace) continue;
+                    const auto& LoopRec = Part.Loops.Resolve(Part.Faces.Resolve(Part.Faces.TokenAt(Slot)).Loops.front());
+                    FinToken    Fin     = LoopRec.FirstFin;
+                    for (int Guard = 0; Guard < 64 && Fin.PresentCondition(); ++Guard)
+                    {
+                        const auto& FinRec = Part.Fins.Resolve(Fin);
+                        if (const auto Found = Body.Naming.Edges.find(FinRec.Edge.Slot); Found != Body.Naming.Edges.end())
+                            EndLoopEdges.push_back(Found->second);
+                        Fin = FinRec.Successor;
+                        if (Fin == LoopRec.FirstFin) break;
+                    }
+                    break;
+                }
+            }
+            FeatureDoc.Selection            = {};
+            FeatureDoc.Selection.Edges      = EndLoopEdges;
+            FeatureDoc.Selection.LastKind   = SketcherSelectionCategory::Edge;
+            FeatureDoc.Selection.PickedBody = BodyKey;
+            SketcherBlendRequest EndReq {};
+            EndReq.Shape = EndShape;
+            EndReq.Size  = EndSize;
+            (void)BlendSketcherSelection(FeatureDoc, EndReq);
+            return FeatureDoc;
+        };
+
+        const auto VerifyAllFeatureRingsLoops = [&](const SketcherDocument& FeatureDoc, const char* Label) -> bool
+        {
+            if (!VerifyManifoldSolid(FeatureDoc)) return false;
+            const auto& Body = FeatureDoc.Regeneration.Bodies.front();
+            const auto& Part = *FeatureDoc.Partition;
+            std::set<std::vector<std::string>> TestedSets;
+            int VerifiedCount = 0;
+            for (EdgeToken Edge : Part.CollectInventory(Body.Body).Edges)
+            {
+                const auto Found = Body.Naming.Edges.find(Edge.Slot);
+                if (Found == Body.Naming.Edges.end()) continue;
+                const auto& EdgeRec = Part.Edges.Resolve(Edge);
+                const Vector3 P0    = Part.Vertices.Resolve(EdgeRec.Start).Position;
+                const Vector3 P1    = Part.Vertices.Resolve(EdgeRec.End).Position;
+                if (std::hypot(0.5 * (P0.X + P1.X), 0.5 * (P0.Y + P1.Y)) > 1.2) continue;
+
+                for (const bool RingMode : { true, false })
+                {
+                    auto EdgeSet = RingMode ? SketcherEdgeRing(FeatureDoc, Found->second, Body.Key)
+                                            : SketcherEdgeLoop(FeatureDoc, Found->second, Body.Key);
+                    if (EdgeSet.size() < 2) continue;
+                    auto SortedKey = EdgeSet;
+                    std::sort(SortedKey.begin(), SortedKey.end());
+                    if (!TestedSets.insert(SortedKey).second) continue;
+
+                    for (const BlendProfile Profile : { BlendProfile::Fillet, BlendProfile::Chamfer })
+                    {
+                        for (const double Size : { 0.02, 0.05 })
+                        {
+                            SketcherDocument Candidate = CloneSketcherDocument(FeatureDoc);
+                            Candidate.Selection            = {};
+                            Candidate.Selection.Edges      = EdgeSet;
+                            Candidate.Selection.LastKind   = SketcherSelectionCategory::Edge;
+                            Candidate.Selection.PickedBody = Body.Key;
+                            SketcherBlendRequest Req {};
+                            Req.Shape = Profile;
+                            Req.Size  = Size;
+                            const auto Outcome = BlendSketcherSelection(Candidate, Req);
+                            if (!Outcome.AcceptedCondition || !VerifyManifoldSolid(Candidate))
+                            {
+                                std::fprintf(stderr, "  [%s] %s %s count=%zu size=%.2f failed: %s\n",
+                                             Label, RingMode ? "Ring" : "Loop",
+                                             Profile == BlendProfile::Fillet ? "Fillet" : "Chamfer",
+                                             EdgeSet.size(), Size, Outcome.Refusal.c_str());
+                                return false;
+                            }
+                            ++VerifiedCount;
+                        }
+                    }
+                }
+            }
+            return VerifiedCount >= 40;
+        };
+
+        // 10a. Concave pentagon pocket + end chamfer: all edge rings & edge loops (fillet + chamfer) + variable-size fillet
+        const SketcherDocument PentagonPocket = ConstructPolygonalFeature(5, false, BlendProfile::Chamfer, 0.15);
+        if (!VerifyCheck(VerifyAllFeatureRingsLoops(PentagonPocket, "PentagonPocketChamfer"),
+                         "Concave pentagon pocket with end chamfer blends all edge rings and loops cleanly"))
+            return 1;
+        {
+            const auto& Body = PentagonPocket.Regeneration.Bodies.front();
+            const auto& Part = *PentagonPocket.Partition;
+            std::string VerticalEdge;
+            for (EdgeToken Edge : Part.CollectInventory(Body.Body).Edges)
+            {
+                const auto& EdgeRec = Part.Edges.Resolve(Edge);
+                const Vector3 P0    = Part.Vertices.Resolve(EdgeRec.Start).Position;
+                const Vector3 P1    = Part.Vertices.Resolve(EdgeRec.End).Position;
+                if (std::hypot(P0.X, P0.Y) < 1.2 && std::hypot(P0.X - P1.X, P0.Y - P1.Y) < 1.0e-4 && std::fabs(P0.Z - P1.Z) > 0.2)
+                {
+                    VerticalEdge = Body.Naming.Edges.at(Edge.Slot);
+                    break;
+                }
+            }
+            auto VerticalRing = SketcherEdgeRing(PentagonPocket, VerticalEdge, Body.Key);
+            SketcherDocument VariableDoc = CloneSketcherDocument(PentagonPocket);
+            VariableDoc.Selection            = {};
+            VariableDoc.Selection.Edges      = VerticalRing;
+            VariableDoc.Selection.LastKind   = SketcherSelectionCategory::Edge;
+            VariableDoc.Selection.PickedBody = Body.Key;
+            SketcherBlendRequest VariableReq {};
+            VariableReq.Shape   = BlendProfile::Fillet;
+            VariableReq.Size    = 0.03;
+            VariableReq.EndSize = 0.07;
+            const auto VariableOut = BlendSketcherSelection(VariableDoc, VariableReq);
+            if (!VerifyCheck(VerticalRing.size() == 5 && VariableOut.AcceptedCondition && VerifyManifoldSolid(VariableDoc),
+                             "Variable-size fillet along pentagon vertical wall edge ring resolves degree-4 multi-face caps"))
+                return 1;
+        }
+
+        // 10b. Concave pentagon pocket + end fillet: vertical wall ring (fillet & chamfer) + curved corner ring G1 propagation
+        {
+            const SketcherDocument FilletedPocket = ConstructPolygonalFeature(5, false, BlendProfile::Fillet, 0.15);
+            const auto& Body = FilletedPocket.Regeneration.Bodies.front();
+            const auto& Part = *FilletedPocket.Partition;
+            std::string VerticalEdge;
+            std::string CurvedCornerEdge;
+            for (EdgeToken Edge : Part.CollectInventory(Body.Body).Edges)
+            {
+                const auto& EdgeRec = Part.Edges.Resolve(Edge);
+                const Vector3 P0    = Part.Vertices.Resolve(EdgeRec.Start).Position;
+                const Vector3 P1    = Part.Vertices.Resolve(EdgeRec.End).Position;
+                if (std::hypot(0.5 * (P0.X + P1.X), 0.5 * (P0.Y + P1.Y)) > 1.2) continue;
+                if (std::hypot(P0.X - P1.X, P0.Y - P1.Y) < 1.0e-4 && std::fabs(P0.Z - P1.Z) > 0.2)
+                    VerticalEdge = Body.Naming.Edges.at(Edge.Slot);
+                else if (std::min(P0.Z, P1.Z) < 1.25 && std::max(P0.Z, P1.Z) > 1.30)
+                    CurvedCornerEdge = Body.Naming.Edges.at(Edge.Slot);
+            }
+            const auto VerticalRing = SketcherEdgeRing(FilletedPocket, VerticalEdge, Body.Key);
+            const auto CurvedRing   = SketcherEdgeRing(FilletedPocket, CurvedCornerEdge, Body.Key);
+
+            SketcherDocument VerticalFilletDoc = CloneSketcherDocument(FilletedPocket);
+            VerticalFilletDoc.Selection            = {};
+            VerticalFilletDoc.Selection.Edges      = VerticalRing;
+            VerticalFilletDoc.Selection.LastKind   = SketcherSelectionCategory::Edge;
+            VerticalFilletDoc.Selection.PickedBody = Body.Key;
+            SketcherBlendRequest VertFilletReq {};
+            VertFilletReq.Shape = BlendProfile::Fillet;
+            VertFilletReq.Size  = 0.05;
+            const auto VertFilletOut = BlendSketcherSelection(VerticalFilletDoc, VertFilletReq);
+
+            SketcherDocument VerticalChamferDoc = CloneSketcherDocument(FilletedPocket);
+            VerticalChamferDoc.Selection            = {};
+            VerticalChamferDoc.Selection.Edges      = VerticalRing;
+            VerticalChamferDoc.Selection.LastKind   = SketcherSelectionCategory::Edge;
+            VerticalChamferDoc.Selection.PickedBody = Body.Key;
+            SketcherBlendRequest VertChamferReq {};
+            VertChamferReq.Shape = BlendProfile::Chamfer;
+            VertChamferReq.Size  = 0.05;
+            const auto VertChamferOut = BlendSketcherSelection(VerticalChamferDoc, VertChamferReq);
+
+            SketcherDocument CurvedFilletDoc = CloneSketcherDocument(FilletedPocket);
+            CurvedFilletDoc.Selection            = {};
+            CurvedFilletDoc.Selection.Edges      = CurvedRing;
+            CurvedFilletDoc.Selection.LastKind   = SketcherSelectionCategory::Edge;
+            CurvedFilletDoc.Selection.PickedBody = Body.Key;
+            SketcherBlendRequest CurvedReq {};
+            CurvedReq.Shape = BlendProfile::Fillet;
+            CurvedReq.Size  = 0.05;
+            const auto CurvedOut = BlendSketcherSelection(CurvedFilletDoc, CurvedReq);
+
+            if (!VerifyCheck(VerticalRing.size() == 5 && CurvedRing.size() == 5 &&
+                             VertFilletOut.AcceptedCondition && VerifyManifoldSolid(VerticalFilletDoc) &&
+                             VertChamferOut.AcceptedCondition && VerifyManifoldSolid(VerticalChamferDoc) &&
+                             CurvedOut.AcceptedCondition && VerifyManifoldSolid(CurvedFilletDoc),
+                             "Filleted pentagon pocket blends vertical edge ring (fillet/chamfer) and curved corner ring via G1 mitre"))
+                return 1;
+        }
+
+        // 10c. Protruding convex pentagon boss + end chamfer & concave hexagon pocket + end chamfer
+        const SketcherDocument ConvexBoss = ConstructPolygonalFeature(5, true, BlendProfile::Chamfer, 0.15);
+        if (!VerifyCheck(VerifyAllFeatureRingsLoops(ConvexBoss, "ConvexPentagonBoss"),
+                         "Convex protruding pentagon boss with end chamfer blends all edge rings and loops cleanly"))
+            return 1;
+
+        const SketcherDocument HexagonPocket = ConstructPolygonalFeature(6, false, BlendProfile::Chamfer, 0.15);
+        if (!VerifyCheck(VerifyAllFeatureRingsLoops(HexagonPocket, "HexagonPocketChamfer"),
+                         "Concave hexagon pocket with end chamfer blends all edge rings and loops cleanly"))
+            return 1;
+
+        ++Passed;
     }
 
     std::printf("[SketcherDocumentValidation] Passed=%u Failed=0\n", Passed);
