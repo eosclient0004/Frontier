@@ -201,6 +201,8 @@ int main(int ArgumentCount, char** ArgumentVector)
     uint32_t              OverrideWidthPx     = 0u;
     uint32_t              OverrideHeightPx    = 0u;
     uint32_t              DebugChannel        = 0u;
+    uint32_t              SdfShadowMarchSteps = 32u;
+    double                InitialSimTimeSec   = -1.0;
     AutoSpace::StudioLobbyId InitialLobby     = AutoSpace::StudioLobbyId::StudioLobby1Cyclorama;
 
     for (int Idx = 1; Idx < ArgumentCount; ++Idx)
@@ -263,6 +265,22 @@ int main(int ArgumentCount, char** ArgumentVector)
                 DebugChannel = static_cast<uint32_t>(Parsed);
             }
         }
+        else if (Arg.starts_with("--sdf-shadow-steps="))
+        {
+            const long Parsed = std::strtol(RawArg + 19, nullptr, 10);
+            if (Parsed >= 16L && Parsed <= 96L)
+            {
+                SdfShadowMarchSteps = static_cast<uint32_t>(Parsed);
+            }
+        }
+        else if (Arg.starts_with("--sim-time="))
+        {
+            const double Parsed = std::strtod(RawArg + 11, nullptr);
+            if (std::isfinite(Parsed) && Parsed >= 0.0)
+            {
+                InitialSimTimeSec = Parsed;
+            }
+        }
     }
 
     const std::filesystem::path ProjectRoot = ResolveProjectRootDirectory(ExplicitProjectRoot, ExecutablePath);
@@ -273,6 +291,10 @@ int main(int ArgumentCount, char** ArgumentVector)
     {
         std::cerr << "[AutoSpace] Initialization failed: " << Diagnostic << "\n";
         return 1;
+    }
+    if (InitialSimTimeSec >= 0.0)
+    {
+        Session.AccessLobbyLifecycle().ApplySimulationTime(InitialSimTimeSec);
     }
 
     if (VerifyContracts && !Session.VerifyProjectContracts(Diagnostic))
@@ -533,6 +555,7 @@ int main(int ArgumentCount, char** ArgumentVector)
         RenderConfiguration.ReflectionsEnabled    = true;
         RenderConfiguration.RaytracingEnabled     = true;
         RenderConfiguration.SdfGiIntensity        = 1.05f;
+        RenderConfiguration.SdfShadowMarchSteps   = SdfShadowMarchSteps;
         RenderConfiguration.ExposureGain          = QueryLobbyExposureGain(ActiveLobby);
         RenderConfiguration.DebugChannel          = DebugChannel;
 
@@ -548,8 +571,10 @@ int main(int ArgumentCount, char** ArgumentVector)
                 GpuRenderer.SynchronizeSceneResources(Scene, true);
                 SceneGpuDirty = false;
             }
-            else if (Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive())
+            else if (Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive() ||
+                     Session.InspectLobbyLifecycle().QueryDynamicEmissiveOrbActive())
             {
+                (void)GpuRenderer.SynchronizeMaterialEntriesIfChanged(Scene);
                 GpuRenderer.SynchronizeSceneResources(Scene, false);
             }
 

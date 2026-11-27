@@ -99,12 +99,14 @@ public:
 #endif
 
     void TickSimulation(double FixedDeltaSeconds) noexcept;
+    void ApplySimulationTime(double ElapsedSeconds) noexcept;
 
     [[nodiscard]] bool SubmitHeroVehicleDirective(
         const Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective& Directive) noexcept;
     [[nodiscard]] Frontier::SimulationSpace::PhysicsSpace::VehiclePhysicsRig::VehicleReadingLease
         AcquireHeroVehicleReading() const noexcept;
     [[nodiscard]] bool QueryHeroVehiclePhysicsActive() const noexcept { return HeroVehiclePhysicsActive; }
+    [[nodiscard]] bool QueryDynamicEmissiveOrbActive() const noexcept { return DynamicEmissiveOrbClusterIdx != UINT32_MAX; }
 
     [[nodiscard]] LobbyLifecycleTelemetry                                       InspectTelemetry() const noexcept;
     [[nodiscard]] const LobbyPolicy&                                            InspectPolicy() const noexcept { return ActivePolicy; }
@@ -220,9 +222,14 @@ private:
     std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::PhysicsExtension>  HeroPhysics       {};
     std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::VehiclePhysicsRig> HeroVehicleRig    {};
 
-    double                                                               SimulationClockSeconds = 0.0;
-    uint32_t                                                             VehicleCount           = 0u;
-    uint32_t                                                             TotalMeshTriangles     = 0u;
+    double                                                               SimulationClockSeconds       = 0.0;
+    uint32_t                                                             VehicleCount                 = 0u;
+    uint32_t                                                             TotalMeshTriangles           = 0u;
+    Frontier::World::InstanceToken                                       DynamicEmissiveOrbToken      {};
+    uint32_t                                                             DynamicEmissiveOrbClusterIdx = UINT32_MAX;
+    uint16_t                                                             DynamicEmissiveOrbMatSlot    = 0u;
+
+    void UpdateDynamicEmissiveOrb(double ElapsedSeconds) noexcept;
 
 #if FRONTIER_PROFILE_EDITOR
     Frontier::OutlinerPanel*                                             BoundOutliner          = nullptr;

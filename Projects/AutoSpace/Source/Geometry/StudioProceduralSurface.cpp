@@ -508,6 +508,17 @@ void RegisterStudioBaseMaterials(
         Reg(StudioMaterialCode::EmissiveDiffuser, "StudioEmissiveDiffuser", M);
     }
 
+    // Dynamic moving & color-cycling emissive GI orb (initial cyan ~24,000 nits)
+    {
+        SurfaceMaterial M {};
+        M.Diffuse.BaseColor                        = { 0.08f, 0.88f, 1.00f };
+        M.Specular.Roughness                       = 0.16f;
+        M.PorosityLight.EmissionLuminanceNits      = 24000.0f;
+        M.PorosityLight.BlackbodyTemperatureKelvin = 0.0f;
+        M.PorosityLight.EmissionTint               = { 0.08f, 0.88f, 1.00f };
+        Reg(StudioMaterialCode::DynamicEmissiveOrb, "DynamicEmissiveOrb", M);
+    }
+
     // Parabolic umbrella reflective silver fabric
     {
         SurfaceMaterial M {};
@@ -2411,6 +2422,156 @@ StudioBuiltMesh BuildAssembledControlVehicleSurface(
     }
 
     return Out;
+}
+
+StudioBuiltMesh BuildDynamicEmissiveOrbSurface(
+    const StudioMaterialPalette& Palette,
+    float                        RadiusMeters)
+{
+    StudioBuiltMesh Out {};
+    Out.Network.NetworkTitle = "DynamicEmissiveOrb";
+    const float R = std::max(0.06f, RadiusMeters);
+    constexpr uint32_t LatSegs = 16u;
+    constexpr uint32_t LonSegs = 28u;
+    constexpr float    Pi      = 3.14159265359f;
+    const uint16_t     MatSlot = Palette.Resolve(StudioMaterialCode::DynamicEmissiveOrb);
+
+    std::vector<uint32_t> RingVerts;
+    RingVerts.reserve((LatSegs + 1u) * (LonSegs + 1u));
+    for (uint32_t Lat = 0u; Lat <= LatSegs; ++Lat)
+    {
+        const float Phi    = (static_cast<float>(Lat) / static_cast<float>(LatSegs)) * Pi;
+        const float SinPhi = std::sin(Phi);
+        const float CosPhi = std::cos(Phi);
+        for (uint32_t Lon = 0u; Lon <= LonSegs; ++Lon)
+        {
+            const float Theta    = (static_cast<float>(Lon) / static_cast<float>(LonSegs)) * (2.0f * Pi);
+            const Axis3D UnitN { SinPhi * std::cos(Theta), SinPhi * std::sin(Theta), CosPhi };
+            const uint32_t VId = Out.Network.AppendVertex({ UnitN.X * R, UnitN.Y * R, UnitN.Z * R });
+            Out.Network.Vertices[VId].Normal = UnitN;
+            RingVerts.push_back(VId);
+        }
+    }
+
+    auto AppendFaceTri = [&](uint32_t A, uint32_t B, uint32_t C)
+    {
+        const Axis3D Pa = Out.Network.Vertices[A].Axes;
+        const Axis3D Pb = Out.Network.Vertices[B].Axes;
+        const Axis3D Pc = Out.Network.Vertices[C].Axes;
+        if (Frontier::Mathematics::EvaluateLengthSquared(Frontier::Mathematics::EvaluateCross(Pb - Pa, Pc - Pa)) <= 1.0e-12f)
+        {
+            return;
+        }
+        Frontier::GeometrySpace::FaceShadingAssignment Shading {};
+        Shading.AlbedoLinearRGB = { 1.0f, 1.0f, 1.0f };
+        const std::array<uint32_t, 3u> Loop { A, B, C };
+        const std::array<UVAxes, 3u>   Uvs  {{ { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.5f, 1.0f } }};
+        const uint32_t FaceId = Out.Network.AppendFace(Loop, Uvs, Shading, 0u, MatSlot);
+        if (FaceId != Frontier::GeometrySpace::InvalidNetworkIndex)
+        {
+            for (const uint32_t V : Loop)
+            {
+                const Axis3D N = Out.Network.Vertices[V].Normal;
+                Out.AuthoredCornerNormals.push_back(N.X);
+                Out.AuthoredCornerNormals.push_back(N.Y);
+                Out.AuthoredCornerNormals.push_back(N.Z);
+            }
+        }
+    };
+
+    const uint32_t Stride = LonSegs + 1u;
+    for (uint32_t Lat = 0u; Lat < LatSegs; ++Lat)
+    {
+        for (uint32_t Lon = 0u; Lon < LonSegs; ++Lon)
+        {
+            const uint32_t I00 = RingVerts[Lat * Stride + Lon];
+            const uint32_t I10 = RingVerts[(Lat + 1u) * Stride + Lon];
+            const uint32_t I01 = RingVerts[Lat * Stride + (Lon + 1u)];
+            const uint32_t I11 = RingVerts[(Lat + 1u) * Stride + (Lon + 1u)];
+            if (Lat > 0u)
+            {
+                AppendFaceTri(I00, I10, I01);
+            }
+            if (Lat + 1u < LatSegs)
+            {
+                AppendFaceTri(I01, I10, I11);
+            }
+        }
+    }
+    return Out;
+}
+
+void EvaluateDynamicEmissiveOrbState(
+    uint32_t                          LobbyVariantIndex,
+    double                            ElapsedSeconds,
+    Frontier::Mathematics::Axis3D&    OutWorldPosition,
+    Frontier::Mathematics::LinearRGB& OutLinearRgb,
+    float&                            OutLuminanceNits) noexcept
+{
+    constexpr double TwoPi = 6.283185307179586;
+    const double     Phase = ElapsedSeconds * 0.62; // ~10.1 s full orbit around the hero vehicle
+
+    // Smooth figure-8 / elliptical foreground-to-side sweep tailored to each lobby's camera framing
+    // so the orb is prominently visible in Hero34 views and casts vivid dynamic emissive GI on car + floor.
+    switch (LobbyVariantIndex % 3u)
+    {
+        case 1u: // Lobby 2: Forest Soundstage
+        {
+            const float X = static_cast<float>(2.45 * std::cos(Phase + 2.35));
+            const float Y = static_cast<float>(-0.20 + 1.95 * std::sin(Phase + 2.35));
+            const float Z = static_cast<float>(1.08 + 0.28 * std::sin(Phase * 2.0 + 0.4));
+            OutWorldPosition = { X, Y, Z };
+            OutLuminanceNits = 15000.0f;
+            break;
+        }
+        case 2u: // Lobby 3: Racing Garage
+        {
+            const float X = static_cast<float>(0.35 + 2.25 * std::cos(Phase + 2.20));
+            const float Y = static_cast<float>(-0.45 + 1.75 * std::sin(Phase + 2.20));
+            const float Z = static_cast<float>(1.02 + 0.26 * std::sin(Phase * 2.0 + 0.8));
+            OutWorldPosition = { X, Y, Z };
+            OutLuminanceNits = 15000.0f;
+            break;
+        }
+        case 0u: // Lobby 1: Cyclorama Interior
+        default:
+        {
+            // Orbits cleanly around the hero coupe — starting in the open left-side gap at t=0 so both
+            // the glowing orb AND the entire hero coupe + under-car SDF shadow are 100% unobstructed.
+            const float X = static_cast<float>(2.45 * std::cos(Phase + 3.05));
+            const float Y = static_cast<float>(-0.25 + 1.95 * std::sin(Phase + 3.05));
+            const float Z = static_cast<float>(1.04 + 0.26 * std::sin(Phase * 2.0 + 0.3));
+            OutWorldPosition = { X, Y, Z };
+            OutLuminanceNits = 13500.0f;
+            break;
+        }
+    }
+
+    // Smooth HSV hue rotation (starts vivid electric cyan at t=0 -> magenta -> warm amber/gold -> emerald -> cyan)
+    const double HueNorm = std::fmod(0.52 + ElapsedSeconds / 9.0, 1.0);
+    const double H6      = ((HueNorm < 0.0) ? (HueNorm + 1.0) : HueNorm) * 6.0;
+    const int    Sector  = static_cast<int>(std::floor(H6)) % 6;
+    const float  Frac    = static_cast<float>(H6 - std::floor(H6));
+    const float  Sat     = 0.90f;
+    const float  P       = 1.0f - Sat;
+    const float  Q       = 1.0f - Sat * Frac;
+    const float  T       = 1.0f - Sat * (1.0f - Frac);
+    float SrgbR = 1.0f, SrgbG = 1.0f, SrgbB = 1.0f;
+    switch (Sector)
+    {
+        case 0: SrgbR = 1.0f; SrgbG = T;    SrgbB = P;    break;
+        case 1: SrgbR = Q;    SrgbG = 1.0f; SrgbB = P;    break;
+        case 2: SrgbR = P;    SrgbG = 1.0f; SrgbB = T;    break;
+        case 3: SrgbR = P;    SrgbG = Q;    SrgbB = 1.0f; break;
+        case 4: SrgbR = T;    SrgbG = P;    SrgbB = 1.0f; break;
+        default: SrgbR = 1.0f; SrgbG = P;   SrgbB = Q;    break;
+    }
+    OutLinearRgb = {
+        std::pow(std::clamp(SrgbR, 0.0f, 1.0f), 2.2f),
+        std::pow(std::clamp(SrgbG, 0.0f, 1.0f), 2.2f),
+        std::pow(std::clamp(SrgbB, 0.0f, 1.0f), 2.2f),
+    };
+    (void)TwoPi;
 }
 
 } // namespace AutoSpace

@@ -56,9 +56,12 @@ void LobbyLifecycle::ClearLobbyObjects() noexcept
         HeroPhysics->Finalize();
     }
     HeroPhysics.reset();
-    HeroVehiclePhysicsActive = false;
-    HeroVehicleEntityToken   = {};
-    HeroVehicleSpawnZUp      = {};
+    HeroVehiclePhysicsActive     = false;
+    HeroVehicleEntityToken       = {};
+    HeroVehicleSpawnZUp          = {};
+    DynamicEmissiveOrbToken      = {};
+    DynamicEmissiveOrbClusterIdx = UINT32_MAX;
+    DynamicEmissiveOrbMatSlot    = 0u;
 
     // Destroy RAII CategoryInstanceHandles before clearing WorldRegister or unbinding Outliner
     ManagedCategoryHandles.clear();
@@ -196,6 +199,34 @@ bool LobbyLifecycle::InitializeAndBuild(
         default:
             BuildLobby1CycloramaLevel(*this, ActivePolicy);
             break;
+    }
+
+    // Spawn the moving, color-cycling dynamic emissive GI orb across all 3 AutoSpace lobbies
+    {
+        DynamicEmissiveOrbMatSlot = MaterialPalette.Resolve(StudioMaterialCode::DynamicEmissiveOrb);
+        const uint32_t LobbyVariant = static_cast<uint32_t>(ActivePolicy.SelectedLobby);
+        Axis3D InitialPos {};
+        Frontier::Mathematics::LinearRGB InitialRgb {};
+        float InitialNits = 26000.0f;
+        EvaluateDynamicEmissiveOrbState(LobbyVariant, 0.0, InitialPos, InitialRgb, InitialNits);
+        const InstanceToken LightingFolder = FolderTokens.empty() ? InstanceToken{} : FolderTokens.front();
+        DynamicEmissiveOrbToken = AppendSurfaceEntity(
+            "fx-emissive-orb",
+            "Dynamic Emissive Orb",
+            "Live orbiting emissive GI sphere (color-cycling)",
+            BuildDynamicEmissiveOrbSurface(MaterialPalette, 0.24f),
+            InitialPos,
+            DynamicEmissiveOrbMatSlot,
+            LightingFolder,
+            true);
+        if (!WorldScene.ClusterInstances.empty())
+        {
+            DynamicEmissiveOrbClusterIdx = static_cast<uint32_t>(WorldScene.ClusterInstances.size() - 1u);
+            auto& OrbInst                = WorldScene.ClusterInstances[DynamicEmissiveOrbClusterIdx];
+            OrbInst.AnalyticalShapeCode  = 2u; // Exact analytical sphere SDF
+            OrbInst.LocalHalfExtents     = { 0.24f, 0.24f, 0.24f };
+        }
+        UpdateDynamicEmissiveOrb(0.0);
     }
 
     (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
@@ -558,10 +589,55 @@ void LobbyLifecycle::FinalizeWorldSceneAcceleration()
     (void)WorldScene.SceneTree.BuildFromTrianglePrimitivesWithNormals(WorldPrims, WorldNormals);
 }
 
+void LobbyLifecycle::UpdateDynamicEmissiveOrb(double ElapsedSeconds) noexcept
+{
+    if (DynamicEmissiveOrbClusterIdx == UINT32_MAX ||
+        DynamicEmissiveOrbClusterIdx >= WorldScene.ClusterInstances.size())
+    {
+        return;
+    }
+
+    const uint32_t LobbyVariant = static_cast<uint32_t>(ActivePolicy.SelectedLobby);
+    Axis3D OrbPos {};
+    Frontier::Mathematics::LinearRGB OrbRgb {};
+    float OrbNits = 26000.0f;
+    EvaluateDynamicEmissiveOrbState(LobbyVariant, ElapsedSeconds, OrbPos, OrbRgb, OrbNits);
+
+    auto& Inst               = WorldScene.ClusterInstances[DynamicEmissiveOrbClusterIdx];
+    Inst.PreviousTranslation = Inst.WorldTranslation;
+    Inst.WorldTranslation    = OrbPos;
+
+    if (DynamicEmissiveOrbToken.QueryValid())
+    {
+        (void)WorldRegister.AssignWorldTransform(DynamicEmissiveOrbToken, OrbPos.X, OrbPos.Y, OrbPos.Z);
+    }
+
+    if (DynamicEmissiveOrbMatSlot > 0u &&
+        DynamicEmissiveOrbMatSlot < WorldScene.MaterialRegister.QuerySlotCount())
+    {
+        Frontier::MaterialSpace::SurfaceMaterial Mat =
+            WorldScene.MaterialRegister.InspectAuthoredMaterial(DynamicEmissiveOrbMatSlot);
+        Mat.Diffuse.BaseColor                        = OrbRgb;
+        Mat.PorosityLight.EmissionTint               = OrbRgb;
+        Mat.PorosityLight.EmissionLuminanceNits      = OrbNits;
+        Mat.PorosityLight.BlackbodyTemperatureKelvin = 0.0f;
+        (void)WorldScene.MaterialRegister.UpdateMaterialSlot(DynamicEmissiveOrbMatSlot, Mat);
+    }
+}
+
+void LobbyLifecycle::ApplySimulationTime(double ElapsedSeconds) noexcept
+{
+    SimulationClockSeconds = std::max(0.0, ElapsedSeconds);
+    UpdateDynamicEmissiveOrb(SimulationClockSeconds);
+    (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
+}
+
 void LobbyLifecycle::TickSimulation(double FixedDeltaSeconds) noexcept
 {
     SimulationClockSeconds += FixedDeltaSeconds;
     const float Dt = static_cast<float>(std::clamp(FixedDeltaSeconds, 0.001, 0.05));
+
+    UpdateDynamicEmissiveOrb(SimulationClockSeconds);
 
     if (HeroVehiclePhysicsActive && HeroPhysics && HeroVehicleRig && HeroVehicleEntityToken.QueryValid())
     {

@@ -282,6 +282,62 @@ namespace
     return true;
 }
 
+[[nodiscard]] bool TickAutoSpaceEditorScene(
+    uint32_t                                             SceneVariantIndex,
+    double                                               ElapsedSeconds,
+    Frontier::GeometricRaster::ShowcaseWorldSceneBundle& InOutBundle,
+    bool&                                                OutMaterialsMutated)
+{
+    OutMaterialsMutated = false;
+    bool OrbUpdated     = false;
+
+    Frontier::Mathematics::Axis3D    OrbPos {};
+    Frontier::Mathematics::LinearRGB OrbRgb {};
+    float                            OrbNits = 26000.0f;
+    EvaluateDynamicEmissiveOrbState(SceneVariantIndex, ElapsedSeconds, OrbPos, OrbRgb, OrbNits);
+
+    for (std::size_t Idx = 0u; Idx < InOutBundle.Objects.size(); ++Idx)
+    {
+        auto& Obj = InOutBundle.Objects[Idx];
+        if (Obj.Title == "Dynamic Emissive Orb")
+        {
+            Obj.CenterWorld = OrbPos;
+            const std::size_t CIdx = Obj.ClusterInstanceIndex;
+            if (CIdx < InOutBundle.Scene.ClusterInstances.size())
+            {
+                auto& Inst               = InOutBundle.Scene.ClusterInstances[CIdx];
+                Inst.PreviousTranslation = Inst.WorldTranslation;
+                Inst.WorldTranslation    = OrbPos;
+                Inst.AnalyticalShapeCode = 2u;
+                OrbUpdated               = true;
+            }
+            break;
+        }
+    }
+
+    const uint32_t SlotCount = InOutBundle.Scene.MaterialRegister.QuerySlotCount();
+    for (uint32_t Slot = 1u; Slot < SlotCount; ++Slot)
+    {
+        const auto& Existing = InOutBundle.Scene.MaterialRegister.InspectAuthoredMaterial(static_cast<uint16_t>(Slot));
+        if (Existing.MaterialName == "DynamicEmissiveOrb")
+        {
+            Frontier::MaterialSpace::SurfaceMaterial Updated = Existing;
+            Updated.Diffuse.BaseColor                        = OrbRgb;
+            Updated.PorosityLight.EmissionTint               = OrbRgb;
+            Updated.PorosityLight.EmissionLuminanceNits      = OrbNits;
+            Updated.PorosityLight.BlackbodyTemperatureKelvin = 0.0f;
+            if (InOutBundle.Scene.MaterialRegister.UpdateMaterialSlot(static_cast<uint16_t>(Slot), Updated))
+            {
+                OutMaterialsMutated = true;
+                OrbUpdated          = true;
+            }
+            break;
+        }
+    }
+
+    return OrbUpdated;
+}
+
 } // namespace
 
 void RegisterAutoSpaceEditorSceneAdapter()
@@ -291,6 +347,7 @@ void RegisterAutoSpaceEditorSceneAdapter()
     Adapter.MatchesProject         = &MatchesAutoSpaceProjectFile;
     Adapter.QueryBrowserDescriptor = &QueryAutoSpaceBrowserDescriptor;
     Adapter.ConstructEditorScene   = &ConstructAutoSpaceEditorScene;
+    Adapter.TickEditorScene        = &TickAutoSpaceEditorScene;
     Frontier::Lifecycle::ProjectEditorSceneRegistry::RegisterAdapter(std::move(Adapter));
 }
 

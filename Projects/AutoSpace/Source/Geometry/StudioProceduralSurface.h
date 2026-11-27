@@ -66,6 +66,7 @@ enum class StudioMaterialCode : uint16_t
     VehicleHeadlightOptic,
     VehicleTaillightOptic,
     VehicleBrakeCaliper,
+    DynamicEmissiveOrb,
 
     Count
 };
@@ -333,5 +334,18 @@ void RegisterStudioBaseMaterials(
     uint16_t                                         BrakeCaliperMaterialSlot,
     const StudioMeshBakeTransform&                   Transform = {},
     std::string_view                                 MeshTitle = "StudioVehicle");
+
+// Smooth UV sphere centered at origin for the moving, color-cycling dynamic emissive GI orb
+[[nodiscard]] StudioBuiltMesh BuildDynamicEmissiveOrbSurface(
+    const StudioMaterialPalette& Palette,
+    float                        RadiusMeters = 0.24f);
+
+// Evaluate orbital trajectory (RH Z-up meters) and cycling HSV emissive color (linear RGB + luminance nits)
+void EvaluateDynamicEmissiveOrbState(
+    uint32_t                        LobbyVariantIndex,
+    double                          ElapsedSeconds,
+    Frontier::Mathematics::Axis3D&  OutWorldPosition,
+    Frontier::Mathematics::LinearRGB& OutLinearRgb,
+    float&                          OutLuminanceNits) noexcept;
 
 } // namespace AutoSpace
