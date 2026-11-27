@@ -10,6 +10,7 @@
 //                                                    INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
+#include "Engine/Constants/MathConstants.h"
 #include <array>
 #include <cstdint>
 
@@ -43,7 +44,7 @@ enum class OrbitViewPreset : uint8_t
 struct OrbitCamera
 {
     std::array<double, 3> Target              = { 0.0, 0.0, 0.0 };                           // [len] - Orbit centre
-    double                Azimuth             = -0.7853981633974483;                         // [rad] - Eye azimuth from +x (CCW about +z)
+    double                Azimuth             = -Frontier::Constants::QuarterPi;                         // [rad] - Eye azimuth from +x (CCW about +z)
     double                Elevation           = 0.6154797086703873;                          // [rad] - Eye elevation above the XY plane
     double                Distance            = 8.0;                                         // [len] - Eye → target
     double                FieldOfView         = 0.7;                                         // [rad] - Vertical, perspective

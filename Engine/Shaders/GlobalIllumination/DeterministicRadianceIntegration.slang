@@ -5,12 +5,12 @@
 //    zero RNG, 64 B 4-wide TLAS4+BLAS4 tree walk, full-lobe & Fresnel splitting, MIS area softboxes, and adaptive .ies light tree
 
 #include "GlobalIllumination/QuadratureSequence.slang"
+#include "../Shared/ShaderMathConstants.slang"
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-static const float PiConstant                = 3.14159265358979f;
 static const uint  InvalidMediumSlot         = 0xFFu;
 static const uint  TransportStackCapacity    = 8u;
 static const uint  SceneStackCapacity        = 28u;
@@ -827,7 +827,7 @@ float DistributionGgx(float CosineHalf, float Alpha)
 {
     float Alpha2 = Alpha * Alpha;
     float Denom  = CosineHalf * CosineHalf * (Alpha2 - 1.0f) + 1.0f;
-    return Alpha2 / (PiConstant * Denom * Denom);
+    return Alpha2 / (FrontierPi * Denom * Denom);
 }
 
 float SmithLambda(float Cosine, float Alpha)
@@ -869,7 +869,7 @@ float3 SampleVisibleNormal(float3 ViewLocal, float Alpha, float2 Point)
                                float3(1.0f, 0.0f, 0.0f));
     float3 Tangent2   = cross(Stretched, Tangent1);
     float  Radius     = sqrt(saturate(Point.x));
-    float  Phi        = 2.0f * PiConstant * Point.y;
+    float  Phi        = 2.0f * FrontierPi * Point.y;
     float  DiskX      = Radius * cos(Phi);
     float  DiskY      = Radius * sin(Phi);
     float  Blend      = 0.5f * (1.0f + Stretched.z);
@@ -892,12 +892,12 @@ float2 ConcentricDisk(float2 Point)
     if (abs(Offset.x) > abs(Offset.y))
     {
         Radius = Offset.x;
-        Theta  = (PiConstant / 4.0f) * (Offset.y / Offset.x);
+        Theta  = (FrontierPi / 4.0f) * (Offset.y / Offset.x);
     }
     else
     {
         Radius = Offset.y;
-        Theta  = (PiConstant / 2.0f) - (PiConstant / 4.0f) * (Offset.x / Offset.y);
+        Theta  = (FrontierPi / 2.0f) - (FrontierPi / 4.0f) * (Offset.x / Offset.y);
     }
     return Radius * float2(cos(Theta), sin(Theta));
 }
@@ -980,8 +980,8 @@ LobeEvaluationResult EvaluateSurfaceLobes(PathSurfaceMaterial Material, float3 N
     }
     float SpecTransfer    = (F0 > 0.0f) ? ((1.0f - FresnelSchlick(F0, CosineOut)) * (1.0f - FresnelSchlick(F0, CosineIn))) : 1.0f;
     float DiffuseTransfer = SpecTransfer * CoatAttenuation;
-    Lobes.Diffuse         = Material.AlbedoRoughness.rgb * (DiffuseTransfer * CosineIn / PiConstant);
-    Lobes.DiffusePdf      = CosineIn / PiConstant;
+    Lobes.Diffuse         = Material.AlbedoRoughness.rgb * (DiffuseTransfer * CosineIn / FrontierPi);
+    Lobes.DiffusePdf      = CosineIn / FrontierPi;
     return Lobes;
 }
 
@@ -1039,8 +1039,8 @@ float2 CosSinSubClamped(float CosA, float SinA, float CosB, float SinB)
 
 float EvaluatePhotometricProfile(uint ProfileIndex, float3 Toward, float3 Axis, float3 Reference)
 {
-    float Vertical   = acos(clamp(dot(Axis, Toward), -1.0f, 1.0f)) * (float(ProfileVerticalSamples - 1u) / PiConstant);
-    float Horizontal = atan2(dot(Toward, cross(Axis, Reference)), dot(Toward, Reference)) * (float(ProfileHorizontalSamples) / (2.0f * PiConstant));
+    float Vertical   = acos(clamp(dot(Axis, Toward), -1.0f, 1.0f)) * (float(ProfileVerticalSamples - 1u) / FrontierPi);
+    float Horizontal = atan2(dot(Toward, cross(Axis, Reference)), dot(Toward, Reference)) * (float(ProfileHorizontalSamples) / (2.0f * FrontierPi));
     if (Horizontal < 0.0f)
     {
         Horizontal += float(ProfileHorizontalSamples);
@@ -1553,7 +1553,7 @@ float3 ScatterSurfaceVertex(ResolvedSurfaceSample Surface, TransportPathRay Ray,
                 DiffRay.Origin          = OffsetRayOrigin(Surface.Position, Surface.GeometricNormal, OmegaIn);
                 DiffRay.PackedCounters     = PackRayCounters(Depth + 1u, NonDeltaDepth + 1u, Medium);
                 DiffRay.Direction       = OmegaIn;
-                DiffRay.LobePdf         = CosineIn / PiConstant;
+                DiffRay.LobePdf         = CosineIn / FrontierPi;
                 DiffRay.Throughput      = Ray.Throughput * Material.AlbedoRoughness.rgb * Transfer;
                 DiffRay.TravelSinceLobe = 0.0f;
                 PushTransportRay(DiffRay);

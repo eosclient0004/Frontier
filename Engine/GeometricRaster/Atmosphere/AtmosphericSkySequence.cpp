@@ -6,6 +6,7 @@
 #include "Engine/GeometricRaster/Atmosphere/AtmosphericSkySequence.h"
 #include "Engine/GeometricRaster/Atmosphere/VolumetricCloudSequence.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -39,10 +40,6 @@ constexpr float PeakOzoneAbs[3]       { 0.650e-6f, 1.881e-6f, 0.085e-6f };
     return { -B - Root, -B + Root };
 }
 
-[[nodiscard]] float ClampUnit(float Value) noexcept
-{
-    return std::clamp(Value, -1.0f, 1.0f);
-}
 
 [[nodiscard]] float ComputeHorizonDistanceKm(float BottomRadiusKm, float TopRadiusKm) noexcept
 {
@@ -90,7 +87,7 @@ constexpr float PeakOzoneAbs[3]       { 0.650e-6f, 1.881e-6f, 0.085e-6f };
 {
     const float SafeR = std::max(BottomRadiusKm + 1.0e-4f, ViewerRadiusKm);
     const float TangentHeight = std::sqrt(std::max(0.0f, (SafeR - BottomRadiusKm) * (SafeR + BottomRadiusKm)));
-    return std::acos(ClampUnit(-TangentHeight / SafeR));
+    return std::acos(Frontier::Mathematics::ClampUnit(-TangentHeight / SafeR));
 }
 
 struct MediumCoefficientsKm
@@ -175,7 +172,7 @@ struct MediumCoefficientsKm
     const float ClampedR  = std::clamp(RadiusKm, BottomRadiusKm, TopRadiusKm);
     const float HorizonKm = ComputeHorizonDistanceKm(BottomRadiusKm, TopRadiusKm);
     const float RhoKm     = std::sqrt(std::max(0.0f, (ClampedR - BottomRadiusKm) * (ClampedR + BottomRadiusKm)));
-    const float DistTopKm = IntersectUpperSphereDistanceKm(ClampedR, ClampUnit(CosPolar), TopRadiusKm);
+    const float DistTopKm = IntersectUpperSphereDistanceKm(ClampedR, Frontier::Mathematics::ClampUnit(CosPolar), TopRadiusKm);
     const float DMinKm    = std::max(0.0f, TopRadiusKm - ClampedR);
     const float DMaxKm    = RhoKm + HorizonKm;
     const float U         = std::clamp((DistTopKm - DMinKm) / std::max(1.0e-5f, DMaxKm - DMinKm), 0.0f, 1.0f);
@@ -306,7 +303,7 @@ Mathematics::LinearRGB AtmosphericSkySequence::ComputeSolarTransmittance(
 
     const float SunMag = std::sqrt(
         SunDirection.X * SunDirection.X + SunDirection.Y * SunDirection.Y + SunDirection.Z * SunDirection.Z);
-    const float CosPolar = (SunMag > 1.0e-6f) ? ClampUnit(SunDirection.Z / SunMag) : 1.0f;
+    const float CosPolar = (SunMag > 1.0e-6f) ? Frontier::Mathematics::ClampUnit(SunDirection.Z / SunMag) : 1.0f;
     const float RadiusKm = GroundKm + AltKm;
 
     if (QuerySphereBlockedKm(RadiusKm, CosPolar, GroundKm))
@@ -408,7 +405,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                 const float DistTopKm = DMinKm + U * (DMaxKm - DMinKm);
                 const float CosPolar  = (DistTopKm <= 1.0e-5f)
                     ? 1.0f
-                    : ClampUnit((HorizonKm * HorizonKm - RhoKm * RhoKm - DistTopKm * DistTopKm) /
+                    : Frontier::Mathematics::ClampUnit((HorizonKm * HorizonKm - RhoKm * RhoKm - DistTopKm * DistTopKm) /
                                 (2.0f * RadiusKm * DistTopKm));
 
                 float OptR = 0.0f, OptG = 0.0f, OptB = 0.0f;
@@ -437,7 +434,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
         MultiScatterTexelsRgb.assign(MultiScatterTexelCount * 3u, 0.0f);
         constexpr uint32_t MsDirs  = 32u;
         constexpr uint32_t MsSteps = 24u;
-        constexpr float GoldenRatio = 1.6180339887498948482f;
+        constexpr float GoldenRatio = Frontier::Constants::GoldenRatioFloat;
         const float InvDirs = 1.0f / static_cast<float>(MsDirs);
 
         for (uint32_t Y = 0u; Y < MultiScatterHeightPx; ++Y)
@@ -449,7 +446,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
             for (uint32_t X = 0u; X < MultiScatterWidthPx; ++X)
             {
                 const float U       = static_cast<float>(X) / static_cast<float>(MultiScatterWidthPx - 1u);
-                const float SunCos  = ClampUnit(2.0f * U - 1.0f);
+                const float SunCos  = Frontier::Mathematics::ClampUnit(2.0f * U - 1.0f);
                 const float SunSin  = std::sqrt(std::max(0.0f, 1.0f - SunCos * SunCos));
 
                 float Lum2R = 0.0f, Lum2G = 0.0f, Lum2B = 0.0f;
@@ -462,7 +459,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                     const float Theta  = Constants::TauFloat * (static_cast<float>(D) + 0.5f) / GoldenRatio;
                     const float DirX   = SinPhi * std::cos(Theta);
                     const float DirZ   = CosPhi;
-                    const float RaySunCos = ClampUnit(DirX * SunSin + DirZ * SunCos);
+                    const float RaySunCos = Frontier::Mathematics::ClampUnit(DirX * SunSin + DirZ * SunCos);
 
                     bool HitsGround = false;
                     const float GroundD = IntersectLowerSphereDistanceKm(RadiusKm, DirZ, GroundKm, HitsGround);
@@ -497,7 +494,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                         const float ScatG  = C.RayScatterG + C.MieScatter;
                         const float ScatB  = C.RayScatterB + C.MieScatter;
 
-                        const float SampleSunCos = ClampUnit((RadiusKm * SunCos + T * RaySunCos) / RK);
+                        const float SampleSunCos = Frontier::Mathematics::ClampUnit((RadiusKm * SunCos + T * RaySunCos) / RK);
                         const auto  SunT = SampleTransmittanceSphericalLut(
                             TransmittanceTexelsRgb, RK, SampleSunCos, GroundKm, TopKm);
 
@@ -516,7 +513,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
 
                     if (HitsGround)
                     {
-                        const float HitSunCos = ClampUnit((RadiusKm * SunCos + MaxD * RaySunCos) / GroundKm);
+                        const float HitSunCos = Frontier::Mathematics::ClampUnit((RadiusKm * SunCos + MaxD * RaySunCos) / GroundKm);
                         if (HitSunCos > 0.0f)
                         {
                             const auto GroundSunT = SampleTransmittanceSphericalLut(
@@ -551,7 +548,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
     constexpr uint32_t SkySteps   = 40u;
     constexpr uint32_t GndSteps   = 28u;
     const float LimbAngle   = ComputeLimbPolarAngle(StartRadiusKm, GroundKm);
-    const float SunElevRad  = std::asin(ClampUnit(UnitSun.Z));
+    const float SunElevRad  = std::asin(Frontier::Mathematics::ClampUnit(UnitSun.Z));
     const float DayVis      = std::clamp((SunElevRad * Constants::RadToDegFloat + 6.0f) / 14.0f, 0.0f, 1.0f);
     const float SolarScale  = std::max(0.0f, SolarIntensityScale) * 0.24f;
     const float G2          = MieG * MieG;
@@ -617,7 +614,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                 const float IntG   = (1.0f - SegTG) / SafeEG;
                 const float IntB   = (1.0f - SegTB) / SafeEB;
 
-                const float SampleSunCos = ClampUnit((StartRadiusKm * UnitSun.Z + T * CosTheta) / RK);
+                const float SampleSunCos = Frontier::Mathematics::ClampUnit((StartRadiusKm * UnitSun.Z + T * CosTheta) / RK);
                 const auto  SunT = SampleTransmittanceSphericalLut(
                     TransmittanceTexelsRgb, RK, SampleSunCos, GroundKm, TopKm);
                 const auto  Multi = SampleMultiScatterGridLut(
@@ -641,7 +638,7 @@ void AtmosphericSkySequence::BuildSkyViewLut(
 
             if (LowerBank && HitsGround)
             {
-                const float HitSunCos = ClampUnit((StartRadiusKm * UnitSun.Z + MaxDistKm * CosTheta) / GroundKm);
+                const float HitSunCos = Frontier::Mathematics::ClampUnit((StartRadiusKm * UnitSun.Z + MaxDistKm * CosTheta) / GroundKm);
                 const auto  GroundSunT = (HitSunCos > 0.0f)
                     ? SampleTransmittanceSphericalLut(TransmittanceTexelsRgb, GroundKm, HitSunCos, GroundKm, TopKm)
                     : std::array<float, 3>{ 0.0f, 0.0f, 0.0f };
@@ -729,7 +726,7 @@ Mathematics::LinearRGB AtmosphericSkySequence::SampleSkyViewDirection(
     constexpr int32_t HalfH = static_cast<int32_t>(SkyViewHeightPx / 2u);
 
     const float Azimuth    = std::atan2(WorldDirection.Y, WorldDirection.X);
-    const float PolarAngle = std::acos(ClampUnit(WorldDirection.Z));
+    const float PolarAngle = std::acos(Frontier::Mathematics::ClampUnit(WorldDirection.Z));
     const float LimbAngle  = ComputeLimbPolarAngle(BakedStartRadiusKm, BakedBottomRadiusKm);
 
     float U = Azimuth / Constants::TauFloat + 0.5f;

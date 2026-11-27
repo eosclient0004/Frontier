@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/World/WorldInstanceRegister.h"
+#include "Engine/Constants/PhysicsConstants.h"
 
 #include <cstdint>
 #include <string_view>
@@ -103,7 +104,7 @@ struct ParticleInstanceParameters
 struct ForceFieldInstanceParameters
 {
     uint8_t ForceModelOrdinal     = 0u;     // [idx]   - Analytical force model ordinal
-    float   StrengthMetersPerS2   = 9.81f;  // [m/s^2] - Acceleration magnitude
+    float   StrengthMetersPerS2   = Frontier::Constants::StandardGravityFloat;  // [m/s^2] - Acceleration magnitude
     float   InfluenceRadiusMeters = 25.0f;  // [m]     - Spherical falloff radius
     float   DirectionAxisX        = 0.0f;   // [-]     - Force axis X
     float   DirectionAxisY        = 0.0f;   // [-]     - Force axis Y

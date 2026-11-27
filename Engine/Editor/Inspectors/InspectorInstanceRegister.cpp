@@ -714,7 +714,7 @@ void InspectorInstanceRegister::CombineIntoScene(
                 if (const auto It = Winds.find(Key); It != Winds.end())
                 {
                     const auto& W = It->second.Wind;
-                    const float Rad = W.BearingDegrees * (Frontier::Constants::PiFloat / 180.0f);
+                    const float Rad = W.BearingDegrees * Frontier::Constants::DegToRadFloat;
                     WindVelX     += W.SpeedMetersPerSecond * std::sin(Rad);
                     WindVelY     += W.SpeedMetersPerSecond * std::cos(Rad);
                     WindShearSum += W.ShearPerKilometer;
@@ -1036,7 +1036,7 @@ void InspectorInstanceRegister::CombineIntoScene(
         if (ActiveWindCount > 0u)
         {
             const float CombinedSpeed = std::sqrt(WindVelX * WindVelX + WindVelY * WindVelY);
-            float BearingDeg = std::atan2(WindVelX, WindVelY) * (180.0f / Frontier::Constants::PiFloat);
+            float BearingDeg = std::atan2(WindVelX, WindVelY) * Frontier::Constants::RadToDegFloat;
             if (BearingDeg < 0.0f) BearingDeg += 360.0f;
             Scene.Atmosphere.Wind.SpeedMetersPerSecond = CombinedSpeed;
             Scene.Atmosphere.Wind.BearingDegrees       = BearingDeg;
@@ -1096,7 +1096,7 @@ void InspectorInstanceRegister::CombineIntoScene(
             DisplaySettings->MotionBlurIntensity           = std::clamp(CombinedMotionBlur.VelocityScale, 0.0f, 2.5f);
             DisplaySettings->MotionBlurMaxRadiusPx         = std::clamp(CombinedMotionBlur.MaxSampleRadiusPx, 2.0f, 48.0f);
             DisplaySettings->MotionBlurSampleCount         = std::clamp(CombinedMotionBlur.SampleCount, 4u, 16u);
-            DisplaySettings->MotionBlurDirectionalAngleRad = CombinedMotionBlur.DirectionalAngleDeg * (Frontier::Constants::PiFloat / 180.0f);
+            DisplaySettings->MotionBlurDirectionalAngleRad = CombinedMotionBlur.DirectionalAngleDeg * Frontier::Constants::DegToRadFloat;
         }
         else
         {

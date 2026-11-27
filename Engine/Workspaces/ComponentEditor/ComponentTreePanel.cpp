@@ -8,6 +8,7 @@
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -21,15 +22,6 @@ namespace Frontier::Workspaces::ComponentEditor
 namespace
 {
 
-bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
-{
-    if (Needle.empty()) return true;
-    auto It = std::search(
-        Haystack.begin(), Haystack.end(),
-        Needle.begin(), Needle.end(),
-        [](char A, char B) { return std::tolower(static_cast<unsigned char>(A)) == std::tolower(static_cast<unsigned char>(B)); });
-    return It != Haystack.end();
-}
 
 const char* QueryCategorySubtitle(
     const ComponentClass::ComponentClassDefinition& Def,
@@ -280,7 +272,7 @@ void ComponentTreePanel::Render(
     std::vector<const ComponentClass::ComponentInstanceHeader*> VisibleRows {};
     Doc->ClassDefinition.Storage.WalkSpatialNesting([&](const ComponentClass::ComponentInstanceHeader& H)
     {
-        if (!Filter.empty() && !ContainsCaseInsensitive(H.Title, Filter))
+        if (!Filter.empty() && !Frontier::Serialization::ContainsAsciiCaseInsensitive(H.Title, Filter))
         {
             return;
         }
@@ -439,7 +431,7 @@ void ComponentTreePanel::Render(
         for (const auto BTok : Behaviours)
         {
             const auto* BH = Doc->ClassDefinition.Storage.InspectHeader(BTok);
-            if (BH == nullptr || (!Filter.empty() && !ContainsCaseInsensitive(BH->Title, Filter))) continue;
+            if (BH == nullptr || (!Filter.empty() && !Frontier::Serialization::ContainsAsciiCaseInsensitive(BH->Title, Filter))) continue;
             const Rectangle2D RowRect { ListRect.X + 4.0f, RowY, ListRect.Width - 8.0f, RowH - 2.0f };
             RowY += RowH;
             const bool Selected = (BTok == Doc->SelectedToken);

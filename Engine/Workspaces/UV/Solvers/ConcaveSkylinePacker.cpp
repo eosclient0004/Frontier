@@ -284,7 +284,7 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
     {
         for (uint32_t AngleDegrees = RotationStepDegrees; AngleDegrees < 360u; AngleDegrees += RotationStepDegrees)
         {
-            CandidateAngles.push_back(static_cast<float>(AngleDegrees) * Constants::PiFloat / 180.0f);
+            CandidateAngles.push_back(static_cast<float>(AngleDegrees) * Frontier::Constants::DegToRadFloat);
         }
     }
 

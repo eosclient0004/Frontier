@@ -45,15 +45,7 @@ namespace
     return Ext == ".imagespace";
 }
 
-[[nodiscard]] float SrgbByteToLinear(uint8_t Byte) noexcept
-{
-    return Frontier::ColourSpace::DecodeSrgbByteToLinear(Byte);
-}
 
-[[nodiscard]] uint8_t LinearToSrgbByte(float Linear) noexcept
-{
-    return Frontier::ColourSpace::EncodeLinearToSrgbByte(Linear);
-}
 
 } // namespace
 
@@ -92,9 +84,9 @@ SketcherPicture DecodeSketcherPicture(const std::string& Path)
         for (size_t Pixel = 0u; Pixel < size_t(Picture.Width) * size_t(Picture.Height); ++Pixel)
         {
             const size_t Base = Pixel * 4u;
-            Picture.Pixels[Base + 0u] = LinearToSrgbByte(Model.LinearRgbaPreview[Base + 0u]);
-            Picture.Pixels[Base + 1u] = LinearToSrgbByte(Model.LinearRgbaPreview[Base + 1u]);
-            Picture.Pixels[Base + 2u] = LinearToSrgbByte(Model.LinearRgbaPreview[Base + 2u]);
+            Picture.Pixels[Base + 0u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Model.LinearRgbaPreview[Base + 0u]);
+            Picture.Pixels[Base + 1u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Model.LinearRgbaPreview[Base + 1u]);
+            Picture.Pixels[Base + 2u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Model.LinearRgbaPreview[Base + 2u]);
             Picture.Pixels[Base + 3u] = static_cast<uint8_t>(std::clamp(std::lround(Model.LinearRgbaPreview[Base + 3u] * 255.0f), 0l, 255l));
         }
         return Picture;
@@ -146,9 +138,9 @@ bool ExportSketcherPictureAsImageSpace(
     for (size_t Pixel = 0u; Pixel < PixelCount; ++Pixel)
     {
         const size_t Base = Pixel * 4u;
-        Model.LinearRgbaPreview[Base + 0u] = SrgbByteToLinear(Picture.Pixels[Base + 0u]);
-        Model.LinearRgbaPreview[Base + 1u] = SrgbByteToLinear(Picture.Pixels[Base + 1u]);
-        Model.LinearRgbaPreview[Base + 2u] = SrgbByteToLinear(Picture.Pixels[Base + 2u]);
+        Model.LinearRgbaPreview[Base + 0u] = Frontier::ColourSpace::DecodeSrgbByteToLinear(Picture.Pixels[Base + 0u]);
+        Model.LinearRgbaPreview[Base + 1u] = Frontier::ColourSpace::DecodeSrgbByteToLinear(Picture.Pixels[Base + 1u]);
+        Model.LinearRgbaPreview[Base + 2u] = Frontier::ColourSpace::DecodeSrgbByteToLinear(Picture.Pixels[Base + 2u]);
         Model.LinearRgbaPreview[Base + 3u] = static_cast<float>(Picture.Pixels[Base + 3u]) / 255.0f;
     }
 

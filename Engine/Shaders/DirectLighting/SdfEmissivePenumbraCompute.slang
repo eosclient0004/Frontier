@@ -1,3 +1,4 @@
+#include "../Shared/ShaderMathConstants.slang"
 /*============================================================================================================================================
                                                     SDFEMISSIVEPENUMBRACOMPUTE.SLANG
 ============================================================================================================================================*/
@@ -28,8 +29,6 @@ struct GpuSdfPenumbraUniforms
 [[vk::binding(5, 0)]] StructuredBuffer<float4>               CoarseMip1Radiosity;     // rgb = Mip1 Radiosity, a = 0
 [[vk::binding(6, 0)]] RWStructuredBuffer<float4>             OutLinearHdrVis;         // rgb = LinearHdr, a = PrimaryVisibility
 
-static const float PiConst  = 3.14159265358979323846;
-static const float TauConst = 6.28318530717958647692;
 
 float SmoothStep01(float Edge0, float Edge1, float X)
 {
@@ -373,7 +372,7 @@ float3 EvaluateVoxelConeGiGpu(float3 WorldPos, float3 N)
         Accum   += ConeRad * CosTheta;
         CosWSum += CosTheta;
     }
-    return (CosWSum > 1.0e-5) ? (Accum * (PiConst / CosWSum)) : float3(0.0, 0.0, 0.0);
+    return (CosWSum > 1.0e-5) ? (Accum * (FrontierPi / CosWSum)) : float3(0.0, 0.0, 0.0);
 }
 
 float3 EvaluateVoxelSpecBounceGpu(float3 WorldPos, float3 N, float3 V, float3 BaseColor, float Roughness, float Metalness)
@@ -466,7 +465,7 @@ float3 EvaluateOpenPbrBsdfGpu(float3 BaseColor, float Roughness, float Metalness
     float  Alpha = clamp(Roughness * Roughness, 0.004, 1.0);
     float  A2    = Alpha * Alpha;
     float  Denom = NdotH * NdotH * (A2 - 1.0) + 1.0;
-    float  NdfD  = A2 / max(1.0e-7, PiConst * Denom * Denom);
+    float  NdfD  = A2 / max(1.0e-7, FrontierPi * Denom * Denom);
 
     float Tan2V = (1.0 - NdotV * NdotV) / max(1.0e-6, NdotV * NdotV);
     float Tan2L = (1.0 - NdotL * NdotL) / max(1.0e-6, NdotL * NdotL);
@@ -479,17 +478,17 @@ float3 EvaluateOpenPbrBsdfGpu(float3 BaseColor, float Roughness, float Metalness
     float  Schlick = pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
     float3 Fresnel = F0 + (1.0 - F0) * Schlick;
     float  SpecS   = (NdfD * G2) / max(1.0e-5, 4.0 * NdotV * NdotL);
-    float  DiffK   = (1.0 - Metalness) * 0.96 / PiConst;
+    float  DiffK   = (1.0 - Metalness) * 0.96 / FrontierPi;
 
     SpecPdf = (NdfD * G1V) / max(1.0e-5, 4.0 * NdotV);
-    DiffPdf = NdotL / PiConst;
+    DiffPdf = NdotL / FrontierPi;
     return BaseColor * DiffK + Fresnel * SpecS;
 }
 
 float3 SampleSphericalCapVndfLocalGpu(float3 ViewLocal, float Alpha, float2 U)
 {
     float3 Stretched = normalize(float3(Alpha * ViewLocal.x, Alpha * ViewLocal.y, max(1.0e-5, ViewLocal.z)));
-    float  Phi       = TauConst * U.x;
+    float  Phi       = FrontierTau * U.x;
     float  CapZ      = (1.0 - U.y) * (1.0 + Stretched.z) - Stretched.z;
     float  SinT      = sqrt(max(0.0, 1.0 - CapZ * CapZ));
     float3 HalfStr   = float3(SinT * cos(Phi) + Stretched.x, SinT * sin(Phi) + Stretched.y, max(0.0, CapZ + Stretched.z));
@@ -503,7 +502,7 @@ float3 SampleCosineLocalGpu(float2 U)
     float OY = 2.0 * U.y - 1.0;
     if (OX == 0.0 && OY == 0.0) return float3(0.0, 0.0, 1.0);
     float R     = (abs(OX) > abs(OY)) ? OX : OY;
-    float Theta = (abs(OX) > abs(OY)) ? ((PiConst * 0.25) * (OY / OX)) : ((PiConst * 0.5) - (PiConst * 0.25) * (OX / OY));
+    float Theta = (abs(OX) > abs(OY)) ? ((FrontierPi * 0.25) * (OY / OX)) : ((FrontierPi * 0.5) - (FrontierPi * 0.25) * (OX / OY));
     float DX    = R * cos(Theta);
     float DY    = R * sin(Theta);
     return float3(DX, DY, sqrt(max(0.0, 1.0 - DX * DX - DY * DY)));
@@ -535,8 +534,8 @@ float3 EvaluateAnalyticDirectGpu(float3 BaseColor, float Roughness, float Metaln
     float  AlphaPrime = clamp(Alpha + Rad / (2.0 * Dist), Alpha, 1.0);
     float  SpecNorm   = (Alpha * Alpha) / (AlphaPrime * AlphaPrime);
     float  DiffScale  = (1.0 - Metalness) * 0.96;
-    float  Omega      = TauConst * (1.0 - sqrt(max(0.0, 1.0 - Sin2)));
-    float3 PureSpec   = max(float3(0.0, 0.0, 0.0), BsdfS - BaseColor * (DiffScale / PiConst)) * max(0.0, dot(N, SpecL)) * Omega * SpecNorm;
+    float  Omega      = FrontierTau * (1.0 - sqrt(max(0.0, 1.0 - Sin2)));
+    float3 PureSpec   = max(float3(0.0, 0.0, 0.0), BsdfS - BaseColor * (DiffScale / FrontierPi)) * max(0.0, dot(N, SpecL)) * Omega * SpecNorm;
     return EmRad * (BaseColor * DiffScale * FormF + PureSpec);
 }
 
@@ -597,7 +596,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
     {
         float  SinMax = clamp(SphRad / max(SphRad + 1.0e-3, Dist), 1.0e-4, 0.9995);
         float  CosMax = sqrt(max(0.0, 1.0 - SinMax * SinMax));
-        float  Omega  = TauConst * (1.0 - CosMax);
+        float  Omega  = FrontierTau * (1.0 - CosMax);
         float3 TanU, BitV;
         BuildDuffBasisGpu(L, TanU, BitV);
 
@@ -609,7 +608,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
             float2 U    = OwenSobol02Gpu(S, PixelKey, 1u);
             float  CosT = 1.0 - U.x * (1.0 - CosMax);
             float  SinT = sqrt(max(0.0, 1.0 - CosT * CosT));
-            float  Phi  = TauConst * U.y;
+            float  Phi  = FrontierTau * U.y;
             float3 Wi   = normalize(TanU * (SinT * cos(Phi)) + BitV * (SinT * sin(Phi)) + L * CosT);
             float  NoL  = dot(HitN, Wi);
             if (NoL <= 1.0e-5) continue;
@@ -659,7 +658,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
                     float3 BL      = BToS / BDist;
                     float  BSinMax = clamp(SphRad / BDist, 1.0e-4, 0.9995);
                     float  BCosMax = sqrt(max(0.0, 1.0 - BSinMax * BSinMax));
-                    float  BOmega  = TauConst * (1.0 - BCosMax);
+                    float  BOmega  = FrontierTau * (1.0 - BCosMax);
                     float  LPdf    = 1.0 / max(1.0e-6, BOmega);
                     float3 BTanU, BBitV;
                     BuildDuffBasisGpu(BL, BTanU, BBitV);
@@ -667,7 +666,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
                     float2 ULight = OwenSobol02Gpu(SampleIdx, PixelKey, Bounce * 3u + 1u);
                     float  CosT   = 1.0 - ULight.x * (1.0 - BCosMax);
                     float  SinT   = sqrt(max(0.0, 1.0 - CosT * CosT));
-                    float  Phi    = TauConst * ULight.y;
+                    float  Phi    = FrontierTau * ULight.y;
                     float3 Wi     = normalize(BTanU * (SinT * cos(Phi)) + BBitV * (SinT * sin(Phi)) + BL * CosT);
                     float  NoL    = dot(CurN, Wi);
                     if (NoL > 1.0e-5)
@@ -723,7 +722,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
                     if (BDist > SphRad + 1.0e-3)
                     {
                         float BSinMax = clamp(SphRad / BDist, 1.0e-4, 0.9995);
-                        float LPdf    = 1.0 / max(1.0e-6, TauConst * (1.0 - sqrt(max(0.0, 1.0 - BSinMax * BSinMax))));
+                        float LPdf    = 1.0 / max(1.0e-6, FrontierTau * (1.0 - sqrt(max(0.0, 1.0 - BSinMax * BSinMax))));
                         MisW = (BsdfPdf * BsdfPdf) / max(1.0e-10, BsdfPdf * BsdfPdf + LPdf * LPdf);
                     }
                     SRad += min(float3(3.5, 3.5, 3.5), Thru * EmRad * MisW);
@@ -798,7 +797,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
     {
         float3 ConeIrrad  = EvaluateVoxelConeGiGpu(HitPos, HitN);
         float3 SpecBounce = EvaluateVoxelSpecBounceGpu(HitPos, HitN, V, BaseColor, Roughness, Metalness);
-        Hdr += BaseColor * ((1.0 - Metalness) * 0.96 / PiConst) * ConeIrrad + SpecBounce;
+        Hdr += BaseColor * ((1.0 - Metalness) * 0.96 / FrontierPi) * ConeIrrad + SpecBounce;
     }
 
     OutLinearHdrVis[PixelIdx] = float4(Hdr, Vis);

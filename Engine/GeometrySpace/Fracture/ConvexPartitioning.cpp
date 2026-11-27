@@ -1274,7 +1274,7 @@ FracturePartitionResult ConvexPartitioning::ExecuteFracturePartition(
     const auto     ImpactNormal      = Mathematics::NormalizeAxis(Specification.ImpactNormal, { 0.0f, -1.0f, 0.0f });
     const uint32_t Ceiling           = std::clamp(Specification.Ceiling, 2u, 160u);
     const double   MinSpan           = std::max(0.015, Specification.MinimumSizeM);
-    const double   GrainAngleRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
+    const double   GrainAngleRad     = Specification.GrainAngleDeg * Frontier::Constants::DegToRad;
     const double   StoredTotalEnergy = static_cast<double>(Material.StoredEnergyJPerM3) * SourceMetrics.VolumeM3;
     const double   TotalEnergyBudget = std::max(40.0, Specification.EnergyJoules) + StoredTotalEnergy;
 

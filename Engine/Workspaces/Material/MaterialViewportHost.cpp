@@ -27,11 +27,6 @@ using namespace TexturingAppearance;
 namespace
 {
 
-[[nodiscard]] bool PointInsideRect(Rectangle2D Rect, Point2D Cursor) noexcept
-{
-    return Cursor.X >= Rect.X && Cursor.X <= Rect.Right() && Cursor.Y >= Rect.Y && Cursor.Y <= Rect.Bottom();
-}
-
 [[nodiscard]] const char* QuerySpecimenCaption(PreviewSpecimenGeometry Specimen) noexcept
 {
     switch (Specimen)
@@ -334,7 +329,7 @@ void MaterialViewportHost::Render(
     LastCanvasBounds = CanvasRect;
 
     // 4. Interactive Orbit / Zoom / Click-to-Impact
-    if (!Overlay && PointInsideRect(CanvasRect, Cursor))
+    if (!Overlay && (CanvasRect).Contains(Cursor))
     {
         if (Pressed)
         {

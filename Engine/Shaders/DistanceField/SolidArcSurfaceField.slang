@@ -4,6 +4,7 @@
 // 🧩 Exact GPU CAD B-Rep Signed Distance Field module matching CompiledSurfaceField.h 16B std430 structures byte-for-byte
 
 module SolidArcSurfaceField;
+#include "../Shared/ShaderMathConstants.slang"
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                    GPU STRUCTURES
@@ -79,12 +80,11 @@ public struct GpuSolidArcDistanceSample
 //                                                 ANALYTIC & TRIM SOLVERS
 //------------------------------------------------------------------------------------------------------------------------
 
-static const float SolidArcTwoPi = 6.283185307179586f;
 
 float WrapAnglePositive(float Angle)
 {
-    float Wrapped = Angle - floor(Angle / SolidArcTwoPi) * SolidArcTwoPi;
-    return (Wrapped < 0.0f) ? (Wrapped + SolidArcTwoPi) : Wrapped;
+    float Wrapped = Angle - floor(Angle / FrontierTau) * FrontierTau;
+    return (Wrapped < 0.0f) ? (Wrapped + FrontierTau) : Wrapped;
 }
 
 float WrapChartCoordinate(float RawCoord, float Low, float High, float Period)
@@ -149,7 +149,7 @@ bool PointInsideTrimLoop2D(
             float  Radius = abs(Seg.Coords0.z);
             float  StartA = Seg.Coords0.w;
             float  Sweep  = Seg.Coords1.x;
-            if (abs(Sweep) >= SolidArcTwoPi - 1.0e-4f)
+            if (abs(Sweep) >= FrontierTau - 1.0e-4f)
             {
                 float2 Diff = Uv - Center;
                 if (dot(Diff, Diff) < Radius * Radius)
@@ -481,7 +481,7 @@ void EvaluateEdgeCandidateGpu(
             float  X   = dot(Rel, Au);
             float  Y   = dot(Rel, Av);
             float  Ang = atan2(Y, X);
-            if (abs(SweepAngle) >= SolidArcTwoPi - 1.0e-4f)
+            if (abs(SweepAngle) >= FrontierTau - 1.0e-4f)
             {
                 ParamT = 0.5f;
                 Foot   = Center + cos(Ang) * CosVec + sin(Ang) * SinVec;

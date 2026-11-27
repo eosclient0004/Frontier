@@ -4,8 +4,8 @@
 // 🧩 Shared uniforms, OpenPBR-direct (Zero GI) BRDF, ACES Filmic tonemapping, and selection halo helpers for Component Editor viewports
 
 #pragma once
+#include "../Shared/ShaderMathConstants.slang"
 
-static const float CePi = 3.14159265359;
 
 struct ComponentSceneLightGpu
 {
@@ -84,7 +84,7 @@ float CeDistributionGgx(float NdotH, float Alpha)
 {
     float A2    = Alpha * Alpha;
     float Denom = NdotH * NdotH * (A2 - 1.0) + 1.0;
-    return A2 / max(CePi * Denom * Denom, 1.0e-5);
+    return A2 / max(FrontierPi * Denom * Denom, 1.0e-5);
 }
 
 float CeGeometrySchlickGgx(float NdotX, float Roughness)
@@ -133,7 +133,7 @@ float3 CeEvaluateDirectPbrLight(
 
     float3 Specular = (Ndf * G * F) / max(4.0 * NdotV * NdotL, 1.0e-4);
     float3 Kd       = (1.0 - F) * (1.0 - Metalness);
-    float3 Diffuse  = Kd * Albedo / CePi;
+    float3 Diffuse  = Kd * Albedo / FrontierPi;
     return (Diffuse + Specular) * LightRadiance * NdotL;
 }
 

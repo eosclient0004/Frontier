@@ -10,6 +10,7 @@
 #include "Engine/GeometricRaster/DirectLighting/HybridConeShadowSequence.h"
 
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,11 +41,6 @@ namespace
     return Seed;
 }
 
-[[nodiscard]] float SmoothHermite(float Edge0, float Edge1, float X) noexcept
-{
-    const float T = std::clamp((X - Edge0) / std::max(1.0e-6f, Edge1 - Edge0), 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
 [[nodiscard]] float SoftMinFloat(float A, float B, float K) noexcept
 {
@@ -200,7 +196,7 @@ float EvaluateGtxHybridDirectionalShadow(
     for (uint32_t Step = 0u; Step < Setup.MaxMarchSteps && Travel < Setup.MaxTraceMeters; ++Step)
     {
         const Mathematics::Axis3D SampleP = ShadingPos + DirectionToLight * Travel;
-        const float PlaneFade = SmoothHermite(0.015f, 0.10f, Mathematics::EvaluateDot(SampleP - ShadingPos, ShadingNormal));
+        const float PlaneFade = Frontier::Mathematics::EvaluateSmoothStep(0.015f, 0.10f, Mathematics::EvaluateDot(SampleP - ShadingPos, ShadingNormal));
 
         float SignedStatic = 20.0f;
         for (const auto& Box : Env.InteriorBoxes)
@@ -247,7 +243,7 @@ float EvaluateGtxHybridDirectionalShadow(
         Travel += std::clamp(MinD * 0.34f, 0.014f, 0.14f);
     }
 
-    return SmoothHermite(-0.95f, 0.95f, MinRatio);
+    return Frontier::Mathematics::EvaluateSmoothStep(-0.95f, 0.95f, MinRatio);
 }
 
 float EvaluateHighEndBvhDirectionalShadow(
@@ -267,7 +263,7 @@ float EvaluateHighEndBvhDirectionalShadow(
     DistanceFieldSpace::ConstructLimbBasis(DirectionToLight, TanU, BitV);
 
     const uint32_t SampleCount = std::max(1u, Setup.VogelRaySamples);
-    const float    GoldenAngle = 2.39996323f;
+    const float    GoldenAngle = Frontier::Constants::GoldenAngleRadiansFloat;
     const float    PhaseOffset = static_cast<float>(HashMix32(PixelSeed) & 0xFFFFu) * (Constants::TauFloat / 65536.0f);
 
     uint32_t Unoccluded = 0u;
@@ -342,13 +338,13 @@ float EvaluateGtxHybridLuminaireVisibility(
         const float U = (static_cast<float>(Step) + 0.5f) * InvSteps;
         const float T = StartT + (EndT - StartT) * U;
         const Mathematics::Axis3D SampleP = ShadingPos + Dir * T;
-        const float PlaneFade = SmoothHermite(0.02f, 0.16f, Mathematics::EvaluateDot(SampleP - ShadingPos, ShadingNormal));
+        const float PlaneFade = Frontier::Mathematics::EvaluateSmoothStep(0.02f, 0.16f, Mathematics::EvaluateDot(SampleP - ShadingPos, ShadingNormal));
         if (PlaneFade <= 1.0e-4f)
         {
             continue;
         }
-        const float RampIn  = SmoothHermite(0.10f, 0.26f, T);
-        const float RampOut = 1.0f - SmoothHermite(EndT - 0.14f, EndT, T);
+        const float RampIn  = Frontier::Mathematics::EvaluateSmoothStep(0.10f, 0.26f, T);
+        const float RampOut = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(EndT - 0.14f, EndT, T);
         const float Weight  = RampIn * RampOut * PlaneFade;
         if (Weight <= 1.0e-4f)
         {
@@ -357,7 +353,7 @@ float EvaluateGtxHybridLuminaireVisibility(
 
         const float Dist    = EvaluateEndpointFilteredOccluderDistance(Env, SampleP, ShadingPos, LuminaireTargetPos);
         const float ConeR   = std::max(0.036f, T * AngRadius);
-        const float StepVis = SmoothHermite(-0.025f, ConeR * 0.72f, Dist + 0.015f);
+        const float StepVis = Frontier::Mathematics::EvaluateSmoothStep(-0.025f, ConeR * 0.72f, Dist + 0.015f);
         const float Occ     = (1.0f - StepVis) * Weight;
         OpticalDepth += 2.6f * Occ * (StepDt / std::max(0.08f, ConeR));
         if (OpticalDepth > 6.5f)

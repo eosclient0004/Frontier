@@ -344,18 +344,9 @@ void BuildDuffOrthonormalBasis(
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmicCurve(Mathematics::LinearRGB Hdr, float Exposure) noexcept
 {
-    const auto Curve = [Exposure](float C) noexcept -> float
-    {
-        const float X = std::max(0.0f, C * Exposure);
-        return std::clamp((X * (2.51f * X + 0.03f)) / (X * (2.43f * X + 0.59f) + 0.14f), 0.0f, 1.0f);
-    };
-    return { Curve(Hdr.R), Curve(Hdr.G), Curve(Hdr.B) };
+    return Frontier::ColourSpace::ApplyAcesFilmicRgb(Hdr, Exposure);
 }
 
-[[nodiscard]] uint8_t EncodeSrgbByte(float LinearC) noexcept
-{
-    return Frontier::ColourSpace::EncodeLinearToSrgbByte(LinearC);
-}
 
 // 16 world-locked Fibonacci directions on the unit sphere (zero tangent-basis rotation discontinuity on curved SDFs)
 constexpr std::array<Mathematics::Axis3D, 16> FibonacciUnitCones {{
@@ -2101,9 +2092,9 @@ SdfEmissiveRenderCapture RenderEmissiveSphereCapture(
 
                 Capture.LinearHdr[Off] = Hdr;
                 const Mathematics::LinearRGB Mapped = ApplyAcesFilmicCurve(Hdr, Camera.ExposureScale);
-                Capture.DisplayRgba8[Off * 4u + 0u] = EncodeSrgbByte(Mapped.R);
-                Capture.DisplayRgba8[Off * 4u + 1u] = EncodeSrgbByte(Mapped.G);
-                Capture.DisplayRgba8[Off * 4u + 2u] = EncodeSrgbByte(Mapped.B);
+                Capture.DisplayRgba8[Off * 4u + 0u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.R);
+                Capture.DisplayRgba8[Off * 4u + 1u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.G);
+                Capture.DisplayRgba8[Off * 4u + 2u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.B);
                 Capture.DisplayRgba8[Off * 4u + 3u] = 255u;
             }
         }

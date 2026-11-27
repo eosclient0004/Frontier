@@ -137,6 +137,23 @@ inline void AssignActiveWorldBasis(WorldCoordinateBasis Basis) noexcept
 inline void EvaluateOrthonormalCameraBasis(
     Axis3D               EyePosition,
     Axis3D               TargetPivot,
+    Axis3D               WorldUpAxis,
+    Axis3D&              OutRight,
+    Axis3D&              OutUp,
+    Axis3D&              OutForward) noexcept
+{
+    OutForward = NormalizeAxis(TargetPivot - EyePosition, { 0.0f, 1.0f, 0.0f });
+    const Axis3D SafeUp = NormalizeAxis(WorldUpAxis, { 0.0f, 0.0f, 1.0f });
+    const Axis3D SecondaryUp = (std::fabs(SafeUp.Z) > 0.9f) ? Axis3D{ 0.0f, 1.0f, 0.0f } : Axis3D{ 0.0f, 0.0f, 1.0f };
+    const Axis3D EffectiveUp = (std::fabs(EvaluateDot(OutForward, SafeUp)) < 0.985f) ? SafeUp : SecondaryUp;
+
+    OutRight = NormalizeAxis(EvaluateCross(OutForward, EffectiveUp), { 1.0f, 0.0f, 0.0f });
+    OutUp    = NormalizeAxis(EvaluateCross(OutRight, OutForward), EffectiveUp);
+}
+
+inline void EvaluateOrthonormalCameraBasis(
+    Axis3D               EyePosition,
+    Axis3D               TargetPivot,
     WorldCoordinateBasis Basis,
     Axis3D&              OutRight,
     Axis3D&              OutUp,

@@ -22,6 +22,7 @@
 #if __has_include(<volk.h>)
     #define FRONTIER_SIM_OVERLAY_HAS_VULKAN 1
     #include "Engine/GeometricRaster/VulkanInterchange.h"
+#include "Engine/Constants/MathConstants.h"
 #else
     #define FRONTIER_SIM_OVERLAY_HAS_VULKAN 0
 #endif
@@ -38,7 +39,7 @@ struct SimulationOverlayCamera
     std::array<float, 3> EyeMeters     { 0.0f, 3.2f, 8.5f };
     std::array<float, 3> TargetMeters  { 0.0f, 1.4f, 0.0f };
     std::array<float, 3> UpAxis        { 0.0f, 1.0f, 0.0f };
-    float                VerticalFovRad = 0.78539816f; // 45 deg
+    float                VerticalFovRad = Frontier::Constants::QuarterPiFloat; // 45 deg
     float                NearPlaneMeters = 0.05f;
     float                FarPlaneMeters  = 250.0f;
 };

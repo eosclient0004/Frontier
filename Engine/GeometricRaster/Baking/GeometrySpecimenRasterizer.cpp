@@ -1154,7 +1154,7 @@ MaterialSpace::SpecimenPreviewImage RasterizeGeometrySpecimenPreview(
         ? Mathematics::NormalizeAxis({ -0.64f, -0.68f, 0.36f })
         : Mathematics::NormalizeAxis({ -0.54f, -0.76f, 0.37f });
 
-    constexpr float VerticalFovRad = 0.78539816f; // 45 deg
+    constexpr float VerticalFovRad = Frontier::Constants::QuarterPiFloat; // 45 deg
     const float TanHalf = std::tan(VerticalFovRad * 0.5f);
     const float Dist = std::max(0.28f, (BoundsRadius * 1.18f) / std::max(0.18f, TanHalf));
 

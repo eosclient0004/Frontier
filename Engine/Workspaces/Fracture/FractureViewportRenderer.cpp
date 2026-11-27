@@ -10,6 +10,7 @@
 #include "Engine/SimulationSpace/PhysicsSpace/RigidBodyDynamics.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Mathematics/CoordinateSpace.h"
 
 #include <algorithm>
 #include <array>
@@ -39,11 +40,15 @@ struct CameraBasis
 CameraBasis BuildCameraBasis(const FractureViewportCamera& Camera, uint32_t WidthPx, uint32_t HeightPx) noexcept
 {
     CameraBasis Basis {};
-    Basis.Eye         = FractureViewportRenderer::ComputeCameraPosition(Camera);
-    Basis.Forward     = Mathematics::NormalizeAxis(Camera.TargetWorld - Basis.Eye, { 0.0f, 1.0f, 0.0f });
-    Basis.Right       = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(Basis.Forward, { 0.0f, 0.0f, 1.0f }), { 1.0f, 0.0f, 0.0f });
-    Basis.Up          = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(Basis.Right, Basis.Forward), { 0.0f, 0.0f, 1.0f });
-    Basis.TanHalfFovY = std::tan(0.5f * Camera.VerticalFovDeg * (Frontier::Constants::PiFloat / 180.0f));
+    Basis.Eye = FractureViewportRenderer::ComputeCameraPosition(Camera);
+    Mathematics::EvaluateOrthonormalCameraBasis(
+        Basis.Eye,
+        Camera.TargetWorld,
+        Mathematics::WorldCoordinateBasis::RightHandedZUp,
+        Basis.Right,
+        Basis.Up,
+        Basis.Forward);
+    Basis.TanHalfFovY = std::tan(0.5f * Camera.VerticalFovDeg * Frontier::Constants::DegToRadFloat);
     Basis.Aspect      = static_cast<float>(std::max(1u, WidthPx)) / static_cast<float>(std::max(1u, HeightPx));
     return Basis;
 }
@@ -73,19 +78,9 @@ bool ProjectWorldPoint(
     return true;
 }
 
-uint8_t LinearToSrgb8(float V) noexcept
-{
-    return Frontier::ColourSpace::EncodeLinearToSrgbByte(V);
-}
-
 Mathematics::LinearRGB AcesToneMap(Mathematics::LinearRGB Radiance) noexcept
 {
-    const auto MapChannel = [](float X) noexcept -> float
-    {
-        const float Scaled = std::max(0.0f, X * 0.88f);
-        return std::clamp((Scaled * (2.51f * Scaled + 0.03f)) / (Scaled * (2.43f * Scaled + 0.59f) + 0.14f), 0.0f, 1.0f);
-    };
-    return { MapChannel(Radiance.R), MapChannel(Radiance.G), MapChannel(Radiance.B) };
+    return Frontier::ColourSpace::ApplyAcesFilmicRgb(Radiance, 0.88f);
 }
 
 Mathematics::LinearRGB EvaluateStudioEnvironmentRhrZUp(Mathematics::Axis3D WorldDir, float Roughness) noexcept
@@ -508,9 +503,9 @@ FractureRenderOutput FractureViewportRenderer::RenderFrame(
             }
 
             const size_t Off = (static_cast<size_t>(Row) * W + Col) * 4u;
-            Output.DisplayRgba8[Off + 0u] = LinearToSrgb8(PixelLin.R);
-            Output.DisplayRgba8[Off + 1u] = LinearToSrgb8(PixelLin.G);
-            Output.DisplayRgba8[Off + 2u] = LinearToSrgb8(PixelLin.B);
+            Output.DisplayRgba8[Off + 0u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(PixelLin.R);
+            Output.DisplayRgba8[Off + 1u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(PixelLin.G);
+            Output.DisplayRgba8[Off + 2u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(PixelLin.B);
             Output.DisplayRgba8[Off + 3u] = 255u;
         }
     }
@@ -727,9 +722,9 @@ FractureRenderOutput FractureViewportRenderer::RenderFrame(
 
                 const auto Mapped = AcesToneMap(OutLinear);
                 const size_t Off  = PixIdx * 4u;
-                Output.DisplayRgba8[Off + 0u] = LinearToSrgb8(Mapped.R);
-                Output.DisplayRgba8[Off + 1u] = LinearToSrgb8(Mapped.G);
-                Output.DisplayRgba8[Off + 2u] = LinearToSrgb8(Mapped.B);
+                Output.DisplayRgba8[Off + 0u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.R);
+                Output.DisplayRgba8[Off + 1u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.G);
+                Output.DisplayRgba8[Off + 2u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(Mapped.B);
             }
         }
 
@@ -1022,9 +1017,9 @@ void FractureViewportRenderer::SampleEnergySwatchSrgb(
     uint8_t& OutB) noexcept
 {
     const auto Lin = EvaluateEnergyHeatmapLinear(NormalizedStress);
-    OutR = LinearToSrgb8(Lin.R);
-    OutG = LinearToSrgb8(Lin.G);
-    OutB = LinearToSrgb8(Lin.B);
+    OutR = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.R);
+    OutG = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.G);
+    OutB = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.B);
 }
 
 void FractureViewportRenderer::SampleCellSwatchSrgb(
@@ -1034,9 +1029,9 @@ void FractureViewportRenderer::SampleCellSwatchSrgb(
     uint8_t& OutB) noexcept
 {
     const auto Lin = EvaluateGoldenCellLinear(CellIndex);
-    OutR = LinearToSrgb8(Lin.R);
-    OutG = LinearToSrgb8(Lin.G);
-    OutB = LinearToSrgb8(Lin.B);
+    OutR = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.R);
+    OutG = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.G);
+    OutB = Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.B);
 }
 
 } // namespace Frontier::Workspaces::Fracture

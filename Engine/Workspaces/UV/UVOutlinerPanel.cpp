@@ -15,6 +15,7 @@
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <imgui.h>
 
@@ -31,36 +32,6 @@ namespace Frontier::Workspaces
 namespace
 {
 
-[[nodiscard]] bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
-{
-    if (Needle.empty())
-    {
-        return true;
-    }
-    if (Haystack.size() < Needle.size())
-    {
-        return false;
-    }
-    for (std::size_t Start = 0u; Start + Needle.size() <= Haystack.size(); ++Start)
-    {
-        bool Match = true;
-        for (std::size_t Idx = 0u; Idx < Needle.size(); ++Idx)
-        {
-            const unsigned char A = static_cast<unsigned char>(Haystack[Start + Idx]);
-            const unsigned char B = static_cast<unsigned char>(Needle[Idx]);
-            if (std::tolower(A) != std::tolower(B))
-            {
-                Match = false;
-                break;
-            }
-        }
-        if (Match)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 
 } // namespace
 
@@ -433,7 +404,7 @@ void UVOutlinerPanel::Render(
             Session->Asset.Network, Layer.LayerOrdinal);
         const bool TileMatches = UDIMFilterCode == 0u || Layer.TargetUDIMNumber == UDIMFilterCode ||
             std::find(PartRef.UDIMNumbers.begin(), PartRef.UDIMNumbers.end(), UDIMFilterCode) != PartRef.UDIMNumbers.end();
-        if (TileMatches && ContainsCaseInsensitive(Layer.LayerTitle, FilterQuery))
+        if (TileMatches && Frontier::Serialization::ContainsAsciiCaseInsensitive(Layer.LayerTitle, FilterQuery))
         {
             VisibleLayerOrdinals.push_back(Layer.LayerOrdinal);
         }

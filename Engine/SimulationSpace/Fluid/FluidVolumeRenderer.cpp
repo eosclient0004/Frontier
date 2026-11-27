@@ -11,6 +11,7 @@
 #include "Engine/SimulationSpace/Fluid/FluidVolumeRenderer.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Mathematics/ScalarMath.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <cmath>
@@ -242,12 +243,11 @@ float EvaluateSmokePhaseCpu(const float cosTheta, const float g) noexcept
 
 std::array<float, 3> EvaluateAcesFilmCpu(const std::array<float, 3>& x) noexcept
 {
-    auto curve = [](const float v) -> float {
-        const float num = v * (2.51f * v + 0.03f);
-        const float den = v * (2.43f * v + 0.59f) + 0.14f;
-        return Frontier::Mathematics::ClampScalar(num / std::max(den, 1.0e-6f), 0.0f, 1.0f);
+    return {
+        Frontier::ColourSpace::ApplyAcesFilmicChannel(x[0], 1.0f),
+        Frontier::ColourSpace::ApplyAcesFilmicChannel(x[1], 1.0f),
+        Frontier::ColourSpace::ApplyAcesFilmicChannel(x[2], 1.0f),
     };
-    return { curve(x[0]), curve(x[1]), curve(x[2]) };
 }
 
 float EvaluateSunOpticalDepthCpu(

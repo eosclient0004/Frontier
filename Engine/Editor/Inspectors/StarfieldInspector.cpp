@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/StarfieldInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -17,10 +18,6 @@ namespace Frontier
 namespace
 {
 
-[[nodiscard]] uint8_t ClampByteSt(float V) noexcept
-{
-    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
-}
 
 } // namespace
 
@@ -67,9 +64,9 @@ void StarfieldInspector::UpdateStarChartSurface(const GeometricRaster::Starfield
                     const float D = std::hypot(static_cast<float>(PX) - SX, static_cast<float>(PY) - SY);
                     const float Cov = std::exp(-(D * D) / std::max(0.35f, Rad * Rad * 0.45f));
                     const std::size_t Off = (static_cast<std::size_t>(PY) * W + static_cast<std::size_t>(PX)) * 4u;
-                    Pixels[Off + 0u] = ClampByteSt(static_cast<float>(Pixels[Off + 0u]) + Bri * Cov);
-                    Pixels[Off + 1u] = ClampByteSt(static_cast<float>(Pixels[Off + 1u]) + Bri * Cov);
-                    Pixels[Off + 2u] = ClampByteSt(static_cast<float>(Pixels[Off + 2u]) + (Bri + 18.0f) * Cov);
+                    Pixels[Off + 0u] = Frontier::Mathematics::QuantizeFloatToByte(static_cast<float>(Pixels[Off + 0u]) + Bri * Cov);
+                    Pixels[Off + 1u] = Frontier::Mathematics::QuantizeFloatToByte(static_cast<float>(Pixels[Off + 1u]) + Bri * Cov);
+                    Pixels[Off + 2u] = Frontier::Mathematics::QuantizeFloatToByte(static_cast<float>(Pixels[Off + 2u]) + (Bri + 18.0f) * Cov);
                 }
             }
         }

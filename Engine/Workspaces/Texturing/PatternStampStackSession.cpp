@@ -2373,7 +2373,7 @@ void PatternStampWorkspaceSession::RecomputeSummaryMetrics() noexcept
         float SingleArea = W * H;
         if (L.MotifShape == PatternStampMotifShape::Circle || L.MotifShape == PatternStampMotifShape::Ring)
         {
-            SingleArea *= 0.785398f;
+            SingleArea *= Frontier::Constants::QuarterPiFloat;
         }
         else if (L.MotifShape == PatternStampMotifShape::Hexagon)
         {

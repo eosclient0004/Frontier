@@ -529,10 +529,6 @@ struct EvaluatedPbrTexel
     return Out;
 }
 
-[[nodiscard]] uint8_t EncodeAcesSrgbByte(float LinearVal) noexcept
-{
-    return Frontier::ColourSpace::EncodeAcesSrgbByte(LinearVal, 0.92f);
-}
 
 } // namespace
 
@@ -1706,9 +1702,9 @@ bool TexturePaintSession::RenderSpatialViewportRgba8(
                 const std::size_t ByteIdx = PixIdx * 4u;
                 if (ViewChannelIndex == 0u)
                 {
-                    OutRgba8[ByteIdx + 0u] = EncodeAcesSrgbByte(OutR);
-                    OutRgba8[ByteIdx + 1u] = EncodeAcesSrgbByte(OutG);
-                    OutRgba8[ByteIdx + 2u] = EncodeAcesSrgbByte(OutB);
+                    OutRgba8[ByteIdx + 0u] = Frontier::ColourSpace::EncodeAcesSrgbByte(OutR);
+                    OutRgba8[ByteIdx + 1u] = Frontier::ColourSpace::EncodeAcesSrgbByte(OutG);
+                    OutRgba8[ByteIdx + 2u] = Frontier::ColourSpace::EncodeAcesSrgbByte(OutB);
                 }
                 else
                 {

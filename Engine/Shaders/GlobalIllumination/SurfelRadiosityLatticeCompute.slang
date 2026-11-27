@@ -4,6 +4,7 @@
 // 🧩 Order 2 GI Candidate 2 GPU compute: Bunnell finite-disk near-field emissive + Dual-Cascade C1-Hermite Octahedral Lattice lookup
 
 import DirectLighting.WideTreeRayQuery;
+#include "../Shared/ShaderMathConstants.slang"
 
 struct GpuTaperedCapsule32
 {
@@ -60,7 +61,6 @@ struct GpuSurfelLatticeUniforms
 [[vk::binding(12, 0)]] StructuredBuffer<GpuTaperedCapsule32>      LimbCapsules;
 [[vk::binding(13, 0)]] StructuredBuffer<GpuClosedBox32>           InteriorBoxes;
 
-static const float PiConstant = 3.14159265358979323846;
 
 float SmoothHermiteLat(float Edge0, float Edge1, float X)
 {
@@ -294,7 +294,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
         float  RawE  = dot(Surf.NormalTwoSided.xyz, -Wi);
         float  CosE  = (Surf.NormalTwoSided.w > 0.5) ? abs(RawE) : max(0.0, RawE);
         if (CosE <= 0.0) continue;
-        float  FF    = clamp((Area * CosR * CosE) / (PiConstant * DSq + Area), 0.0, 1.0);
+        float  FF    = clamp((Area * CosR * CosE) / (FrontierPi * DSq + Area), 0.0, 1.0);
         if (FF <= 1.0e-5) continue;
 
         if (HighEnd)
@@ -304,13 +304,13 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
                 TraceCompressedWideTreeAnyHit(SceneBvhEntries, ScenePrimitives, BvhCnt, RPos + RNrm * 3.0e-3, Wi, 2.0e-3, MaxRay);
             if (!Hit)
             {
-                EmissiveE += Surf.ExitantRadiance.xyz * (PiConstant * FF);
+                EmissiveE += Surf.ExitantRadiance.xyz * (FrontierPi * FF);
             }
         }
         else
         {
-            float Vis = EvaluateGtxFarFieldVisibilityLat(RPos, RNrm, Surf.PositionArea.xyz, sqrt(Area / PiConstant));
-            EmissiveE += Surf.ExitantRadiance.xyz * (PiConstant * FF * Vis);
+            float Vis = EvaluateGtxFarFieldVisibilityLat(RPos, RNrm, Surf.PositionArea.xyz, sqrt(Area / FrontierPi));
+            EmissiveE += Surf.ExitantRadiance.xyz * (FrontierPi * FF * Vis);
         }
     }
 

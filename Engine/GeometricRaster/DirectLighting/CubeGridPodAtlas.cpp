@@ -37,11 +37,6 @@ namespace
 }
 
 
-[[nodiscard]] float SmoothHermite(float X) noexcept
-{
-    const float T = std::clamp(X, 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
 [[nodiscard]] std::array<float, 3> ShadeFromRadiator(
     const std::array<float, 3>& ShadingPos,
@@ -201,7 +196,7 @@ struct CalibrationReceiver
             const float Fi = (static_cast<float>(S) + 0.5f) / 32.0f;
             const float CosTheta = 1.0f - 2.0f * Fi;
             const float SinTheta = std::sqrt(std::max(0.0f, 1.0f - CosTheta * CosTheta));
-            const float Phi = 2.39996323f * static_cast<float>(S); // Golden angle
+            const float Phi = Frontier::Constants::GoldenAngleRadiansFloat * static_cast<float>(S); // Golden angle
             const std::array<float, 3> Dir { std::cos(Phi) * SinTheta, CosTheta, std::sin(Phi) * SinTheta };
 
             CalibrationReceiver Rec {};
@@ -327,7 +322,7 @@ std::array<float, 3> EvaluateRawSourceCandela(
         const float CosAngle = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, Source.DirectionWorld);
         const float Edge0 = Source.CosOuterCone;
         const float Edge1 = std::min(0.992f, Source.CosOuterCone + 0.28f);
-        AngularFactor = SmoothHermite((CosAngle - Edge0) / std::max(1.0e-4f, Edge1 - Edge0));
+        AngularFactor = Frontier::Mathematics::EvaluateSmoothHermite((CosAngle - Edge0) / std::max(1.0e-4f, Edge1 - Edge0));
         if (AngularFactor <= 1.0e-4f)
         {
             return { 0.0f, 0.0f, 0.0f };
@@ -342,7 +337,7 @@ std::array<float, 3> EvaluateRawSourceCandela(
         const float Lat = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, RightAxis);
         const float Elev = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, UpAxis);
         const float CutoffLine = (Lat <= 0.0f) ? -0.018f : (-0.018f + Lat * 0.268f);
-        AngularFactor *= 1.0f - SmoothHermite((Elev - CutoffLine) / 0.06f);
+        AngularFactor *= 1.0f - Frontier::Mathematics::EvaluateSmoothHermite((Elev - CutoffLine) / 0.06f);
     }
 
     const float Gain = Source.LuminousFlux * AngularFactor;
@@ -572,7 +567,7 @@ std::array<float, 3> EvaluateCubeGridPodAtSurface(
     const float Lod = ComputeContinuousPodLod(Dist, Pod.BoundingDiameterM, LodBias);
     const uint32_t Tier0 = std::min(3u, static_cast<uint32_t>(std::floor(Lod)));
     const uint32_t Tier1 = std::min(3u, Tier0 + 1u);
-    const float Blend = SmoothHermite(Lod - static_cast<float>(Tier0));
+    const float Blend = Frontier::Mathematics::EvaluateSmoothHermite(Lod - static_cast<float>(Tier0));
 
     uint32_t Lookups = 0u;
     const auto EvalTier = [&](uint32_t Tier) noexcept -> std::array<float, 3> {

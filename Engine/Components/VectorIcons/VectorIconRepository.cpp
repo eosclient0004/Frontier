@@ -157,7 +157,7 @@ void AppendEllipticalArc(std::vector<Point2D> &Out, Point2D P0, float Rx, float 
     Rx = std::fabs(Rx);
     Ry = std::fabs(Ry);
 
-    const float Phi    = RotationDegrees * Frontier::Constants::PiFloat / 180.0f;
+    const float Phi    = RotationDegrees * Frontier::Constants::DegToRadFloat;
     const float CosPhi = std::cos(Phi);
     const float SinPhi = std::sin(Phi);
     const float Dx     = (P0.X - P1.X) * 0.5f;

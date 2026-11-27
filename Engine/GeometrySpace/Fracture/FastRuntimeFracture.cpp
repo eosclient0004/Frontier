@@ -808,7 +808,7 @@ FracturePartitionResult FastRuntimeFracture::Execute(
     const uint32_t Ceiling      = std::clamp(Specification.Ceiling, 2u, 256u);
     const double   ImpactEnergy = std::max(10.0, Specification.EnergyJoules);
     const double   MinSpan      = std::max(0.015, Specification.MinimumSizeM);
-    const double   GrainRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
+    const double   GrainRad     = Specification.GrainAngleDeg * Frontier::Constants::DegToRad;
     const double   BondScale    = Specification.BondStrengthScale > 0.0 ? Specification.BondStrengthScale : 1.0;
 
     FlatConvexCell RootCell     = PackFlatConvexCell(SourcePolyhedron);

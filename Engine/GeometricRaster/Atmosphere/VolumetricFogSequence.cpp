@@ -20,56 +20,9 @@ namespace
 {
 
 
-[[nodiscard]] inline float CelestialHash13Cpu(float Px, float Py, float Pz) noexcept
-{
-    float X = Frontier::Mathematics::EvaluateFractionalPart(Px * 0.1031f);
-    float Y = Frontier::Mathematics::EvaluateFractionalPart(Py * 0.1031f);
-    float Z = Frontier::Mathematics::EvaluateFractionalPart(Pz * 0.1031f);
-    const float D = X * (Z + 31.32f) + Y * (Y + 31.32f) + Z * (X + 31.32f);
-    X += D;
-    Y += D;
-    Z += D;
-    return Frontier::Mathematics::EvaluateFractionalPart((X + Y) * Z);
-}
-
-[[nodiscard]] float CelestialScalarNoiseCpu(float Px, float Py, float Pz) noexcept
-{
-    const float Ix = std::floor(Px);
-    const float Iy = std::floor(Py);
-    const float Iz = std::floor(Pz);
-    float Fx = Px - Ix;
-    float Fy = Py - Iy;
-    float Fz = Pz - Iz;
-    Fx = Fx * Fx * (3.0f - 2.0f * Fx);
-    Fy = Fy * Fy * (3.0f - 2.0f * Fy);
-    Fz = Fz * Fz * (3.0f - 2.0f * Fz);
-
-    const float N000 = CelestialHash13Cpu(Ix,        Iy,        Iz);
-    const float N100 = CelestialHash13Cpu(Ix + 1.0f, Iy,        Iz);
-    const float N010 = CelestialHash13Cpu(Ix,        Iy + 1.0f, Iz);
-    const float N110 = CelestialHash13Cpu(Ix + 1.0f, Iy + 1.0f, Iz);
-    const float N001 = CelestialHash13Cpu(Ix,        Iy,        Iz + 1.0f);
-    const float N101 = CelestialHash13Cpu(Ix + 1.0f, Iy,        Iz + 1.0f);
-    const float N011 = CelestialHash13Cpu(Ix,        Iy + 1.0f, Iz + 1.0f);
-    const float N111 = CelestialHash13Cpu(Ix + 1.0f, Iy + 1.0f, Iz + 1.0f);
-
-    const float X00 = N000 + (N100 - N000) * Fx;
-    const float X10 = N010 + (N110 - N010) * Fx;
-    const float X01 = N001 + (N101 - N001) * Fx;
-    const float X11 = N011 + (N111 - N011) * Fx;
-    const float Y0  = X00 + (X10 - X00) * Fy;
-    const float Y1  = X01 + (X11 - X01) * Fy;
-    return Y0 + (Y1 - Y0) * Fz;
-}
 
 
-[[nodiscard]] inline float CelestialPhaseHGCpu(float CosTheta, float AnisotropyG) noexcept
-{
-    const float G   = std::clamp(AnisotropyG, -0.95f, 0.95f);
-    const float G2  = G * G;
-    const float Den = std::max(1.0e-4f, 1.0f + G2 - 2.0f * G * CosTheta);
-    return (1.0f - G2) / (4.0f * Constants::PiFloat * std::pow(Den, 1.5f));
-}
+
 
 [[nodiscard]] float EvaluateLocalFogShapeMaskCpu(
     const Mathematics::Axis3D&   PointWorld,
@@ -196,8 +149,8 @@ namespace
             const float Cx = AdvX * 0.08f + SimulationSeconds * 0.06f;
             const float Cy = AdvY * 0.08f - SimulationSeconds * 0.05f;
             const float Cz = AdvZ * 0.08f;
-            const float Sx = CelestialScalarNoiseCpu(Cx, Cy + 0.4f, Cz) - CelestialScalarNoiseCpu(Cx, Cy - 0.4f, Cz);
-            const float Sy = CelestialScalarNoiseCpu(Cx + 0.4f, Cy, Cz) - CelestialScalarNoiseCpu(Cx - 0.4f, Cy, Cz);
+            const float Sx = Frontier::Mathematics::EvaluateLatticeNoise3D(Cx, Cy + 0.4f, Cz) - Frontier::Mathematics::EvaluateLatticeNoise3D(Cx, Cy - 0.4f, Cz);
+            const float Sy = Frontier::Mathematics::EvaluateLatticeNoise3D(Cx + 0.4f, Cy, Cz) - Frontier::Mathematics::EvaluateLatticeNoise3D(Cx - 0.4f, Cy, Cz);
             const float Sw = std::min(WLen * 0.08f, 2.2f);
             AdvX += Sx * Sw;
             AdvY -= Sy * Sw;
@@ -208,9 +161,9 @@ namespace
     const float Px     = AdvX / ScaleM + SimulationSeconds * 0.04f;
     const float Py     = AdvY / ScaleM + SimulationSeconds * 0.02f;
     const float Pz     = AdvZ / ScaleM + SimulationSeconds * 0.015f;
-    const float N      = CelestialScalarNoiseCpu(Px, Py, Pz) * 0.55f
-                       + CelestialScalarNoiseCpu(Px * 2.1f + 2.3f, Py * 2.1f + 4.7f, Pz * 2.1f + 1.1f) * 0.30f
-                       + CelestialScalarNoiseCpu(Px * 4.4f + 6.1f, Py * 4.4f + 0.9f, Pz * 4.4f + 3.8f) * 0.15f;
+    const float N      = Frontier::Mathematics::EvaluateLatticeNoise3D(Px, Py, Pz) * 0.55f
+                       + Frontier::Mathematics::EvaluateLatticeNoise3D(Px * 2.1f + 2.3f, Py * 2.1f + 4.7f, Pz * 2.1f + 1.1f) * 0.30f
+                       + Frontier::Mathematics::EvaluateLatticeNoise3D(Px * 4.4f + 6.1f, Py * 4.4f + 0.9f, Pz * 4.4f + 3.8f) * 0.15f;
 
     const float Hetero = std::clamp(Vol.Coverage, 0.0f, 1.0f);
     const float Mod    = (1.0f - Hetero) + Hetero * (Frontier::Mathematics::EvaluateSmoothStep(0.18f, 0.86f, N) * 1.45f);
@@ -336,7 +289,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateAnalyticAtmosphericMedia(
             const float SampleDistM = std::min(SafeDist * 0.35f, 80.0f);
             const float Px = RayOriginWorld.X + RayDirection.X * SampleDistM;
             const float Py = RayOriginWorld.Y + RayDirection.Y * SampleDistM;
-            const float Drift = 0.88f + 0.24f * CelestialScalarNoiseCpu(
+            const float Drift = 0.88f + 0.24f * Frontier::Mathematics::EvaluateLatticeNoise3D(
                 (Px - Wind.VelocityMetersPerSec.X * SimulationSeconds) * 0.03f,
                 (Py - Wind.VelocityMetersPerSec.Y * SimulationSeconds) * 0.03f,
                 SimulationSeconds * 0.15f);
@@ -344,7 +297,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateAnalyticAtmosphericMedia(
         }
 
         Tf = std::exp(-Od * Od);
-        const float FogPh  = std::min(CelestialPhaseHGCpu(CosS, 0.55f) * (4.0f * Constants::PiFloat), 6.0f);
+        const float FogPh  = std::min(Frontier::Mathematics::EvaluateHenyeyGreensteinPhase(CosS, 0.55f) * (4.0f * Constants::PiFloat), 6.0f);
         const float SunMul = std::max(0.0f, FogConfiguration.HeightFog.SunScatterIntensity);
         LfR = FogConfiguration.HeightFog.HeightColour.R * (HemisphericalSkyAmbient.R * 0.48f + LowBandSkyGlow.R * 0.20f + SunR * FogPh * 0.22f * SunMul);
         LfG = FogConfiguration.HeightFog.HeightColour.G * (HemisphericalSkyAmbient.G * 0.48f + LowBandSkyGlow.G * 0.20f + SunG * FogPh * 0.22f * SunMul);
@@ -376,7 +329,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateAnalyticAtmosphericMedia(
             const float AnisoG  = std::clamp(FogConfiguration.AerialFog.AnisotropyG, 0.0f, 0.95f);
             const float SkyGain = std::max(0.0f, FogConfiguration.AerialFog.SkyLightGain);
             const float PhRay   = 0.75f * (1.0f + CosS * CosS);
-            const float PhMie   = std::min(CelestialPhaseHGCpu(CosS, AnisoG) * (4.0f * Constants::PiFloat), 8.0f);
+            const float PhMie   = std::min(Frontier::Mathematics::EvaluateHenyeyGreensteinPhase(CosS, AnisoG) * (4.0f * Constants::PiFloat), 8.0f);
             const float SkyW    = (1.0f - 0.2f * MieB) * SkyGain;
             const float SunW    = PhRay * 0.18f * (1.0f - MieB) + PhMie * 0.32f * MieB;
             LaR = ((HemisphericalSkyAmbient.R * 0.48f + LowBandSkyGlow.R * 0.28f) * SkyW + SunR * SunW) * FogConfiguration.AerialFog.AerialTint.R;
@@ -541,7 +494,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
                 Sh = std::exp(-Od);
             }
 
-            const float Ph  = CelestialPhaseHGCpu(CosS, Vol.AnisotropyG) * (4.0f * Constants::PiFloat);
+            const float Ph  = Frontier::Mathematics::EvaluateHenyeyGreensteinPhase(CosS, Vol.AnisotropyG) * (4.0f * Constants::PiFloat);
             const float Ms  = Sh + 0.45f * std::sqrt(Sh);
             float LiR = SunR * (Ph * Ms * 0.72f) + SkyRadiance.R   * (0.65f + 0.35f * Hn) + LowGlow.R   * 0.25f;
             float LiG = SunG * (Ph * Ms * 0.72f) + SkyRadiance.G * (0.65f + 0.35f * Hn) + LowGlow.G * 0.25f;
@@ -561,7 +514,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
                     const float Lx = Dx * InvLen, Ly = Dy * InvLen, Lz = Dz * InvLen;
                     const float RangeF = std::clamp(1.0f - Dist / Reach, 0.0f, 1.0f);
                     const float Atten  = (RangeF * RangeF) / std::max(0.35f, Dist2);
-                    const float LPh    = CelestialPhaseHGCpu(RayDirection.X * Lx + RayDirection.Y * Ly + RayDirection.Z * Lz, Vol.AnisotropyG) * (4.0f * Constants::PiFloat);
+                    const float LPh    = Frontier::Mathematics::EvaluateHenyeyGreensteinPhase(RayDirection.X * Lx + RayDirection.Y * Ly + RayDirection.Z * Lz, Vol.AnisotropyG) * (4.0f * Constants::PiFloat);
                     const float Gain   = Atten * LPh * 0.08f;
                     LiR += Lamp.RadianceRgb.R   * Gain;
                     LiG += Lamp.RadianceRgb.G * Gain;

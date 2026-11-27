@@ -930,7 +930,7 @@ ParticleCarrierSolidUniformBlock BuildParticleCarrierSolidUniforms(
 
     const float viewH = std::max(1.0f, camera.ViewportHeightPx * camera.PixelRatio);
     const float focalPixels = viewH / (2.0f * std::tan(std::max(0.05f, camera.VerticalFovRad) * 0.5f));
-    const float yawRad = params.SolidYawDegrees * (Frontier::Constants::PiFloat / 180.0f);
+    const float yawRad = params.SolidYawDegrees * Frontier::Constants::DegToRadFloat;
 
     block.CameraPositionFocal     = { camera.CameraPosition[0], camera.CameraPosition[1], camera.CameraPosition[2], focalPixels };
     block.CameraForwardPixelRatio = { camera.CameraForward[0], camera.CameraForward[1], camera.CameraForward[2], camera.PixelRatio };
@@ -1567,7 +1567,7 @@ StrandEndpointsCpuResult EvaluateStrandEndpointsCpu(
     {
         const int32_t tier = slot % 3;
         const float tierFrac = static_cast<float>(tier) * 0.5f;
-        const float az = static_cast<float>(slot) * 2.3999632f + (StrandHashF(sd, 1.0f) - 0.5f) * 0.16f;
+        const float az = static_cast<float>(slot) * Frontier::Constants::GoldenAngleRadiansFloat + (StrandHashF(sd, 1.0f) - 0.5f) * 0.16f;
         const float fLen = std::max(0.65f, R * 1.15f) * Frontier::Mathematics::InterpolateScalar(0.54f, 1.08f, tierFrac) * Frontier::Mathematics::InterpolateScalar(0.88f, 1.14f, StrandHashF(sd, 2.0f));
         const float tipY = span * Frontier::Mathematics::InterpolateScalar(0.88f, 0.32f, tierFrac) * Frontier::Mathematics::InterpolateScalar(0.88f, 1.14f, StrandHashF(sd, 3.0f));
         o.PointA = { origin[0] + std::cos(az) * 0.08f, origin[1] - span * 0.38f, origin[2] + std::sin(az) * 0.08f };
@@ -1600,7 +1600,7 @@ StrandEndpointsCpuResult EvaluateStrandEndpointsCpu(
         const float cRad = (cluster == 0) ? 0.0f : (0.55f * R);
         const Vec3f mound { origin[0] + std::cos(cPhi) * cRad, origin[1] - span * 0.35f, origin[2] + std::sin(cPhi) * cRad };
         const float ringR = Frontier::Mathematics::InterpolateScalar(0.05f, ((cluster == 0) ? 0.38f : 0.28f) * R, std::sqrt(StrandHashF(sd, 1.0f)));
-        const float az = static_cast<float>(slot) * 2.3999632f + StrandHashF(sd, 2.0f) * 0.38f;
+        const float az = static_cast<float>(slot) * Frontier::Constants::GoldenAngleRadiansFloat + StrandHashF(sd, 2.0f) * 0.38f;
         const float tLen = span * Frontier::Mathematics::InterpolateScalar(0.55f, 1.05f, StrandHashF(sd, 3.0f));
         const float flare = ringR * 1.45f + 0.42f * tLen;
         o.PointA = Add3(mound, { std::cos(az) * ringR, 0.06f + (0.28f - std::min(ringR, 0.25f)) * 0.45f, std::sin(az) * ringR });

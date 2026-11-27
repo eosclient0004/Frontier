@@ -79,10 +79,6 @@ namespace
     return { BaryW, BaryU, BaryV };
 }
 
-[[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
-{
-    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
-}
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmic(Mathematics::LinearRGB Hdr) noexcept
 {
@@ -450,9 +446,9 @@ VisibilityResolveBuffer VisibilityMaterialResolve::ResolveVisibilityFrame(
 
                     Frame.LinearHdrRadiance[PixOff] = PixelHdr;
                     const auto Tone = ApplyAcesFilmic(PixelHdr);
-                    Frame.ToneMappedSrgb8[PixOff * 4u + 0u] = static_cast<uint8_t>( std::round(EncodeLinearToSrgb(Tone.R) * 255.0f));
-                    Frame.ToneMappedSrgb8[PixOff * 4u + 1u] = static_cast<uint8_t>( std::round(EncodeLinearToSrgb(Tone.G) * 255.0f));
-                    Frame.ToneMappedSrgb8[PixOff * 4u + 2u] = static_cast<uint8_t>( std::round(EncodeLinearToSrgb(Tone.B) * 255.0f));
+                    Frame.ToneMappedSrgb8[PixOff * 4u + 0u] = static_cast<uint8_t>( std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.R) * 255.0f));
+                    Frame.ToneMappedSrgb8[PixOff * 4u + 1u] = static_cast<uint8_t>( std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.G) * 255.0f));
+                    Frame.ToneMappedSrgb8[PixOff * 4u + 2u] = static_cast<uint8_t>( std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.B) * 255.0f));
                     Frame.ToneMappedSrgb8[PixOff * 4u + 3u] = 255u;
                 }
             }

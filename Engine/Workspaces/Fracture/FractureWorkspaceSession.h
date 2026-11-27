@@ -19,6 +19,7 @@
 #include "Engine/SimulationSpace/PhysicsSpace/FractureSimulationRunner.h"
 #include "Engine/Workspaces/Fracture/FractureIcons.h"
 #include "Engine/Workspaces/Fracture/FractureViewportRenderer.h"
+#include "Engine/Constants/PhysicsConstants.h"
 
 #include <array>
 #include <cstdint>
@@ -188,7 +189,7 @@ public:
     // Simulation recipe
     double                                         TransferRatio       = 0.72;
     double                                         ReleaseThresholdJ   = 5.0;
-    double                                         GravityMps2         = 9.81;
+    double                                         GravityMps2         = Frontier::Constants::StandardGravity;
     double                                         Restitution         = 0.14;
     double                                         Friction            = 0.78;
     bool                                           CollisionsEnabled   = true;

@@ -156,7 +156,7 @@ DiagnosticInfographicResult DiagnosticInfographicCanvas::Construct(
         Surface.StrokeLine({ Center.X - Radius, Center.Y }, { Center.X + Radius, Center.Y }, ColorRgba { 255u, 255u, 255u, 16u }, 0.8f);
         Surface.StrokeLine({ Center.X, Center.Y - Radius }, { Center.X, Center.Y + Radius }, ColorRgba { 255u, 255u, 255u, 16u }, 0.8f);
 
-        const float Rad = (Spec.PrimaryAngleDeg - 90.0f) * Frontier::Constants::PiFloat / 180.0f;
+        const float Rad = (Spec.PrimaryAngleDeg - 90.0f) * Frontier::Constants::DegToRadFloat;
         const Point2D Tip { Center.X + std::cos(Rad) * (Radius * 0.88f), Center.Y + std::sin(Rad) * (Radius * 0.88f) };
         Surface.StrokeLine(Center, Tip, Emerald, 2.2f);
         Surface.FillCircle(Tip, 3.6f, Emerald);

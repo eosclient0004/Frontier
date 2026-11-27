@@ -10,6 +10,7 @@
 #include "Engine/Serialization/Codecs/FormatCodecSuite.h"
 
 #include "Engine/Serialization/Embedding/InstanceContainerCodec.h"
+#include "Engine/Constants/PhysicsConstants.h"
 
 #include <cstring>
 #include <iomanip>
@@ -854,7 +855,7 @@ DocumentContainer FormatCodecSuite::ConstructExampleDocument(FormatSuffixCategor
     {
         case FormatSuffixCategory::PhysicsSpace:
             Spec.insert("SolverEngine",          "JoltPhysics-5.6.0");
-            Spec.insert("GravityMetersPerSecSq", -9.80665);
+            Spec.insert("GravityMetersPerSecSq", -Frontier::Constants::StandardGravity);
             Spec.insert("SubStepRateHertz",      static_cast<int64_t>(120));
             Spec.insert("RigidBodyCount",        static_cast<int64_t>(16));
             break;

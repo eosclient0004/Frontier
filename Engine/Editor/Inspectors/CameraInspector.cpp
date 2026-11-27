@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/CameraInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -499,7 +500,7 @@ float CameraInspector::Construct(
 
         const float SensorH = std::clamp(Instance.SensorWidthMm, 12.0f, 70.0f) / 1.777778f;
         const float VFovRad = 2.0f * std::atan(SensorH / (2.0f * std::max(10.0f, Instance.FocalLengthMm)));
-        const float VFovDeg = VFovRad * 57.29578f;
+        const float VFovDeg = VFovRad * Frontier::Constants::RadToDegFloat;
         const float FrameH  = 2.0f * std::max(0.3f, Instance.FocusDistanceMeters) * std::tan(VFovRad * 0.5f);
         const float FrameW  = FrameH * 1.777778f;
         char FovBuf[96]{};
@@ -529,7 +530,7 @@ float CameraInspector::Construct(
         Surface.StrokeCircle(IrisC, OuterR + 6.0f, ColorRgba{ 255u, 255u, 255u, 36u }, 1.0f);
         for (int B = 0; B < 8; ++B)
         {
-            const float A = static_cast<float>(B) * 0.785398f;
+            const float A = static_cast<float>(B) * Frontier::Constants::QuarterPiFloat;
             const Point2D P0 { IrisC.X + std::cos(A) * InnerR, IrisC.Y + std::sin(A) * InnerR };
             const Point2D P1 { IrisC.X + std::cos(A + 0.55f) * OuterR, IrisC.Y + std::sin(A + 0.55f) * OuterR };
             Surface.StrokeLine(P0, P1, ColorRgba{ 118u, 118u, 130u, 165u }, 1.1f);

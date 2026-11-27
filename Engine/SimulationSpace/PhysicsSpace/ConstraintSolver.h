@@ -11,6 +11,7 @@
 
 #include "Engine/Mathematics/AxisCoordinates.h"
 #include "Engine/SimulationSpace/PhysicsSpace/RigidBodyDynamics.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cstdint>
 #include <span>
@@ -127,7 +128,7 @@ struct ConstraintDescriptor
     float                   SpringFrequencyHz     = 0.0f;                           // [Hz]          - Soft spring frequency (>0 enables soft compliance)
     float                   SpringDampingRatio    = 0.5f;                           // [-]           - Spring damping ratio (zeta)
     float                   ConeHalfAngleRad      = 0.610865f;                      // [rad]         - SwingTwist half-cone limit (~35 deg)
-    float                   TwistHalfAngleRad     = 0.785398f;                      // [rad]         - SwingTwist axial twist limit (~45 deg)
+    float                   TwistHalfAngleRad     = Frontier::Constants::QuarterPiFloat;                      // [rad]         - SwingTwist axial twist limit (~45 deg)
     float                   MaxMotorTorqueOrForce = 400.0f;                         // [N*m|N]       - Actuator torque or force ceiling
     float                   TargetMotorCoordinate = 0.0f;                           // [rad|m|rad/s] - Initial position or angular velocity target
     bool                    MotorDriveEnabled     = false;                          // [-]           - Enables active Jolt motor actuator

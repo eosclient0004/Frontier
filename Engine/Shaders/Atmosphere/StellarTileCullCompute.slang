@@ -1,12 +1,11 @@
+#include "../Shared/ShaderMathConstants.slang"
 /*============================================================================================================================================
                                                       STELLARTILECULLCOMPUTE.SLANG
 ============================================================================================================================================*/
 // 🧩 eos 16x16 Screen-Space Stellar Tile Culling + J2000 Catalog Projection (1640 BSC5 Stars -> 64-entry Tile Bins for Erf/Moffat PSF)
 
-static const float CullPiConst           = 3.14159265359;
-static const float CullTauConst          = 6.28318530718;
-static const float CullSiteSiderealZero  = 5.45 * (6.28318530718 / 24.0);
-static const float CullSiteObsLatRad     = -26.19 * (3.14159265359 / 180.0);
+static const float CullSiteSiderealZero  = 5.45 * (FrontierTau / 24.0);
+static const float CullSiteObsLatRad     = -26.19 * (FrontierDegToRad);
 static const uint  StellarTileStride     = 65u; // [Count, 64 x StarIndex]
 static const uint  MaxStarsPerTile       = 64u;
 

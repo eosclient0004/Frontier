@@ -290,7 +290,7 @@ struct CascadeSampleOutcome
     const float Bias   = TexelM * (1.55f + 1.30f * SlopeScale);
     const int MaxIdx   = static_cast<int>(Cascade.ResolutionTexels) - 1;
     const float RotPhi = static_cast<float>(RotationSeed & 0xFFFFu) * (Constants::TauFloat / 65536.0f);
-    constexpr float GoldenAngle = 2.39996323f;
+    constexpr float GoldenAngle = Frontier::Constants::GoldenAngleRadiansFloat;
 
     // 1. Vogel Blocker Search over light frustum cone
     constexpr uint32_t SearchTaps = 12u;
@@ -360,7 +360,7 @@ struct CascadeSampleOutcome
     const float BaseBias = TexelM * (1.55f + 1.35f * SlopeScale);
     const float Ign01  = static_cast<float>(RotationSeed & 0xFFFFu) / 65536.0f;
     const float RotPhi = Ign01 * Constants::TauFloat;
-    constexpr float GoldenAngle = 2.39996323f;
+    constexpr float GoldenAngle = Frontier::Constants::GoldenAngleRadiansFloat;
 
     // Stratified Uniform-Step Shadow Map Ray March (SMRT): 16 rays x 16 stratified bilinear steps — zero depth-slice rings!
     constexpr uint32_t SmrtRays  = 16u;
@@ -524,7 +524,7 @@ SolarShadowFieldResult SolarShadowSequence::EvaluateSolarShadowFieldWithAlgorith
                 // Deterministic Vogel Solar Disc Raytrace against 4-Wide WideBoundingTree!
                 const uint32_t RayCount = std::clamp(Sun.RtxSamplesPerPixel, 8u, 32u);
                 const float    RotPhi   = static_cast<float>(Seed & 0xFFFFu) * (Constants::TauFloat / 65536.0f);
-                constexpr float GoldenAngle = 2.39996323f;
+                constexpr float GoldenAngle = Frontier::Constants::GoldenAngleRadiansFloat;
 
                 const Mathematics::Axis3D RayOrigin = Hit.WorldPosition + Hit.TangentFrame.NormalZ * 1.5e-3f;
                 float    UnoccludedSum     = 0.0f;

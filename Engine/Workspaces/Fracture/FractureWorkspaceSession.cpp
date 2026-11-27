@@ -23,7 +23,6 @@ using namespace GeometrySpace::Fracture;
 namespace
 {
 
-constexpr double TauConst = Frontier::Constants::Pi * 2.0;
 
 [[nodiscard]] const char* SolverShortTitle(FractureSolverMethod Method) noexcept
 {
@@ -59,7 +58,7 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
         {
-            const double Theta = TauConst * static_cast<double>(J) / static_cast<double>(Slices);
+            const double Theta = Frontier::Constants::Tau * static_cast<double>(J) / static_cast<double>(Slices);
             Poly.Vertices.push_back({
                 static_cast<float>(RingR * std::cos(Theta)),
                 static_cast<float>(RingR * std::sin(Theta)),
@@ -109,7 +108,7 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
         {
-            const double Theta = TauConst * static_cast<double>(J) / static_cast<double>(Slices);
+            const double Theta = Frontier::Constants::Tau * static_cast<double>(J) / static_cast<double>(Slices);
             Poly.Vertices.push_back({ static_cast<float>(RingR * std::cos(Theta)), static_cast<float>(RingR * std::sin(Theta)), Z });
         }
     }
@@ -120,7 +119,7 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
         {
-            const double Theta = TauConst * static_cast<double>(J) / static_cast<double>(Slices);
+            const double Theta = Frontier::Constants::Tau * static_cast<double>(J) / static_cast<double>(Slices);
             Poly.Vertices.push_back({ static_cast<float>(RingR * std::cos(Theta)), static_cast<float>(RingR * std::sin(Theta)), Z });
         }
     }
@@ -159,8 +158,8 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
     Parts.reserve(AroundN);
     const double R  = std::max(0.15, static_cast<double>(RingRadius));
     const double r  = std::min(R * 0.90, std::max(0.04, static_cast<double>(TubeRadius)));
-    const double Rr = (R * TauConst) / (static_cast<double>(AroundN) * std::sin(TauConst / static_cast<double>(AroundN)));
-    const double Tr = r * std::sqrt(TauConst / (static_cast<double>(TubeM) * std::sin(TauConst / static_cast<double>(TubeM))));
+    const double Rr = (R * Frontier::Constants::Tau) / (static_cast<double>(AroundN) * std::sin(Frontier::Constants::Tau / static_cast<double>(AroundN)));
+    const double Tr = r * std::sqrt(Frontier::Constants::Tau / (static_cast<double>(TubeM) * std::sin(Frontier::Constants::Tau / static_cast<double>(TubeM))));
 
     auto RingPt = [&](double A, double F) -> Mathematics::Axis3D
     {
@@ -174,18 +173,18 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
 
     for (uint32_t S = 0u; S < AroundN; ++S)
     {
-        const double A0 = (static_cast<double>(S) / static_cast<double>(AroundN)) * TauConst;
-        const double A1 = (static_cast<double>(S + 1u) / static_cast<double>(AroundN)) * TauConst;
+        const double A0 = (static_cast<double>(S) / static_cast<double>(AroundN)) * Frontier::Constants::Tau;
+        const double A1 = (static_cast<double>(S + 1u) / static_cast<double>(AroundN)) * Frontier::Constants::Tau;
         ConvexPolyhedron Wedge {};
         Wedge.Vertices.reserve(TubeM * 2u);
         for (uint32_t K = 0u; K < TubeM; ++K)
         {
-            const double F = (static_cast<double>(K) / static_cast<double>(TubeM)) * TauConst;
+            const double F = (static_cast<double>(K) / static_cast<double>(TubeM)) * Frontier::Constants::Tau;
             Wedge.Vertices.push_back(RingPt(A0, F));
         }
         for (uint32_t K = 0u; K < TubeM; ++K)
         {
-            const double F = (static_cast<double>(K) / static_cast<double>(TubeM)) * TauConst;
+            const double F = (static_cast<double>(K) / static_cast<double>(TubeM)) * Frontier::Constants::Tau;
             Wedge.Vertices.push_back(RingPt(A1, F));
         }
         std::vector<uint32_t> Cap0(TubeM), Cap1(TubeM);
@@ -217,8 +216,8 @@ constexpr double TauConst = Frontier::Constants::Pi * 2.0;
 
     for (uint32_t S = 0u; S < AroundN; ++S)
     {
-        const double A0 = (static_cast<double>(S) / static_cast<double>(AroundN)) * TauConst;
-        const double A1 = (static_cast<double>(S + 1u) / static_cast<double>(AroundN)) * TauConst;
+        const double A0 = (static_cast<double>(S) / static_cast<double>(AroundN)) * Frontier::Constants::Tau;
+        const double A1 = (static_cast<double>(S + 1u) / static_cast<double>(AroundN)) * Frontier::Constants::Tau;
         const float C0 = static_cast<float>(std::cos(A0)), S0 = static_cast<float>(std::sin(A0));
         const float C1 = static_cast<float>(std::cos(A1)), S1 = static_cast<float>(std::sin(A1));
         ConvexPolyhedron W {};
@@ -1033,7 +1032,7 @@ void FractureWorkspaceSession::ExecuteFracturePartitionOnly()
         {
             const double U1 = std::max(1.0e-9, Rand.NextDouble());
             const double U2 = Rand.NextDouble();
-            return std::sqrt(-2.0 * std::log(U1)) * std::cos(TauConst * U2);
+            return std::sqrt(-2.0 * std::log(U1)) * std::cos(Frontier::Constants::Tau * U2);
         };
 
         const auto Travel = Mathematics::NormalizeAxis(ImpactNormalLocal * -1.0f, { -0.48f, 0.84f, -0.24f });
@@ -1132,7 +1131,7 @@ void FractureWorkspaceSession::ExecuteFracturePartitionOnly()
                         const double R = RMax * std::pow((static_cast<double>(K) + 0.8) / static_cast<double>(Rings), 1.5);
                         for (uint32_t J = 0u; J < Spokes; ++J)
                         {
-                            const double Ang = (TauConst * (static_cast<double>(J) + ((K + L) % 2) * 0.5 + (Rand.NextDouble() - 0.5) * 0.2)) / static_cast<double>(Spokes);
+                            const double Ang = (Frontier::Constants::Tau * (static_cast<double>(J) + ((K + L) % 2) * 0.5 + (Rand.NextDouble() - 0.5) * 0.2)) / static_cast<double>(Spokes);
                             const double Rr  = R * (0.92 + Rand.NextDouble() * 0.16);
                             const auto DirR  = Tu * static_cast<float>(std::cos(Ang)) + Tv * static_cast<float>(std::sin(Ang));
                             const auto P     = ImpactPointLocal + DirR * static_cast<float>(Rr) + Travel * static_cast<float>(Layers[L] * Falloff);
@@ -1897,11 +1896,11 @@ double FractureWorkspaceSession::QueryExactAreaM2() const noexcept
     {
     case FractureIcons::PrimitiveShapeId::Box:       return 2.0 * (DimPrimaryA * DimPrimaryB + DimPrimaryB * DimPrimaryC + DimPrimaryA * DimPrimaryC);
     case FractureIcons::PrimitiveShapeId::Sphere:    return 4.0 * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA;
-    case FractureIcons::PrimitiveShapeId::Cylinder:  return TauConst * DimPrimaryA * (DimPrimaryA + DimPrimaryB);
+    case FractureIcons::PrimitiveShapeId::Cylinder:  return Frontier::Constants::Tau * DimPrimaryA * (DimPrimaryA + DimPrimaryB);
     case FractureIcons::PrimitiveShapeId::Cone:      return Frontier::Constants::Pi * DimPrimaryA * (DimPrimaryA + std::hypot(DimPrimaryA, DimPrimaryB));
-    case FractureIcons::PrimitiveShapeId::Capsule:   return TauConst * DimPrimaryA * DimPrimaryB + 4.0 * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA;
+    case FractureIcons::PrimitiveShapeId::Capsule:   return Frontier::Constants::Tau * DimPrimaryA * DimPrimaryB + 4.0 * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA;
     case FractureIcons::PrimitiveShapeId::Torus:     return 4.0 * Frontier::Constants::Pi * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryB;
-    case FractureIcons::PrimitiveShapeId::Pipe:      return TauConst * (DimPrimaryA + DimPrimaryB) * DimPrimaryC + 2.0 * Frontier::Constants::Pi * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB);
+    case FractureIcons::PrimitiveShapeId::Pipe:      return Frontier::Constants::Tau * (DimPrimaryA + DimPrimaryB) * DimPrimaryC + 2.0 * Frontier::Constants::Pi * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB);
     case FractureIcons::PrimitiveShapeId::Pane:      return 2.0 * (DimPrimaryA * DimPrimaryB + (DimPrimaryA + DimPrimaryB) * (DimPrimaryC / 1000.0));
     case FractureIcons::PrimitiveShapeId::HexColumn:
     {

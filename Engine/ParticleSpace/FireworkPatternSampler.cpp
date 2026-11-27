@@ -382,7 +382,7 @@ void SampleShapePoints(
                 {
                     const uint32_t frond = i % 14u;
                     const double fPhi = std::acos(1.0 - (2.0 * (static_cast<double>(frond) + 0.5)) / 14.0);
-                    const double fTheta = static_cast<double>(frond) * 2.3999632 + static_cast<double>(shellIdx);
+                    const double fTheta = static_cast<double>(frond) * Frontier::Constants::GoldenAngleRadians + static_cast<double>(shellIdx);
                     const double denom = static_cast<double>(std::max(1u, outerN / 14u));
                     const double frac = (static_cast<double>(i / 14u) + 0.5) / denom;
                     constexpr double kSpread = 0.09;
@@ -403,7 +403,7 @@ void SampleShapePoints(
                 {
                     const uint32_t clust = i % 24u;
                     const double cPhi = std::acos(1.0 - (2.0 * (static_cast<double>(clust) + 0.5)) / 24.0);
-                    const double cTheta = static_cast<double>(clust) * 2.3999632;
+                    const double cTheta = static_cast<double>(clust) * Frontier::Constants::GoldenAngleRadians;
                     constexpr double kOff = 0.14;
                     const double cx = std::sin(cPhi) * std::cos(cTheta) * 0.92;
                     const double cy = std::cos(cPhi) * 0.92;

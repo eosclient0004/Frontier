@@ -25,11 +25,6 @@ using namespace TexturingAppearance;
 namespace
 {
 
-[[nodiscard]] bool PointInsideRect(Rectangle2D Rect, Point2D Cursor) noexcept
-{
-    return Cursor.X >= Rect.X && Cursor.X <= Rect.Right() && Cursor.Y >= Rect.Y && Cursor.Y <= Rect.Bottom();
-}
-
 void DrawBakeReadoutPill(PixelSpace& Surface, float RightEdgeX, float TopY, const char* Text) noexcept
 {
     const float W = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.2f, Text) + 14.0f;
@@ -197,7 +192,7 @@ void BakingInspectorPane::Render(
         std::max(1.0f, FooterBounds.Y - ScrollTop),
     };
 
-    if (PointInsideRect(ScrollViewport, Cursor) && std::abs(Input.WheelDeltaY) > 0.01f)
+    if ((ScrollViewport).Contains(Cursor) && std::abs(Input.WheelDeltaY) > 0.01f)
     {
         ScrollOffsetY = std::clamp(ScrollOffsetY - Input.WheelDeltaY * 32.0f, 0.0f, MaxScrollY);
     }

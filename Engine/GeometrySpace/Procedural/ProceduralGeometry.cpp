@@ -8,6 +8,7 @@
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
 
 #include <algorithm>
 #include <array>
@@ -30,15 +31,6 @@ namespace
     return H;
 }
 
-[[nodiscard]] uint64_t HashBytes(uint64_t H, const void* Data, std::size_t Size) noexcept
-{
-    const auto* Bytes = static_cast<const uint8_t*>(Data);
-    for (std::size_t I = 0u; I < Size; ++I)
-    {
-        H = HashMix64(H, Bytes[I]);
-    }
-    return H;
-}
 
 [[nodiscard]] uint32_t SplitMix32(uint32_t& State) noexcept
 {
@@ -403,7 +395,7 @@ public:
         const float    Scale  = std::clamp(Params.GetFloat("scale_m", 2.40f), 0.4f, 16.0f);
         const float    Amp    = std::clamp(Params.GetFloat("amplitude_m", 0.85f), 0.1f, 6.0f);
         const uint32_t GridN  = 4u + Subdiv * 3u;
-        const float    Phase  = static_cast<float>(Seed % 360u) * (Frontier::Constants::PiFloat / 180.0f);
+        const float    Phase  = static_cast<float>(Seed % 360u) * Frontier::Constants::DegToRadFloat;
 
         FaceShadingAssignment Shading {};
         Shading.AlbedoLinearRGB = { 0.78f, 0.76f, 0.72f };
@@ -822,7 +814,7 @@ uint64_t ProceduralParameterSet::ComputeHash() const noexcept
     uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     for (std::string_view K : Keys)
     {
-        H = HashBytes(H, K.data(), K.size());
+        H = Frontier::Serialization::MixFnv1a64Bytes(H, K.data(), K.size());
         const ProceduralParameterValue& V = Values.at(std::string(K));
         H = HashMix64(H, static_cast<uint64_t>(V.Type));
         uint32_t FB = 0u;
@@ -976,7 +968,7 @@ bool ProceduralGeometryAsset::EnsureUpToDate(bool BuildClusterPyramid, const Pro
     if (Gen == nullptr) return false;
 
     uint64_t NextHash = Parameters.ComputeHash();
-    NextHash = HashBytes(NextHash, GeneratorTypeId.data(), GeneratorTypeId.size());
+    NextHash = Frontier::Serialization::MixFnv1a64Bytes(NextHash, GeneratorTypeId.data(), GeneratorTypeId.size());
     NextHash = HashMix64(NextHash, BuildClusterPyramid ? 1ull : 0ull);
 
     if (HasValidOutput && NextHash == CachedBuildHash && (!BuildClusterPyramid || ClusterPyramidBuilt))

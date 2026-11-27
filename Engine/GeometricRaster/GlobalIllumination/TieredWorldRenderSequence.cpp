@@ -24,10 +24,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-[[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
-{
-    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
-}
 
 [[nodiscard]] float EvaluateTriangularSrgbDither(uint32_t PX, uint32_t PY) noexcept
 {
@@ -39,7 +35,7 @@ namespace
 
 [[nodiscard]] uint8_t EncodeLinearToSrgbByteDithered(float LinearVal, float TpdfDither) noexcept
 {
-    const float S = std::clamp(EncodeLinearToSrgb(LinearVal) + TpdfDither, 0.0f, 1.0f);
+    const float S = std::clamp(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal) + TpdfDither, 0.0f, 1.0f);
     return static_cast<uint8_t>(std::round(S * 255.0f));
 }
 
@@ -1062,9 +1058,9 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                     Dbg = EvaluateDebugChannelColor(Config.DebugChannel, CurBasis.CameraOrigin, Hit, Mat, ResolveHitLodLevel(PreparedScene, Hit), Hit.InstanceOrdinal * 4096u + Hit.ClusterOrdinal);
                 }
                 Result.CompositeLinearHdr[Off] = Dbg;
-                Result.DisplayRgba8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Dbg.R) * 255.0f));
-                Result.DisplayRgba8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Dbg.G) * 255.0f));
-                Result.DisplayRgba8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Dbg.B) * 255.0f));
+                Result.DisplayRgba8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Dbg.R) * 255.0f));
+                Result.DisplayRgba8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Dbg.G) * 255.0f));
+                Result.DisplayRgba8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Dbg.B) * 255.0f));
                 Result.DisplayRgba8[Off * 4u + 3u] = 255u;
                 continue;
             }

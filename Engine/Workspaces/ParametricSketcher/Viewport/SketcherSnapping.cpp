@@ -14,6 +14,7 @@
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchSpline.h"
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchTrim.h"
 #include "Engine/GeometrySpace/Parametric/Surfacing/CurveNetwork.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -344,7 +345,7 @@ struct NearCurve
     };
     double Low  = Curve.Parameters[Near.Sample > 0 ? Near.Sample - 1 : 0];
     double High = Curve.Parameters[std::min(Near.Sample + 2, Curve.Parameters.size() - 1)];
-    constexpr double Golden = 0.6180339887498949;
+    constexpr double Golden = Frontier::Constants::InverseGoldenRatio;
     double Left = High - Golden * (High - Low), Right = Low + Golden * (High - Low);
     double LeftGap = Gap(Left), RightGap = Gap(Right);
     for (int Iteration = 0; Iteration < 90 && High - Low > 1.0e-15 * (1.0 + std::fabs(High)); ++Iteration)

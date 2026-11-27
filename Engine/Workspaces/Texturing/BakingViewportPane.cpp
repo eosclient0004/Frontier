@@ -27,11 +27,6 @@ using namespace TexturingAppearance;
 namespace
 {
 
-[[nodiscard]] bool PointInsideRect(Rectangle2D Rect, Point2D Cursor) noexcept
-{
-    return Cursor.X >= Rect.X && Cursor.X <= Rect.Right() && Cursor.Y >= Rect.Y && Cursor.Y <= Rect.Bottom();
-}
-
 [[nodiscard]] const char* QueryLayoutLabel(BakerViewportLayout Layout) noexcept
 {
     switch (Layout)
@@ -215,7 +210,7 @@ void BakingViewportPane::RenderThreeDViewport(
 
     const TexturingThemeColors Theme  = QueryTexturingThemeColors();
     const Point2D              Cursor { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    const bool                 Inside = PointInsideRect(ViewportRect, Cursor);
+    const bool                 Inside = (ViewportRect).Contains(Cursor);
 
     // Interactive orbit / pan / zoom / reset camera controls
     if (!OverlayUp && Inside)
@@ -690,7 +685,7 @@ void BakingViewportPane::Render(
     Surface.TextCentered(HudRect, 9.5f, Theme.TextMuted, HudCaption);
 
     // Quick overlay interactions (Right-click or Q inside canvas)
-    if (PointInsideRect(LastCanvasBounds, Cursor))
+    if ((LastCanvasBounds).Contains(Cursor))
     {
         if (Input.SecondaryPressed)
         {
@@ -834,7 +829,7 @@ void BakingViewportPane::RenderTopLevelOverlays(
             QuickOverlayOpen = false;
         }
 
-        if (Pressed && !PointInsideRect(BoxRect, Cursor))
+        if (Pressed && !(BoxRect).Contains(Cursor))
         {
             QuickOverlayOpen = false;
         }

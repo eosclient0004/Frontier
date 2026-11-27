@@ -5,8 +5,8 @@
 
 #ifndef FRONTIER_PLANETARY_CLOUD_NOISE
 #define FRONTIER_PLANETARY_CLOUD_NOISE 1
+#include "../Shared/ShaderMathConstants.slang"
 
-static const float CloudPiConst = 3.14159265359;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                           CELESTIAL VALUE NOISE & PHASE KERNELS
@@ -45,7 +45,7 @@ float CelestialPhaseHG(float CosTheta, float AnisotropyG)
     float G   = clamp(AnisotropyG, -0.95, 0.95);
     float G2  = G * G;
     float Den = max(1.0e-4, 1.0 + G2 - 2.0 * G * CosTheta);
-    return (1.0 - G2) / (4.0 * CloudPiConst * pow(Den, 1.5));
+    return (1.0 - G2) / (4.0 * FrontierPi * pow(Den, 1.5));
 }
 
 float CelestialPixelJitter(float2 PixelCoord, float TimeSeconds)

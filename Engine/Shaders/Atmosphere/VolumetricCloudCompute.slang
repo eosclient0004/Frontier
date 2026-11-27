@@ -167,9 +167,9 @@ float EvaluateLocalCloudShapeMaskGpu(
     else if (Shape == 6u) // N-sided Prism
     {
         uint  Sides  = clamp(PrismSides, 3u, 16u);
-        float Sector = (2.0 * CloudPiConst) / float(Sides);
+        float Sector = (2.0 * FrontierPi) / float(Sides);
         float Angle  = atan2(U.y, U.x);
-        float ModA   = fmod(Angle + 4.0 * CloudPiConst + 0.5 * Sector, Sector) - 0.5 * Sector;
+        float ModA   = fmod(Angle + 4.0 * FrontierPi + 0.5 * Sector, Sector) - 0.5 * Sector;
         float PolyR  = (length(U.xy) * cos(ModA)) / max(0.25, cos(0.5 * Sector));
         DistNorm     = max(PolyR, abs(U.z));
     }
@@ -316,7 +316,7 @@ float4 EvaluateLocalCloudsGpu(
         uint  Steps = clamp(uint(Vol.FormErosionAnisoSteps.w + 0.5), 16u, 48u);
         float Dt    = (TX - TE) / float(Steps);
         float G1    = clamp(Vol.FormErosionAnisoSteps.z, 0.0, 0.95);
-        float Ph    = lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * CloudPiConst);
+        float Ph    = lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * FrontierPi);
         float St    = max(0.5, max(HalfE.x, max(HalfE.y, HalfE.z)) * 0.45);
 
         for (uint S = 0u; S < 48u; ++S)

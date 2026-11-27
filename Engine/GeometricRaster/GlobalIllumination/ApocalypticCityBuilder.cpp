@@ -15,6 +15,8 @@
 #include "Engine/GeometrySpace/Fracture/FastRuntimeFracture.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Engine/Tools/DefaultContentGenerator.h"
+#include "Engine/Constants/PhysicsConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -62,19 +64,15 @@ namespace
     return static_cast<float>(H & 0x00FFFFFFu) * (1.0f / 16777216.0f);
 }
 
-[[nodiscard]] float SmoothHermite(float T) noexcept
-{
-    return T * T * (3.0f - 2.0f * T);
-}
 
 [[nodiscard]] float CoherentNoise3D(Mathematics::Axis3D SamplePt) noexcept
 {
     const int32_t X0 = static_cast<int32_t>(std::floor(SamplePt.X));
     const int32_t Y0 = static_cast<int32_t>(std::floor(SamplePt.Y));
     const int32_t Z0 = static_cast<int32_t>(std::floor(SamplePt.Z));
-    const float   Fx = SmoothHermite(SamplePt.X - static_cast<float>(X0));
-    const float   Fy = SmoothHermite(SamplePt.Y - static_cast<float>(Y0));
-    const float   Fz = SmoothHermite(SamplePt.Z - static_cast<float>(Z0));
+    const float   Fx = Frontier::Mathematics::EvaluateSmoothHermite(SamplePt.X - static_cast<float>(X0));
+    const float   Fy = Frontier::Mathematics::EvaluateSmoothHermite(SamplePt.Y - static_cast<float>(Y0));
+    const float   Fz = Frontier::Mathematics::EvaluateSmoothHermite(SamplePt.Z - static_cast<float>(Z0));
 
     const float C000 = LatticeHash3D(X0,     Y0,     Z0);
     const float C100 = LatticeHash3D(X0 + 1, Y0,     Z0);
@@ -1859,7 +1857,7 @@ bool StepApocalypticCitySimulation(
             const float Scaled = InOutSimulation.HeroSplineProgress * static_cast<float>(SegCount);
             const std::size_t I0 = static_cast<std::size_t>(std::floor(Scaled)) % SegCount;
             const std::size_t I1 = (I0 + 1u) % SegCount;
-            const float LocalT   = SmoothHermite(Scaled - std::floor(Scaled));
+            const float LocalT   = Frontier::Mathematics::EvaluateSmoothHermite(Scaled - std::floor(Scaled));
             const Mathematics::Axis3D P0 = InOutSimulation.HeroCourseWaypoints[I0];
             const Mathematics::Axis3D P1 = InOutSimulation.HeroCourseWaypoints[I1];
             HeroPos = P0 + (P1 - P0) * LocalT;
@@ -1961,7 +1959,7 @@ bool StepApocalypticCitySimulation(
             }
         }
 
-        Frag.VelocityMetersSec.Z -= 9.81f * Dt;
+        Frag.VelocityMetersSec.Z -= Frontier::Constants::StandardGravityFloat * Dt;
         Frag.CurrentCenterWorld   = Frag.CurrentCenterWorld + Frag.VelocityMetersSec * Dt;
         Frag.CurrentYawDegrees   += Frag.YawRateDegPerSec * Dt;
 

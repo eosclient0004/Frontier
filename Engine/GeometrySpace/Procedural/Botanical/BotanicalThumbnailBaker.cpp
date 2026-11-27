@@ -29,10 +29,6 @@ using V3 = std::array<float, 3>;
 [[nodiscard]] inline V3 Add3(const V3& a, const V3& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] inline V3 Sub3(const V3& a, const V3& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] inline V3 Mul3(const V3& a, float s) noexcept     { return { a[0] * s, a[1] * s, a[2] * s }; }
-[[nodiscard]] inline uint8_t LinearToSrgbU8(float v) noexcept
-{
-    return Frontier::ColourSpace::EncodeLinearToSrgbByte(v);
-}
 
 
 
@@ -179,8 +175,7 @@ BakedPlantThumbnail BakePlant3dThumbnail(
     // 2x2 Box Downsample + ACES Filmic Tone-Map -> sRGB RGBA8
     auto aces = [](float x) noexcept -> float
     {
-        const float v = std::max(0.0f, x * 1.18f);
-        return (v * (2.51f * v + 0.03f)) / (v * (2.43f * v + 0.59f) + 0.14f);
+        return Frontier::ColourSpace::ApplyAcesFilmicChannel(x, 1.18f);
     };
 
     for (uint32_t y = 0u; y < thumb.Height; ++y)
@@ -197,9 +192,9 @@ BakedPlantThumbnail BakePlant3dThumbnail(
                 }
             }
             const std::size_t dst = (static_cast<std::size_t>(y) * thumb.Width + x) * 4u;
-            thumb.Rgba8[dst + 0u] = LinearToSrgbU8(aces(r * 0.25f));
-            thumb.Rgba8[dst + 1u] = LinearToSrgbU8(aces(g * 0.25f));
-            thumb.Rgba8[dst + 2u] = LinearToSrgbU8(aces(b * 0.25f));
+            thumb.Rgba8[dst + 0u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(aces(r * 0.25f));
+            thumb.Rgba8[dst + 1u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(aces(g * 0.25f));
+            thumb.Rgba8[dst + 2u] = Frontier::ColourSpace::EncodeLinearToSrgbByte(aces(b * 0.25f));
             thumb.Rgba8[dst + 3u] = static_cast<uint8_t>(std::clamp(std::lround((a * 0.25f) * 255.0f), 0L, 255L));
         }
     }

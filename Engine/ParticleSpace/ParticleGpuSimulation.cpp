@@ -14,6 +14,7 @@
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Mathematics/ScalarMath.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Constants/PhysicsConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -228,7 +229,7 @@ void MocapBoneEndpoints(const int32_t bone, const float phase, const int32_t cli
     float rad = 0.054f;
     MocapBoneEndpoints(bone, phase, clip, a, b, rad);
     const float along = lattice ? Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(index) * 0.6180339f + static_cast<float>(bone) * 0.13f) : rnd[0];
-    const float ang = lattice ? (static_cast<float>(index) * 2.39996323f) : (rnd[1] * Frontier::Constants::TauFloat);
+    const float ang = lattice ? (static_cast<float>(index) * Frontier::Constants::GoldenAngleRadiansFloat) : (rnd[1] * Frontier::Constants::TauFloat);
     const float shell = Frontier::Mathematics::InterpolateScalar(1.0f, std::sqrt(lattice ? Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(index) * 0.381966f) : rnd[2]), shape.AxisFill[3]);
     const Vec3f seg = Sub3(b, a);
     const Vec3f dir = (Len3(seg) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(seg) : Vec3f { 0.0f, 1.0f, 0.0f };
@@ -385,7 +386,7 @@ std::array<float, 3> EvaluateShapePointAtTime(
     {
         if (lattice)
         {
-            const float golden = 2.39996323f;
+            const float golden = Frontier::Constants::GoldenAngleRadiansFloat;
             const float y = 1.0f - (fi + 0.5f) / count * 2.0f;
             const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
             const float a = golden * fi;
@@ -419,7 +420,7 @@ std::array<float, 3> EvaluateShapePointAtTime(
     }
     else if (shapeCode == 3)
     {
-        const float a = lattice ? (2.39996323f * fi) : (rnd[0] * Frontier::Constants::TauFloat);
+        const float a = lattice ? (Frontier::Constants::GoldenAngleRadiansFloat * fi) : (rnd[0] * Frontier::Constants::TauFloat);
         const float r = lattice ? std::sqrt((fi + 0.5f) / count) : std::sqrt(rnd[1]);
         basePos = Add3(origin, Mul3(Add3(Mul3(t, std::cos(a)), Mul3(b, std::sin(a))), r * radius));
     }
@@ -451,7 +452,7 @@ std::array<float, 3> EvaluateShapePointAtTime(
     {
         const float y = lattice ? (1.0f - (fi + 0.5f) / count) : rnd[0];
         const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
-        const float a = lattice ? (2.39996323f * fi) : (rnd[1] * Frontier::Constants::TauFloat);
+        const float a = lattice ? (Frontier::Constants::GoldenAngleRadiansFloat * fi) : (rnd[1] * Frontier::Constants::TauFloat);
         const float shell = Frontier::Mathematics::InterpolateScalar(1.0f, std::pow(lattice ? Frontier::Mathematics::EvaluateFractionalPart(fi * 0.381966f) : rnd[2], 1.0f / 3.0f), fill);
         basePos = Add3(origin, Mul3(Add3(Add3(Mul3(t, std::cos(a) * r), Mul3(axis, y)), Mul3(b, std::sin(a) * r)), radius * shell));
     }
@@ -528,7 +529,7 @@ std::array<float, 3> EvaluateShapePointAtTime(
             const float lobes = std::max(2.0f, std::floor(detail));
             const float y = lattice ? (1.0f - (fi + 0.5f) / count * 2.0f) : (rnd[0] * 2.0f - 1.0f);
             const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
-            const float a = lattice ? (2.39996323f * fi) : (rnd[1] * Frontier::Constants::TauFloat);
+            const float a = lattice ? (Frontier::Constants::GoldenAngleRadiansFloat * fi) : (rnd[1] * Frontier::Constants::TauFloat);
             const float lobe = 0.78f + 0.22f * std::fabs(std::cos(a * lobes * 0.5f));
             const float shell = Frontier::Mathematics::InterpolateScalar(lobe, std::pow(std::max(rnd[2], 1.0e-4f), 1.0f / 3.0f), Frontier::Mathematics::ClampScalar(fill, 0.0f, 1.0f));
             basePos = Add3(origin, Mul3(Add3(Add3(Mul3(t, std::cos(a) * r), Mul3(axis, y)), Mul3(b, std::sin(a) * r)), radius * shell));
@@ -2040,7 +2041,7 @@ void ParticleVulkanGpuExecutor::DispatchGpuAsync(
             float    WindAeroFlags[4];
         } xUbo {
             { subDt, invDt, invDt * invDt, 1.0e-6f },
-            { -9.81f, 0.992f, 0.0f, 0.0f },
+            { -Frontier::Constants::StandardGravityFloat, 0.992f, 0.0f, 0.0f },
             { 1800.0f, 1800.0f, 650.0f, 2400.0f },
             { 0.0f, 0.0f, 0.35f, 0.45f },
             { 0.25f, AdditiveConfig_.Friction, 0.0f, 35.0f },

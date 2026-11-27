@@ -58,10 +58,10 @@ float CloudAirColumn(float ScaleHeightM, float RadiusM, float AltitudeM, float M
     float AbsoluteCosine = abs(Mu);
     float UpwardColumnM =
         2.0 * ScaleHeightM /
-        (AbsoluteCosine + sqrt(AbsoluteCosine * AbsoluteCosine + 8.0 * ScaleHeightM / (CloudPi * RadiusM)));
+        (AbsoluteCosine + sqrt(AbsoluteCosine * AbsoluteCosine + 8.0 * ScaleHeightM / (FrontierPi * RadiusM)));
     float ClosestApproachRiseM = (RadiusM + AltitudeM) * Mu * Mu / (1.0 + sqrt(saturate(1.0 - Mu * Mu)));
     float DownwardColumnM =
-        sqrt(2.0 * CloudPi * (RadiusM + AltitudeM) * ScaleHeightM) * exp(min(9.0, ClosestApproachRiseM / ScaleHeightM)) -
+        sqrt(2.0 * FrontierPi * (RadiusM + AltitudeM) * ScaleHeightM) * exp(min(9.0, ClosestApproachRiseM / ScaleHeightM)) -
         UpwardColumnM;
     return exp(-max(0.0, AltitudeM) / ScaleHeightM) * ((Mu < 0.0) ? DownwardColumnM : UpwardColumnM);
 }
@@ -237,7 +237,7 @@ CloudTransportIntegral TracePlanetaryClouds(
     float G1        = clamp(Specification.PhaseG, 0.0, 0.95);
     float G2        = clamp(Specification.BackPhaseG, 0.0, 0.90);
     float MixLobe   = clamp(Specification.PhaseMix, 0.0, 1.0);
-    float Ph        = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -G2), MixLobe) * (4.0 * CloudPi), 14.0);
+    float Ph        = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -G2), MixLobe) * (4.0 * FrontierPi), 14.0);
 
     float  SunUp    = saturate(Specification.SunDirection.z * 4.0 + 0.15);
     float3 SunL     = Specification.SolarIrradiance * SunUp;

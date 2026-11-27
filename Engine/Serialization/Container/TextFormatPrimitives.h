@@ -70,4 +70,36 @@ namespace Frontier::Serialization
     return -1;
 }
 
+[[nodiscard]] inline bool ContainsAsciiCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
+{
+    if (Needle.empty())
+    {
+        return true;
+    }
+    if (Needle.size() > Haystack.size())
+    {
+        return false;
+    }
+    const std::size_t MaxStart = Haystack.size() - Needle.size();
+    for (std::size_t Start = 0u; Start <= MaxStart; ++Start)
+    {
+        bool Matched = true;
+        for (std::size_t Offset = 0u; Offset < Needle.size(); ++Offset)
+        {
+            const unsigned char Left  = static_cast<unsigned char>(Haystack[Start + Offset]);
+            const unsigned char Right = static_cast<unsigned char>(Needle[Offset]);
+            if (std::tolower(Left) != std::tolower(Right))
+            {
+                Matched = false;
+                break;
+            }
+        }
+        if (Matched)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace Frontier::Serialization

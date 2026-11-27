@@ -26,8 +26,6 @@ namespace
 {
 
 using V3 = std::array<float, 3>;
-constexpr float kDeg2Rad = Frontier::Constants::PiFloat / 180.0f;
-constexpr float kGolden  = 2.39996322972865332f;
 constexpr V3    kUpZ     { 0.0f, 0.0f, 1.0f };
 
 [[nodiscard]] inline V3 Add3(const V3& a, const V3& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
@@ -444,7 +442,7 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     // 2. Coiled Fiddlehead Crosiers (Archimedean logarithmic spiral + embryonic buds!)
     for (uint32_t c = 0u; c < fp.CrosierCount; ++c)
     {
-        const float az = static_cast<float>(c) * kGolden + rng.Range(0.0f, 0.45f);
+        const float az = static_cast<float>(c) * Frontier::Constants::GoldenAngleRadiansFloat + rng.Range(0.0f, 0.45f);
         const V3 outH { std::cos(az), std::sin(az), 0.0f };
         const V3 rgt  = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, outH));
         const int steps = 18;
@@ -472,15 +470,15 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     for (uint32_t fi = 0u; fi < frondCount; ++fi)
     {
         const float age01 = static_cast<float>(fi) / static_cast<float>(std::max(1u, frondCount - 1u));
-        const float az    = static_cast<float>(fi) * kGolden + rng.Vary(0.0f, 0.12f);
+        const float az    = static_cast<float>(fi) * Frontier::Constants::GoldenAngleRadiansFloat + rng.Vary(0.0f, 0.12f);
         const V3 outH { std::cos(az), std::sin(az), 0.0f };
         const V3 rgt0 = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, outH));
 
-        const float tiltRad  = std::clamp(fp.RosetteAngleDeg * (0.52f + 0.76f * age01) + rng.Vary(0.0f, 4.5f), 6.0f, 84.0f) * kDeg2Rad;
+        const float tiltRad  = std::clamp(fp.RosetteAngleDeg * (0.52f + 0.76f * age01) + rng.Vary(0.0f, 4.5f), 6.0f, 84.0f) * Frontier::Constants::DegToRadFloat;
         const float L        = fp.FrondLengthMeters * (0.76f + 0.30f * std::sin(age01 * Frontier::Constants::PiFloat * 0.72f + 0.25f)) * (1.0f + rng.Vary(0.0f, fp.FrondLengthVar));
-        const float droopRad = (fp.ArchDroopDeg * (0.58f + 0.66f * age01) + rng.Vary(0.0f, 6.5f)) * kDeg2Rad;
-        const float twistRad = rng.Vary(0.0f, fp.RachisTwistDeg) * kDeg2Rad;
-        const float waveRad  = fp.RachisWaveDeg * kDeg2Rad;
+        const float droopRad = (fp.ArchDroopDeg * (0.58f + 0.66f * age01) + rng.Vary(0.0f, 6.5f)) * Frontier::Constants::DegToRadFloat;
+        const float twistRad = rng.Vary(0.0f, fp.RachisTwistDeg) * Frontier::Constants::DegToRadFloat;
+        const float waveRad  = fp.RachisWaveDeg * Frontier::Constants::DegToRadFloat;
         const float phase    = rng.Next01();
 
         V3 cur { outH[0] * fp.CrownRadiusMeters * (0.38f + 0.62f * age01),
@@ -519,7 +517,7 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         {
             const float ts = (static_cast<float>(sc) / 6.0f) * fp.StipeFraction * 1.1f;
             const auto sf = SampleCurveFrames(frs, ts);
-            const float th = static_cast<float>(sc) * kGolden;
+            const float th = static_cast<float>(sc) * Frontier::Constants::GoldenAngleRadiansFloat;
             const V3 rad = Norm3(Add3(Mul3(sf.Right, std::cos(th)), Mul3(sf.Up, std::sin(th))));
             const V3 scDir = Norm3(Add3(Mul3(sf.Dir, 0.75f), Mul3(rad, 0.65f)));
             const V3 scWid = Norm3(Frontier::Mathematics::EvaluateCross3(sf.Dir, rad));
@@ -543,8 +541,8 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                     : std::max(0.06f, (0.42f + 0.58f * Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.22f, uLeaf)) * std::pow(1.0f - std::pow(uLeaf, 1.65f), 0.68f));
 
                 const float pLen = std::max(0.014f, fp.FrondWidthMeters * (bipinnate ? 0.56f : 0.52f) * env * (1.0f + rng.Vary(0.0f, 0.06f)));
-                const float insRad = (fp.PinnaAngleDeg * (1.06f - 0.50f * uLeaf) + rng.Vary(0.0f, 3.0f)) * kDeg2Rad;
-                const float dihRad = (12.0f - 14.0f * age01 + 6.0f * (1.0f - uLeaf)) * kDeg2Rad;
+                const float insRad = (fp.PinnaAngleDeg * (1.06f - 0.50f * uLeaf) + rng.Vary(0.0f, 3.0f)) * Frontier::Constants::DegToRadFloat;
+                const float dihRad = (12.0f - 14.0f * age01 + 6.0f * (1.0f - uLeaf)) * Frontier::Constants::DegToRadFloat;
                 V3 pDir = Norm3(Add3(Mul3(rf.Dir, std::cos(insRad)), Mul3(rf.Right, static_cast<float>(side) * std::sin(insRad))));
                 pDir = Norm3(RotateAxis(pDir, rf.Dir, static_cast<float>(side) * dihRad));
                 const V3 pWidAx = Norm3(Frontier::Mathematics::EvaluateCross3(rf.Up, pDir));
@@ -607,7 +605,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     const float topR = isDatePalm ? (R0 * 0.84f) : (R0 * 0.64f);
     const float totalEstH = H + pp.FrondLengthMeters * 0.65f;
     const uint32_t lobes = std::max(4u, pp.RootButtresses);
-    const float lobePhase = static_cast<float>(seed % 360u) * kDeg2Rad;
+    const float lobePhase = static_cast<float>(seed % 360u) * Frontier::Constants::DegToRadFloat;
     const float palmPhase = rng.Next01();
 
     WeldedMeshConfig trunkCfg {};
@@ -624,8 +622,8 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     // 1. Build curved phototropic trunk WeldedStem in +Z Up
     const float leanAz = rng.Range(0.0f, Frontier::Constants::TauFloat);
     const V3 leanHoriz { std::cos(leanAz), std::sin(leanAz), 0.0f };
-    const float leanRad  = pp.TrunkLeanDeg * kDeg2Rad;
-    const float curveRad = pp.TrunkCurveDeg * kDeg2Rad;
+    const float leanRad  = pp.TrunkLeanDeg * Frontier::Constants::DegToRadFloat;
+    const float curveRad = pp.TrunkCurveDeg * Frontier::Constants::DegToRadFloat;
     V3 dir = Norm3(Add3(Mul3(kUpZ, std::cos(leanRad)), Mul3(leanHoriz, std::sin(leanRad))));
     V3 rgt = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, leanHoriz));
     V3 pos { 0.0f, 0.0f, 0.0f };
@@ -742,7 +740,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         const float rSurf = trunk->BaseRadiusAt(attachS) * trunk->ProfileFactor(attachS, theta);
         const V3 origin = AddScaled3(smp.Pos, radial, rSurf);
         const V3 horizAx = Norm3(Frontier::Mathematics::EvaluateCross3(radial, kUpZ));
-        const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -28.0f * kDeg2Rad));
+        const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -28.0f * Frontier::Constants::DegToRadFloat));
         const float rootLen = R0 * 2.8f * rng.Vary(1.0f, 0.14f);
         const float rRoot0  = rcBase * rng.Vary(1.0f, 0.10f);
 
@@ -822,11 +820,11 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     for (uint32_t fi = 0u; fi < nFronds; ++fi)
     {
         const float age01 = static_cast<float>(fi) / static_cast<float>(std::max(1u, nFronds - 1u));
-        const float az    = static_cast<float>(fi) * kGolden + rng.Vary(0.0f, 0.12f);
+        const float az    = static_cast<float>(fi) * Frontier::Constants::GoldenAngleRadiansFloat + rng.Vary(0.0f, 0.12f);
         const V3 radDir { std::cos(az), std::sin(az), 0.0f };
         const V3 rgt0   = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, radDir));
-        const float elevRad = (70.0f - 82.0f * age01 + rng.Vary(0.0f, 5.5f)) * kDeg2Rad;
-        const float archRad = (pp.FrondArchDeg * (0.65f + 0.55f * age01)) * kDeg2Rad;
+        const float elevRad = (70.0f - 82.0f * age01 + rng.Vary(0.0f, 5.5f)) * Frontier::Constants::DegToRadFloat;
+        const float archRad = (pp.FrondArchDeg * (0.65f + 0.55f * age01)) * Frontier::Constants::DegToRadFloat;
         const float fLen    = pp.FrondLengthMeters * (0.82f + 0.24f * std::sin(age01 * Frontier::Constants::PiFloat * 0.8f + 0.2f));
         const float phase   = rng.Next01();
 
@@ -860,8 +858,8 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
             for (int side : { -1, 1 })
             {
-                const float sweepRad = (56.0f - 28.0f * u) * kDeg2Rad;
-                const float vTiltRad = (24.0f + pp.PlumoseSplay * rng.Vary(0.0f, 38.0f)) * kDeg2Rad;
+                const float sweepRad = (56.0f - 28.0f * u) * Frontier::Constants::DegToRadFloat;
+                const float vTiltRad = (24.0f + pp.PlumoseSplay * rng.Vary(0.0f, 38.0f)) * Frontier::Constants::DegToRadFloat;
                 V3 lDir = Norm3(Add3(Mul3(rf.Dir, std::cos(sweepRad)), Mul3(rf.Right, static_cast<float>(side) * std::sin(sweepRad))));
                 lDir = Norm3(RotateAxis(lDir, rf.Dir, static_cast<float>(side) * vTiltRad));
                 const V3 lWidAx = Norm3(Frontier::Mathematics::EvaluateCross3(rf.Up, lDir));
@@ -882,7 +880,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
             const int nFruits = isCoconut ? 5 : 16;
             for (int k = 0; k < nFruits; ++k)
             {
-                const float th = static_cast<float>(k) * kGolden;
+                const float th = static_cast<float>(k) * Frontier::Constants::GoldenAngleRadiansFloat;
                 const float rOff = isCoconut ? 0.15f : (0.10f + 0.14f * rng.Next01());
                 const float zOff = -0.10f - (isCoconut ? 0.16f : 0.52f) * rng.Next01();
                 const V3 fPos = Add3(base, { std::cos(th) * rOff, std::sin(th) * rOff, zOff });
@@ -944,16 +942,16 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     meshCfg.CapTips             = true;
 
     struct Turtle { V3 Pos; V3 Dir; V3 Right; };
-    auto pitchDown = [](Turtle& t, float deg) { t.Dir = Norm3(RotateAxis(t.Dir, t.Right, -deg * kDeg2Rad)); };
+    auto pitchDown = [](Turtle& t, float deg) { t.Dir = Norm3(RotateAxis(t.Dir, t.Right, -deg * Frontier::Constants::DegToRadFloat)); };
     auto turnLeft  = [](Turtle& t, float deg) {
         const V3 ax = Norm3(Frontier::Mathematics::EvaluateCross3(t.Dir, t.Right));
-        t.Dir   = Norm3(RotateAxis(t.Dir, ax, -deg * kDeg2Rad));
-        t.Right = Norm3(RotateAxis(t.Right, ax, -deg * kDeg2Rad));
+        t.Dir   = Norm3(RotateAxis(t.Dir, ax, -deg * Frontier::Constants::DegToRadFloat));
+        t.Right = Norm3(RotateAxis(t.Right, ax, -deg * Frontier::Constants::DegToRadFloat));
     };
-    auto rollRight = [](Turtle& t, float deg) { t.Right = Norm3(RotateAxis(t.Right, t.Dir, deg * kDeg2Rad)); };
+    auto rollRight = [](Turtle& t, float deg) { t.Right = Norm3(RotateAxis(t.Right, t.Dir, deg * Frontier::Constants::DegToRadFloat)); };
     auto rotUp     = [](Turtle& t, float deg) {
-        t.Dir   = Norm3(RotateAxis(t.Dir, kUpZ, deg * kDeg2Rad));
-        t.Right = Norm3(RotateAxis(t.Right, kUpZ, deg * kDeg2Rad));
+        t.Dir   = Norm3(RotateAxis(t.Dir, kUpZ, deg * Frontier::Constants::DegToRadFloat));
+        t.Right = Norm3(RotateAxis(t.Right, kUpZ, deg * Frontier::Constants::DegToRadFloat));
     };
     auto setDir = [](Turtle& t, const V3& nd) {
         const V3 ax = Frontier::Mathematics::EvaluateCross3(t.Dir, nd);
@@ -1000,7 +998,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     std::vector<LeafSpot> leafSpots {};
     std::array<float, 5> splitErr { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     uint32_t lobes = std::max(3u, sp.Roots.Count);
-    float lobePhase = static_cast<float>(seed % 360u) * kDeg2Rad;
+    float lobePhase = static_cast<float>(seed % 360u) * Frontier::Constants::DegToRadFloat;
     float treeHeightEst = std::max(4.0f, sp.Trunk.HeightMeters);
     const float basalFlare = std::max(0.25f, sp.Trunk.FlareRatio - 1.0f);
     const float buttressRelief = std::clamp(tp.ButtressRelief, 0.0f, 0.85f);
@@ -1142,7 +1140,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                     const float mag = Len3(hxt);
                     if (mag > 1.0e-6f)
                     {
-                        const float alpha = (10.0f * mag * kDeg2Rad) / static_cast<float>(substeps);
+                        const float alpha = (10.0f * mag * Frontier::Constants::DegToRadFloat) / static_cast<float>(substeps);
                         const V3 ax = Mul3(hxt, 1.0f / mag);
                         turtle.Dir   = Norm3(RotateAxis(turtle.Dir, ax, alpha));
                         turtle.Right = Norm3(RotateAxis(turtle.Right, ax, alpha));
@@ -1189,7 +1187,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                         if (sLocal <= 0.0f || sLocal >= stem->Length) continue;
 
                         const auto smp = SampleWeldedStem(*stem, sLocal);
-                        const V3 childRgt = Norm3(RotateAxis(smp.Right, smp.Dir, prevRot * kDeg2Rad));
+                        const V3 childRgt = Norm3(RotateAxis(smp.Right, smp.Dir, prevRot * Frontier::Constants::DegToRadFloat));
                         const float d = profDownAngle[lp], dv = profDownAngleV[lp];
                         float dAng = d + rng.Uniform() * dv;
                         if (dv < 0.0f)
@@ -1198,7 +1196,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                             const float rat = std::clamp((logLen - stemOff) / denom, 0.0f, 1.0f);
                             dAng = d + dv * (1.0f - 2.0f * (0.2f + 0.8f * rat));
                         }
-                        const V3 childDir = Norm3(RotateAxis(smp.Dir, childRgt, -dAng * kDeg2Rad));
+                        const V3 childDir = Norm3(RotateAxis(smp.Dir, childRgt, -dAng * Frontier::Constants::DegToRadFloat));
                         const float rat = std::clamp((logLen - stemOff) / std::max(1.0e-5f, logLen - (level == 0u ? logLen * baseSize0 : 0.0f)), 0.0f, 1.0f);
                         const float cLen = (level == 0u)
                             ? (logLen * metaMap[stem->Id].LengthChildMax * crownEnvelope(rat))
@@ -1225,7 +1223,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                         V3 rad = ProjectOnPlane3(childDir, smp.Dir);
                         rad = (LenSq3(rad) < 1.0e-8f) ? childRgt : Norm3(rad);
                         const V3 cOrigin = AddScaled3(smp.Pos, rad, rLim);
-                        const V3 emerge  = RotateTowards(rad, childDir, kMaxEmergeDeg * kDeg2Rad);
+                        const V3 emerge  = RotateTowards(rad, childDir, kMaxEmergeDeg * Frontier::Constants::DegToRadFloat);
                         V3 cRgt = ProjectOnPlane3(childRgt, emerge);
                         cRgt = (LenSq3(cRgt) < 1.0e-8f) ? AnyPerp3(emerge) : Norm3(cRgt);
                         Turtle ct { cOrigin, emerge, cRgt };
@@ -1248,7 +1246,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
             if (numSplits > 0)
             {
-                const float declDeg = std::acos(std::clamp(turtle.Dir[2], -1.0f, 1.0f)) * (180.0f / Frontier::Constants::PiFloat);
+                const float declDeg = std::acos(std::clamp(turtle.Dir[2], -1.0f, 1.0f)) * Frontier::Constants::RadToDegFloat;
                 const float splAng  = std::max(14.0f, std::fabs(profSplitAngle[std::min(level, 3u)]) + rng.Uniform() * 8.0f - declDeg * 0.45f);
                 const float nextSplitCorr = splAng / static_cast<float>(std::max(1, remSegs));
                 const float sprAng  = -(24.0f + 0.65f * (28.0f + std::fabs(declDeg - 90.0f) * rng.Next01()));
@@ -1265,7 +1263,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                     rotUp(t, (i == 0) ? (sprAng * 0.5f) : (-sprAng * 0.5f));
                     ts.push_back(t);
                 }
-                const float minAng = kMinForkDeg * kDeg2Rad;
+                const float minAng = kMinForkDeg * Frontier::Constants::DegToRadFloat;
                 for (int iter = 0; iter < 6; ++iter)
                 {
                     for (std::size_t i = 0u; i < ts.size(); ++i)
@@ -1408,7 +1406,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                 const float remLen = totalLen - s;
                 for (int side : { -1, 1 })
                 {
-                    const V3 fDir = Norm3(RotateAxis(dir, kUpZ, static_cast<float>(side) * lr.Range(20.0f, 32.0f) * kDeg2Rad));
+                    const V3 fDir = Norm3(RotateAxis(dir, kUpZ, static_cast<float>(side) * lr.Range(20.0f, 32.0f) * Frontier::Constants::DegToRadFloat));
                     auto fc = makeRootStem(&rs, rLoc * 0.76f, remLen, 0u);
                     fc->Attach = WeldedAttachKind::Fork;
                     fc->AttachDir = fDir;
@@ -1506,7 +1504,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
             const float rSurf = trunk->BaseRadiusAt(attachS) * trunk->ProfileFactor(attachS, sl.theta);
             const V3 origin = AddScaled3(smp.Pos, radial, rSurf);
             const V3 horizAx = Norm3(Frontier::Mathematics::EvaluateCross3(radial, kUpZ));
-            const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -24.0f * kDeg2Rad));
+            const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -24.0f * Frontier::Constants::DegToRadFloat));
 
             auto rootStem = makeRootStem(trunk.get(), sl.radius, sl.len, static_cast<uint32_t>(sl.w));
             rootStem->AttachS   = attachS;
@@ -1543,8 +1541,8 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         if (!lp.Stem || isDroppedChain(lp.Stem.get()) || lp.Stem->Nodes.empty()) continue;
         const float s = std::clamp(lp.SLocal, 0.0f, lp.Stem->Length);
         const auto smp = SampleWeldedStem(*lp.Stem, s);
-        const V3 rgt = Norm3(RotateAxis(smp.Right, smp.Dir, lp.RAngleDeg * kDeg2Rad));
-        const V3 dir = Norm3(RotateAxis(smp.Dir, rgt, -lp.DAngleDeg * kDeg2Rad));
+        const V3 rgt = Norm3(RotateAxis(smp.Right, smp.Dir, lp.RAngleDeg * Frontier::Constants::DegToRadFloat));
+        const V3 dir = Norm3(RotateAxis(smp.Dir, rgt, -lp.DAngleDeg * Frontier::Constants::DegToRadFloat));
         V3 rad = ProjectOnPlane3(dir, smp.Dir);
         rad = (LenSq3(rad) < 1.0e-8f) ? rgt : Norm3(rad);
 

@@ -13,6 +13,7 @@
 #include "Engine/GeometrySpace/Parametric/Intersection/CurveSurfaceIntersection.h"
 #include "Engine/GeometrySpace/Parametric/Intersection/IntersectionCurve.h"
 #include "Engine/GeometrySpace/Parametric/Local/RedundantConnectivity.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -151,7 +152,7 @@ namespace
             if (Values[Index] > Before || Values[Index] > After) continue;
             double Left = Low + (High - Low) * (Index - 1) / SampleCount;                    // [-] - Bracket
             double Right = Low + (High - Low) * (Index + 1) / SampleCount;                   // [-] - Bracket
-            constexpr double Golden = 0.6180339887498949;                                    // [-] - (√5 − 1)/2
+            constexpr double Golden = Frontier::Constants::InverseGoldenRatio;                                    // [-] - (√5 − 1)/2
             for (int Iteration = 0; Iteration < 80; ++Iteration)
             {
                 const double Inner = Right - Golden * (Right - Left);                        // [-] - Lower probe

@@ -73,10 +73,6 @@ namespace
     return SampleStudioEnvironmentRadiance(RayDir);
 }
 
-[[nodiscard]] uint8_t EncodeAcesSrgbByte(float LinearVal) noexcept
-{
-    return Frontier::ColourSpace::EncodeAcesSrgbByte(LinearVal, 0.85f);
-}
 
 } // namespace
 
@@ -264,9 +260,9 @@ SpecimenPreviewImage RasterizeMaterialSpecimenPreview(
             const float EdgeCoverage = TransparentBackground
                 ? std::clamp(std::sqrt(Disc) / std::max(0.01f, InvRes * 2.2f), 0.0f, 1.0f)
                 : 1.0f;
-            Image.Rgba8[PixelBase + 0u] = EncodeAcesSrgbByte(PixelLinear.R);
-            Image.Rgba8[PixelBase + 1u] = EncodeAcesSrgbByte(PixelLinear.G);
-            Image.Rgba8[PixelBase + 2u] = EncodeAcesSrgbByte(PixelLinear.B);
+            Image.Rgba8[PixelBase + 0u] = Frontier::ColourSpace::EncodeAcesSrgbByte(PixelLinear.R);
+            Image.Rgba8[PixelBase + 1u] = Frontier::ColourSpace::EncodeAcesSrgbByte(PixelLinear.G);
+            Image.Rgba8[PixelBase + 2u] = Frontier::ColourSpace::EncodeAcesSrgbByte(PixelLinear.B);
             Image.Rgba8[PixelBase + 3u] = static_cast<uint8_t>(std::lround(EdgeCoverage * 255.0f));
         }
     }

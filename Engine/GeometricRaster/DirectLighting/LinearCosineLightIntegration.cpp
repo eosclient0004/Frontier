@@ -44,10 +44,6 @@ namespace
     return CrossZ * ThetaOverSin;
 }
 
-[[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
-{
-    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
-}
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmic(Mathematics::LinearRGB Hdr) noexcept
 {
@@ -598,7 +594,7 @@ DirectLightingOutput LinearCosineLightIntegration::EvaluateDirectLightingFrameWi
             for (uint32_t RIdx = 0u; RIdx < AoRays; ++RIdx)
             {
                 const float U1    = (static_cast<float>(RIdx) + 0.5f) / static_cast<float>(AoRays);
-                const float Phi   = static_cast<float>(RIdx) * 2.39996323f + RotOffset;
+                const float Phi   = static_cast<float>(RIdx) * Frontier::Constants::GoldenAngleRadiansFloat + RotOffset;
                 const float SinT  = std::sqrt(U1);
                 const float CosT  = std::sqrt(std::max(0.0f, 1.0f - U1));
                 const Mathematics::Axis3D LocalRay { SinT * std::cos(Phi), SinT * std::sin(Phi), CosT };
@@ -701,9 +697,9 @@ DirectLightingOutput LinearCosineLightIntegration::EvaluateDirectLightingFrameWi
                     SkyFillRadiance.B * 0.50f,
                 };
                 const auto Tone = ApplyAcesFilmic(Out.DirectHdrRadiance[Off]);
-                Out.ToneMappedSrgb8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.R) * 255.0f));
-                Out.ToneMappedSrgb8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.G) * 255.0f));
-                Out.ToneMappedSrgb8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.B) * 255.0f));
+                Out.ToneMappedSrgb8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.R) * 255.0f));
+                Out.ToneMappedSrgb8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.G) * 255.0f));
+                Out.ToneMappedSrgb8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.B) * 255.0f));
                 continue;
             }
 
@@ -849,9 +845,9 @@ DirectLightingOutput LinearCosineLightIntegration::EvaluateDirectLightingFrameWi
 
             Out.DirectHdrRadiance[Off] = Hdr;
             const auto Tone = ApplyAcesFilmic(Hdr);
-            Out.ToneMappedSrgb8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.R) * 255.0f));
-            Out.ToneMappedSrgb8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.G) * 255.0f));
-            Out.ToneMappedSrgb8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(EncodeLinearToSrgb(Tone.B) * 255.0f));
+            Out.ToneMappedSrgb8[Off * 4u + 0u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.R) * 255.0f));
+            Out.ToneMappedSrgb8[Off * 4u + 1u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.G) * 255.0f));
+            Out.ToneMappedSrgb8[Off * 4u + 2u] = static_cast<uint8_t>(std::round(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(Tone.B) * 255.0f));
         }
     }
     };

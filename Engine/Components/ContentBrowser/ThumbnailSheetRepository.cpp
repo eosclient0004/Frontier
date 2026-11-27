@@ -12,6 +12,7 @@
 #include "Engine/MaterialSpace/SurfaceMaterial.h"
 #include "Engine/Serialization/Container/TextFormatPrimitives.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
 
 #include <algorithm>
 #include <atomic>
@@ -42,16 +43,6 @@ constexpr uint32_t WorkspaceBit(WorkspaceCategory Workspace) noexcept
     return 1u << static_cast<uint32_t>(Workspace);
 }
 
-[[nodiscard]] uint64_t ComputeFnv1a64(std::string_view Text) noexcept
-{
-    uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
-    for (const unsigned char Byte : Text)
-    {
-        Hash ^= static_cast<uint64_t>(Byte);
-        Hash *= Frontier::Constants::Fnv1a64Prime;
-    }
-    return Hash;
-}
 
 
 [[nodiscard]] uint8_t ClampChannel(float Intensity) noexcept
@@ -928,7 +919,7 @@ std::size_t ThumbnailSheetRepository::RegisterPrebakedEntry(
                                 ? (ImportPolicy.EngineContentRoot / QueryCategoryTitle(Category) / (Entry.DisplayTitle + Entry.ContainerFormat))
                                 : DiskPath;
 
-    Entry.IndexHeader.ContentHash64              = ComputeFnv1a64(Entry.DiskPath.generic_string() + "#" + Entry.DisplayTitle);
+    Entry.IndexHeader.ContentHash64              = Frontier::Serialization::ComputeFnv1a64String(Entry.DiskPath.generic_string() + "#" + Entry.DisplayTitle);
     Entry.IndexHeader.WorkspaceCompatibilityMask = ComputeWorkspacesAllowingCategory(Category);
     Entry.IndexHeader.SheetSliceByteOffset       = 64ull + static_cast<uint64_t>(SlotOrdinal) * TileBytes;
     Entry.IndexHeader.SheetSliceByteLength       = TileBytes;
@@ -983,7 +974,7 @@ std::size_t ThumbnailSheetRepository::RegisterOrUpdateProjectEntry(
             if (!DiskPath.empty())
             {
                 Entries[Idx].DiskPath = DiskPath;
-                Entries[Idx].IndexHeader.ContentHash64 = ComputeFnv1a64(GenericDisk + "#" + std::string(DisplayTitle));
+                Entries[Idx].IndexHeader.ContentHash64 = Frontier::Serialization::ComputeFnv1a64String(GenericDisk + "#" + std::string(DisplayTitle));
             }
             Entries[Idx].IndexHeader.OriginCode = static_cast<uint8_t>(ContentOriginFilter::Project);
             Entries[Idx].IndexHeader.TintRed    = PreviewTint.Red;
@@ -1535,7 +1526,7 @@ ImportIntakeResult ThumbnailSheetRepository::IntakeExternalAssetDrop(
     // Clean up transient quarantine copy after atomic conversion succeeds
     std::filesystem::remove(Result.QuarantinePath, IoErr);
 
-    const uint64_t HashColor = ComputeFnv1a64(Stem);
+    const uint64_t HashColor = Frontier::Serialization::ComputeFnv1a64String(Stem);
     const ColorRgba Tint{
         static_cast<uint8_t>(110u + (HashColor & 0x7Fu)),
         static_cast<uint8_t>(110u + ((HashColor >> 8u) & 0x7Fu)),

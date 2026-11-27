@@ -657,7 +657,7 @@ void SurfelRadiosityLatticeSequence::BuildRelaxedLatticeFromScene(
         {
             const float Z     = 1.0f - 2.0f * (static_cast<float>(R) + 0.5f) / static_cast<float>(RayCount);
             const float RadXY = std::sqrt(std::max(0.0f, 1.0f - Z * Z));
-            const float Phi   = static_cast<float>(R) * 2.39996323f;
+            const float Phi   = static_cast<float>(R) * Frontier::Constants::GoldenAngleRadiansFloat;
             FibDirs[R]        = { RadXY * std::cos(Phi), RadXY * std::sin(Phi), Z };
         }
 

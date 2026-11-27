@@ -4,8 +4,8 @@
 // 🧩 Celestial Analytic Media (Exp² Height Fog + Spectral Rayleigh/Mie Aerial Perspective) & Multi-Shape Local Fog Volumes
 
 #include "CloudNoise.slang"
+#include "../Shared/ShaderMathConstants.slang"
 
-static const float FogPiConst = 3.14159265359;
 
 struct GpuLocalFogVolume
 {
@@ -137,9 +137,9 @@ float EvaluateFogVolumeShapeMaskGpu(
     else if (Shape == 6u) // N-sided Prism
     {
         uint  Sides  = clamp(PrismSides, 3u, 16u);
-        float Sector = (2.0 * FogPiConst) / float(Sides);
+        float Sector = (2.0 * FrontierPi) / float(Sides);
         float Angle  = atan2(U.y, U.x);
-        float ModA   = fmod(Angle + 4.0 * FogPiConst + 0.5 * Sector, Sector) - 0.5 * Sector;
+        float ModA   = fmod(Angle + 4.0 * FrontierPi + 0.5 * Sector, Sector) - 0.5 * Sector;
         float PolyR  = (length(U.xy) * cos(ModA)) / max(0.25, cos(0.5 * Sector));
         DistNorm     = max(PolyR, abs(U.z));
     }
@@ -291,7 +291,7 @@ float3 ApplyCelestialAnalyticMediaGpu(
         }
 
         Tf = exp(-Od * Od);
-        float  FogPh  = min(CelestialPhaseHG(CosS, 0.55) * (4.0 * FogPiConst), 6.0);
+        float  FogPh  = min(CelestialPhaseHG(CosS, 0.55) * (4.0 * FrontierPi), 6.0);
         float  SunMul = max(0.0, Fog.HeightParams1.w);
         float3 FogLit = Fog.HeightParams1.xyz * (SkyAmbient * 0.48 + LowBandGlow * 0.20 + SunL * FogPh * 0.22 * SunMul);
         Lf = FogLit;
@@ -318,7 +318,7 @@ float3 ApplyCelestialAnalyticMediaGpu(
             float  AnisoG  = clamp(Fog.FogMeta.z, 0.0, 0.95);
             float  SkyGain = max(0.0, Fog.FogMeta.w);
             float  PhRay   = 0.75 * (1.0 + CosS * CosS);
-            float  PhMie   = min(CelestialPhaseHG(CosS, AnisoG) * (4.0 * FogPiConst), 8.0);
+            float  PhMie   = min(CelestialPhaseHG(CosS, AnisoG) * (4.0 * FrontierPi), 8.0);
             float3 AerLit  = (SkyAmbient * 0.48 * SkyGain + LowBandGlow * 0.28 * SkyGain) * lerp(1.0, 0.8, MieB)
                            + SunL * lerp(PhRay * 0.18, PhMie * 0.32, MieB);
             La = AerLit * Fog.AerialTintPad.xyz;
@@ -436,7 +436,7 @@ float3 EvaluateVolumetricFogGpu(
                 Sh = exp(-Od * (1.0 + max(0.0, Vol.AbsorbShadowFalloffSteps.x)));
             }
 
-            float  Ph  = CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * FogPiConst);
+            float  Ph  = CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * FrontierPi);
             float  Ms  = Sh + 0.45 * sqrt(Sh);
             float3 Li  = SunL * (Ph * Ms * 0.70) + SkyColor * (0.65 + 0.35 * Hn);
             float  SigA = max(0.0, Vol.AbsorbShadowFalloffSteps.x);

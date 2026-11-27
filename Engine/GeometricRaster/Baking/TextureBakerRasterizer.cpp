@@ -489,9 +489,9 @@ bool TextureBakerRasterizer::RenderSpatialViewport(const BakeViewportRenderSpec&
     float EffectiveFovDeg = Spec.Camera.VerticalFovDeg;
     if (SafeAspect < 1.0f)
     {
-        const float HalfRad = (Spec.Camera.VerticalFovDeg * 0.5f) * Frontier::Constants::PiFloat / 180.0f;
+        const float HalfRad = (Spec.Camera.VerticalFovDeg * 0.5f) * Frontier::Constants::DegToRadFloat;
         EffectiveFovDeg = std::clamp(
-            2.0f * std::atan(std::tan(HalfRad) / SafeAspect) * (180.0f / Frontier::Constants::PiFloat),
+            2.0f * std::atan(std::tan(HalfRad) / SafeAspect) * Frontier::Constants::RadToDegFloat,
             Spec.Camera.VerticalFovDeg,
             108.0f);
     }

@@ -410,7 +410,7 @@ void ConstructSwitchSymbol(
             Surface.FillCircle(Center, R * 0.34f, Ink);
             for (int32_t Ray = 0; Ray < 8; ++Ray)
             {
-                const float Angle = static_cast<float>(Ray) * 0.78539816f;
+                const float Angle = static_cast<float>(Ray) * Frontier::Constants::QuarterPiFloat;
                 Surface.StrokeLine(
                     { Center.X + std::cos(Angle) * R * 0.54f, Center.Y + std::sin(Angle) * R * 0.54f },
                     { Center.X + std::cos(Angle) * R * 0.84f, Center.Y + std::sin(Angle) * R * 0.84f },

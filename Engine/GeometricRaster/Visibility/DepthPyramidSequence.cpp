@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/Visibility/DepthPyramidSequence.h"
+#include "Engine/Mathematics/CoordinateSpace.h"
 
 #include <algorithm>
 #include <bit>
@@ -24,11 +25,13 @@ OrthonormalCameraBasis ComputeCameraBasis(const PerspectiveCameraBasis& Camera) 
 {
     OrthonormalCameraBasis Basis {};
     Basis.CameraOrigin = Camera.CameraOrigin;
-    Basis.ForwardAxis  = Mathematics::NormalizeAxis(Camera.TargetPoint - Camera.CameraOrigin, { 0.0f, 1.0f, 0.0f });
-    Basis.RightAxis    = Mathematics::NormalizeAxis(
-        Mathematics::EvaluateCross(Basis.ForwardAxis, Camera.WorldUpAxis), { 1.0f, 0.0f, 0.0f });
-    Basis.UpAxis       = Mathematics::NormalizeAxis(
-        Mathematics::EvaluateCross(Basis.RightAxis, Basis.ForwardAxis), { 0.0f, 0.0f, 1.0f });
+    Mathematics::EvaluateOrthonormalCameraBasis(
+        Camera.CameraOrigin,
+        Camera.TargetPoint,
+        Camera.WorldUpAxis,
+        Basis.RightAxis,
+        Basis.UpAxis,
+        Basis.ForwardAxis);
 
     Basis.WidthPx     = std::max(1u, Camera.ViewportWidthPx);
     Basis.HeightPx    = std::max(1u, Camera.ViewportHeightPx);

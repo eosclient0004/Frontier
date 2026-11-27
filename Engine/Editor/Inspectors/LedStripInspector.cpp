@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/LedStripInspector.h"
 #include "Engine/Editor/Inspectors/LightInspectorShared.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -16,10 +17,6 @@ namespace Frontier
 
 namespace
 {
-[[nodiscard]] uint8_t ClampByteSt(float V) noexcept
-{
-    return static_cast<uint8_t>(std::clamp(std::lround(V), 0l, 255l));
-}
 } // namespace
 
 void LedStripInspector::UpdateRibbonSurface(const LedStripData& Instance)
@@ -68,9 +65,9 @@ void LedStripInspector::UpdateRibbonSurface(const LedStripData& Instance)
                     }
                 }
                 const std::size_t Off = (static_cast<std::size_t>(Y) * W + X) * 4u;
-                Pixels[Off + 0u] = ClampByteSt(R);
-                Pixels[Off + 1u] = ClampByteSt(G);
-                Pixels[Off + 2u] = ClampByteSt(B);
+                Pixels[Off + 0u] = Frontier::Mathematics::QuantizeFloatToByte(R);
+                Pixels[Off + 1u] = Frontier::Mathematics::QuantizeFloatToByte(G);
+                Pixels[Off + 2u] = Frontier::Mathematics::QuantizeFloatToByte(B);
                 Pixels[Off + 3u] = 255u;
             }
         }

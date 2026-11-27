@@ -38,10 +38,14 @@ void ComputeCameraBasis(
     Mathematics::Axis3D&          OutUp,
     Mathematics::Axis3D&          OutForward) noexcept
 {
-    OutEye     = Cam.CameraOrigin;
-    OutForward = Mathematics::NormalizeAxis(Cam.TargetPoint - Cam.CameraOrigin, { 0.0f, 1.0f, 0.0f });
-    OutRight   = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutForward, Cam.WorldUpAxis), { 1.0f, 0.0f, 0.0f });
-    OutUp      = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutRight, OutForward), { 0.0f, 0.0f, 1.0f });
+    OutEye = Cam.CameraOrigin;
+    Mathematics::EvaluateOrthonormalCameraBasis(
+        Cam.CameraOrigin,
+        Cam.TargetPoint,
+        Cam.WorldUpAxis,
+        OutRight,
+        OutUp,
+        OutForward);
 }
 
 void DestroyProgramUnit(VkDevice DeviceHandle, auto& Unit) noexcept

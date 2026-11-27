@@ -15,6 +15,7 @@
 #include "Engine/Mathematics/AxisCoordinates.h"
 #include "Engine/Mathematics/LinearColors.h"
 #include "Engine/SpatialAcceleration/CompressedWideTree.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <array>
 #include <cstdint>
@@ -193,7 +194,7 @@ struct SdfShowcaseCamera
     Mathematics::Axis3D Eye            { 0.0f, -3.86f, 1.82f };
     Mathematics::Axis3D Target         { 0.0f,  0.25f, 0.52f };
     Mathematics::Axis3D Up             { 0.0f,  0.0f,  1.0f  };
-    float               VerticalFovRad = 0.785398f; // 45 deg
+    float               VerticalFovRad = Frontier::Constants::QuarterPiFloat; // 45 deg
     uint32_t            WidthPx        = 400u;
     uint32_t            HeightPx       = 260u;
     float               ExposureScale  = 0.92f;

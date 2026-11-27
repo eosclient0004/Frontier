@@ -886,7 +886,7 @@ FracturePartitionResult EngineeringBakedFracture::Execute(
     const uint32_t Ceiling      = std::clamp(Specification.Ceiling, 2u, 160u);
     const double   ImpactEnergy = std::max(15.0, Specification.EnergyJoules);
     const double   MinSpan      = std::max(0.018, Specification.MinimumSizeM);
-    const double   GrainRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
+    const double   GrainRad     = Specification.GrainAngleDeg * Frontier::Constants::DegToRad;
     const double   BondScale    = Specification.BondStrengthScale > 0.0 ? Specification.BondStrengthScale : 1.0;
 
     FlatConvexCell RootCell    = FastRuntimeFracture::PackFlatConvexCell(SourcePolyhedron);
@@ -923,7 +923,7 @@ FracturePartitionResult EngineeringBakedFracture::Execute(
     const double EPa               = static_cast<double>(Material.YoungModulusGPa) * 1.0e9;
     const double FtMPa             = static_cast<double>(Material.TensileStrengthMPa);
     const double HillerborgLengthM = (EPa * static_cast<double>(Material.FractureToughnessGc)) / std::pow(FtMPa * 1.0e6, 2.0);
-    const double PhiRad            = static_cast<double>(EngSpec.InternalFrictionDeg) * (Frontier::Constants::Pi / 180.0);
+    const double PhiRad            = static_cast<double>(EngSpec.InternalFrictionDeg) * Frontier::Constants::DegToRad;
     const double SinPhi            = std::sin(PhiRad);
     const double CosPhi            = std::cos(PhiRad);
     const double CohesionMPa       = (static_cast<double>(EngSpec.CompressiveStrengthMPa) * (1.0 - SinPhi)) / (2.0 * std::max(0.2, CosPhi));

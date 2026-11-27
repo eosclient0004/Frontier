@@ -1,11 +1,9 @@
+#include "../Shared/ShaderMathConstants.slang"
 /*============================================================================================================================================
                                                     SKYVIEWTRANSMITTANCECOMPUTE.SLANG
 ============================================================================================================================================*/
 // 🧩 Stage 3 Physical Atmosphere: 256x64 Spherical-Horizon Transmittance + 32x32 Multi-Scatter + 192x108 Geometric-Limb SkyView LUTs
 
-static const float AtmoPiConst      = 3.14159265359;
-static const float AtmoTauConst     = 6.28318530718;
-static const float AtmoInvFourPi    = 0.07957747155;
 static const float ViewerAltM       = 100.0;
 
 static const uint AtmoTransW        = 256u;
@@ -176,7 +174,7 @@ float3 EvaluateSkyViewLutSample(
 
     float Azimuth    = atan2(Dir.y, Dir.x);
     float PolarAngle = acos(clamp(Dir.z, -1.0, 1.0));
-    float U          = frac(Azimuth / AtmoTauConst + 1.5);
+    float U          = frac(Azimuth / FrontierTau + 1.5);
 
     bool  LowerBank = (PolarAngle > LimbAngle);
     float CoordY    = 0.0;
@@ -187,7 +185,7 @@ float3 EvaluateSkyViewLutSample(
     }
     else
     {
-        float Q = sqrt(clamp((PolarAngle - LimbAngle) / max(1.0e-4, AtmoPiConst - LimbAngle), 0.0, 1.0));
+        float Q = sqrt(clamp((PolarAngle - LimbAngle) / max(1.0e-4, FrontierPi - LimbAngle), 0.0, 1.0));
         CoordY  = float(HalfH) + Q * float(HalfH - 1);
     }
 
@@ -379,7 +377,7 @@ void MultiScatterLutComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     {
         float CosPhi    = 1.0 - 2.0 * (float(D) + 0.5) * InvDirs;
         float SinPhi    = sqrt(max(0.0, 1.0 - CosPhi * CosPhi));
-        float Theta     = AtmoTauConst * (float(D) + 0.5) / GoldenRatio;
+        float Theta     = FrontierTau * (float(D) + 0.5) / GoldenRatio;
         float DirX      = SinPhi * cos(Theta);
         float DirZ      = CosPhi;
         float RaySunCos = clamp(DirX * SunSin + DirZ * SunCos, -1.0, 1.0);
@@ -408,7 +406,7 @@ void MultiScatterLutComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             float SampleSunCos = clamp((RadiusKm * SunCos + T * RaySunCos) / RK, -1.0, 1.0);
             float3 SunT        = SampleTransmittancePacked(RK, SampleSunCos, GroundKm, TopKm);
 
-            RayL2  += TAccum * Scat * AtmoInvFourPi * SunT * IntS;
+            RayL2  += TAccum * Scat * FrontierInvFourPi * SunT * IntS;
             RayFms += TAccum * Scat * IntS;
             TAccum *= SegT;
         }
@@ -419,7 +417,7 @@ void MultiScatterLutComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             if (HitSunCos > 0.0)
             {
                 float3 GroundSunT = SampleTransmittancePacked(GroundKm, HitSunCos, GroundKm, TopKm);
-                RayL2 += TAccum * SkyUniforms.GroundAlbedoLimbGlow.xyz * GroundSunT * (HitSunCos / AtmoPiConst);
+                RayL2 += TAccum * SkyUniforms.GroundAlbedoLimbGlow.xyz * GroundSunT * (HitSunCos / FrontierPi);
             }
         }
 
@@ -449,10 +447,10 @@ float3 IntegrateUpperSkyRadiance(
     float  SinPolar   = sqrt(max(0.0, 1.0 - CosPolar * CosPolar));
     float3 Rd         = float3(SinPolar * cos(Azimuth), SinPolar * sin(Azimuth), CosPolar);
     float  CosTheta   = dot(Rd, UnitSun);
-    float  PhaseR     = (3.0 / (16.0 * AtmoPiConst)) * (1.0 + CosTheta * CosTheta);
+    float  PhaseR     = (3.0 / (16.0 * FrontierPi)) * (1.0 + CosTheta * CosTheta);
     float  G2         = MieG * MieG;
     float  Denom      = max(1.0e-3, 1.0 + G2 - 2.0 * MieG * CosTheta);
-    float  PhaseM     = (3.0 / (8.0 * AtmoPiConst)) * ((1.0 - G2) * (1.0 + CosTheta * CosTheta)) /
+    float  PhaseM     = (3.0 / (8.0 * FrontierPi)) * ((1.0 - G2) * (1.0 + CosTheta * CosTheta)) /
                         ((2.0 + G2) * pow(Denom, 1.5));
     float  MaxDistKm  = AtmoIntersectUpperKm(StartR, CosPolar, TopKm);
 
@@ -513,11 +511,11 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float  LimbAngle   = AtmoComputeLimbPolarAngle(StartR, GroundKm);
 
     float  U           = (float(DispatchThreadID.x) + 0.5) / float(W);
-    float  Azimuth     = (U - 0.5) * AtmoTauConst;
+    float  Azimuth     = (U - 0.5) * FrontierTau;
     float3 UnitSun     = normalize(SkyUniforms.SunDirectionIntensity.xyz);
     float  SolarScale  = max(0.0, SkyUniforms.SunDirectionIntensity.w) * 0.24;
     float  MieG        = clamp(SkyUniforms.ScatteringStrengths.z, 0.0, 0.99);
-    float  SunElevDeg  = asin(clamp(UnitSun.z, -1.0, 1.0)) * (180.0 / AtmoPiConst);
+    float  SunElevDeg  = asin(clamp(UnitSun.z, -1.0, 1.0)) * (180.0 / FrontierPi);
     float  DayVis      = clamp((SunElevDeg + 6.0) / 14.0, 0.0, 1.0);
 
     if (!LowerBank)
@@ -532,16 +530,16 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     }
 
     float  LocalV     = float(DispatchThreadID.y - HalfH) / float(HalfH - 1u);
-    float  PolarAngle = min(AtmoPiConst - 1.0e-5, LimbAngle + (AtmoPiConst - LimbAngle) * LocalV * LocalV + 1.5e-4);
+    float  PolarAngle = min(FrontierPi - 1.0e-5, LimbAngle + (FrontierPi - LimbAngle) * LocalV * LocalV + 1.5e-4);
     float  CosPolar   = cos(PolarAngle);
     float  SinPolar   = sqrt(max(0.0, 1.0 - CosPolar * CosPolar));
     float3 Rd         = float3(SinPolar * cos(Azimuth), SinPolar * sin(Azimuth), CosPolar);
 
     float  CosTheta   = dot(Rd, UnitSun);
-    float  PhaseR     = (3.0 / (16.0 * AtmoPiConst)) * (1.0 + CosTheta * CosTheta);
+    float  PhaseR     = (3.0 / (16.0 * FrontierPi)) * (1.0 + CosTheta * CosTheta);
     float  G2         = MieG * MieG;
     float  Denom      = max(1.0e-3, 1.0 + G2 - 2.0 * MieG * CosTheta);
-    float  PhaseM     = (3.0 / (8.0 * AtmoPiConst)) * ((1.0 - G2) * (1.0 + CosTheta * CosTheta)) /
+    float  PhaseM     = (3.0 / (8.0 * FrontierPi)) * ((1.0 - G2) * (1.0 + CosTheta * CosTheta)) /
                         ((2.0 + G2) * pow(Denom, 1.5));
 
     float  AntiCool     = lerp(lerp(0.38, 1.0, smoothstep(-0.35, 0.30, CosTheta)), 1.0, smoothstep(0.06, 0.24, UnitSun.z));
@@ -586,7 +584,7 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             ? SampleTransmittancePacked(GroundKm, HitSunCos, GroundKm, TopKm)
             : float3(0.0, 0.0, 0.0);
         float3 GroundMulti = SampleMultiScatterPacked(0.0, HitSunCos, ThicknessKm) * AntiCool;
-        float  SunTerm     = max(0.0, HitSunCos) / AtmoPiConst;
+        float  SunTerm     = max(0.0, HitSunCos) / FrontierPi;
         RadAccum += TAccum * SkyUniforms.GroundAlbedoLimbGlow.xyz * (GroundSunT * SunTerm + GroundMulti * 0.35);
     }
 

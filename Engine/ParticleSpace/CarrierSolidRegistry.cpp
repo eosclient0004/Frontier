@@ -1290,7 +1290,7 @@ SolidAnchorSet SampleSolidAnchors(
     }
     const auto creaseCdf = BuildCumulativeDistribution(creaseLengths);
 
-    const double yaw = yawDegrees * Frontier::Constants::Pi / 180.0;
+    const double yaw = yawDegrees * Frontier::Constants::DegToRad;
     const uint32_t modeIndex = static_cast<uint32_t>(mode);
     const double ridgeFraction = (modeIndex == 2u && !solid.Creases.empty() && totalCreaseLength > 1.0e-6) ? 0.72 : 0.0;
 

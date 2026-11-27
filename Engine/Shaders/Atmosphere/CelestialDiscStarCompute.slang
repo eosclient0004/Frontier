@@ -1,10 +1,9 @@
+#include "../Shared/ShaderMathConstants.slang"
 /*============================================================================================================================================
                                                       CELESTIALDISCSTARCOMPUTE.SLANG
 ============================================================================================================================================*/
 // 🧩 Neckel & Labs (1994) Limb-Darkened Sun Disc + erfc PSF + K/F Corona + Radiant Glare + Sub-Pixel SolarErf, 6x Multi-Moon & Starfield
 
-static const float CelestialPiConst  = 3.14159265359;
-static const float CelestialTauConst = 6.28318530718;
 static const uint  MoonAtlasTileW    = 512u;
 static const uint  MoonAtlasTileH    = 256u;
 static const uint  MoonAtlasPresets  = 6u;
@@ -503,8 +502,8 @@ float3 EvaluateLunarDiscPointGpu(
     float SurfY = SY * CosP - SZ * SinP;
     float SurfZ = SY * SinP + SZ * CosP;
 
-    float  LonU      = atan2(SX, SurfZ) / CelestialTauConst + 0.5;
-    float  LatV      = acos(clamp(SurfY, -1.0, 1.0)) / CelestialPiConst;
+    float  LonU      = atan2(SX, SurfZ) / FrontierTau + 0.5;
+    float  LatV      = acos(clamp(SurfY, -1.0, 1.0)) / FrontierPi;
     float3 TexAlbedo = SampleLunarAtlasGpu(LunarAtlas, PresetIdx, LonU, LatV);
 
     float TexU = 1.0 / float(MoonAtlasTileW);
@@ -543,7 +542,7 @@ float3 EvaluateLunarDiscPointGpu(
         float  NH    = max(0.0, dot(ShadeN, HalfV));
         float  A2    = 0.22 * 0.22;
         float  Den   = NH * NH * (A2 - 1.0) + 1.0;
-        float  D     = A2 / (CelestialPiConst * Den * Den);
+        float  D     = A2 / (FrontierPi * Den * Den);
         float  VDot  = clamp(dot(ViewLocal, HalfV), 0.0, 1.0);
         float  F     = 0.02 + 0.98 * pow(1.0 - VDot, 5.0);
         Spec = Exo.IceSpecular * D * F * TermGate * 0.25;
@@ -585,7 +584,7 @@ float3 TransformHorizonToEquatorialGpu(float3 HorizonDir, float CelestialRotRad)
 float EvaluateKastenYoungAirmassGpu(float SinElevation)
 {
     float SinClamped = max(SinElevation, 0.004);
-    float ElevDeg    = asin(clamp(SinClamped, -1.0, 1.0)) * (180.0 / CelestialPiConst);
+    float ElevDeg    = asin(clamp(SinClamped, -1.0, 1.0)) * (180.0 / FrontierPi);
     return 1.0 / (SinClamped + 0.50572 * pow(max(0.5, ElevDeg + 6.07995), -1.6364));
 }
 
@@ -716,7 +715,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
 {
     float3 Dir = normalize(EqDir);
     float3 Out = float3(0.0, 0.0, 0.0);
-    float  Deg = CelestialPiConst / 180.0;
+    float  Deg = FrontierPi / 180.0;
     float  East = 0.0;
     float  North = 0.0;
 
@@ -819,7 +818,7 @@ float3 EvaluateZodiacalLightGpu(float3 EqDir, float3 SolarEqDir)
         371.0, 261.0, 210.0, 185.0, 165.0, 170.0, 185.0, 200.0
     };
     float PoleS10     = 12.0;
-    float RadToDeg    = 180.0 / CelestialPiConst;
+    float RadToDeg    = 180.0 / FrontierPi;
     float LatSin      = clamp(dot(EqDir, EclipticPole), -1.0, 1.0);
     float LatDeg      = abs(asin(LatSin)) * RadToDeg;
     float3 ViewPlane  = EqDir - EclipticPole * LatSin;
@@ -865,7 +864,7 @@ float EvaluateStellarErfMoffatMassGpu(float DeltaPxX, float DeltaPxY, float Poin
     static const float Weights[4] = {  0.34785485,  0.65214515, 0.65214515, 0.34785485 };
     float MoffatAlpha = 2.1 * PsfScale;
     float InvAlpha2   = 1.0 / (MoffatAlpha * MoffatAlpha);
-    float NormFactor  = 1.5 / (CelestialPiConst * MoffatAlpha * MoffatAlpha);
+    float NormFactor  = 1.5 / (FrontierPi * MoffatAlpha * MoffatAlpha);
     float WingMass    = 0.0;
     for (int IY = 0; IY < 4; ++IY)
     {
@@ -956,7 +955,7 @@ float3 EvaluateSolarMoonBodiesGpu(
             float R2    = PX * PX + PY * PY;
             float RNorm = sqrt(R2);
 
-            float  PhAng      = (M.TintSynodicPhase.w - 0.5) * CelestialTauConst;
+            float  PhAng      = (M.TintSynodicPhase.w - 0.5) * FrontierTau;
             float3 SunLocal   = normalize(float3(sin(PhAng), 0.18, cos(PhAng)));
             float3 ViewLocal  = float3(0.0, 0.0, 1.0);
             float  Earthshine = 0.016 * (1.0 - 0.78 * DayVis);
@@ -976,13 +975,13 @@ float3 EvaluateSolarMoonBodiesGpu(
                 if (SegLen > 1.0e-5)
                 {
                     float CosScatter = -SunLocal.z;
-                    float PhaseR     = (3.0 / (16.0 * CelestialPiConst)) * (1.0 + CosScatter * CosScatter);
+                    float PhaseR     = (3.0 / (16.0 * FrontierPi)) * (1.0 + CosScatter * CosScatter);
                     float G          = clamp(Exo.MieAsymmetry, 0.0, 0.96);
                     float G2         = G * G;
                     float Denom      = max(1.0e-3, 1.0 + G2 - 2.0 * G * CosScatter);
-                    float PhaseM     = (3.0 / (8.0 * CelestialPiConst)) * ((1.0 - G2) * (1.0 + CosScatter * CosScatter)) /
+                    float PhaseM     = (3.0 / (8.0 * FrontierPi)) * ((1.0 - G2) * (1.0 + CosScatter * CosScatter)) /
                                        ((2.0 + G2) * pow(Denom, 1.5));
-                    float IsoPhase   = 1.0 / (4.0 * CelestialPiConst);
+                    float IsoPhase   = 1.0 / (4.0 * FrontierPi);
 
                     for (uint S = 0u; S < 20u; ++S)
                     {
@@ -1099,7 +1098,7 @@ float3 EvaluateSolarMoonBodiesGpu(
                     float  XMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighX) - EvaluateSolarErfGpu(LowX)));
                     float  YMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighY) - EvaluateSolarErfGpu(LowY)));
                     float  SinHalf       = sin(0.5 * SunHalfR);
-                    float  SolidAngle    = 4.0 * CelestialPiConst * SinHalf * SinHalf;
+                    float  SolidAngle    = 4.0 * FrontierPi * SinHalf * SinHalf;
                     float  PixelArea     = max(1.0e-12, PixelSizeR * PixelSizeR);
                     float  SubGain       = (SolidAngle / PixelArea) * XMass * YMass * DiscIntensity;
                     SubPixelPhotosphere  = float3(0.83276, 0.77447, 0.69061) * SubGain;
@@ -1293,7 +1292,7 @@ float3 EvaluateDeepCubemapStarsGpu(
             float Chroma  = 0.0;
             if (ScintAmp > 0.0)
             {
-                float Phase   = H2 * CelestialTauConst;
+                float Phase   = H2 * FrontierTau;
                 float Flicker = 0.62 * sin(Cfg.ClockViewportDims.x * ScintFreq * 11.4 + Phase * 3.0)
                               + 0.38 * sin(Cfg.ClockViewportDims.x * ScintFreq * 24.4 + Phase * 7.0);
                 Twinkle = max(0.0, 1.0 + ScintAmp * Flicker);
@@ -1350,7 +1349,7 @@ float3 EvaluateTiledCatalogStarsGpu(
         float Chroma  = 0.0;
         if (ScintAmp > 0.0)
         {
-            float Phase   = S.PixPosFlux.w * CelestialTauConst;
+            float Phase   = S.PixPosFlux.w * FrontierTau;
             float Flicker = 0.62 * sin(Cfg.ClockViewportDims.x * ScintFreq * 11.4 + Phase * 3.0)
                           + 0.38 * sin(Cfg.ClockViewportDims.x * ScintFreq * 24.4 + Phase * 7.0);
             Twinkle = max(0.0, 1.0 + ScintAmp * Flicker);
@@ -1410,7 +1409,7 @@ float3 EvaluateBrightCatalogStarsFallbackGpu(
         float Chroma  = 0.0;
         if (ScintAmp > 0.0)
         {
-            float Phase   = Raw.ColorSeed.w * CelestialTauConst;
+            float Phase   = Raw.ColorSeed.w * FrontierTau;
             float Flicker = 0.62 * sin(Cfg.ClockViewportDims.x * ScintFreq * 11.4 + Phase * 3.0)
                           + 0.38 * sin(Cfg.ClockViewportDims.x * ScintFreq * 24.4 + Phase * 7.0);
             Twinkle = max(0.0, 1.0 + ScintAmp * Flicker);
@@ -1542,8 +1541,8 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     if (DispatchThreadID.x >= W || DispatchThreadID.y >= H) return;
 
     float2 Uv = (float2(DispatchThreadID.xy) + float2(0.5, 0.5)) / float2(float(W), float(H));
-    float Az  = (Uv.x - 0.5) * CelestialTauConst;
-    float El  = (1.0 - Uv.y) * (CelestialPiConst * 0.5);
+    float Az  = (Uv.x - 0.5) * FrontierTau;
+    float El  = (1.0 - Uv.y) * (FrontierPi * 0.5);
     float3 Rd = float3(cos(El) * cos(Az), cos(El) * sin(Az), sin(El));
     OutCelestialRgba[DispatchThreadID.y * W + DispatchThreadID.x] =
         float4(EvaluateCelestialBodiesGpu(CelestialUniforms, LunarSurfaceAtlasTexels, Rd), 1.0);

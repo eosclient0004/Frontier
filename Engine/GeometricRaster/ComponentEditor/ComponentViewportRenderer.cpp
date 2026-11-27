@@ -9,6 +9,7 @@
 
 #include "Engine/GeometricRaster/ComponentEditor/ComponentViewportRenderer.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/CoordinateSpace.h"
 
 #include <volk.h>
 #if defined(__GNUC__) || defined(__clang__)
@@ -140,28 +141,15 @@ struct Mat4
     Mathematics::Axis3D Target,
     Mathematics::Axis3D UpRef) noexcept
 {
-    auto Norm = [](Mathematics::Axis3D V) -> Mathematics::Axis3D
-    {
-        const float L = std::sqrt(V.X * V.X + V.Y * V.Y + V.Z * V.Z);
-        return (L > 1.0e-6f) ? Mathematics::Axis3D{ V.X / L, V.Y / L, V.Z / L } : Mathematics::Axis3D{ 0.0f, 0.0f, 1.0f };
-    };
-    auto Cross = [](Mathematics::Axis3D A, Mathematics::Axis3D B) -> Mathematics::Axis3D
-    {
-        return { A.Y * B.Z - A.Z * B.Y, A.Z * B.X - A.X * B.Z, A.X * B.Y - A.Y * B.X };
-    };
-    auto Dot = [](Mathematics::Axis3D A, Mathematics::Axis3D B) -> float
-    {
-        return A.X * B.X + A.Y * B.Y + A.Z * B.Z;
-    };
-
-    const Mathematics::Axis3D F = Norm({ Target.X - Eye.X, Target.Y - Eye.Y, Target.Z - Eye.Z });
-    const Mathematics::Axis3D S = Norm(Cross(F, UpRef));
-    const Mathematics::Axis3D U = Cross(S, F);
+    Mathematics::Axis3D S {};
+    Mathematics::Axis3D U {};
+    Mathematics::Axis3D F {};
+    Mathematics::EvaluateOrthonormalCameraBasis(Eye, Target, UpRef, S, U, F);
 
     Mat4 R {};
-    R.M[0]  = S.X;  R.M[1]  = S.Y;  R.M[2]  = S.Z;  R.M[3]  = -Dot(S, Eye);
-    R.M[4]  = U.X;  R.M[5]  = U.Y;  R.M[6]  = U.Z;  R.M[7]  = -Dot(U, Eye);
-    R.M[8]  = -F.X; R.M[9]  = -F.Y; R.M[10] = -F.Z; R.M[11] = Dot(F, Eye);
+    R.M[0]  = S.X;  R.M[1]  = S.Y;  R.M[2]  = S.Z;  R.M[3]  = -Mathematics::EvaluateDot(S, Eye);
+    R.M[4]  = U.X;  R.M[5]  = U.Y;  R.M[6]  = U.Z;  R.M[7]  = -Mathematics::EvaluateDot(U, Eye);
+    R.M[8]  = -F.X; R.M[9]  = -F.Y; R.M[10] = -F.Z; R.M[11] = Mathematics::EvaluateDot(F, Eye);
     R.M[15] = 1.0f;
     return R;
 }

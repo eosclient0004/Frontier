@@ -7,8 +7,8 @@
 #define FRONTIER_PLANETARY_CLOUD_DENSITY
 
 #include "CloudNoise.slang"
+#include "../Shared/ShaderMathConstants.slang"
 
-static const float CloudPi = 3.14159265358979323846;
 
 struct CloudSpecification
 {

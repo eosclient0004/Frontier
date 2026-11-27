@@ -70,7 +70,7 @@ void IesLightInspector::UpdatePolarSurface(const IesLightData& Instance)
                 }
 
                 // Polar candela lobe (downward = 0 deg -> +Y)
-                const float DegFromDown = std::atan2(std::fabs(DX), DY) * 57.29578f;
+                const float DegFromDown = std::atan2(std::fabs(DX), DY) * Frontier::Constants::RadToDegFloat;
                 if (DY >= 0.0f)
                 {
                     const bool RightSide = (DX >= 0.0f);

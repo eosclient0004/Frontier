@@ -1014,7 +1014,7 @@ void ConstructSlotCategoryIcon(
             const float OuterRay = (81.0f / 256.0f) * Extent;
             for (int Ray = 0; Ray < 8; ++Ray)
             {
-                const float Angle = static_cast<float>(Ray) * 0.78539816339f;
+                const float Angle = static_cast<float>(Ray) * Frontier::Constants::QuarterPiFloat;
                 const float CosA  = std::cos(Angle);
                 const float SinA  = std::sin(Angle);
                 Surface.StrokeLine(

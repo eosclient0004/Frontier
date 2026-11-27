@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Parametric/Connectivity/ModelPartition.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cstdint>
 #include <optional>
@@ -69,7 +70,7 @@ struct DrawingViewRequest
     bool                            TangentEdgesEnabled = true;                              // [-]   - Keep tangent edges
     std::optional<OrthonormalBasis> Section             = {};                                // [-]   - Cut plane: material on its −ZAxis side stays
     double                          HatchSpacing        = 0.0;                               // [len] - 0 → 2.5 % of the reach
-    double                          HatchAngle          = 0.785398163397448;                 // [rad] - From the view 𝑥 axis (45°)
+    double                          HatchAngle          = Frontier::Constants::QuarterPi;                 // [rad] - From the view 𝑥 axis (45°)
     double                          ChordStep           = 0.0;                               // [len] - Curve polyline step, 0 → 0.5 % of the reach
     int                             SilhouetteDensity   = 64;                                // [-]   - Contour grid cells per face direction
 };

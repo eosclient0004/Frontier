@@ -67,18 +67,14 @@ namespace
     const Mathematics::Axis3D& A,
     const Mathematics::Axis3D& B) noexcept
 {
-    return {
-        A.Y * B.Z - A.Z * B.Y,
-        A.Z * B.X - A.X * B.Z,
-        A.X * B.Y - A.Y * B.X,
-    };
+    return Mathematics::EvaluateCross(A, B);
 }
 
 [[nodiscard]] inline float DotAxis(
     const Mathematics::Axis3D& A,
     const Mathematics::Axis3D& B) noexcept
 {
-    return A.X * B.X + A.Y * B.Y + A.Z * B.Z;
+    return Mathematics::EvaluateDot(A, B);
 }
 
 [[nodiscard]] inline Mathematics::Axis3D AddAxis(
@@ -473,7 +469,7 @@ void VehicleDynamicsSolver::StepPowertrain(
     const float BrakeForce  = (Brake * MaxBrakeTorque) / TyreRadius;
     const float AeroDrag    = 0.5f * AirDensity * Settings.DragCoefficient * Settings.FrontalAreaM2 * InOutTelemetry.SpeedMps * InOutTelemetry.SpeedMps;
     const float DownforceN  = 0.5f * AirDensity * Settings.AeroLiftAreaM2 * InOutTelemetry.SpeedMps * InOutTelemetry.SpeedMps;
-    const float NormalLoadN = Mass * static_cast<float>(Constants::StandardGravity) + DownforceN;
+    const float NormalLoadN = Mass * Constants::StandardGravityFloat + DownforceN;
     const float RollingDrag = RollingCoeff * NormalLoadN;
 
     const float NetForce = DriveForce - AeroDrag - RollingDrag - (InOutTelemetry.SpeedMps > 0.05f ? BrakeForce : 0.0f);
@@ -672,7 +668,7 @@ VehicleRigSpecification VehiclePhysicsRig::ConstructSpecificationFromControlVehi
 
 void VehiclePhysicsRig::CalibrateSuspensionSprings() noexcept
 {
-    const float Gravity = static_cast<float>(Constants::StandardGravity);
+    const float Gravity = Constants::StandardGravityFloat;
     const float TotalMassKg = std::max(LiveTotalMassKg, 300.0f);
 
     // Compute exact static corner sprung masses via longitudinal + lateral weight distribution
@@ -1283,7 +1279,7 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
     const Mathematics::Axis3D& AxisRight,
     float                      DeltaSeconds) noexcept
 {
-    const float Gravity = static_cast<float>(Constants::StandardGravity);
+    const float Gravity = Constants::StandardGravityFloat;
     const Mathematics::Axis3D DownDir = ScaleAxis(AxisUp, -1.0f);
 
     float MinFloorClearance = 1.5f;
@@ -2671,7 +2667,7 @@ void VehiclePhysicsRig::SolveTireTraction(
 {
     (void)ForwardSpeedMpsIn;
     (void)AxisUp;
-    const float Gravity = static_cast<float>(Constants::StandardGravity);
+    const float Gravity = Constants::StandardGravityFloat;
 
     for (uint32_t I = 0u; I < MaxVehicleWheelCorners; ++I)
     {
@@ -3284,7 +3280,7 @@ void VehiclePhysicsRig::StepOnPhysicsThread(PhysicsExtension& Physics, double Fi
     PitchRateRadPerSec =  DotAxis(Body.AngularVelocity, AxisRight);
     RollRateRadPerSec  =  DotAxis(Body.AngularVelocity, AxisForward);
 
-    const float InvG      = 1.0f / static_cast<float>(Constants::StandardGravity);
+    const float InvG      = 1.0f / Constants::StandardGravityFloat;
     const float RawLongG  = ((ForwardSpeedMps - PrevForwardSpeedMps) / Dt) * InvG;
     const float RawLatG   = ((LateralSpeedMps - PrevLateralSpeedMps) / Dt + ForwardSpeedMps * YawRateRadPerSec) * InvG;
     const float SmoothAlp = std::min(1.0f, 14.0f * Dt);

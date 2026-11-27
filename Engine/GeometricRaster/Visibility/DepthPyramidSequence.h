@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Mathematics/AxisCoordinates.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cstdint>
 #include <span>
@@ -27,7 +28,7 @@ struct PerspectiveCameraBasis
     Mathematics::Axis3D CameraOrigin       { 0.0f, -4.5f, 1.8f }; // [m]   - World-space eye position (Z-up right-handed)
     Mathematics::Axis3D TargetPoint        { 0.0f,  0.0f, 0.4f }; // [m]   - World-space look-at target
     Mathematics::Axis3D WorldUpAxis        { 0.0f,  0.0f, 1.0f }; // [-]   - World Z-up reference direction
-    float               VerticalFovRadians = 0.78539816f;         // [rad] - Vertical field of view (default 45 deg)
+    float               VerticalFovRadians = Frontier::Constants::QuarterPiFloat;         // [rad] - Vertical field of view (default 45 deg)
     float               NearClipMeters     = 0.10f;               // [m]   - Reversed-Z near plane -> Depth = 1.0
     float               FarClipMeters      = 5000.0f;             // [m]   - Reversed-Z far plane  -> Depth = 0.0
     uint32_t            ViewportWidthPx    = 640u;                // [px]  - Render target width

@@ -31,7 +31,7 @@ CloudAirSegment IntegrateCloudAir(
     if (ExitM <= EnterM) return Integral;
 
     float  Mu            = dot(Direction, Specification.SunDirection);
-    float  RayleighPhase = (3.0 / (16.0 * CloudPi)) * (1.0 + Mu * Mu);
+    float  RayleighPhase = (3.0 / (16.0 * FrontierPi)) * (1.0 + Mu * Mu);
     float  AerosolPhase  = CloudTransportHG(Mu, 0.78);
     float3 BetaRayleigh  = QueryCloudRayleighExtinction(Specification);
     float3 BetaAerosol   = QueryCloudAerosolExtinction(Specification);

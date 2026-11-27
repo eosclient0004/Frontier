@@ -16,6 +16,7 @@
 #include "Engine/Tools/DefaultContentGenerator.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -336,35 +337,9 @@ void EnsureObjectLocalSmoothTriangles(ShowcaseWorldAssetEntry& Obj)
     return std::fabs(Left - Right) <= 1.0e-4f;
 }
 
-[[nodiscard]] float SrgbByteToLinear(uint8_t ByteVal) noexcept
-{
-    return Frontier::ColourSpace::DecodeSrgbByteToLinear(ByteVal);
-}
-
 [[nodiscard]] bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
 {
-    if (Needle.empty() || Haystack.size() < Needle.size())
-    {
-        return false;
-    }
-    for (std::size_t Pos = 0u; Pos + Needle.size() <= Haystack.size(); ++Pos)
-    {
-        bool Match = true;
-        for (std::size_t K = 0u; K < Needle.size(); ++K)
-        {
-            if (std::tolower(static_cast<unsigned char>(Haystack[Pos + K])) !=
-                std::tolower(static_cast<unsigned char>(Needle[K])))
-            {
-                Match = false;
-                break;
-            }
-        }
-        if (Match)
-        {
-            return true;
-        }
-    }
-    return false;
+    return !Needle.empty() && Frontier::Serialization::ContainsAsciiCaseInsensitive(Haystack, Needle);
 }
 
 [[nodiscard]] ShowcasePrimitiveShape InferShapeFromRecord(const OutlinerRecordEntry& Entry) noexcept
@@ -2399,9 +2374,9 @@ MaterialSpace::SurfaceMaterial BuildMaterialFromContentPreset(
     ColorRgba        PreviewTint) noexcept
 {
     const Mathematics::LinearRGB LinearTint {
-        SrgbByteToLinear(PreviewTint.Red),
-        SrgbByteToLinear(PreviewTint.Green),
-        SrgbByteToLinear(PreviewTint.Blue),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Red),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Green),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Blue),
     };
 
     MaterialSpace::SurfaceMaterial Mat{};
@@ -2560,9 +2535,9 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
             if (Binding.SlotToken == Slot && Binding.AreaLightIndex < InOutBundle.Scene.AreaLights.size())
             {
                 const Mathematics::LinearRGB Rad {
-                    5.8f * std::max(0.25f, SrgbByteToLinear(PreviewTint.Red)),
-                    5.8f * std::max(0.25f, SrgbByteToLinear(PreviewTint.Green)),
-                    5.8f * std::max(0.25f, SrgbByteToLinear(PreviewTint.Blue)),
+                    5.8f * std::max(0.25f, Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Red)),
+                    5.8f * std::max(0.25f, Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Green)),
+                    5.8f * std::max(0.25f, Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Blue)),
                 };
                 Binding.BaseEmittedRadiance = Rad;
                 InOutBundle.Scene.AreaLights[Binding.AreaLightIndex].EmittedRadiance = Rad;
@@ -2690,9 +2665,9 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
 
     MaterialSpace::SurfaceMaterial ModelMat{};
     ModelMat.Diffuse.BaseColor = {
-        SrgbByteToLinear(PreviewTint.Red),
-        SrgbByteToLinear(PreviewTint.Green),
-        SrgbByteToLinear(PreviewTint.Blue),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Red),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Green),
+        Frontier::ColourSpace::DecodeSrgbByteToLinear(PreviewTint.Blue),
     };
     ModelMat.Diffuse.BaseWeight       = 1.0f;
     ModelMat.Diffuse.DiffuseRoughness = 0.38f;
@@ -2751,9 +2726,9 @@ bool AssignShowcaseEntryBaseColor(
 
         MaterialSpace::SurfaceMaterial Updated = InOutBundle.Scene.MaterialRegister.InspectAuthoredMaterial(Obj.MaterialSlot);
         Updated.Diffuse.BaseColor = {
-            SrgbByteToLinear(SrgbSwatchColor.Red),
-            SrgbByteToLinear(SrgbSwatchColor.Green),
-            SrgbByteToLinear(SrgbSwatchColor.Blue),
+            Frontier::ColourSpace::DecodeSrgbByteToLinear(SrgbSwatchColor.Red),
+            Frontier::ColourSpace::DecodeSrgbByteToLinear(SrgbSwatchColor.Green),
+            Frontier::ColourSpace::DecodeSrgbByteToLinear(SrgbSwatchColor.Blue),
         };
         if (!SwatchAlias.empty())
         {

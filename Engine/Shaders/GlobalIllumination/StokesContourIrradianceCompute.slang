@@ -4,6 +4,7 @@
 // 🧩 Order 2 GI Candidate 1 GPU compute: Sutherland-Hodgman spherical-polygon Stokes contour integral + 2nd-bounce diffuse patch bleed
 
 import DirectLighting.WideTreeRayQuery;
+#include "../Shared/ShaderMathConstants.slang"
 
 struct GpuTaperedCapsule32
 {
@@ -69,7 +70,6 @@ struct GpuStokesGiUniforms
 [[vk::binding(10, 0)]] StructuredBuffer<GpuTaperedCapsule32>        LimbCapsules;
 [[vk::binding(11, 0)]] StructuredBuffer<GpuClosedBox32>             InteriorBoxes;
 
-static const float PiConstant = 3.14159265358979323846;
 
 float SmoothHermiteGi(float Edge0, float Edge1, float X)
 {
@@ -246,7 +246,7 @@ float EvaluateClippedStokesFormFactor(
             VecIrr += CrossUV * (atan2(SinT, CosT) / SinT);
         }
     }
-    return clamp(abs(dot(ReceiverNormal, VecIrr)) * (0.5 / PiConstant), 0.0, 1.0);
+    return clamp(abs(dot(ReceiverNormal, VecIrr)) * (0.5 / FrontierPi), 0.0, 1.0);
 }
 
 float EvaluateDiskFallback(float3 RPos, float3 RNrm, float3 DPos, float3 DNrm, float Area, bool TwoSided)
@@ -260,7 +260,7 @@ float EvaluateDiskFallback(float3 RPos, float3 RNrm, float3 DPos, float3 DNrm, f
     float  RawE = dot(DNrm, -Wi);
     float  CosE = TwoSided ? abs(RawE) : max(0.0, RawE);
     if (CosE <= 0.0) return 0.0;
-    return min(0.18, (Area * CosR * CosE) / (PiConstant * DSq + max(Area * 2.2, 0.38)));
+    return min(0.18, (Area * CosR * CosE) / (FrontierPi * DSq + max(Area * 2.2, 0.38)));
 }
 
 [shader("compute")]
@@ -335,7 +335,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
             }
             Vis = ClusterVis[CId];
         }
-        AccumE += Em.RadiancePad.xyz * (PiConstant * FF * Vis);
+        AccumE += Em.RadiancePad.xyz * (FrontierPi * FF * Vis);
     }
 
     for (uint P = 0u; P < GiUniforms.Counts.w; ++P)
@@ -362,7 +362,7 @@ void ComputeEntry(uint3 DispatchThreadId : SV_DispatchThreadID)
                 Vis = EvaluateGtxFarFieldVisibility(RPos, RNrm, Patch.PositionArea.xyz, Patch.NormalRadius.w);
             }
         }
-        AccumE += Patch.ExitantRadiance.xyz * (PiConstant * FF * Vis);
+        AccumE += Patch.ExitantRadiance.xyz * (FrontierPi * FF * Vis);
     }
 
     OutTotalIrradiance[PixelIdx] = float4(AccumE, 1.0);

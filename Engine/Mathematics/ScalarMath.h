@@ -176,7 +176,30 @@ namespace Frontier::Mathematics
     return { Vector[0] * InvLength, Vector[1] * InvLength, Vector[2] * InvLength };
 }
 
-[[nodiscard]] constexpr std::array<float, 3> InterpolateVector3(
+[[nodiscard]] constexpr float EvaluateSmoothHermite(float Sample) noexcept
+{
+    const float Clamped = std::clamp(Sample, 0.0f, 1.0f);
+    return Clamped * Clamped * (3.0f - 2.0f * Clamped);
+}
+
+[[nodiscard]] constexpr double EvaluateSmoothHermite(double Sample) noexcept
+{
+    const double Clamped = std::clamp(Sample, 0.0, 1.0);
+    return Clamped * Clamped * (3.0 - 2.0 * Clamped);
+}
+
+[[nodiscard]] inline uint8_t QuantizeUnitToByte(float UnitChannel) noexcept
+{
+    const float Clamped = std::clamp(UnitChannel, 0.0f, 1.0f);
+    return static_cast<uint8_t>(std::lround(Clamped * 255.0f));
+}
+
+[[nodiscard]] inline uint8_t QuantizeFloatToByte(float PixelChannel) noexcept
+{
+    return static_cast<uint8_t>(std::clamp(std::lround(PixelChannel), 0L, 255L));
+}
+
+[[nodiscard]] inline std::array<float, 3> InterpolateVector3(
     const std::array<float, 3>& Start,
     const std::array<float, 3>& Finish,
     float                       Factor) noexcept
@@ -186,6 +209,63 @@ namespace Frontier::Mathematics
         InterpolateScalar(Start[1], Finish[1], Factor),
         InterpolateScalar(Start[2], Finish[2], Factor),
     };
+}
+
+[[nodiscard]] inline std::array<float, 3> EvaluateAnyPerpendicular3(const std::array<float, 3>& UnitNormal) noexcept
+{
+    const std::array<float, 3> ReferenceAxis =
+        (std::fabs(UnitNormal[2]) < 0.9f) ? std::array<float, 3>{ 0.0f, 0.0f, 1.0f } : std::array<float, 3>{ 1.0f, 0.0f, 0.0f };
+    return NormalizeVector3(EvaluateCross3(UnitNormal, ReferenceAxis), { 1.0f, 0.0f, 0.0f });
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                        PROCEDURAL LATTICE & PHASE PRIMITIVES
+//------------------------------------------------------------------------------------------------------------------------
+
+[[nodiscard]] inline float EvaluateLatticeHash13(float CoordX, float CoordY, float CoordZ) noexcept
+{
+    float X = EvaluateFractionalPart(CoordX * 0.1031f);
+    float Y = EvaluateFractionalPart(CoordY * 0.1031f);
+    float Z = EvaluateFractionalPart(CoordZ * 0.1031f);
+    const float DotOffset = X * (Z + 31.32f) + Y * (Y + 31.32f) + Z * (X + 31.32f);
+    X += DotOffset;
+    Y += DotOffset;
+    Z += DotOffset;
+    return EvaluateFractionalPart((X + Y) * Z);
+}
+
+[[nodiscard]] inline float EvaluateLatticeNoise3D(float CoordX, float CoordY, float CoordZ) noexcept
+{
+    const float FloorX = std::floor(CoordX);
+    const float FloorY = std::floor(CoordY);
+    const float FloorZ = std::floor(CoordZ);
+    const float FracX  = CoordX - FloorX;
+    const float FracY  = CoordY - FloorY;
+    const float FracZ  = CoordZ - FloorZ;
+    const float WeightX = FracX * FracX * (3.0f - 2.0f * FracX);
+    const float WeightY = FracY * FracY * (3.0f - 2.0f * FracY);
+    const float WeightZ = FracZ * FracZ * (3.0f - 2.0f * FracZ);
+
+    const float C000 = EvaluateLatticeHash13(FloorX,        FloorY,        FloorZ);
+    const float C100 = EvaluateLatticeHash13(FloorX + 1.0f, FloorY,        FloorZ);
+    const float C010 = EvaluateLatticeHash13(FloorX,        FloorY + 1.0f, FloorZ);
+    const float C110 = EvaluateLatticeHash13(FloorX + 1.0f, FloorY + 1.0f, FloorZ);
+    const float C001 = EvaluateLatticeHash13(FloorX,        FloorY,        FloorZ + 1.0f);
+    const float C101 = EvaluateLatticeHash13(FloorX + 1.0f, FloorY,        FloorZ + 1.0f);
+    const float C011 = EvaluateLatticeHash13(FloorX,        FloorY + 1.0f, FloorZ + 1.0f);
+    const float C111 = EvaluateLatticeHash13(FloorX + 1.0f, FloorY + 1.0f, FloorZ + 1.0f);
+
+    const float LowZ  = InterpolateScalar(InterpolateScalar(C000, C100, WeightX), InterpolateScalar(C010, C110, WeightX), WeightY);
+    const float HighZ = InterpolateScalar(InterpolateScalar(C001, C101, WeightX), InterpolateScalar(C011, C111, WeightX), WeightY);
+    return InterpolateScalar(LowZ, HighZ, WeightZ);
+}
+
+[[nodiscard]] inline float EvaluateHenyeyGreensteinPhase(float CosTheta, float AsymmetryG) noexcept
+{
+    const float ClampedG = std::clamp(AsymmetryG, -0.95f, 0.95f);
+    const float G2       = ClampedG * ClampedG;
+    const float Denom    = std::max(1.0e-4f, 1.0f + G2 - 2.0f * ClampedG * CosTheta);
+    return (1.0f - G2) / (Constants::FourPiFloat * std::pow(Denom, 1.5f));
 }
 
 } // namespace Frontier::Mathematics

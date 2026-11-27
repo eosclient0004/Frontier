@@ -22,7 +22,6 @@ namespace Frontier::GeometricRaster::ComponentEditor
 namespace
 {
 
-constexpr float TauF = static_cast<float>(Constants::Tau);
 
 [[nodiscard]] std::array<float, 3> SrgbHexToLinear(uint32_t RgbHex) noexcept
 {
@@ -142,8 +141,8 @@ void AppendOrientedCylinder(
     const float HalfL = Length * 0.5f;
     for (uint32_t I = 0u; I < Sides; ++I)
     {
-        const float P0 = (static_cast<float>(I) / static_cast<float>(Sides)) * TauF;
-        const float P1 = (static_cast<float>(I + 1u) / static_cast<float>(Sides)) * TauF;
+        const float P0 = (static_cast<float>(I) / static_cast<float>(Sides)) * Frontier::Constants::TauFloat;
+        const float P1 = (static_cast<float>(I + 1u) / static_cast<float>(Sides)) * Frontier::Constants::TauFloat;
         const Mathematics::Axis3D R0 { U.X * std::cos(P0) + V.X * std::sin(P0), U.Y * std::cos(P0) + V.Y * std::sin(P0), U.Z * std::cos(P0) + V.Z * std::sin(P0) };
         const Mathematics::Axis3D R1 { U.X * std::cos(P1) + V.X * std::sin(P1), U.Y * std::cos(P1) + V.Y * std::sin(P1), U.Z * std::cos(P1) + V.Z * std::sin(P1) };
 
@@ -226,8 +225,8 @@ void AppendSphere(
         const float T1 = Frontier::Constants::PiFloat * static_cast<float>(I + 1u) / static_cast<float>(Stacks);
         for (uint32_t J = 0u; J < Slices; ++J)
         {
-            const float P0 = TauF * static_cast<float>(J) / static_cast<float>(Slices);
-            const float P1 = TauF * static_cast<float>(J + 1u) / static_cast<float>(Slices);
+            const float P0 = Frontier::Constants::TauFloat * static_cast<float>(J) / static_cast<float>(Slices);
+            const float P1 = Frontier::Constants::TauFloat * static_cast<float>(J + 1u) / static_cast<float>(Slices);
             auto Dir = [](float Theta, float Phi) -> Mathematics::Axis3D
             {
                 return { std::sin(Theta) * std::cos(Phi), std::cos(Theta), std::sin(Theta) * std::sin(Phi) };
@@ -256,12 +255,12 @@ void AppendOrientedTorus(
 {
     for (uint32_t I = 0u; I < MajSegs; ++I)
     {
-        const float A0 = TauF * static_cast<float>(I) / static_cast<float>(MajSegs);
-        const float A1 = TauF * static_cast<float>(I + 1u) / static_cast<float>(MajSegs);
+        const float A0 = Frontier::Constants::TauFloat * static_cast<float>(I) / static_cast<float>(MajSegs);
+        const float A1 = Frontier::Constants::TauFloat * static_cast<float>(I + 1u) / static_cast<float>(MajSegs);
         for (uint32_t J = 0u; J < TubSegs; ++J)
         {
-            const float B0 = TauF * static_cast<float>(J) / static_cast<float>(TubSegs);
-            const float B1 = TauF * static_cast<float>(J + 1u) / static_cast<float>(TubSegs);
+            const float B0 = Frontier::Constants::TauFloat * static_cast<float>(J) / static_cast<float>(TubSegs);
+            const float B1 = Frontier::Constants::TauFloat * static_cast<float>(J + 1u) / static_cast<float>(TubSegs);
             auto Sample = [&](float A, float B, Mathematics::Axis3D& OutN) -> Mathematics::Axis3D
             {
                 const float CA = std::cos(A), SA = std::sin(A);
@@ -309,7 +308,7 @@ void AppendTubeStrip(
         std::vector<Mathematics::Axis3D> Ring(Sides);
         for (uint32_t S = 0u; S < Sides; ++S)
         {
-            const float Phi = TauF * static_cast<float>(S) / static_cast<float>(Sides);
+            const float Phi = Frontier::Constants::TauFloat * static_cast<float>(S) / static_cast<float>(Sides);
             const float C = std::cos(Phi), Sn = std::sin(Phi);
             Ring[S] = {
                 P.X + (U.X * C + V.X * Sn) * TubeRadius,
@@ -340,7 +339,7 @@ void AppendAnnularSector(
     float                               SpanRad,
     uint32_t                            Segments = 48u)
 {
-    const uint32_t N = std::max<uint32_t>(4u, static_cast<uint32_t>(std::ceil(static_cast<float>(Segments) * std::abs(SpanRad) / TauF)));
+    const uint32_t N = std::max<uint32_t>(4u, static_cast<uint32_t>(std::ceil(static_cast<float>(Segments) * std::abs(SpanRad) / Frontier::Constants::TauFloat)));
     const Mathematics::Axis3D Normal = Frontier::Mathematics::NormalizeAxis(Frontier::Mathematics::EvaluateCross(U, V), { 0.0f, 1.0f, 0.0f });
     for (uint32_t I = 0u; I < N; ++I)
     {
@@ -610,8 +609,8 @@ std::vector<ComponentShaderVertex> ComponentGizmoGeometry::BuildSpotBeamCone(flo
     const Mathematics::Axis3D Peak { 0.0f, 0.0f, 0.0f };
     for (uint32_t I = 0u; I < Sides; ++I)
     {
-        const float P0 = TauF * static_cast<float>(I) / static_cast<float>(Sides);
-        const float P1 = TauF * static_cast<float>(I + 1u) / static_cast<float>(Sides);
+        const float P0 = Frontier::Constants::TauFloat * static_cast<float>(I) / static_cast<float>(Sides);
+        const float P1 = Frontier::Constants::TauFloat * static_cast<float>(I + 1u) / static_cast<float>(Sides);
         const Mathematics::Axis3D N0 { 0.0f, std::cos(P0), std::sin(P0) };
         const Mathematics::Axis3D N1 { 0.0f, std::cos(P1), std::sin(P1) };
         const Mathematics::Axis3D B0 { LengthMeters, N0.Y * RadiusMeters, N0.Z * RadiusMeters };
@@ -627,7 +626,7 @@ std::vector<ComponentShaderVertex> ComponentGizmoGeometry::BuildCameraFrustumBea
     float AspectRatio)
 {
     std::vector<ComponentShaderVertex> Out {};
-    const float HalfH = std::tan((VerticalFovDeg * Frontier::Constants::PiFloat / 180.0f) * 0.5f) * LengthMeters;
+    const float HalfH = std::tan((VerticalFovDeg * Frontier::Constants::DegToRadFloat) * 0.5f) * LengthMeters;
     const float HalfW = HalfH * std::max(AspectRatio, 0.25f);
     const Mathematics::Axis3D Peak { 0.0f, 0.0f, 0.0f };
     const Mathematics::Axis3D C0 { LengthMeters, -HalfH, -HalfW };
@@ -715,7 +714,7 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
             auto& Bolts = PushSolid(Steel, 1.0f, 0.2f, { 0.0f, 0.0f, 0.0f });
             for (int I = 0; I < 3; ++I)
             {
-                const float Phi = (static_cast<float>(I) / 3.0f) * TauF + Frontier::Constants::PiFloat / 6.0f;
+                const float Phi = (static_cast<float>(I) / 3.0f) * Frontier::Constants::TauFloat + Frontier::Constants::PiFloat / 6.0f;
                 const Mathematics::Axis3D Pos {
                     (U.X * std::cos(Phi) + V.X * std::sin(Phi)) * 0.041f + Axis.X * 0.010f,
                     (U.Y * std::cos(Phi) + V.Y * std::sin(Phi)) * 0.041f + Axis.Y * 0.010f,
@@ -736,8 +735,8 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
                 AppendOrientedCylinder(Knuckles.Vertices, { Axis.X * S * 0.045f, Axis.Y * S * 0.045f, Axis.Z * S * 0.045f }, Axis, U, V, 0.020f, 0.020f, 0.035f, 16u);
                 AppendSphere(Caps.Vertices, { Axis.X * S * 0.080f, Axis.Y * S * 0.080f, Axis.Z * S * 0.080f }, 0.011f, 8u, 10u);
             }
-            const float Lo = std::min(Settings.MinAngleDegrees, Settings.MaxAngleDegrees) * Frontier::Constants::PiFloat / 180.0f;
-            const float Hi = std::max(Settings.MinAngleDegrees, Settings.MaxAngleDegrees) * Frontier::Constants::PiFloat / 180.0f;
+            const float Lo = std::min(Settings.MinAngleDegrees, Settings.MaxAngleDegrees) * Frontier::Constants::DegToRadFloat;
+            const float Hi = std::max(Settings.MinAngleDegrees, Settings.MaxAngleDegrees) * Frontier::Constants::DegToRadFloat;
             Pieces.emplace_back();
             auto& Fan = Pieces.back();
             Fan.PieceCategory  = ConstraintPieceCategory::RangeFan;
@@ -772,7 +771,7 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
             AppendOrientedTorus(Socket.Vertices, { 0.0f, 0.0f, 0.0f }, Axis, U, V, 0.045f, 0.006f, 24u, 8u);
             auto& Ball = PushSolid(Accent, 0.25f, 0.25f, { Accent[0] * 0.7f, Accent[1] * 0.7f, Accent[2] * 0.7f });
             AppendSphere(Ball.Vertices, { 0.0f, 0.0f, 0.0f }, 0.024f, 10u, 14u);
-            const float HalfCone = Settings.ConeAngleDegrees * Frontier::Constants::PiFloat / 180.0f;
+            const float HalfCone = Settings.ConeAngleDegrees * Frontier::Constants::DegToRadFloat;
             Pieces.emplace_back();
             auto& Cone = Pieces.back();
             Cone.PieceCategory  = ConstraintPieceCategory::RangeFan;
@@ -795,7 +794,7 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
             for (uint32_t I = 0u; I <= CoilSegs; ++I)
             {
                 const float T = static_cast<float>(I) / static_cast<float>(CoilSegs);
-                const float Phi = T * 5.0f * TauF;
+                const float Phi = T * 5.0f * Frontier::Constants::TauFloat;
                 const float R = 0.032f;
                 Helix.push_back({
                     Axis.X * (T * CurLen) + (U.X * std::cos(Phi) + V.X * std::sin(Phi)) * R,
@@ -810,7 +809,7 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
         {
             auto& Collar = PushSolid(Steel, 0.9f, 0.2f, { 0.0f, 0.0f, 0.0f });
             AppendOrientedCylinder(Collar.Vertices, { 0.0f, 0.0f, 0.0f }, Axis, U, V, 0.025f, 0.025f, 0.05f, 16u);
-            const float SpinPhase = TimeSeconds * (Settings.TargetRpm * TauF / 60.0f);
+            const float SpinPhase = TimeSeconds * (Settings.TargetRpm * Frontier::Constants::TauFloat / 60.0f);
             const Mathematics::Axis3D RotU = RotateAroundAxis(U, Axis, SpinPhase);
             const Mathematics::Axis3D RotV = Frontier::Mathematics::NormalizeAxis(Frontier::Mathematics::EvaluateCross(Axis, RotU), V);
             Pieces.emplace_back();
@@ -818,7 +817,7 @@ std::vector<ConstraintVisualPiece> ComponentGizmoGeometry::BuildConstraintVisual
             Comet.PieceCategory    = ConstraintPieceCategory::CometBand;
             Comet.AlbedoRgb    = Accent;
             Comet.AlphaOrScale = 0.95f;
-            AppendAnnularSector(Comet.Vertices, RotU, RotV, 0.045f, 0.145f, 0.0f, TauF, 48u);
+            AppendAnnularSector(Comet.Vertices, RotU, RotV, 0.045f, 0.145f, 0.0f, Frontier::Constants::TauFloat, 48u);
             break;
         }
         case ComponentClass::PhysicsConstraintCategory::Tether:

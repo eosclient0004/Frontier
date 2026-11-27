@@ -18,10 +18,6 @@ namespace
 {
 
 
-[[nodiscard]] float SrgbChannelToLinear(float Channel) noexcept
-{
-    return Frontier::ColourSpace::DecodePiecewiseSrgbChannel(Channel);
-}
 
 } // namespace
 
@@ -63,9 +59,9 @@ Mathematics::LinearRGB CelestialEphemerisSolver::EvaluateKelvinToLinearRgb(float
     }
 
     return {
-        SrgbChannelToLinear(R / 255.0f),
-        SrgbChannelToLinear(G / 255.0f),
-        SrgbChannelToLinear(B / 255.0f)
+        Frontier::ColourSpace::DecodePiecewiseSrgbChannel(R / 255.0f),
+        Frontier::ColourSpace::DecodePiecewiseSrgbChannel(G / 255.0f),
+        Frontier::ColourSpace::DecodePiecewiseSrgbChannel(B / 255.0f)
     };
 }
 

@@ -7,6 +7,7 @@
 
 #include "Engine/GeometrySpace/Parametric/Tessellation/ChartTriangulation.h"
 #include "Engine/GeometrySpace/Parametric/Connectivity/ModelPartition.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <array>
 #include <string>
@@ -24,7 +25,7 @@ struct TessellationSettings
     double Sag             = 0.0;                                                            // [len] - Chordal deviation bound ε (0 → SagRatio × diagonal)
     double SagRatio        = 1.0e-3;                                                         // [-]   - ε relative to the body diagonal when Sag = 0
     double EdgeLengthRatio = 0.25;                                                           // [-]   - Longest unconstrained side relative to the diagonal
-    double RadiusEdgeBound = 1.4142135623730951;                                             // [-]   - Circumradius / shortest side in the scaled chart
+    double RadiusEdgeBound = Frontier::Constants::SquareRootTwo;                                             // [-]   - Circumradius / shortest side in the scaled chart
     int    TriangleLimit   = 4000000;                                                        // [-]   - Refusal threshold over the whole body
 };
 

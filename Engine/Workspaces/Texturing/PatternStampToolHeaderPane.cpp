@@ -176,7 +176,7 @@ void DrawMotifPreviewInWell(PixelSpace& Surface, Rectangle2D WellR, std::size_t 
             Surface.StrokeCircle(C, R * 0.75f, Ink, 3.0f);
             for (int K = 0; K < 8; ++K)
             {
-                const float A = static_cast<float>(K) * 0.785398f;
+                const float A = static_cast<float>(K) * Frontier::Constants::QuarterPiFloat;
                 Surface.StrokeLine({ C.X + std::cos(A) * R * 0.55f, C.Y + std::sin(A) * R * 0.55f }, { C.X + std::cos(A) * R, C.Y + std::sin(A) * R }, Ink, 2.5f);
             }
             break;

@@ -13,6 +13,7 @@
 #include "Engine/SimulationSpace/ForceFields/ForceFieldSampler.h"
 #include "Engine/SimulationSpace/ForceFields/ForceModelTypes.h"
 #include "Engine/SimulationSpace/PhysicsSpace/BroadphaseSolver.h"
+#include "Engine/Constants/PhysicsConstants.h"
 
 #include <array>
 #include <cstdint>
@@ -85,7 +86,7 @@ struct XpbdPackedGpuTables
 struct alignas(16) ParticleXpbdUniformBlock
 {
     std::array<float, 4>    TimeControl     { 1.0f / 240.0f, 240.0f, 57600.0f, 1.0f }; // dt, invDt, invDt2, zipAlpha
-    std::array<float, 4>    GravityDampWind { -9.81f, 0.996f, 0.0f, 0.0f };            // gravityY, damping, windX, windZ
+    std::array<float, 4>    GravityDampWind { -Frontier::Constants::StandardGravityFloat, 0.996f, 0.0f, 0.0f };            // gravityY, damping, windX, windZ
     std::array<float, 4>    MembraneModuli  { 1600.0f, 1600.0f, 250.0f, 14000.0f };    // warp, weft, shear, wall
     std::array<float, 4>    CrimpCompShear  { 0.02f, 0.02f, 0.15f, 0.35f };            // warpCrimp, weftCrimp, compRatio, maxShearS
     std::array<float, 4>    BendFriction    { 0.12f, 0.45f, 0.002f, 6.0f };            // bendStiff, frictionMu, groundY, maxSpeed
@@ -99,7 +100,7 @@ struct XpbdSimulationSettings
 {
     uint32_t             Substeps       = 4u;
     uint32_t             Iterations     = 16u;
-    float                GravityY       = -9.81f;
+    float                GravityY       = -Frontier::Constants::StandardGravityFloat;
     float                Damping        = 0.996f;
     float                WarpModulus    = 1600.0f;
     float                WeftModulus    = 1600.0f;

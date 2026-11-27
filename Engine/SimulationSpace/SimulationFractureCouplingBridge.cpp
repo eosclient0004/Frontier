@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 
 #include "Engine/SimulationSpace/SimulationFractureCouplingBridge.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,7 +13,6 @@ namespace Frontier::SimulationSpace
 
 namespace
 {
-constexpr float kGoldenAngleRad = 2.39996322972865332f;
 }
 
 FractureCouplingReport SimulationFractureCouplingBridge::TriggerFractureImpact(
@@ -58,7 +58,7 @@ FractureCouplingReport SimulationFractureCouplingBridge::TriggerFractureImpact(
             const float frac   = (static_cast<float>(i) + 0.5f) / static_cast<float>(limit);
             const float elevY  = 0.25f + 0.70f * frac; // Upper hemisphere lift
             const float horizR = std::sqrt(std::max(0.0f, 1.0f - elevY * elevY));
-            const float theta  = static_cast<float>(i) * kGoldenAngleRad;
+            const float theta  = static_cast<float>(i) * Frontier::Constants::GoldenAngleRadiansFloat;
             const float dirX   = horizR * std::cos(theta);
             const float dirZ   = horizR * std::sin(theta);
 

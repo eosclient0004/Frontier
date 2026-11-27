@@ -4,6 +4,7 @@
 
 #include "Engine/SimulationSpace/SimulationParallelDispatcher.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,15 +18,7 @@ namespace
 constexpr uint64_t kFnvOffset64 = Frontier::Constants::Fnv1a64OffsetBasis;
 constexpr uint64_t kFnvPrime64  = Frontier::Constants::Fnv1a64Prime;
 
-inline void HashBytes(uint64_t& h, const void* ptr, size_t bytes) noexcept
-{
-    const auto* p = static_cast<const uint8_t*>(ptr);
-    for (size_t i = 0u; i < bytes; ++i)
-    {
-        h ^= static_cast<uint64_t>(p[i]);
-        h *= kFnvPrime64;
-    }
-}
+inline void HashBytes(uint64_t& h, const void* ptr, size_t bytes) noexcept { h = Frontier::Serialization::MixFnv1a64Bytes(h, ptr, bytes); }
 
 } // namespace
 

@@ -23,10 +23,6 @@ namespace Frontier::GeometrySpace::Botanical
 namespace
 {
 
-[[nodiscard]] float SrgbChannelToLinear(float c) noexcept
-{
-    return Frontier::ColourSpace::DecodePiecewiseSrgbChannel(c);
-}
 
 [[nodiscard]] int HexDigit(char ch) noexcept
 {
@@ -104,7 +100,7 @@ std::array<float, 3> ParseHexSrgbToLinearRgb(std::string_view hex, const std::ar
     const float r = static_cast<float>((d0 << 4) | d1) / 255.0f;
     const float g = static_cast<float>((d2 << 4) | d3) / 255.0f;
     const float b = static_cast<float>((d4 << 4) | d5) / 255.0f;
-    return { SrgbChannelToLinear(r), SrgbChannelToLinear(g), SrgbChannelToLinear(b) };
+    return { Frontier::ColourSpace::DecodePiecewiseSrgbChannel(r), Frontier::ColourSpace::DecodePiecewiseSrgbChannel(g), Frontier::ColourSpace::DecodePiecewiseSrgbChannel(b) };
 }
 
 std::string_view QueryGrowthFormToken(BotanicalGrowthForm form) noexcept

@@ -345,7 +345,7 @@ std::vector<PracticalLampPlacement> ConstructFleetPracticalLamps(
     {
         for (const VehicleLampSpec& Mount : VehicleMounts)
         {
-            const float                PitchRad  = Mount.PitchDegrees * Frontier::Constants::PiFloat / 180.0f;
+            const float                PitchRad  = Mount.PitchDegrees * Frontier::Constants::DegToRadFloat;
             const std::array<float, 3> LocalAxis = VecNormalize({
                 (Mount.Rearward ? -1.0f : 1.0f) * std::cos(PitchRad),
                 std::sin(PitchRad),
