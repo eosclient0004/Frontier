@@ -83,7 +83,7 @@ struct WorldRenderConfiguration
     uint32_t                              XeGtaoStepsPerSide     = 4u;    // [cnt]  - XeGTAO horizon march steps per side [2..8]
     float                                 XeGtaoSearchRadiusM    = 0.85f; // [m]    - XeGTAO world-space search radius [0.25..3.0]
     uint32_t                              SdfConeSteps           = 6u;    // [cnt]  - GDF voxel cone GI march steps [3..12]
-    uint32_t                              SdfShadowMarchSteps    = 32u;   // [cnt]  - Signed SDF cone shadow march steps [16..96], UI [32..96], default 32
+    uint32_t                              SdfShadowMarchSteps    = 96u;   // [cnt]  - Signed SDF cone shadow march steps [16..96], UI [32..96], default 96
     float                                 SdfGiIntensity         = 1.0f;  // [x]    - GDF voxel cone GI indirect scale [0..2.5]
     float                                 SdfAoRadiusM           = 1.55f; // [m]    - SDF UDF ambient occlusion reach [0.35..3.0]
     float                                 SdfAoContrast          = 1.50f; // [x]    - SDF UDF ambient occlusion contrast exponent [0.40..3.0]

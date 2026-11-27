@@ -201,7 +201,7 @@ int main(int ArgumentCount, char** ArgumentVector)
     uint32_t              OverrideWidthPx     = 0u;
     uint32_t              OverrideHeightPx    = 0u;
     uint32_t              DebugChannel        = 0u;
-    uint32_t              SdfShadowMarchSteps = 32u;
+    uint32_t              SdfShadowMarchSteps = 96u;
     double                InitialSimTimeSec   = -1.0;
     AutoSpace::StudioLobbyId InitialLobby     = AutoSpace::StudioLobbyId::StudioLobby1Cyclorama;
 

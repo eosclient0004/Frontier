@@ -1250,7 +1250,7 @@ bool IsGlobalDistanceFieldReady()
 uint QuerySdfShadowMarchSteps()
 {
     uint Steps = WorldUniforms.SelectionOutlineSpan.z;
-    return (Steps >= 8u && Steps <= 128u) ? Steps : 32u;
+    return (Steps >= 8u && Steps <= 128u) ? Steps : 96u;
 }
 
 uint3 WrapGdfToroidalCoord(int3 WorldCell)

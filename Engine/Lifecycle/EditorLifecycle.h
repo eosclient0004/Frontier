@@ -252,7 +252,7 @@ private:
     float                                                            LastXeGtaoRadiusM    = 0.85f;
     uint32_t                                                         LastGiCandidate      = 1u;
     uint32_t                                                         LastSdfConeSteps     = 6u;
-    uint32_t                                                         LastSdfShadowSteps   = 32u;
+    uint32_t                                                         LastSdfShadowSteps   = 96u;
     float                                                            LastSdfGiIntensity   = 1.0f;
     float                                                            LastSdfAoRadiusM     = 1.55f;
     float                                                            LastSdfAoContrast    = 1.50f;

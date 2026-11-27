@@ -140,7 +140,7 @@ struct CameraSettingsData
     uint32_t SdfPenumbraIndex        = 3u;     // [0..5] - 0=PointSdf, 1=AnalyticCone, 2=Clipmap, 3=ConeGi, 4=HybridSobol, 5=McRef96
     uint32_t GiCandidateIndex        = 1u;     // [0..1] - 0=StokesContour, 1=SurfelRadiosity
     float    SdfConeSteps            = 6.0f;   // [cnt]  - GDF voxel cone GI march steps [3..12] (.slang EvaluateGdfVoxelConeGi)
-    float    SdfShadowMarchSteps     = 32.0f;  // [cnt]  - Signed SDF cone shadow march steps [32..96] (.slang TraceGlobalDistanceConeVisibility)
+    float    SdfShadowMarchSteps     = 96.0f;  // [cnt]  - Signed SDF cone shadow march steps [32..96] (.slang TraceGlobalDistanceConeVisibility)
     float    SdfGiIntensity          = 1.00f;  // [x]    - GDF voxel cone GI intensity [0..2.5]
     float    SdfAoRadiusM            = 1.55f;  // [m]    - SDF UDF ambient occlusion reach [0.35..3.5]
     float    SdfAoContrast           = 1.50f;  // [x]    - SDF UDF ambient occlusion contrast [0.40..3.5]
