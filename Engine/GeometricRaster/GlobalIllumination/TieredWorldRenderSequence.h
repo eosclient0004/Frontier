@@ -24,6 +24,7 @@
 #include "Engine/SpatialAcceleration/CompressedWideTree.h"
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -118,6 +119,21 @@ struct WorldRenderConfiguration
     float                                 SelectionOutlineWidthPx      = 2.0f;                // [px]  - Silhouette outline thickness in pixels [1..3]
 };
 
+struct CockpitDisplaySurfaceSpec
+{
+    bool                 Enabled          = false;                  // [-]   - Activates display surface sampling / optical composite
+    bool                 AdditiveOptical  = false;                  // [-]   - True for windshield additive optical glass HUD
+    Mathematics::Axis3D  OriginWorld      { 0.0f, 0.0f, 0.0f };     // [m]   - World bottom-left corner of display rectangle
+    Mathematics::Axis3D  RightAxisWorld   { 1.0f, 0.0f, 0.0f };     // [-]   - Unit vector from left (u=0) to right (u=1)
+    Mathematics::Axis3D  UpAxisWorld      { 0.0f, 0.0f, 1.0f };     // [-]   - Unit vector from bottom (v=0) to top (v=1)
+    float                WidthMeters      = 0.36f;                  // [m]   - Physical width along RightAxisWorld
+    float                HeightMeters     = 0.20f;                  // [m]   - Physical height along UpAxisWorld
+    float                LuminanceGain    = 1.65f;                  // [x]   - Linear HDR screen emission multiplier
+    uint32_t             WidthPx          = 0u;                     // [px]  - Texture region width in CockpitDisplayAtlasRgba8
+    uint32_t             HeightPx         = 0u;                     // [px]  - Texture region height in CockpitDisplayAtlasRgba8
+    uint32_t             TexelOffset      = 0u;                     // [idx] - Starting uint32 RGBA8 offset inside CockpitDisplayAtlasRgba8
+};
+
 struct WorldSceneSpecification
 {
     std::vector<RigidClusterInstance>                           ClusterInstances    {};
@@ -134,6 +150,11 @@ struct WorldSceneSpecification
     uint64_t                                                    DynamicLightGeneration = 1ull; // [gen] - Incremented on dynamic light edits/motion (0 static clipmap invalidation)
     Mathematics::LinearRGB                                      SkyRadiance         { 0.15f, 0.21f, 0.32f };
     WorldAtmosphereConfiguration                                Atmosphere          {};
+
+    // Live dynamic cockpit & HUD display atlas: [0]=In-Car HMI, [1]=Dashboard Cluster, [2]=Windshield Glass HUD, [3]=On-Screen Overlay HUD
+    std::array<CockpitDisplaySurfaceSpec, 4u>                   CockpitDisplays               {};
+    std::vector<uint32_t>                                       CockpitDisplayAtlasRgba8      {};
+    uint64_t                                                    CockpitDisplayAtlasGeneration = 0ull;
 
     // Order 2 GtxLowEnd-ONLY optional distance-field & capsule rig bindings (strictly ignored / 0 MB on RealTimeGiHighEnd)
     DistanceFieldSpace::RigidLocalVolumePlacement               GtxVehicleVolume    {};

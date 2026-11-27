@@ -688,12 +688,12 @@ void RegisterStudioBaseMaterials(
     {
         SurfaceMaterial M {};
         M.Diffuse.BaseColor               = SrgbHexToLinearRgb(0x0c141d);
-        M.Specular.Roughness              = 0.04f;
+        M.Specular.Roughness              = 0.035f;
         M.Specular.DielectricIOR          = 1.52f;
         M.Specular.SpecularWeight         = 0.95f;
         M.Clearcoat.CoatWeight            = 1.0f;
         M.Clearcoat.CoatRoughness         = 0.02f;
-        M.Transmission.TransmissionWeight = 0.38f;
+        M.Transmission.TransmissionWeight = 0.78f;
         Reg(StudioMaterialCode::VehicleGlass, "VehicleGlass", M);
     }
     {
@@ -747,6 +747,36 @@ void RegisterStudioBaseMaterials(
         M.Specular.Metalness   = 0.35f;
         M.Clearcoat.CoatWeight = 0.85f;
         Reg(StudioMaterialCode::VehicleBrakeCaliper, "VehicleBrakeCaliper", M);
+    }
+    {
+        SurfaceMaterial M {};
+        M.Diffuse.BaseColor       = SrgbHexToLinearRgb(0x1a1d24);
+        M.Specular.Roughness      = 0.36f;
+        M.Specular.Metalness      = 0.14f;
+        M.Specular.SpecularWeight = 0.55f;
+        M.Clearcoat.CoatWeight    = 0.28f;
+        M.Clearcoat.CoatRoughness = 0.24f;
+        Reg(StudioMaterialCode::CockpitCarbonTrim, "CockpitCarbonTrim", M);
+    }
+    {
+        SurfaceMaterial M {};
+        M.Diffuse.BaseColor                  = { 0.01f, 0.012f, 0.016f };
+        M.Specular.Roughness                 = 0.08f;
+        M.Specular.SpecularWeight            = 0.65f;
+        M.Clearcoat.CoatWeight               = 0.50f;
+        M.Clearcoat.CoatRoughness            = 0.04f;
+        M.PorosityLight.DynamicDisplaySlot   = 1u;
+        Reg(StudioMaterialCode::CockpitHmiDisplay, "CockpitHmiDisplay", M);
+    }
+    {
+        SurfaceMaterial M {};
+        M.Diffuse.BaseColor                  = { 0.01f, 0.012f, 0.016f };
+        M.Specular.Roughness                 = 0.08f;
+        M.Specular.SpecularWeight            = 0.55f;
+        M.Clearcoat.CoatWeight               = 0.45f;
+        M.Clearcoat.CoatRoughness            = 0.04f;
+        M.PorosityLight.DynamicDisplaySlot   = 2u;
+        Reg(StudioMaterialCode::CockpitClusterDisplay, "CockpitClusterDisplay", M);
     }
 }
 
@@ -2285,13 +2315,64 @@ StudioBuiltMesh BuildRaceTrackSurface(
     return B.Finish();
 }
 
+namespace
+{
+[[nodiscard]] Frontier::Mathematics::Axis3D NormalizeCockpitAxis(Frontier::Mathematics::Axis3D V) noexcept
+{
+    return Frontier::Mathematics::NormalizeAxis(V, { 0.0f, 0.0f, 1.0f });
+}
+} // namespace
+
+VehicleCockpitAnchorLayout QueryControlVehicleCockpitLayout() noexcept
+{
+    using Frontier::Mathematics::Axis3D;
+    VehicleCockpitAnchorLayout L {};
+    // Display 0: Center-Console In-Car HMI Touchscreen (angled 20 deg toward driver on +Y, proudly proud of dash)
+    const Axis3D HmiCenter { 0.65f, -0.07f, 1.115f };
+    L.HmiRightLocal    = NormalizeCockpitAxis({ -0.34202f, -0.93969f, 0.0f });
+    L.HmiUpLocal       = NormalizeCockpitAxis({  0.13156f, -0.04788f, 0.99015f });
+    L.HmiWidthMeters   = 0.37f;
+    L.HmiHeightMeters  = 0.21f;
+    L.HmiOriginLocal   = {
+        HmiCenter.X - L.HmiRightLocal.X * (0.5f * L.HmiWidthMeters) - L.HmiUpLocal.X * (0.5f * L.HmiHeightMeters),
+        HmiCenter.Y - L.HmiRightLocal.Y * (0.5f * L.HmiWidthMeters) - L.HmiUpLocal.Y * (0.5f * L.HmiHeightMeters),
+        HmiCenter.Z - L.HmiRightLocal.Z * (0.5f * L.HmiWidthMeters) - L.HmiUpLocal.Z * (0.5f * L.HmiHeightMeters),
+    };
+
+    // Display 1: High-Mounted Recessed Dashboard Instrument Cluster (clear view above steering rim)
+    const Axis3D ClusterCenter { 0.72f, 0.34f, 1.155f };
+    L.ClusterRightLocal    = { 0.0f, -1.0f, 0.0f };
+    L.ClusterUpLocal       = NormalizeCockpitAxis({ 0.20791f, 0.0f, 0.97815f });
+    L.ClusterWidthMeters   = 0.36f;
+    L.ClusterHeightMeters  = 0.135f;
+    L.ClusterOriginLocal   = {
+        ClusterCenter.X - L.ClusterRightLocal.X * (0.5f * L.ClusterWidthMeters) - L.ClusterUpLocal.X * (0.5f * L.ClusterHeightMeters),
+        ClusterCenter.Y - L.ClusterRightLocal.Y * (0.5f * L.ClusterWidthMeters) - L.ClusterUpLocal.Y * (0.5f * L.ClusterHeightMeters),
+        ClusterCenter.Z - L.ClusterRightLocal.Z * (0.5f * L.ClusterWidthMeters) - L.ClusterUpLocal.Z * (0.5f * L.ClusterHeightMeters),
+    };
+
+    // Display 2: Optical Windshield Glass HUD (parallel to measured ControlVehicleBody windshield rake)
+    const Axis3D HudCenter { 0.97f, 0.34f, 1.355f };
+    L.WindshieldRightLocal    = { 0.0f, -1.0f, 0.0f };
+    L.WindshieldUpLocal       = NormalizeCockpitAxis({ -0.55470f, 0.0f, 0.83205f });
+    L.WindshieldWidthMeters   = 0.38f;
+    L.WindshieldHeightMeters  = 0.16f;
+    L.WindshieldOriginLocal   = {
+        HudCenter.X - L.WindshieldRightLocal.X * (0.5f * L.WindshieldWidthMeters) - L.WindshieldUpLocal.X * (0.5f * L.WindshieldHeightMeters),
+        HudCenter.Y - L.WindshieldRightLocal.Y * (0.5f * L.WindshieldWidthMeters) - L.WindshieldUpLocal.Y * (0.5f * L.WindshieldHeightMeters),
+        HudCenter.Z - L.WindshieldRightLocal.Z * (0.5f * L.WindshieldWidthMeters) - L.WindshieldUpLocal.Z * (0.5f * L.WindshieldHeightMeters),
+    };
+    return L;
+}
+
 StudioBuiltMesh BuildAssembledControlVehicleSurface(
     const Frontier::Codecs::AssembledControlVehicle& Vehicle,
     const StudioMaterialPalette&                     Palette,
     uint16_t                                         BodyPaintMaterialSlot,
     uint16_t                                         BrakeCaliperMaterialSlot,
     const StudioMeshBakeTransform&                   Transform,
-    std::string_view                                 MeshTitle)
+    std::string_view                                 MeshTitle,
+    bool                                             IncludeCockpitInterior)
 {
     using namespace Frontier::Codecs;
 
@@ -2409,6 +2490,258 @@ StudioBuiltMesh BuildAssembledControlVehicleSurface(
                 Out.AuthoredCornerNormals.push_back(Normals[C].X);
                 Out.AuthoredCornerNormals.push_back(Normals[C].Y);
                 Out.AuthoredCornerNormals.push_back(Normals[C].Z);
+            }
+        }
+    }
+
+    if (IncludeCockpitInterior)
+    {
+        const VehicleCockpitAnchorLayout Layout = QueryControlVehicleCockpitLayout();
+        const uint16_t MatLeather  = Palette.Resolve(StudioMaterialCode::VehicleIntakePolymer);
+        const uint16_t MatCarpet   = Palette.Resolve(StudioMaterialCode::VehicleTireRubber);
+        const uint16_t MatCarbon   = Palette.Resolve(StudioMaterialCode::CockpitCarbonTrim);
+        const uint16_t MatAlloy    = Palette.Resolve(StudioMaterialCode::VehicleTrimMetal);
+        const uint16_t MatAccent   = (BrakeCaliperMaterialSlot != 0u) ? BrakeCaliperMaterialSlot : Palette.Resolve(StudioMaterialCode::VehicleBrakeCaliper);
+        const uint16_t MatHmi      = Palette.Resolve(StudioMaterialCode::CockpitHmiDisplay);
+        const uint16_t MatCluster  = Palette.Resolve(StudioMaterialCode::CockpitClusterDisplay);
+
+        auto AppendLocalTri = [&](const Axis3D& A, const Axis3D& B, const Axis3D& C, const Axis3D& NA, const Axis3D& NB, const Axis3D& NC, uint16_t MatSlot)
+        {
+            const std::array<Axis3D, 3u> Corners { XformPos(A), XformPos(B), XformPos(C) };
+            const std::array<Axis3D, 3u> Norms   { XformNorm(NA), XformNorm(NB), XformNorm(NC) };
+            std::array<uint32_t, 3u> TriV {};
+            for (uint32_t K = 0u; K < 3u; ++K)
+            {
+                TriV[K] = Out.Network.AppendVertex(Corners[K]);
+                Out.Network.Vertices[TriV[K]].Normal = Norms[K];
+            }
+            const std::array<UVAxes, 3u> TriUv {{ { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f } }};
+            Frontier::GeometrySpace::FaceShadingAssignment FaceShading {};
+            FaceShading.AlbedoLinearRGB = { 0.5f, 0.5f, 0.5f };
+            const uint32_t FaceId = Out.Network.AppendFace(TriV, TriUv, FaceShading, 0u, MatSlot);
+            if (FaceId != Frontier::GeometrySpace::InvalidNetworkIndex)
+            {
+                for (uint32_t K = 0u; K < 3u; ++K)
+                {
+                    Out.AuthoredCornerNormals.push_back(Norms[K].X);
+                    Out.AuthoredCornerNormals.push_back(Norms[K].Y);
+                    Out.AuthoredCornerNormals.push_back(Norms[K].Z);
+                }
+            }
+        };
+
+        auto AppendLocalQuad = [&](const Axis3D& P00, const Axis3D& P10, const Axis3D& P11, const Axis3D& P01, uint16_t MatSlot)
+        {
+            const Axis3D E1 { P10.X - P00.X, P10.Y - P00.Y, P10.Z - P00.Z };
+            const Axis3D E2 { P01.X - P00.X, P01.Y - P00.Y, P01.Z - P00.Z };
+            const Axis3D N  = NormalizeCockpitAxis({
+                E1.Y * E2.Z - E1.Z * E2.Y,
+                E1.Z * E2.X - E1.X * E2.Z,
+                E1.X * E2.Y - E1.Y * E2.X
+            });
+            AppendLocalTri(P00, P10, P11, N, N, N, MatSlot);
+            AppendLocalTri(P00, P11, P01, N, N, N, MatSlot);
+        };
+
+        auto AppendLocalObb = [&](const Axis3D& Center, const Axis3D& Ax, const Axis3D& Ay, const Axis3D& Az, float Hx, float Hy, float Hz, uint16_t MatSlot)
+        {
+            auto Pt = [&](float sx, float sy, float sz) -> Axis3D
+            {
+                return {
+                    Center.X + Ax.X * (sx * Hx) + Ay.X * (sy * Hy) + Az.X * (sz * Hz),
+                    Center.Y + Ax.Y * (sx * Hx) + Ay.Y * (sy * Hy) + Az.Y * (sz * Hz),
+                    Center.Z + Ax.Z * (sx * Hx) + Ay.Z * (sy * Hy) + Az.Z * (sz * Hz)
+                };
+            };
+            AppendLocalQuad(Pt( 1, -1, -1), Pt( 1,  1, -1), Pt( 1,  1,  1), Pt( 1, -1,  1), MatSlot);
+            AppendLocalQuad(Pt(-1,  1, -1), Pt(-1, -1, -1), Pt(-1, -1,  1), Pt(-1,  1,  1), MatSlot);
+            AppendLocalQuad(Pt(-1,  1, -1), Pt( 1,  1, -1), Pt( 1,  1,  1), Pt(-1,  1,  1), MatSlot);
+            AppendLocalQuad(Pt( 1, -1, -1), Pt(-1, -1, -1), Pt(-1, -1,  1), Pt( 1, -1,  1), MatSlot);
+            AppendLocalQuad(Pt(-1, -1,  1), Pt( 1, -1,  1), Pt( 1,  1,  1), Pt(-1,  1,  1), MatSlot);
+            AppendLocalQuad(Pt(-1,  1, -1), Pt( 1,  1, -1), Pt( 1, -1, -1), Pt(-1, -1, -1), MatSlot);
+        };
+
+        auto AppendLocalAabb = [&](float X0, float Y0, float Z0, float X1, float Y1, float Z1, uint16_t MatSlot)
+        {
+            AppendLocalObb(
+                { 0.5f * (X0 + X1), 0.5f * (Y0 + Y1), 0.5f * (Z0 + Z1) },
+                { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f },
+                0.5f * (X1 - X0), 0.5f * (Y1 - Y0), 0.5f * (Z1 - Z0),
+                MatSlot);
+        };
+
+        // 1. Interior Tub Floor, Footwell, Door Sills, and Firewall Bulkhead
+        AppendLocalAabb(-0.55f, -0.78f, 0.50f, 1.14f,  0.78f, 0.55f, MatCarpet);
+        AppendLocalAabb(-0.55f,  0.70f, 0.55f, 0.92f,  0.80f, 1.05f, MatLeather); // Left door card
+        AppendLocalAabb(-0.55f, -0.80f, 0.55f, 0.92f, -0.70f, 1.05f, MatLeather); // Right door card
+        AppendLocalAabb( 0.78f, -0.76f, 0.55f, 1.15f,  0.76f, 0.97f, MatCarpet);  // Lower firewall / knee bolster
+
+        // 2. Sculpted Full-Width GT Dashboard Deck & Upper Cowl (recessed behind floating HMI at X >= 0.79)
+        AppendLocalAabb( 0.80f, -0.76f, 0.94f, 1.18f,  0.76f, 1.04f, MatLeather); // Upper dashboard deck
+        AppendLocalAabb( 0.77f, -0.74f, 0.88f, 0.92f,  0.74f, 0.94f, MatCarbon);  // Carbon dash fascia
+        AppendLocalAabb( 0.765f, -0.72f, 0.925f, 0.785f, 0.72f, 0.942f, MatAlloy); // Brushed aluminum dash accent bar
+        // Upper dashboard windshield defroster apron (sloping neatly below glass)
+        AppendLocalQuad(
+            { 0.82f, -0.74f, 1.04f }, { 0.82f, 0.74f, 1.04f },
+            { 1.18f,  0.70f, 1.14f }, { 1.18f, -0.70f, 1.14f },
+            MatLeather);
+
+        // 3. Sculpted Center-Console Tunnel, Shifter & Drive-Mode Dial
+        AppendLocalAabb(-0.48f, -0.22f, 0.55f, 0.88f,  0.08f, 0.90f, MatLeather); // Console body
+        AppendLocalAabb(-0.44f, -0.20f, 0.90f, 0.82f,  0.06f, 0.93f, MatCarbon);  // Carbon tunnel top plate
+        AppendLocalAabb( 0.20f, -0.10f, 0.93f, 0.26f, -0.04f, 0.99f, MatAlloy);   // Short-throw metallic shifter
+        AppendLocalAabb( 0.19f, -0.11f, 0.99f, 0.27f, -0.03f, 1.015f, MatLeather); // Shifter grip knob
+        AppendLocalAabb( 0.38f, -0.10f, 0.93f, 0.45f, -0.03f, 0.955f, MatAlloy);  // Rotary drive-mode dial
+
+        // 4. Recessed Driver Instrument Cluster Binnacle Hood & 3D Cluster Screen (DynamicDisplaySlot = 2)
+        const Axis3D ClN = NormalizeCockpitAxis({
+            Layout.ClusterRightLocal.Y * Layout.ClusterUpLocal.Z - Layout.ClusterRightLocal.Z * Layout.ClusterUpLocal.Y,
+            Layout.ClusterRightLocal.Z * Layout.ClusterUpLocal.X - Layout.ClusterRightLocal.X * Layout.ClusterUpLocal.Z,
+            Layout.ClusterRightLocal.X * Layout.ClusterUpLocal.Y - Layout.ClusterRightLocal.Y * Layout.ClusterUpLocal.X
+        });
+        const Axis3D ClCenter {
+            Layout.ClusterOriginLocal.X + Layout.ClusterRightLocal.X * (0.5f * Layout.ClusterWidthMeters) + Layout.ClusterUpLocal.X * (0.5f * Layout.ClusterHeightMeters),
+            Layout.ClusterOriginLocal.Y + Layout.ClusterRightLocal.Y * (0.5f * Layout.ClusterWidthMeters) + Layout.ClusterUpLocal.Y * (0.5f * Layout.ClusterHeightMeters),
+            Layout.ClusterOriginLocal.Z + Layout.ClusterRightLocal.Z * (0.5f * Layout.ClusterWidthMeters) + Layout.ClusterUpLocal.Z * (0.5f * Layout.ClusterHeightMeters)
+        };
+        // Cluster housing bezel cleanly behind display quad (front face at -0.008 m)
+        AppendLocalObb(
+            { ClCenter.X - ClN.X * 0.022f, ClCenter.Y - ClN.Y * 0.022f, ClCenter.Z - ClN.Z * 0.022f },
+            Layout.ClusterRightLocal, Layout.ClusterUpLocal, ClN,
+            0.5f * Layout.ClusterWidthMeters + 0.014f,
+            0.5f * Layout.ClusterHeightMeters + 0.014f,
+            0.012f,
+            MatCarbon);
+        // Sculpted anti-glare top binnacle hood & side cheeks
+        AppendLocalAabb(0.62f, 0.135f, 1.235f, 0.88f, 0.545f, 1.260f, MatLeather); // Top hood
+        AppendLocalAabb(0.64f, 0.530f, 1.065f, 0.88f, 0.558f, 1.245f, MatLeather); // Left binnacle cheek
+        AppendLocalAabb(0.64f, 0.122f, 1.065f, 0.88f, 0.150f, 1.245f, MatLeather); // Right binnacle cheek
+        // Cluster emissive display quad (flush +0.004 m proud of housing)
+        {
+            const Axis3D P00 { Layout.ClusterOriginLocal.X + ClN.X * 0.004f, Layout.ClusterOriginLocal.Y + ClN.Y * 0.004f, Layout.ClusterOriginLocal.Z + ClN.Z * 0.004f };
+            const Axis3D P10 { P00.X + Layout.ClusterRightLocal.X * Layout.ClusterWidthMeters, P00.Y + Layout.ClusterRightLocal.Y * Layout.ClusterWidthMeters, P00.Z + Layout.ClusterRightLocal.Z * Layout.ClusterWidthMeters };
+            const Axis3D P01 { P00.X + Layout.ClusterUpLocal.X * Layout.ClusterHeightMeters, P00.Y + Layout.ClusterUpLocal.Y * Layout.ClusterHeightMeters, P00.Z + Layout.ClusterUpLocal.Z * Layout.ClusterHeightMeters };
+            const Axis3D P11 { P10.X + Layout.ClusterUpLocal.X * Layout.ClusterHeightMeters, P10.Y + Layout.ClusterUpLocal.Y * Layout.ClusterHeightMeters, P10.Z + Layout.ClusterUpLocal.Z * Layout.ClusterHeightMeters };
+            AppendLocalQuad(P00, P10, P11, P01, MatCluster);
+        }
+
+        // 5. Floating Center-Console In-Car HMI Touchscreen (DynamicDisplaySlot = 1)
+        const Axis3D HmiN = NormalizeCockpitAxis({
+            Layout.HmiRightLocal.Y * Layout.HmiUpLocal.Z - Layout.HmiRightLocal.Z * Layout.HmiUpLocal.Y,
+            Layout.HmiRightLocal.Z * Layout.HmiUpLocal.X - Layout.HmiRightLocal.X * Layout.HmiUpLocal.Z,
+            Layout.HmiRightLocal.X * Layout.HmiUpLocal.Y - Layout.HmiRightLocal.Y * Layout.HmiUpLocal.X
+        });
+        const Axis3D HmiCenter {
+            Layout.HmiOriginLocal.X + Layout.HmiRightLocal.X * (0.5f * Layout.HmiWidthMeters) + Layout.HmiUpLocal.X * (0.5f * Layout.HmiHeightMeters),
+            Layout.HmiOriginLocal.Y + Layout.HmiRightLocal.Y * (0.5f * Layout.HmiWidthMeters) + Layout.HmiUpLocal.Y * (0.5f * Layout.HmiHeightMeters),
+            Layout.HmiOriginLocal.Z + Layout.HmiRightLocal.Z * (0.5f * Layout.HmiWidthMeters) + Layout.HmiUpLocal.Z * (0.5f * Layout.HmiHeightMeters)
+        };
+        // Brushed-aluminum outer chassis + dark carbon bezel strictly BEHIND the screen quad + pedestal mount
+        AppendLocalObb(
+            { HmiCenter.X - HmiN.X * 0.022f, HmiCenter.Y - HmiN.Y * 0.022f, HmiCenter.Z - HmiN.Z * 0.022f },
+            Layout.HmiRightLocal, Layout.HmiUpLocal, HmiN,
+            0.5f * Layout.HmiWidthMeters + 0.013f,
+            0.5f * Layout.HmiHeightMeters + 0.013f,
+            0.010f,
+            MatAlloy);
+        AppendLocalObb(
+            { HmiCenter.X - HmiN.X * 0.012f, HmiCenter.Y - HmiN.Y * 0.012f, HmiCenter.Z - HmiN.Z * 0.012f },
+            Layout.HmiRightLocal, Layout.HmiUpLocal, HmiN,
+            0.5f * Layout.HmiWidthMeters + 0.008f,
+            0.5f * Layout.HmiHeightMeters + 0.008f,
+            0.006f,
+            MatCarbon);
+        AppendLocalAabb(0.70f, -0.12f, 0.92f, 0.80f, -0.02f, 1.01f, MatCarbon); // Pedestal mount strictly behind screen
+        // HMI emissive touchscreen quad (+0.004 m proud of dark bezel; front face cleanly unobstructed)
+        {
+            const Axis3D P00 { Layout.HmiOriginLocal.X + HmiN.X * 0.004f, Layout.HmiOriginLocal.Y + HmiN.Y * 0.004f, Layout.HmiOriginLocal.Z + HmiN.Z * 0.004f };
+            const Axis3D P10 { P00.X + Layout.HmiRightLocal.X * Layout.HmiWidthMeters, P00.Y + Layout.HmiRightLocal.Y * Layout.HmiWidthMeters, P00.Z + Layout.HmiRightLocal.Z * Layout.HmiWidthMeters };
+            const Axis3D P01 { P00.X + Layout.HmiUpLocal.X * Layout.HmiHeightMeters, P00.Y + Layout.HmiUpLocal.Y * Layout.HmiHeightMeters, P00.Z + Layout.HmiUpLocal.Z * Layout.HmiHeightMeters };
+            const Axis3D P11 { P10.X + Layout.HmiUpLocal.X * Layout.HmiHeightMeters, P10.Y + Layout.HmiUpLocal.Y * Layout.HmiHeightMeters, P10.Z + Layout.HmiUpLocal.Z * Layout.HmiHeightMeters };
+            AppendLocalQuad(P00, P10, P11, P01, MatHmi);
+        }
+
+        // 6. Sporty Flat-Bottom GT Steering Wheel (positioned cleanly below cluster sightline)
+        const Axis3D WheelCenter { 0.41f, 0.34f, 1.02f };
+        const Axis3D WRight { 0.0f, -1.0f, 0.0f };
+        const Axis3D WUp    = NormalizeCockpitAxis({ 0.30902f, 0.0f, 0.95106f });  // 18 deg tilt
+        const Axis3D WNorm  = NormalizeCockpitAxis({ -0.95106f, 0.0f, 0.30902f }); // Faces driver
+        // Steering column shroud
+        AppendLocalObb(
+            { WheelCenter.X - WNorm.X * 0.13f, WheelCenter.Y, WheelCenter.Z - WNorm.Z * 0.13f },
+            WRight, WUp, WNorm, 0.048f, 0.046f, 0.12f, MatLeather);
+        // Center airbag boss + metallic accent bezel
+        AppendLocalObb(WheelCenter, WRight, WUp, WNorm, 0.046f, 0.042f, 0.022f, MatLeather);
+        AppendLocalObb(
+            { WheelCenter.X + WNorm.X * 0.018f, WheelCenter.Y, WheelCenter.Z + WNorm.Z * 0.018f },
+            WRight, WUp, WNorm, 0.024f, 0.024f, 0.008f, MatAlloy);
+        // Three brushed-aluminum spokes (left, right, bottom)
+        AppendLocalObb({ WheelCenter.X, WheelCenter.Y + 0.082f, WheelCenter.Z }, WRight, WUp, WNorm, 0.056f, 0.015f, 0.010f, MatAlloy);
+        AppendLocalObb({ WheelCenter.X, WheelCenter.Y - 0.082f, WheelCenter.Z }, WRight, WUp, WNorm, 0.056f, 0.015f, 0.010f, MatAlloy);
+        AppendLocalObb(
+            { WheelCenter.X - WUp.X * 0.078f, WheelCenter.Y, WheelCenter.Z - WUp.Z * 0.078f },
+            WRight, WUp, WNorm, 0.018f, 0.052f, 0.010f, MatAlloy);
+        // Left & right metallic paddle shifters behind wheel spokes
+        AppendLocalObb(
+            { WheelCenter.X - WNorm.X * 0.036f + WUp.X * 0.024f, WheelCenter.Y + 0.095f, WheelCenter.Z - WNorm.Z * 0.036f + WUp.Z * 0.024f },
+            WRight, WUp, WNorm, 0.016f, 0.042f, 0.005f, MatAlloy);
+        AppendLocalObb(
+            { WheelCenter.X - WNorm.X * 0.036f + WUp.X * 0.024f, WheelCenter.Y - 0.095f, WheelCenter.Z - WNorm.Z * 0.036f + WUp.Z * 0.024f },
+            WRight, WUp, WNorm, 0.016f, 0.042f, 0.005f, MatAlloy);
+        // Flat-bottom GT steering rim (32 segments × 10 tube sections) with red 12-o'clock centering stripe
+        constexpr uint32_t RimSegs = 32u;
+        constexpr uint32_t TubeSegs = 10u;
+        constexpr float    RimR     = 0.148f;
+        constexpr float    TubeR    = 0.0165f;
+        constexpr float    TwoPiF   = 6.28318530718f;
+        auto WheelRimRingPoint = [&](uint32_t SegIdx) -> Axis3D
+        {
+            const float Angle = (static_cast<float>(SegIdx % RimSegs) / static_cast<float>(RimSegs)) * TwoPiF;
+            const float LocalX = std::sin(Angle) * RimR;
+            float       LocalY = std::cos(Angle) * RimR;
+            if (LocalY < -0.118f) LocalY = -0.118f; // Sporty flat bottom
+            return {
+                WheelCenter.X + WRight.X * LocalX + WUp.X * LocalY,
+                WheelCenter.Y + WRight.Y * LocalX + WUp.Y * LocalY,
+                WheelCenter.Z + WRight.Z * LocalX + WUp.Z * LocalY
+            };
+        };
+        for (uint32_t S = 0u; S < RimSegs; ++S)
+        {
+            const Axis3D C0 = WheelRimRingPoint(S);
+            const Axis3D C1 = WheelRimRingPoint(S + 1u);
+            const Axis3D R0 = NormalizeCockpitAxis({ C0.X - WheelCenter.X, C0.Y - WheelCenter.Y, C0.Z - WheelCenter.Z });
+            const Axis3D R1 = NormalizeCockpitAxis({ C1.X - WheelCenter.X, C1.Y - WheelCenter.Y, C1.Z - WheelCenter.Z });
+            const bool   IsTopMarker = (S == 0u || S == RimSegs - 1u);
+            const uint16_t SegMat = IsTopMarker ? MatAccent : MatLeather;
+            for (uint32_t T = 0u; T < TubeSegs; ++T)
+            {
+                const float Phi0 = (static_cast<float>(T) / static_cast<float>(TubeSegs)) * TwoPiF;
+                const float Phi1 = (static_cast<float>(T + 1u) / static_cast<float>(TubeSegs)) * TwoPiF;
+                const float CPhi0 = std::cos(Phi0), SPhi0 = std::sin(Phi0);
+                const float CPhi1 = std::cos(Phi1), SPhi1 = std::sin(Phi1);
+                auto TubePt = [&](const Axis3D& C, const Axis3D& Rad, float Cp, float Sp) -> Axis3D
+                {
+                    return {
+                        C.X + (Rad.X * Cp + WNorm.X * Sp) * TubeR,
+                        C.Y + (Rad.Y * Cp + WNorm.Y * Sp) * TubeR,
+                        C.Z + (Rad.Z * Cp + WNorm.Z * Sp) * TubeR
+                    };
+                };
+                auto TubeN = [&](const Axis3D& Rad, float Cp, float Sp) -> Axis3D
+                {
+                    return NormalizeCockpitAxis({ Rad.X * Cp + WNorm.X * Sp, Rad.Y * Cp + WNorm.Y * Sp, Rad.Z * Cp + WNorm.Z * Sp });
+                };
+                const Axis3D P00 = TubePt(C0, R0, CPhi0, SPhi0);
+                const Axis3D P10 = TubePt(C1, R1, CPhi0, SPhi0);
+                const Axis3D P11 = TubePt(C1, R1, CPhi1, SPhi1);
+                const Axis3D P01 = TubePt(C0, R0, CPhi1, SPhi1);
+                const Axis3D N00 = TubeN(R0, CPhi0, SPhi0);
+                const Axis3D N10 = TubeN(R1, CPhi0, SPhi0);
+                const Axis3D N11 = TubeN(R1, CPhi1, SPhi1);
+                const Axis3D N01 = TubeN(R0, CPhi1, SPhi1);
+                AppendLocalTri(P00, P10, P11, N00, N10, N11, SegMat);
+                AppendLocalTri(P00, P11, P01, N00, N11, N01, SegMat);
             }
         }
     }
@@ -2570,6 +2903,88 @@ void EvaluateDynamicEmissiveOrbState(
         std::pow(std::clamp(SrgbB, 0.0f, 1.0f), 2.2f),
     };
     (void)Frontier::Constants::Tau;
+}
+
+StudioBuiltMesh BuildTrainingFlatPlaneSurface(
+    float                          SpanMeters,
+    float                          TilePitchMeters,
+    const StudioMaterialPalette&   Palette,
+    const StudioMeshBakeTransform& Transform)
+{
+    HtmlStudioMeshBuilder B("TrainingFlatPlane", Palette, Transform);
+    const float SafeSpan  = std::clamp(SpanMeters, 40.0f, 600.0f);
+    const float SafePitch = std::clamp(TilePitchMeters, 4.0f, 40.0f);
+    const int   Count     = std::clamp(static_cast<int>(std::round(SafeSpan / SafePitch)), 6, 36);
+    const float Step      = SafeSpan / static_cast<float>(Count);
+    const float HalfSpan  = SafeSpan * 0.5f;
+    const Axis3D UpN { 0.0f, 1.0f, 0.0f };
+
+    // 1. Flat proving-ground matte FIA asphalt plane at Y_html = 0.0 (Z_world = 0.0)
+    for (int Ix = 0; Ix < Count; ++Ix)
+    {
+        const float X0 = -HalfSpan + static_cast<float>(Ix) * Step;
+        const float X1 = X0 + Step;
+        for (int Iz = 0; Iz < Count; ++Iz)
+        {
+            const float Z0 = -HalfSpan + static_cast<float>(Iz) * Step;
+            const float Z1 = Z0 + Step;
+            const StudioMaterialCode Mat = StudioMaterialCode::TrackAsphalt;
+            B.PushTri({ X0, 0.0f, Z1 }, { X1, 0.0f, Z1 }, { X1, 0.0f, Z0 }, UpN, UpN, UpN, Mat, { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f });
+            B.PushTri({ X0, 0.0f, Z1 }, { X1, 0.0f, Z0 }, { X0, 0.0f, Z0 }, UpN, UpN, UpN, Mat, { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f });
+        }
+    }
+
+    // 2. Flush painted reference lines (2 mm above deck) for clear speed, heading & drift-arc perception
+    constexpr float PaintY = 0.0025f;
+    auto PushPaintQuad = [&](float X0, float X1, float Z0, float Z1, StudioMaterialCode Mat)
+    {
+        B.PushTri({ X0, PaintY, Z1 }, { X1, PaintY, Z1 }, { X1, PaintY, Z0 }, UpN, UpN, UpN, Mat);
+        B.PushTri({ X0, PaintY, Z1 }, { X1, PaintY, Z0 }, { X0, PaintY, Z0 }, UpN, UpN, UpN, Mat);
+    };
+
+    // Primary +X launch lane borders (+/- 4.5 m lateral) and start line at X = 0
+    PushPaintQuad(-HalfSpan + 8.0f, HalfSpan - 8.0f, -4.58f, -4.42f, StudioMaterialCode::TrackPaintWhite);
+    PushPaintQuad(-HalfSpan + 8.0f, HalfSpan - 8.0f,  4.42f,  4.58f, StudioMaterialCode::TrackPaintWhite);
+    PushPaintQuad(-0.18f, 0.18f, -4.50f, 4.50f, StudioMaterialCode::SafetyYellow);
+
+    // Center dashed reference strip along X (every 10 m)
+    for (float X = -HalfSpan + 10.0f; X <= HalfSpan - 14.0f; X += 10.0f)
+    {
+        PushPaintQuad(X, X + 3.4f, -0.08f, 0.08f, StudioMaterialCode::TrackPaintWhite);
+    }
+
+    // Lateral distance gate ticks every 20 m across central corridor
+    for (float X = -100.0f; X <= 100.0f; X += 20.0f)
+    {
+        if (std::fabs(X) < 1.0f)
+        {
+            continue;
+        }
+        PushPaintQuad(X - 0.10f, X + 0.10f, -6.5f, -4.6f, StudioMaterialCode::TrackPaintWhite);
+        PushPaintQuad(X - 0.10f, X + 0.10f,  4.6f,  6.5f, StudioMaterialCode::TrackPaintWhite);
+    }
+
+    // Painted skidpad reference circle (radius 18 m centered around spawn) for donut & drift testing
+    constexpr int   CircleSegments = 48;
+    constexpr float InnerRadius    = 17.86f;
+    constexpr float OuterRadius    = 18.14f;
+    for (int S = 0; S < CircleSegments; ++S)
+    {
+        const float A0 = (static_cast<float>(S) / static_cast<float>(CircleSegments)) * Frontier::Constants::TauFloat;
+        const float A1 = (static_cast<float>(S + 1) / static_cast<float>(CircleSegments)) * Frontier::Constants::TauFloat;
+        const float C0 = std::cos(A0);
+        const float S0 = std::sin(A0);
+        const float C1 = std::cos(A1);
+        const float S1 = std::sin(A1);
+        const Axis3D P00 { InnerRadius * C0, PaintY, InnerRadius * S0 };
+        const Axis3D P01 { OuterRadius * C0, PaintY, OuterRadius * S0 };
+        const Axis3D P11 { OuterRadius * C1, PaintY, OuterRadius * S1 };
+        const Axis3D P10 { InnerRadius * C1, PaintY, InnerRadius * S1 };
+        B.PushTri(P00, P01, P11, UpN, UpN, UpN, StudioMaterialCode::TrackPaintWhite);
+        B.PushTri(P00, P11, P10, UpN, UpN, UpN, StudioMaterialCode::TrackPaintWhite);
+    }
+
+    return B.Finish();
 }
 
 } // namespace AutoSpace

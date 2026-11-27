@@ -20,6 +20,7 @@
 #include "Engine/ParticleSpace/ParticleGpuSimulation.h"
 #include "Engine/ParticleSpace/ParticleTemplateRegistry.h"
 #include "Engine/SimulationSpace/EffectLayers/EffectLayerSpecification.h"
+#include "Engine/SimulationSpace/Fluid/VehicleTireFluidSmokeBridge.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
 #include "Engine/SimulationSpace/PhysicsSpace/VehicleDynamicsSolver.h"
 #include "Engine/SpatialAcceleration/ClusterPyramid.h"
@@ -106,7 +107,14 @@ public:
     [[nodiscard]] Frontier::SimulationSpace::PhysicsSpace::VehiclePhysicsRig::VehicleReadingLease
         AcquireHeroVehicleReading() const noexcept;
     [[nodiscard]] bool QueryHeroVehiclePhysicsActive() const noexcept { return HeroVehiclePhysicsActive; }
+    [[nodiscard]] bool QueryHeroTireSmokeActive() const noexcept { return HeroTireSmokeActive; }
+    void               SetTireSmokeEnabled(bool Enabled) noexcept;
     [[nodiscard]] bool QueryDynamicEmissiveOrbActive() const noexcept { return DynamicEmissiveOrbClusterIdx != UINT32_MAX; }
+    void               ResetHeroVehicleToSpawn() noexcept;
+    void               QueryHeroVehicleWorldPose(
+        Frontier::Mathematics::Axis3D& OutPositionZUp,
+        float&                         OutYawZUpDegrees) const noexcept;
+    [[nodiscard]] Frontier::SimulationSpace::Fluid::TireSmokeBridgeTelemetry InspectTireSmokeTelemetry() const noexcept;
 
     [[nodiscard]] LobbyLifecycleTelemetry                                       InspectTelemetry() const noexcept;
     [[nodiscard]] const LobbyPolicy&                                            InspectPolicy() const noexcept { return ActivePolicy; }
@@ -214,13 +222,21 @@ private:
     Frontier::ParticleSpace::ParticleSimulationRegion                    ParticleRegion         {};
 
     // Optional live Jolt VehiclePhysicsRig (3-lane fan trace + socket-free ConstraintSolver rig) bound to Hero Vehicle
-    bool                                                                 ControlVehicleClassReady = false;
-    Frontier::ComponentClass::ControlVehicleBuildResult                  ControlVehicleClass      {};
-    bool                                                                 HeroVehiclePhysicsActive = false;
-    Frontier::World::InstanceToken                                       HeroVehicleEntityToken   {};
-    Frontier::Mathematics::Axis3D                                        HeroVehicleSpawnZUp      {};
-    std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::PhysicsExtension>  HeroPhysics       {};
-    std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::VehiclePhysicsRig> HeroVehicleRig    {};
+    bool                                                                 ControlVehicleClassReady    = false;
+    Frontier::ComponentClass::ControlVehicleBuildResult                  ControlVehicleClass         {};
+    bool                                                                 HeroVehiclePhysicsActive    = false;
+    bool                                                                 HeroTireSmokeActive         = false;
+    Frontier::World::InstanceToken                                       HeroVehicleEntityToken      {};
+    Frontier::Mathematics::Axis3D                                        HeroVehicleSpawnZUp         {};
+    Frontier::Mathematics::Axis3D                                        HeroCurrentPositionZUp      {};
+    float                                                                HeroCurrentYawZUpDegrees    = 0.0f;
+    float                                                                HeroSettledChassisHeightY   = 0.41715f;
+    Frontier::SimulationSpace::PhysicsSpace::VehicleRigSpecification     HeroVehicleSpec             {};
+    std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::PhysicsExtension>     HeroPhysics       {};
+    std::unique_ptr<Frontier::SimulationSpace::PhysicsSpace::VehiclePhysicsRig>    HeroVehicleRig    {};
+    std::unique_ptr<Frontier::SimulationSpace::Fluid::VehicleTireFluidSmokeBridge> HeroTireSmoke     {};
+    double                                                               TireSmokeStepAccumulator    = 0.0;
+    std::size_t                                                          StaticLocalFogBaselineCount = 0u;
 
     double                                                               SimulationClockSeconds       = 0.0;
     uint32_t                                                             VehicleCount                 = 0u;
@@ -230,6 +246,9 @@ private:
     uint16_t                                                             DynamicEmissiveOrbMatSlot    = 0u;
 
     void UpdateDynamicEmissiveOrb(double ElapsedSeconds) noexcept;
+    void InitializeHeroVehicleSimulation() noexcept;
+    void ProjectTireFluidSmokeToLocalFogs(
+        const Frontier::SimulationSpace::PhysicsSpace::VehicleReading& Reading) noexcept;
 
 #if FRONTIER_PROFILE_EDITOR
     Frontier::OutlinerPanel*                                             BoundOutliner          = nullptr;

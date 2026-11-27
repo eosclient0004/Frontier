@@ -47,10 +47,11 @@ namespace
 
 [[nodiscard]] StudioLobbyId ResolveLobbyFromVariant(uint32_t VariantIndex) noexcept
 {
-    switch (VariantIndex % 3u)
+    switch (VariantIndex % 4u)
     {
         case 1u:  return StudioLobbyId::StudioLobby2ForestStage;
         case 2u:  return StudioLobbyId::StudioLobby3RacingGarage;
+        case 3u:  return StudioLobbyId::StudioLobby4TrainingGround;
         case 0u:
         default:  return StudioLobbyId::StudioLobby1Cyclorama;
     }
@@ -60,10 +61,11 @@ namespace
 {
     switch (LobbyId)
     {
-        case StudioLobbyId::StudioLobby2ForestStage:  return 1.22f;
-        case StudioLobbyId::StudioLobby3RacingGarage: return 1.20f;
+        case StudioLobbyId::StudioLobby2ForestStage:    return 1.22f;
+        case StudioLobbyId::StudioLobby3RacingGarage:   return 1.20f;
+        case StudioLobbyId::StudioLobby4TrainingGround: return 1.05f;
         case StudioLobbyId::StudioLobby1Cyclorama:
-        default:                                      return 1.18f;
+        default:                                        return 1.18f;
     }
 }
 
@@ -72,14 +74,15 @@ namespace
     const std::filesystem::path&                  RepositoryRoot,
     Frontier::Lifecycle::ProjectBrowserDisplayDescriptor& OutDescriptor)
 {
-    OutDescriptor.SummaryCaption = "Automotive Showcase · 3 Lobbies · Game & Editor";
+    OutDescriptor.SummaryCaption = "Automotive Showcase · 4 Lobbies · Game & Editor";
     OutDescriptor.Description =
-        "AutoSpace interactive automotive project with 3 selectable lobbies (Cyclorama, Forest Soundstage, "
-        "Racing Garage), Jolt vehicle physics, studio softbox & measured IES lighting, and standalone Game Mode.";
+        "AutoSpace interactive automotive project with 4 selectable lobbies (Cyclorama, Forest Soundstage, "
+        "Racing Garage, Training Ground), Jolt vehicle physics, live Eulerian tire smoke, studio lighting, and Game Mode.";
     OutDescriptor.ViewTitles = {
         "Lobby 1 · Cyclorama",
         "Lobby 2 · Forest Soundstage",
         "Lobby 3 · Racing Garage",
+        "Lobby 4 · Training Ground",
     };
 
     const std::filesystem::path ExhibitsDir = RepositoryRoot / "Exhibits" / "Images" / "AutoSpace";

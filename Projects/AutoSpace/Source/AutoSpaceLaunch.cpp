@@ -8,7 +8,9 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Source/Gameplay/AutoSpaceLifecycle.h"
+#include "Source/Cockpit/VehicleCockpitInstrumentation.h"
 
+#include "Engine/Constants/MathConstants.h"
 #include "Engine/GeometricRaster/ComponentEditor/ComponentViewportRenderer.h"
 #include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
@@ -19,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -89,18 +92,47 @@ struct OrbitCameraRig
 {
     switch (LobbyId)
     {
-        case AutoSpace::StudioLobbyId::StudioLobby2ForestStage:  return 1.22f;
-        case AutoSpace::StudioLobbyId::StudioLobby3RacingGarage: return 1.20f;
+        case AutoSpace::StudioLobbyId::StudioLobby2ForestStage:    return 1.22f;
+        case AutoSpace::StudioLobbyId::StudioLobby3RacingGarage:   return 1.20f;
+        case AutoSpace::StudioLobbyId::StudioLobby4TrainingGround: return 1.05f;
         case AutoSpace::StudioLobbyId::StudioLobby1Cyclorama:
-        default:                                                 return 1.18f;
+        default:                                                   return 1.18f;
     }
 }
 
 [[nodiscard]] std::string ConstructWindowTitle(AutoSpace::StudioLobbyId LobbyId)
 {
+    if (LobbyId == AutoSpace::StudioLobbyId::StudioLobby4TrainingGround)
+    {
+        return std::string("AutoSpace — ") +
+               std::string(AutoSpace::LobbyPolicyEngine::QueryLabel(LobbyId)) +
+               "  [WASD/Arrows: Drive | Space: Handbrake | B: Burnout | T: Drift TCS | E/Q: Shift | C: Cam | R: Reset | 1-4: Lobby]";
+    }
     return std::string("AutoSpace — ") +
            std::string(AutoSpace::LobbyPolicyEngine::QueryLabel(LobbyId)) +
-           "  [1-3: Lobby | C: Camera | Drag: Orbit | WASD: Drive | Esc: Exit]";
+           "  [1-4: Lobby | C: Camera | Drag: Orbit | WASD: Drive | Esc: Exit]";
+}
+
+void PrintDrivingControlsLegend()
+{
+    std::cout
+        << "\n================ AutoSpace Driving & Cockpit Controls ================\n"
+        << "  1 / 2 / 3 / 4        Switch Lobby (4 = Training Ground Flat Plane)\n"
+        << "  W / Up               Throttle / Accelerate\n"
+        << "  S / Down             Brake (auto-Reverse when stopped)\n"
+        << "  A / D  or Left/Right Steer Left / Right\n"
+        << "  Space                Handbrake (initiate drifts & rear tire smoke)\n"
+        << "  B                    Burnout Line-Lock (front brake + full rear throttle smoke)\n"
+        << "  E / Q or Shift/Ctrl  Manual Gear Shift Up / Down\n"
+        << "  T                    Cycle Assists (Sport -> Drift/Off -> Safe)\n"
+        << "  C / V / Tab          Cycle Camera (Chase / Drift / Interior Cockpit / HMI Focus / Orbit)\n"
+        << "  H                    Toggle HMI Touchscreen Focus View (click 3D HMI buttons with mouse)\n"
+        << "  U / G                Toggle On-Screen HUD / Windshield Glass Optical HUD\n"
+        << "  F5 / F6 / F7 / F8    Switch Render Engine (PBR / SDF+GI / MatCap / PathTracer) - HMI syncs live\n"
+        << "  Mouse Drag / Wheel   Orbit Camera / Zoom (Left-Click interacts with HMI in Cockpit/HMI view)\n"
+        << "  R                    Reset Car & Clear Smoke (or Reset Camera)\n"
+        << "  Esc                  Exit\n"
+        << "======================================================================\n\n";
 }
 
 [[nodiscard]] std::filesystem::path ResolveCompiledShaderDirectory(
@@ -202,8 +234,15 @@ int main(int ArgumentCount, char** ArgumentVector)
     uint32_t              OverrideHeightPx    = 0u;
     uint32_t              DebugChannel        = 0u;
     uint32_t              SdfShadowMarchSteps = 96u;
+    uint32_t              InitialCameraPreset = 0u;
     double                InitialSimTimeSec   = -1.0;
+    std::string           DriveTestScenario   {};
     AutoSpace::StudioLobbyId InitialLobby     = AutoSpace::StudioLobbyId::StudioLobby1Cyclorama;
+    Frontier::GeometricRaster::WorldRenderEngine ActiveRenderEngine =
+        Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd;
+    bool                  ExplicitRenderEngine = false;
+    AutoSpace::HmiControlPanel HmiPanel   {};
+    int32_t               AutoClickHmiBtnIdx  = -1;
 
     for (int Idx = 1; Idx < ArgumentCount; ++Idx)
     {
@@ -280,6 +319,60 @@ int main(int ArgumentCount, char** ArgumentVector)
             {
                 InitialSimTimeSec = Parsed;
             }
+        }
+        else if (Arg.starts_with("--camera-preset="))
+        {
+            const long Parsed = std::strtol(RawArg + 16, nullptr, 10);
+            if (Parsed >= 0L && Parsed <= 8L)
+            {
+                InitialCameraPreset = static_cast<uint32_t>(Parsed);
+            }
+        }
+        else if (Arg.starts_with("--drive-test="))
+        {
+            DriveTestScenario = std::string(Arg.substr(13u));
+        }
+        else if (Arg.starts_with("--render-engine="))
+        {
+            const std::string_view Mode = Arg.substr(16u);
+            ExplicitRenderEngine = true;
+            if (Mode == "pbr" || Mode == "openpbr")
+                ActiveRenderEngine = Frontier::GeometricRaster::WorldRenderEngine::OpenPbrDirect;
+            else if (Mode == "sdf" || Mode == "gi" || Mode == "sdfgi")
+                ActiveRenderEngine = Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd;
+            else if (Mode == "matcap")
+                ActiveRenderEngine = Frontier::GeometricRaster::WorldRenderEngine::MatCap;
+            else if (Mode == "pathtrace" || Mode == "pt")
+                ActiveRenderEngine = Frontier::GeometricRaster::WorldRenderEngine::PathTracerGameRealtime;
+        }
+        else if (Arg.starts_with("--hmi-cam="))
+        {
+            const std::string_view Cam = Arg.substr(10u);
+            if (Cam == "rear")       HmiPanel.FeedMode = AutoSpace::HmiCameraFeedMode::RearBackupCam;
+            else if (Cam == "chase") HmiPanel.FeedMode = AutoSpace::HmiCameraFeedMode::ChaseFollowCam;
+            else if (Cam == "bumper")HmiPanel.FeedMode = AutoSpace::HmiCameraFeedMode::FrontBumperCam;
+            else if (Cam == "drift") HmiPanel.FeedMode = AutoSpace::HmiCameraFeedMode::DriftWheelCam;
+        }
+        else if (Arg.starts_with("--hmi-engine="))
+        {
+            const std::string_view Eng = Arg.substr(13u);
+            if (Eng == "sync")       HmiPanel.EngineMode = AutoSpace::HmiEngineSyncMode::SyncToMain;
+            else if (Eng == "pbr")   HmiPanel.EngineMode = AutoSpace::HmiEngineSyncMode::ForceOpenPbr;
+            else if (Eng == "sdf")   HmiPanel.EngineMode = AutoSpace::HmiEngineSyncMode::ForceSdfGi;
+            else if (Eng == "matcap")HmiPanel.EngineMode = AutoSpace::HmiEngineSyncMode::ForceMatCap;
+            else if (Eng == "pt")    HmiPanel.EngineMode = AutoSpace::HmiEngineSyncMode::ForcePathTracer;
+        }
+        else if (Arg.starts_with("--hud="))
+        {
+            HmiPanel.OnScreenHudEnabled = (Arg.substr(6u) != "off");
+        }
+        else if (Arg.starts_with("--glass-hud="))
+        {
+            HmiPanel.WindshieldHudEnabled = (Arg.substr(12u) != "off");
+        }
+        else if (Arg.starts_with("--hmi-click="))
+        {
+            AutoClickHmiBtnIdx = static_cast<int32_t>(std::strtol(RawArg + 12, nullptr, 10));
         }
     }
 
@@ -384,7 +477,15 @@ int main(int ArgumentCount, char** ArgumentVector)
     }
 
     OrbitCameraRig CameraRig {};
-    uint32_t       CameraPresetIndex = 0u;
+    uint32_t       CameraPresetIndex       = InitialCameraPreset;
+    float          SmoothedFollowYawRad    = 0.0f;
+    float          ChaseOrbitYawOffsetRad  = 0.0f;
+    float          ChaseOrbitElevOffsetRad = 0.0f;
+    float          ChaseDistanceScale      = 1.0f;
+    float          SmoothedSteerInput      = 0.0f;
+    uint32_t       AssistModeIndex         = 0u; // 0 = Sport, 1 = Drift (TCS/ESC Off), 2 = Safe
+    double         TitleRefreshAccumSec    = 0.0;
+
     auto SeedCameraFromActivePreset = [&]()
     {
         const auto& Presets = Session.InspectLobbyLifecycle().InspectCameraPresets();
@@ -393,15 +494,167 @@ int main(int ArgumentCount, char** ArgumentVector)
             CameraPresetIndex %= static_cast<uint32_t>(Presets.size());
             CameraRig.SeedFromCamera(Presets[CameraPresetIndex].Camera);
         }
+        ChaseOrbitYawOffsetRad  = 0.0f;
+        ChaseOrbitElevOffsetRad = 0.0f;
+        ChaseDistanceScale      = 1.0f;
+        Frontier::Mathematics::Axis3D HeroPos {};
+        float HeroYawDeg = 0.0f;
+        Session.InspectLobbyLifecycle().QueryHeroVehicleWorldPose(HeroPos, HeroYawDeg);
+        SmoothedFollowYawRad = HeroYawDeg * Frontier::Constants::DegToRadFloat;
     };
     SeedCameraFromActivePreset();
+    PrintDrivingControlsLegend();
 
-    bool     SceneGpuDirty     = true;
-    uint32_t PresentedCycles   = 0u;
-    uint32_t FailedPresentRuns = 0u;
+    // Optional deterministic driving & smoke verification scenario (for automated proof renders)
+    if (!DriveTestScenario.empty() && Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive())
+    {
+        auto& Lobby = Session.AccessLobbyLifecycle();
+        Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective AssistCmd {};
+        AssistCmd.Category    = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::AssignDriverAssists;
+        AssistCmd.AbsEnabled  = true;
+        AssistCmd.TcsCategory = Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Off;
+        AssistCmd.EscEnabled  = false;
+        (void)Lobby.SubmitHeroVehicleDirective(AssistCmd);
+        AssistModeIndex = 1u;
+
+        constexpr double TestDt = 1.0 / 60.0;
+        if (DriveTestScenario == "burnout")
+        {
+            // Donut / line-lock burnout: short launch + hard steer + full throttle spin for dense billowing smoke
+            Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective Cmd {};
+            Cmd.Category           = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::DriverInput;
+            Cmd.ThrottleNormalized = 1.0f;
+            for (int Step = 0; Step < 144; ++Step)
+            {
+                Cmd.ThrottleNormalized  = 1.0f;
+                Cmd.BrakeNormalized     = (Step < 30) ? 0.0f : 0.05f;
+                Cmd.SteeringNormalized  = (Step < 24) ? 0.0f : 0.92f;
+                Cmd.HandbrakeNormalized = (Step >= 24 && Step < 40) ? 0.85f : 0.0f;
+                (void)Lobby.SubmitHeroVehicleDirective(Cmd);
+                Lobby.TickSimulation(TestDt);
+            }
+        }
+        else if (DriveTestScenario == "drift")
+        {
+            Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective Cmd {};
+            Cmd.Category           = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::DriverInput;
+            Cmd.ThrottleNormalized = 1.0f;
+            (void)Lobby.SubmitHeroVehicleDirective(Cmd);
+            for (int Step = 0; Step < 84; ++Step)
+            {
+                Lobby.TickSimulation(TestDt);
+            }
+            // Initiate drift with steering + momentary handbrake then sustained throttle oversteer
+            for (int Step = 0; Step < 96; ++Step)
+            {
+                Cmd.ThrottleNormalized  = 1.0f;
+                Cmd.BrakeNormalized     = 0.0f;
+                Cmd.SteeringNormalized  = (Step < 66) ? 0.85f : -0.30f;
+                Cmd.HandbrakeNormalized = (Step < 22) ? 0.90f : 0.0f;
+                (void)Lobby.SubmitHeroVehicleDirective(Cmd);
+                Lobby.TickSimulation(TestDt);
+            }
+        }
+        else if (DriveTestScenario == "launch")
+        {
+            Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective Cmd {};
+            Cmd.Category           = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::DriverInput;
+            Cmd.ThrottleNormalized = 1.0f;
+            (void)Lobby.SubmitHeroVehicleDirective(Cmd);
+            for (int Step = 0; Step < 120; ++Step)
+            {
+                Lobby.TickSimulation(TestDt);
+            }
+        }
+
+        Frontier::Mathematics::Axis3D HeroPos {};
+        float HeroYawDeg = 0.0f;
+        Lobby.QueryHeroVehicleWorldPose(HeroPos, HeroYawDeg);
+        SmoothedFollowYawRad = HeroYawDeg * Frontier::Constants::DegToRadFloat;
+        const auto Reading   = Lobby.AcquireHeroVehicleReading();
+        const auto SmokeTel  = Lobby.InspectTireSmokeTelemetry();
+        std::cout
+            << "[AutoSpace DriveTest=" << DriveTestScenario << "] "
+            << "Pos=(" << HeroPos.X << ", " << HeroPos.Y << ", " << HeroPos.Z << ") m | "
+            << "Yaw=" << HeroYawDeg << " deg | "
+            << "Speed=" << (Reading.Valid() ? Reading->SpeedKph : 0.0f) << " km/h | "
+            << "Gear=" << (Reading.Valid() ? Reading->ActiveGear : 0) << " | "
+            << "RPM=" << (Reading.Valid() ? Reading->EngineRpm : 0.0f) << " | "
+            << "RearSlipRL=" << (Reading.Valid() ? Reading->Corners[2u].LongitudinalSlip : 0.0f) << " | "
+            << "RearTempC=" << (Reading.Valid() ? (Reading->Corners[2u].TreadTempKelvin - 273.15f) : 20.0f) << " | "
+            << "SmokeVoxels=" << SmokeTel.ActiveSmokeVoxels << " | "
+            << "SmokeMass=" << SmokeTel.TotalSmokeMass << " | "
+            << "SdfLeaks=" << SmokeTel.SdfInteriorLeakVoxels << " | "
+            << "LocalFogs=" << Lobby.InspectWorldScene().Atmosphere.Fog.LocalFogs.size()
+            << "\n";
+    }
+
+    bool     SceneGpuDirty       = true;
+    uint32_t PresentedCycles     = 0u;
+    uint32_t FailedPresentRuns   = 0u;
+    uint32_t PreHmiCameraPreset  = 2u;
+    bool     AutomaticShiftUi    = true;
+    float    LastThrottle01      = 0.0f;
+    float    LastBrake01         = 0.0f;
+    float    LastHandbrake01     = 0.0f;
     std::vector<uint8_t> LastCpuRgba8 {};
     uint32_t             LastCpuWidthPx  = 0u;
     uint32_t             LastCpuHeightPx = 0u;
+
+    AutoSpace::VehicleCockpitInstrumentation CockpitUi {};
+    const AutoSpace::VehicleCockpitAnchorLayout CockpitLayout = AutoSpace::QueryControlVehicleCockpitLayout();
+    std::vector<uint8_t> HmiFeedRgba8 {};
+    uint32_t             HmiFeedW = 0u;
+    uint32_t             HmiFeedH = 0u;
+
+    auto TriggerHmiButtonCommand = [&](AutoSpace::HmiButtonId Btn)
+    {
+        if (Btn == AutoSpace::HmiButtonId::None) return;
+        HmiPanel.LastClickedButton = Btn;
+        HmiPanel.ClickFlashSeconds = 0.25f;
+        switch (Btn)
+        {
+            case AutoSpace::HmiButtonId::CycleFeedCam:
+                HmiPanel.FeedMode = static_cast<AutoSpace::HmiCameraFeedMode>(
+                    (static_cast<uint8_t>(HmiPanel.FeedMode) + 1u) %
+                    static_cast<uint8_t>(AutoSpace::HmiCameraFeedMode::Count));
+                break;
+            case AutoSpace::HmiButtonId::CycleHmiEngine:
+                HmiPanel.EngineMode = static_cast<AutoSpace::HmiEngineSyncMode>(
+                    (static_cast<uint8_t>(HmiPanel.EngineMode) + 1u) %
+                    static_cast<uint8_t>(AutoSpace::HmiEngineSyncMode::Count));
+                break;
+            case AutoSpace::HmiButtonId::ToggleWindshieldHud:
+                HmiPanel.WindshieldHudEnabled = !HmiPanel.WindshieldHudEnabled;
+                break;
+            case AutoSpace::HmiButtonId::ToggleStabilityAssist:
+            {
+                AssistModeIndex = (AssistModeIndex == 1u) ? 0u : 1u;
+                Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective AssistCmd {};
+                AssistCmd.Category    = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::AssignDriverAssists;
+                AssistCmd.AbsEnabled  = true;
+                AssistCmd.TcsCategory = (AssistModeIndex == 1u)
+                    ? Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Off
+                    : Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Sport;
+                AssistCmd.EscEnabled  = (AssistModeIndex != 1u);
+                (void)Session.AccessLobbyLifecycle().SubmitHeroVehicleDirective(AssistCmd);
+                break;
+            }
+            case AutoSpace::HmiButtonId::ToggleTransmissionMode:
+                AutomaticShiftUi = !AutomaticShiftUi;
+                break;
+            case AutoSpace::HmiButtonId::ToggleSmokePlumes:
+                HmiPanel.TireSmokeEnabled = !HmiPanel.TireSmokeEnabled;
+                Session.AccessLobbyLifecycle().SetTireSmokeEnabled(HmiPanel.TireSmokeEnabled);
+                break;
+            default:
+                break;
+        }
+    };
+    if (AutoClickHmiBtnIdx >= 1 && AutoClickHmiBtnIdx < static_cast<int32_t>(AutoSpace::HmiButtonId::Count))
+    {
+        TriggerHmiButtonCommand(static_cast<AutoSpace::HmiButtonId>(AutoClickHmiBtnIdx));
+    }
 
     auto PreviousClock = std::chrono::steady_clock::now();
 
@@ -441,7 +694,7 @@ int main(int ArgumentCount, char** ArgumentVector)
                 ActiveLobby       = RequestedLobby;
                 CameraPresetIndex = 0u;
                 SeedCameraFromActivePreset();
-                SceneGpuDirty = true;
+                SceneGpuDirty    = true;
                 if (DesktopWindow != nullptr)
                 {
                     DesktopWindow->ApplyTitle(ConstructWindowTitle(ActiveLobby));
@@ -461,37 +714,149 @@ int main(int ArgumentCount, char** ArgumentVector)
         {
             TrySwitchLobby(AutoSpace::StudioLobbyId::StudioLobby3RacingGarage);
         }
+        else if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::Digit4))
+        {
+            TrySwitchLobby(AutoSpace::StudioLobbyId::StudioLobby4TrainingGround);
+        }
 
-        // Camera preset cycling (C / Tab) and reset (R)
+        // Camera preset cycling (C / V / Tab), HMI Focus quick-toggle (H), HUD toggles (U / G), Render Engine (F5..F8)
         if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::C) ||
+            InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::V) ||
             InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::Tab))
         {
             const auto& Presets = Session.InspectLobbyLifecycle().InspectCameraPresets();
             if (!Presets.empty())
             {
                 CameraPresetIndex = (CameraPresetIndex + 1u) % static_cast<uint32_t>(Presets.size());
-                CameraRig.SeedFromCamera(Presets[CameraPresetIndex].Camera);
+                SeedCameraFromActivePreset();
             }
+        }
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::H) &&
+            ActiveLobby == AutoSpace::StudioLobbyId::StudioLobby4TrainingGround)
+        {
+            if (CameraPresetIndex == 3u)
+            {
+                CameraPresetIndex = PreHmiCameraPreset;
+            }
+            else
+            {
+                PreHmiCameraPreset = CameraPresetIndex;
+                CameraPresetIndex  = 3u;
+            }
+            SeedCameraFromActivePreset();
+        }
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::U))
+        {
+            HmiPanel.OnScreenHudEnabled = !HmiPanel.OnScreenHudEnabled;
+        }
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::G))
+        {
+            HmiPanel.WindshieldHudEnabled = !HmiPanel.WindshieldHudEnabled;
+        }
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::F5))
+        {
+            ExplicitRenderEngine = true;
+            ActiveRenderEngine   = Frontier::GeometricRaster::WorldRenderEngine::OpenPbrDirect;
+        }
+        else if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::F6))
+        {
+            ExplicitRenderEngine = true;
+            ActiveRenderEngine   = Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd;
+        }
+        else if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::F7))
+        {
+            ExplicitRenderEngine = true;
+            ActiveRenderEngine   = Frontier::GeometricRaster::WorldRenderEngine::MatCap;
+        }
+        else if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::F8))
+        {
+            ExplicitRenderEngine = true;
+            ActiveRenderEngine   = Frontier::GeometricRaster::WorldRenderEngine::PathTracerGameRealtime;
         }
         if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::R))
         {
+            if (Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive())
+            {
+                Session.AccessLobbyLifecycle().ResetHeroVehicleToSpawn();
+                SmoothedSteerInput = 0.0f;
+            }
             SeedCameraFromActivePreset();
         }
 
-        // Smooth mouse orbit & wheel zoom
-        if (InputReading.QueryButtonDown(0u) || InputReading.QueryButtonDown(1u))
+        // Traction / Drift assist toggle (T key: Sport -> Drift/Off -> Safe)
+        if (InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::T) &&
+            Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive())
         {
-            CameraRig.AzimuthRadians -= InputReading.TickDeltaX * 0.0055f;
-            CameraRig.ElevationRadians =
-                std::clamp(CameraRig.ElevationRadians + InputReading.TickDeltaY * 0.0045f, 0.04f, 1.38f);
+            AssistModeIndex = (AssistModeIndex + 1u) % 3u;
+            Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective AssistCmd {};
+            AssistCmd.Category = Frontier::SimulationSpace::PhysicsSpace::VehicleDirectiveCategory::AssignDriverAssists;
+            if (AssistModeIndex == 0u)
+            {
+                AssistCmd.AbsEnabled  = true;
+                AssistCmd.TcsCategory = Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Sport;
+                AssistCmd.EscEnabled  = true;
+            }
+            else if (AssistModeIndex == 1u)
+            {
+                AssistCmd.AbsEnabled  = true;
+                AssistCmd.TcsCategory = Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Off;
+                AssistCmd.EscEnabled  = false;
+            }
+            else
+            {
+                AssistCmd.AbsEnabled  = true;
+                AssistCmd.TcsCategory = Frontier::SimulationSpace::PhysicsSpace::TractionAssistCategory::Track;
+                AssistCmd.EscEnabled  = true;
+            }
+            (void)Session.AccessLobbyLifecycle().SubmitHeroVehicleDirective(AssistCmd);
+        }
+
+        // Smooth mouse orbit & wheel zoom (in Cockpit / HMI Focus modes, Left-Click interacts with HMI buttons; Right-Drag glances)
+        const bool DrivingCamActive =
+            Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive() &&
+            (ActiveLobby == AutoSpace::StudioLobbyId::StudioLobby4TrainingGround);
+        const uint32_t DrivingCamMode = DrivingCamActive ? (CameraPresetIndex % 5u) : 0u;
+        const bool     InteriorViewActive = DrivingCamActive && (DrivingCamMode == 2u || DrivingCamMode == 3u);
+
+        const bool OrbitDragDown = InteriorViewActive
+            ? InputReading.QueryButtonDown(1u)
+            : (InputReading.QueryButtonDown(0u) || InputReading.QueryButtonDown(1u));
+        if (OrbitDragDown)
+        {
+            if (DrivingCamActive && DrivingCamMode < 4u)
+            {
+                ChaseOrbitYawOffsetRad = std::clamp(
+                    ChaseOrbitYawOffsetRad - InputReading.TickDeltaX * 0.0055f,
+                    InteriorViewActive ? -0.95f : -3.14f,
+                    InteriorViewActive ? 0.95f : 3.14f);
+                ChaseOrbitElevOffsetRad = std::clamp(
+                    ChaseOrbitElevOffsetRad + InputReading.TickDeltaY * 0.0045f,
+                    InteriorViewActive ? -0.35f : -0.25f,
+                    InteriorViewActive ? 0.35f : 0.95f);
+            }
+            else
+            {
+                CameraRig.AzimuthRadians -= InputReading.TickDeltaX * 0.0055f;
+                CameraRig.ElevationRadians =
+                    std::clamp(CameraRig.ElevationRadians + InputReading.TickDeltaY * 0.0045f, 0.04f, 1.38f);
+            }
         }
         if (std::abs(InputReading.ScrollDeltaY) > 0.001f)
         {
-            CameraRig.DistanceMeters =
-                std::clamp(CameraRig.DistanceMeters * std::pow(0.90f, InputReading.ScrollDeltaY), 1.8f, 32.0f);
+            if (DrivingCamActive && DrivingCamMode < 2u)
+            {
+                ChaseDistanceScale =
+                    std::clamp(ChaseDistanceScale * std::pow(0.90f, InputReading.ScrollDeltaY), 0.55f, 2.5f);
+            }
+            else if (!InteriorViewActive)
+            {
+                CameraRig.DistanceMeters =
+                    std::clamp(CameraRig.DistanceMeters * std::pow(0.90f, InputReading.ScrollDeltaY), 1.8f, 32.0f);
+            }
         }
 
-        // Hero vehicle driving controls (WASD / Arrow keys + Space handbrake)
+        // Interactive Hero vehicle driving controls (skip overwriting when deterministic --drive-test is active)
+        if (DriveTestScenario.empty() && Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive())
         {
             Frontier::SimulationSpace::PhysicsSpace::VehicleControlDirective DriveDir {};
             const bool ForwardHeld =
@@ -508,12 +873,102 @@ int main(int ArgumentCount, char** ArgumentVector)
                 InputReading.QueryKeyHeld(Frontier::Input::InputLogicalKey::RightArrow);
             const bool HandbrakeHeld =
                 InputReading.QueryKeyHeld(Frontier::Input::InputLogicalKey::Space);
+            const bool BurnoutHeld =
+                InputReading.QueryKeyHeld(Frontier::Input::InputLogicalKey::B);
+            const bool ShiftUpPressed =
+                InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::E) ||
+                InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::LeftShift);
+            const bool ShiftDownPressed =
+                InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::Q) ||
+                InputReading.QueryKeyPressed(Frontier::Input::InputLogicalKey::LeftControl);
 
-            DriveDir.ThrottleNormalized  = ForwardHeld ? 1.0f : 0.0f;
-            DriveDir.BrakeNormalized     = BrakeHeld ? 1.0f : 0.0f;
-            DriveDir.SteeringNormalized  = (RightHeld ? 1.0f : 0.0f) - (LeftHeld ? 1.0f : 0.0f);
-            DriveDir.HandbrakeNormalized = HandbrakeHeld ? 1.0f : 0.0f;
+            // Smooth progressive keyboard steering with fast center return
+            const float TargetSteer = (RightHeld ? 1.0f : 0.0f) - (LeftHeld ? 1.0f : 0.0f);
+            const float SteerRate   = (std::fabs(TargetSteer) > 0.01f) ? 4.8f : 6.8f;
+            const float MaxStep     = SteerRate * static_cast<float>(WallDt);
+            const float DeltaSteer  = TargetSteer - SmoothedSteerInput;
+            if (std::fabs(DeltaSteer) <= MaxStep)
+            {
+                SmoothedSteerInput = TargetSteer;
+            }
+            else
+            {
+                SmoothedSteerInput += (DeltaSteer > 0.0f ? MaxStep : -MaxStep);
+            }
+
+            // Auto-reverse when holding Brake while nearly stationary
+            float CurForwardMps = 0.0f;
+            if (const auto Reading = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading(); Reading.Valid())
+            {
+                CurForwardMps = Reading->ForwardSpeedMps;
+            }
+            const bool EngageReverse = BrakeHeld && !ForwardHeld && !BurnoutHeld && (CurForwardMps < 0.75f);
+
+            if (BurnoutHeld)
+            {
+                DriveDir.ThrottleNormalized  = 1.0f;
+                DriveDir.BrakeNormalized     = 0.06f; // Light front brake hold + full rear throttle smoke spin
+                DriveDir.HandbrakeNormalized = 0.0f;
+            }
+            else if (EngageReverse)
+            {
+                DriveDir.ReverseRequested    = true;
+                DriveDir.ThrottleNormalized  = 0.78f;
+                DriveDir.BrakeNormalized     = 0.0f;
+                DriveDir.HandbrakeNormalized = HandbrakeHeld ? 1.0f : 0.0f;
+            }
+            else
+            {
+                DriveDir.ThrottleNormalized  = ForwardHeld ? 1.0f : 0.0f;
+                DriveDir.BrakeNormalized     = BrakeHeld ? 1.0f : 0.0f;
+                DriveDir.HandbrakeNormalized = HandbrakeHeld ? 1.0f : 0.0f;
+            }
+            DriveDir.SteeringNormalized = SmoothedSteerInput;
+            DriveDir.ShiftUpRequested   = ShiftUpPressed;
+            DriveDir.ShiftDownRequested = ShiftDownPressed;
+            LastThrottle01              = DriveDir.ThrottleNormalized;
+            LastBrake01                 = DriveDir.BrakeNormalized;
+            LastHandbrake01             = DriveDir.HandbrakeNormalized;
             (void)Session.AccessLobbyLifecycle().SubmitHeroVehicleDirective(DriveDir);
+        }
+        else if (!DriveTestScenario.empty())
+        {
+            LastThrottle01  = 1.0f;
+            LastBrake01     = (DriveTestScenario == "burnout") ? 0.42f : 0.0f;
+            LastHandbrake01 = 0.0f;
+        }
+
+        // Update live title-bar telemetry on Level 4 (~4 Hz) so speed, gear, RPM & tire smoke are visible immediately
+        if (DrivingCamActive && DesktopWindow != nullptr)
+        {
+            TitleRefreshAccumSec += WallDt;
+            if (TitleRefreshAccumSec >= 0.25)
+            {
+                TitleRefreshAccumSec = 0.0;
+                const auto Reading   = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading();
+                const auto SmokeTel  = Session.InspectLobbyLifecycle().InspectTireSmokeTelemetry();
+                static constexpr const char* kCamLabels[5]    = { "Chase", "Drift Quarter", "Interior Cockpit", "HMI Focus", "Orbit" };
+                static constexpr const char* kAssistLabels[3] = { "Sport", "Drift/Off", "Safe" };
+                char TitleBuf[256] {};
+                const float Kph = Reading.Valid() ? std::fabs(Reading->SpeedKph) : 0.0f;
+                const float Rpm = Reading.Valid() ? Reading->EngineRpm : 700.0f;
+                const int   Gr  = Reading.Valid() ? Reading->ActiveGear : 1;
+                char GearLabel[16] {};
+                if (Gr < 0)      std::snprintf(GearLabel, sizeof(GearLabel), "R");
+                else if (Gr == 0) std::snprintf(GearLabel, sizeof(GearLabel), "N");
+                else             std::snprintf(GearLabel, sizeof(GearLabel), "G%d", Gr);
+                std::snprintf(
+                    TitleBuf,
+                    sizeof(TitleBuf),
+                    "AutoSpace · Training Ground | %3.0f km/h | %s | %4.0f RPM | Smoke: %u vox | [%s] [TCS:%s]  (V:Cam H:HMI U:HUD)",
+                    Kph,
+                    GearLabel,
+                    Rpm,
+                    SmokeTel.ActiveSmokeVoxels,
+                    kCamLabels[DrivingCamMode],
+                    kAssistLabels[AssistModeIndex % 3u]);
+                DesktopWindow->ApplyTitle(TitleBuf);
+            }
         }
 
         const auto LiveExtent = RuntimeLoop.InspectReading().WindowExtent;
@@ -542,12 +997,124 @@ int main(int ArgumentCount, char** ArgumentVector)
         }
 
         auto& Scene = Session.AccessLobbyLifecycle().AccessWorldScene();
-        const auto ActiveCamera = CameraRig.ConstructCamera(RenderWidthPx, RenderHeightPx);
+        Frontier::Mathematics::Axis3D HeroPosWorld {};
+        float                         HeroYawWorldDeg = 0.0f;
+        Session.InspectLobbyLifecycle().QueryHeroVehicleWorldPose(HeroPosWorld, HeroYawWorldDeg);
+
+        Frontier::GeometricRaster::PerspectiveCameraBasis ActiveCamera {};
+        if (DrivingCamActive)
+        {
+            const float TargetYawRad = HeroYawWorldDeg * Frontier::Constants::DegToRadFloat;
+            float YawDiff = TargetYawRad - SmoothedFollowYawRad;
+            while (YawDiff >  Frontier::Constants::PiFloat) YawDiff -= Frontier::Constants::TauFloat;
+            while (YawDiff < -Frontier::Constants::PiFloat) YawDiff += Frontier::Constants::TauFloat;
+            const float FollowAlpha = std::clamp(static_cast<float>(WallDt) * 6.5f, 0.0f, 1.0f);
+            SmoothedFollowYawRad += YawDiff * FollowAlpha;
+
+            auto TransformVehicleLocal = [&](const Frontier::Mathematics::Axis3D& Local) -> Frontier::Mathematics::Axis3D
+            {
+                const float C = std::cos(TargetYawRad);
+                const float S = std::sin(TargetYawRad);
+                return {
+                    HeroPosWorld.X + Local.X * C - Local.Y * S,
+                    HeroPosWorld.Y + Local.X * S + Local.Y * C,
+                    HeroPosWorld.Z + Local.Z
+                };
+            };
+
+            if (DrivingCamMode == 4u)
+            {
+                // Orbit Showcase Cam centered around live moving vehicle
+                CameraRig.TargetWorld = { HeroPosWorld.X, HeroPosWorld.Y, HeroPosWorld.Z + 0.78f };
+                ActiveCamera          = CameraRig.ConstructCamera(RenderWidthPx, RenderHeightPx);
+            }
+            else if (DrivingCamMode == 2u || DrivingCamMode == 3u)
+            {
+                // Mode 2 = Interior Driver Cockpit Cam, Mode 3 = HMI Focus Cam (H)
+                const bool HmiFocus = (DrivingCamMode == 3u);
+                const auto NominalEyeL  = HmiFocus ? CockpitLayout.HmiFocusEyeLocal : CockpitLayout.DriverEyeLocal;
+                const auto NominalLookL = HmiFocus ? CockpitLayout.HmiFocusLookLocal : CockpitLayout.DriverLookLocal;
+                const auto RelLookL  = NominalLookL - NominalEyeL;
+                const float DistL    = std::max(0.25f, std::sqrt(RelLookL.X * RelLookL.X + RelLookL.Y * RelLookL.Y + RelLookL.Z * RelLookL.Z));
+                const float NominalYawL = std::atan2(RelLookL.Y, RelLookL.X) + ChaseOrbitYawOffsetRad;
+                const float NominalPitchL = std::clamp(std::asin(std::clamp(RelLookL.Z / DistL, -0.95f, 0.95f)) - ChaseOrbitElevOffsetRad, -0.85f, 0.85f);
+                const Frontier::Mathematics::Axis3D GlancedLookL {
+                    NominalEyeL.X + DistL * std::cos(NominalPitchL) * std::cos(NominalYawL),
+                    NominalEyeL.Y + DistL * std::cos(NominalPitchL) * std::sin(NominalYawL),
+                    NominalEyeL.Z + DistL * std::sin(NominalPitchL)
+                };
+                ActiveCamera.CameraOrigin       = TransformVehicleLocal(NominalEyeL);
+                ActiveCamera.TargetPoint        = TransformVehicleLocal(GlancedLookL);
+                ActiveCamera.WorldUpAxis        = { 0.0f, 0.0f, 1.0f };
+                ActiveCamera.VerticalFovRadians = (HmiFocus ? 46.0f : 64.0f) * Frontier::Constants::DegToRadFloat;
+                ActiveCamera.NearClipMeters     = 0.04f;
+                ActiveCamera.FarClipMeters      = 600.0f;
+                ActiveCamera.ViewportWidthPx    = RenderWidthPx;
+                ActiveCamera.ViewportHeightPx   = RenderHeightPx;
+            }
+            else
+            {
+                // Mode 0 = Chase Cam, Mode 1 = Drift Quarter Cam (frames rear tyres + billowing smoke wake)
+                const bool  DriftQuarter = (DrivingCamMode == 1u);
+                const float NominalDist     = (DriftQuarter ? 6.10f : 6.75f) * ChaseDistanceScale;
+                const float NominalYawOff   = DriftQuarter ? -0.58f : -0.05f;
+                const float NominalElev     = DriftQuarter ? 0.24f : 0.30f;
+                const float OrbitAngle   = SmoothedFollowYawRad + Frontier::Constants::PiFloat + NominalYawOff + ChaseOrbitYawOffsetRad;
+                const float ElevAngle    = std::clamp(NominalElev + ChaseOrbitElevOffsetRad, 0.06f, 1.25f);
+                const float CosE         = std::cos(ElevAngle);
+                const float SinE         = std::sin(ElevAngle);
+                const float CosH         = std::cos(SmoothedFollowYawRad);
+                const float SinH         = std::sin(SmoothedFollowYawRad);
+
+                const Frontier::Mathematics::Axis3D LookPt = DriftQuarter
+                    ? Frontier::Mathematics::Axis3D{ HeroPosWorld.X - CosH * 0.70f, HeroPosWorld.Y - SinH * 0.70f, HeroPosWorld.Z + 0.80f }
+                    : Frontier::Mathematics::Axis3D{ HeroPosWorld.X + CosH * 1.65f, HeroPosWorld.Y + SinH * 1.65f, HeroPosWorld.Z + 0.92f };
+                ActiveCamera.CameraOrigin = {
+                    LookPt.X + NominalDist * CosE * std::cos(OrbitAngle),
+                    LookPt.Y + NominalDist * CosE * std::sin(OrbitAngle),
+                    std::max(0.28f, LookPt.Z + NominalDist * SinE)
+                };
+                ActiveCamera.TargetPoint        = LookPt;
+                ActiveCamera.WorldUpAxis        = { 0.0f, 0.0f, 1.0f };
+                ActiveCamera.VerticalFovRadians = (DriftQuarter ? 46.0f : 48.0f) * Frontier::Constants::DegToRadFloat;
+                ActiveCamera.NearClipMeters     = 0.10f;
+                ActiveCamera.FarClipMeters      = 600.0f;
+                ActiveCamera.ViewportWidthPx    = RenderWidthPx;
+                ActiveCamera.ViewportHeightPx   = RenderHeightPx;
+            }
+        }
+        else
+        {
+            ActiveCamera = CameraRig.ConstructCamera(RenderWidthPx, RenderHeightPx);
+        }
+
+        // Interactive 3D Ray-Plane HMI Picking (Hover & Left-Click actuate live vehicle / 2nd-engine controls)
+        if (HmiPanel.ClickFlashSeconds > 0.0f)
+        {
+            HmiPanel.ClickFlashSeconds = std::max(0.0f, HmiPanel.ClickFlashSeconds - static_cast<float>(WallDt));
+        }
+        HmiPanel.HoveredButton = AutoSpace::HmiButtonId::None;
+        if (DrivingCamActive && InteriorViewActive && InputReading.PointerSeeded && WindowWidthPx > 0u && WindowHeightPx > 0u)
+        {
+            const float CursorNormX = std::clamp(InputReading.PositionX / static_cast<float>(WindowWidthPx), 0.0f, 1.0f);
+            const float CursorNormY = std::clamp(InputReading.PositionY / static_cast<float>(WindowHeightPx), 0.0f, 1.0f);
+            const auto Hit = CockpitUi.EvaluateHmiRayHit(ActiveCamera, CursorNormX, CursorNormY, HeroPosWorld, HeroYawWorldDeg);
+            if (Hit.HitScreen)
+            {
+                HmiPanel.HoveredButton = Hit.HoveredButton;
+                if (InputReading.QueryButtonPressed(0u) && Hit.HoveredButton != AutoSpace::HmiButtonId::None)
+                {
+                    TriggerHmiButtonCommand(Hit.HoveredButton);
+                }
+            }
+        }
 
         Frontier::GeometricRaster::WorldRenderConfiguration RenderConfiguration {};
-        RenderConfiguration.Engine                = GpuWorldReady
-            ? Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd
-            : Frontier::GeometricRaster::WorldRenderEngine::OpenPbrDirect;
+        RenderConfiguration.Engine = ExplicitRenderEngine
+            ? ActiveRenderEngine
+            : (GpuWorldReady
+                   ? Frontier::GeometricRaster::WorldRenderEngine::RealTimeGiGtxLowEnd
+                   : Frontier::GeometricRaster::WorldRenderEngine::OpenPbrDirect);
         RenderConfiguration.ShadowAlgorithm       = Frontier::GeometricRaster::SolarShadowAlgorithm::WideTreeRayQuery;
         RenderConfiguration.ReflectionSource      = Frontier::GeometricRaster::SpecularReflectionSource::WideTreeRaytrace;
         RenderConfiguration.LightingMode          = Frontier::GeometricRaster::UnifiedLightingMode::ExactReference;
@@ -559,23 +1126,158 @@ int main(int ArgumentCount, char** ArgumentVector)
         RenderConfiguration.ExposureGain          = QueryLobbyExposureGain(ActiveLobby);
         RenderConfiguration.DebugChannel          = DebugChannel;
 
+        // -------------------------------------------------------------------------------------------------------------
+        // Level 4 Cockpit Displays & Secondary Render Engine (In-Car HMI live camera feed matching active RenderEngine)
+        // -------------------------------------------------------------------------------------------------------------
+        bool SyncedGpuThisCycle = false;
+        if (DrivingCamActive)
+        {
+            // Keep a soft skylight fill quad mounted inside the cabin roof so the sculpted dash, wheel & console stay crisp
+            {
+                const float YawRadL = HeroYawWorldDeg * Frontier::Constants::DegToRadFloat;
+                const float Cl = std::cos(YawRadL), Sl = std::sin(YawRadL);
+                auto XfL = [&](float Lx, float Ly, float Lz) -> Frontier::Mathematics::Axis3D
+                {
+                    return { HeroPosWorld.X + Lx * Cl - Ly * Sl, HeroPosWorld.Y + Lx * Sl + Ly * Cl, HeroPosWorld.Z + Lz };
+                };
+                Scene.AreaLights.resize(1u);
+                Scene.AreaLights[0u] = AutoSpace::MakeAimedAreaQuadLight(
+                    XfL(0.28f, 0.14f, 1.54f),
+                    XfL(0.65f, 0.14f, 1.02f),
+                    0.55f,
+                    0.40f,
+                    { 2.60f, 2.75f, 3.05f },
+                    false);
+            }
+
+            const auto ActiveHmiEngine = AutoSpace::VehicleCockpitInstrumentation::ResolveHmiRenderEngine(
+                RenderConfiguration.Engine,
+                HmiPanel.EngineMode);
+
+            // Synchronize scene once before secondary HMI render pass so both passes share the same BVH4/SDF/Clipmap
+            if (GpuWorldReady)
+            {
+                if (SceneGpuDirty)
+                {
+                    if (Scene.Atmosphere.Medium.AtmosphereEnabled)
+                    {
+                        CpuRenderer.SynchronizeWorldAtmosphere(Scene);
+                    }
+                    GpuRenderer.SynchronizeSceneResources(Scene, true);
+                    SceneGpuDirty = false;
+                }
+                else
+                {
+                    (void)GpuRenderer.SynchronizeMaterialEntriesIfChanged(Scene);
+                    GpuRenderer.SynchronizeSceneResources(Scene, false);
+                }
+                SyncedGpuThisCycle = true;
+            }
+
+            // Render live secondary engine pass for the in-car HMI feed (disabling CockpitDisplays to prevent recursive HUD)
+            const bool ShouldRenderHmiFeed =
+                GpuWorldReady &&
+                (InteriorViewActive || GpuRenderer.QueryHardwareGpuActive());
+            if (ShouldRenderHmiFeed)
+            {
+                for (auto& Disp : Scene.CockpitDisplays)
+                {
+                    Disp.Enabled = false;
+                }
+
+                Frontier::GeometricRaster::WorldRenderConfiguration HmiCfg = RenderConfiguration;
+                HmiCfg.Engine              = ActiveHmiEngine;
+                HmiCfg.DebugChannel        = 0u;
+                HmiCfg.SdfShadowMarchSteps = std::min(SdfShadowMarchSteps, 32u);
+                const auto HmiCam = AutoSpace::VehicleCockpitInstrumentation::BuildHmiFeedCamera(
+                    HeroPosWorld,
+                    HeroYawWorldDeg,
+                    HmiPanel.FeedMode);
+                std::vector<uint8_t> RenderedHmiRgba8 {};
+                if (GpuRenderer.RenderWorldViewportWithEngine(HmiCfg, PresentedCycles, HmiCam, Scene, RenderedHmiRgba8) &&
+                    !RenderedHmiRgba8.empty())
+                {
+                    HmiFeedW     = HmiCam.ViewportWidthPx;
+                    HmiFeedH     = HmiCam.ViewportHeightPx;
+                    HmiFeedRgba8 = std::move(RenderedHmiRgba8);
+                }
+            }
+
+            // Build live automotive telemetry snapshot from Jolt VehicleReading + Eulerian Tire Smoke Bridge
+            AutoSpace::CockpitTelemetryReading Tel {};
+            if (const auto Reading = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading(); Reading.Valid())
+            {
+                Tel.SpeedKph        = std::fabs(Reading->SpeedKph);
+                Tel.EngineRpm       = std::max(750.0f, Reading->EngineRpm);
+                Tel.MaxRpm          = 7800.0f;
+                Tel.Gear            = Reading->ActiveGear;
+                Tel.AbsActive       = Reading->AbsIntervening;
+                float MaxRearSlip   = 0.0f;
+                for (uint32_t W = 0u; W < 4u; ++W)
+                {
+                    const float Combined = std::hypot(
+                        std::fabs(Reading->Corners[W].LongitudinalSlip),
+                        std::fabs(Reading->Corners[W].SlipAngleRad));
+                    Tel.WheelSlipRatios[W] = std::clamp(Combined, 0.0f, 1.0f);
+                    if (W >= 2u) MaxRearSlip = std::max(MaxRearSlip, Tel.WheelSlipRatios[W]);
+                }
+                Tel.RearSlipRatio = MaxRearSlip;
+            }
+            const auto SmokeTel = Session.InspectLobbyLifecycle().InspectTireSmokeTelemetry();
+            Tel.SmokePeakDensity      = SmokeTel.PeakSmokeDensity;
+            Tel.ActiveSmokeVoxels     = SmokeTel.ActiveSmokeVoxels;
+            Tel.Throttle01            = LastThrottle01;
+            Tel.Brake01               = LastBrake01;
+            Tel.Handbrake01           = LastHandbrake01;
+            Tel.SteerInput            = SmoothedSteerInput;
+            Tel.VehicleYawDeg         = HeroYawWorldDeg;
+            Tel.StabilityAssistOn     = (AssistModeIndex != 1u);
+            Tel.AutomaticTransmission = AutomaticShiftUi;
+            Tel.InteriorViewActive    = InteriorViewActive;
+            static constexpr const char* kCamShort[5] = { "CHASE", "DRIFT", "COCKPIT", "HMI", "ORBIT" };
+            Tel.ActiveCameraLabel     = kCamShort[DrivingCamMode];
+            Tel.MainRenderEngine      = RenderConfiguration.Engine;
+            Tel.ActiveHmiRenderEngine = ActiveHmiEngine;
+
+            CockpitUi.PublishCockpitDisplaysToScene(
+                Scene,
+                Tel,
+                HmiPanel,
+                HmiFeedRgba8,
+                HmiFeedW,
+                HmiFeedH,
+                HeroPosWorld,
+                HeroYawWorldDeg,
+                /*IncludeInCarDisplays=*/true);
+        }
+        else
+        {
+            for (auto& Disp : Scene.CockpitDisplays)
+            {
+                Disp.Enabled = false;
+            }
+        }
+
         bool CyclePresented = false;
         if (GpuWorldReady)
         {
-            if (SceneGpuDirty)
+            if (!SyncedGpuThisCycle)
             {
-                if (Scene.Atmosphere.Medium.AtmosphereEnabled)
+                if (SceneGpuDirty)
                 {
-                    CpuRenderer.SynchronizeWorldAtmosphere(Scene);
+                    if (Scene.Atmosphere.Medium.AtmosphereEnabled)
+                    {
+                        CpuRenderer.SynchronizeWorldAtmosphere(Scene);
+                    }
+                    GpuRenderer.SynchronizeSceneResources(Scene, true);
+                    SceneGpuDirty = false;
                 }
-                GpuRenderer.SynchronizeSceneResources(Scene, true);
-                SceneGpuDirty = false;
-            }
-            else if (Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive() ||
-                     Session.InspectLobbyLifecycle().QueryDynamicEmissiveOrbActive())
-            {
-                (void)GpuRenderer.SynchronizeMaterialEntriesIfChanged(Scene);
-                GpuRenderer.SynchronizeSceneResources(Scene, false);
+                else if (Session.InspectLobbyLifecycle().QueryHeroVehiclePhysicsActive() ||
+                         Session.InspectLobbyLifecycle().QueryDynamicEmissiveOrbActive())
+                {
+                    (void)GpuRenderer.SynchronizeMaterialEntriesIfChanged(Scene);
+                    GpuRenderer.SynchronizeSceneResources(Scene, false);
+                }
             }
 
             VkImageView WorldImageView = VK_NULL_HANDLE;

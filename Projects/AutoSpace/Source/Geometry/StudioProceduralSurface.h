@@ -66,6 +66,9 @@ enum class StudioMaterialCode : uint16_t
     VehicleHeadlightOptic,
     VehicleTaillightOptic,
     VehicleBrakeCaliper,
+    CockpitCarbonTrim,
+    CockpitHmiDisplay,
+    CockpitClusterDisplay,
     DynamicEmissiveOrb,
 
     Count
@@ -326,6 +329,45 @@ void RegisterStudioBaseMaterials(
     const StudioMaterialPalette& Palette,
     const StudioMeshBakeTransform& Transform = {});
 
+// Level 4 Training Ground: flat proving-ground asphalt plane with subtle painted distance grid & skidpad markings
+[[nodiscard]] StudioBuiltMesh BuildTrainingFlatPlaneSurface(
+    float                        SpanMeters,
+    float                        TilePitchMeters,
+    const StudioMaterialPalette& Palette,
+    const StudioMeshBakeTransform& Transform = {});
+
+// Vehicle-local cockpit anchor geometry (RH Z-up, +X forward, +Y left, +Z up, tyres on Z = 0)
+struct VehicleCockpitAnchorLayout
+{
+    Frontier::Mathematics::Axis3D DriverEyeLocal         { -0.18f,  0.34f, 1.40f };
+    Frontier::Mathematics::Axis3D DriverLookLocal        {  1.80f,  0.14f, 1.24f };
+    Frontier::Mathematics::Axis3D HmiFocusEyeLocal       {  0.22f,  0.09f, 1.18f };
+    Frontier::Mathematics::Axis3D HmiFocusLookLocal      {  0.65f, -0.07f, 1.115f };
+
+    // Display 0: Center-Console In-Car HMI Touchscreen (angled 20 deg toward driver)
+    Frontier::Mathematics::Axis3D HmiOriginLocal         {};
+    Frontier::Mathematics::Axis3D HmiRightLocal          { -0.34202f, -0.93969f, 0.0f };
+    Frontier::Mathematics::Axis3D HmiUpLocal             {  0.13156f, -0.04788f, 0.99015f };
+    float                         HmiWidthMeters         = 0.37f;
+    float                         HmiHeightMeters        = 0.21f;
+
+    // Display 1: Recessed Dashboard Instrument Cluster behind steering wheel
+    Frontier::Mathematics::Axis3D ClusterOriginLocal     {};
+    Frontier::Mathematics::Axis3D ClusterRightLocal      {  0.0f,    -1.0f,     0.0f };
+    Frontier::Mathematics::Axis3D ClusterUpLocal         {  0.20791f, 0.0f,     0.97815f };
+    float                         ClusterWidthMeters     = 0.36f;
+    float                         ClusterHeightMeters    = 0.135f;
+
+    // Display 2: Analytical Windshield Glass Head-Up Display (parallel to measured windshield rake)
+    Frontier::Mathematics::Axis3D WindshieldOriginLocal  {};
+    Frontier::Mathematics::Axis3D WindshieldRightLocal   {  0.0f,    -1.0f,     0.0f };
+    Frontier::Mathematics::Axis3D WindshieldUpLocal      { -0.55470f, 0.0f,     0.83205f };
+    float                         WindshieldWidthMeters  = 0.38f;
+    float                         WindshieldHeightMeters = 0.16f;
+};
+
+[[nodiscard]] VehicleCockpitAnchorLayout QueryControlVehicleCockpitLayout() noexcept;
+
 // Convert decoded FCT1 25,068-tri vehicle into a scaled/rotated multi-material StudioBuiltMesh resting flush at Z >= 0
 [[nodiscard]] StudioBuiltMesh BuildAssembledControlVehicleSurface(
     const Frontier::Codecs::AssembledControlVehicle& Vehicle,
@@ -333,7 +375,8 @@ void RegisterStudioBaseMaterials(
     uint16_t                                         BodyPaintMaterialSlot,
     uint16_t                                         BrakeCaliperMaterialSlot,
     const StudioMeshBakeTransform&                   Transform = {},
-    std::string_view                                 MeshTitle = "StudioVehicle");
+    std::string_view                                 MeshTitle = "StudioVehicle",
+    bool                                             IncludeCockpitInterior = false);
 
 // Smooth UV sphere centered at origin for the moving, color-cycling dynamic emissive GI orb
 [[nodiscard]] StudioBuiltMesh BuildDynamicEmissiveOrbSurface(

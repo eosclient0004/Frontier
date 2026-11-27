@@ -166,6 +166,16 @@ struct GpuRawStarSpecStd140
 
 static_assert(sizeof(GpuRawStarSpecStd140) == 32u, "GpuRawStarSpecStd140 must equal 32 bytes.");
 
+struct GpuCockpitDisplaySurfaceStd140
+{
+    float    OriginGain[4]   {}; // xyz = World bottom-left corner, w = LuminanceGain
+    float    RightWidth[4]   {}; // xyz = Unit U-axis, w = WidthMeters
+    float    UpHeight[4]     {}; // xyz = Unit V-axis, w = HeightMeters
+    uint32_t AtlasMeta[4]    {}; // x = WidthPx, y = HeightPx, z = TexelOffset, w = Flags (bit0=Enabled, bit1=AdditiveOptical)
+};
+
+static_assert(sizeof(GpuCockpitDisplaySurfaceStd140) == 64u, "GpuCockpitDisplaySurfaceStd140 must equal 64 bytes.");
+
 struct WorldViewportUniformBlockStd140
 {
     float                        CameraOriginTanX[4]        {};
@@ -206,8 +216,9 @@ struct WorldViewportUniformBlockStd140
     float                        PrevCameraForwardValid[4]           {}; // xyz=PrevForward, w=PrevValid
     float                        PrevCameraRightTanY[4]              {}; // xyz=PrevRight, w=PrevTanHalfFovY
     float                        PrevCameraUpPad[4]                  {}; // xyz=PrevUp, w=Reserved
+    GpuCockpitDisplaySurfaceStd140 CockpitDisplays[4]                {}; // [0]=HMI, [1]=Cluster, [2]=WindshieldHUD, [3]=OnScreenHUD
 };
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 3216u, "WorldViewportUniformBlockStd140 must equal 3216 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 3472u, "WorldViewportUniformBlockStd140 must equal 3472 bytes.");
 
 struct GpuShadedTriangle96
 {
@@ -419,7 +430,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         return false;
     }
 
-    constexpr std::array<VkDescriptorType, 39u> SlotTypes {{
+    constexpr std::array<VkDescriptorType, 40u> SlotTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0:  WorldUniforms
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1:  SceneBvhEntries
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2:  SceneTriangles
@@ -459,6 +470,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 36: GdfBakeTargetImg3D
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 37: RadiosityBakeDstImg3D
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 38: PrimaryVisImg2D
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 39: CockpitDisplayAtlasRgba8
     }};
 
     const std::filesystem::path ShaderBinaryPath = CompiledShaderDirectory / "WorldViewportRadiometricCompute.comp.spv";
@@ -735,6 +747,9 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         const GpuPhotometricLamp64 ZeroLamp {};
         UploadToDeviceBuffer(PhotometricLampEntryBuffer, &ZeroLamp, sizeof(ZeroLamp), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         UploadToDeviceBuffer(LocalAssetSdfVoxelBuffer, &ZeroFloat, sizeof(ZeroFloat), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const uint32_t ZeroAtlasTexel = 0u;
+        UploadToDeviceBuffer(CockpitDisplayAtlasBuffer, &ZeroAtlasTexel, sizeof(ZeroAtlasTexel), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        CachedCockpitDisplayAtlasGen = 0ull;
         const GpuDynamicLocalSdfInstance144 ZeroInst {};
         UploadToDeviceBuffer(DynamicLocalSdfInstanceBuffer, &ZeroInst, sizeof(ZeroInst), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         MaskSliceOffsetBytes = 256ull;
@@ -812,6 +827,8 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(AtmosphericSkyViewLutBuffer);
         BoundDevice->ReleaseBuffer(LunarSurfaceAtlasBuffer);
         BoundDevice->ReleaseBuffer(BakedLensFlareAtlasBuffer);
+        BoundDevice->ReleaseBuffer(CockpitDisplayAtlasBuffer);
+        CachedCockpitDisplayAtlasGen = 0ull;
         BoundDevice->ReleaseBuffer(GBufPosMaskBuffer);
         BoundDevice->ReleaseBuffer(GBufNormAoBuffer);
         BoundDevice->ReleaseBuffer(GBufDirectBaseBuffer);
@@ -4752,7 +4769,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         VkImageView   RadCoarseReadView,
         VkImageLayout RadCoarseReadLayout,
         VkImageView   GdfWriteView,
-        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 39u>
+        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 40u>
     {
         return {{
             {  0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, PrecomputeUniformBuffer.BufferHandle,         sizeof(WorldViewportUniformBlockStd140), UniOffs },
@@ -4794,6 +4811,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             { 36u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, GdfWriteView,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 37u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, RadWriteView,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 38u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, PrimaryVisImage2D.ViewHandle, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL },
+            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle, VK_WHOLE_SIZE },
         }};
     };
 
@@ -5343,7 +5361,7 @@ bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldS
         Dst.EmissiveRadiancePad[0]    = Emis.R;
         Dst.EmissiveRadiancePad[1]    = Emis.G;
         Dst.EmissiveRadiancePad[2]    = Emis.B;
-        Dst.EmissiveRadiancePad[3]    = 0.0f;
+        Dst.EmissiveRadiancePad[3]    = static_cast<float>(Src.PorosityLight.DynamicDisplaySlot);
         GpuMats[Slot]                 = Dst;
 
         MixFloat(Dst.DiffuseAlbedoRoughness[0]);
@@ -5354,6 +5372,7 @@ bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldS
         MixFloat(Dst.EmissiveRadiancePad[0]);
         MixFloat(Dst.EmissiveRadiancePad[1]);
         MixFloat(Dst.EmissiveRadiancePad[2]);
+        MixFloat(Dst.EmissiveRadiancePad[3]);
     }
 
     if (MatSig == CachedMaterialEntriesSignature &&
@@ -7077,6 +7096,47 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     Uniforms.PrevCameraUpPad[1]        = PrevMotionBlurCameraBasis.UpAxis.Y;
     Uniforms.PrevCameraUpPad[2]        = PrevMotionBlurCameraBasis.UpAxis.Z;
     Uniforms.PrevCameraUpPad[3]        = 0.0f;
+
+    // Upload dynamic cockpit display atlas (HMI + Cluster + Windshield HUD + On-Screen HUD) when updated
+    if (!Scene.CockpitDisplayAtlasRgba8.empty() &&
+        Scene.CockpitDisplayAtlasGeneration != CachedCockpitDisplayAtlasGen)
+    {
+        const uint64_t AtlasBytes = static_cast<uint64_t>(Scene.CockpitDisplayAtlasRgba8.size()) * sizeof(uint32_t);
+        UploadToDeviceBuffer(
+            CockpitDisplayAtlasBuffer,
+            Scene.CockpitDisplayAtlasRgba8.data(),
+            AtlasBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        CachedCockpitDisplayAtlasGen = Scene.CockpitDisplayAtlasGeneration;
+    }
+    for (uint32_t DispIdx = 0u; DispIdx < 4u; ++DispIdx)
+    {
+        const auto& SrcDisp = Scene.CockpitDisplays[DispIdx];
+        auto&       DstDisp = Uniforms.CockpitDisplays[DispIdx];
+        DstDisp.OriginGain[0] = SrcDisp.OriginWorld.X;
+        DstDisp.OriginGain[1] = SrcDisp.OriginWorld.Y;
+        DstDisp.OriginGain[2] = SrcDisp.OriginWorld.Z;
+        DstDisp.OriginGain[3] = SrcDisp.LuminanceGain;
+        DstDisp.RightWidth[0] = SrcDisp.RightAxisWorld.X;
+        DstDisp.RightWidth[1] = SrcDisp.RightAxisWorld.Y;
+        DstDisp.RightWidth[2] = SrcDisp.RightAxisWorld.Z;
+        DstDisp.RightWidth[3] = std::max(1.0e-3f, SrcDisp.WidthMeters);
+        DstDisp.UpHeight[0]   = SrcDisp.UpAxisWorld.X;
+        DstDisp.UpHeight[1]   = SrcDisp.UpAxisWorld.Y;
+        DstDisp.UpHeight[2]   = SrcDisp.UpAxisWorld.Z;
+        DstDisp.UpHeight[3]   = std::max(1.0e-3f, SrcDisp.HeightMeters);
+        const bool AtlasValid =
+            SrcDisp.Enabled &&
+            SrcDisp.WidthPx > 0u &&
+            SrcDisp.HeightPx > 0u &&
+            (static_cast<uint64_t>(SrcDisp.TexelOffset) +
+             static_cast<uint64_t>(SrcDisp.WidthPx) * static_cast<uint64_t>(SrcDisp.HeightPx)) <=
+                static_cast<uint64_t>(Scene.CockpitDisplayAtlasRgba8.size());
+        DstDisp.AtlasMeta[0] = SrcDisp.WidthPx;
+        DstDisp.AtlasMeta[1] = SrcDisp.HeightPx;
+        DstDisp.AtlasMeta[2] = SrcDisp.TexelOffset;
+        DstDisp.AtlasMeta[3] = (AtlasValid ? 1u : 0u) | (SrcDisp.AdditiveOptical ? 2u : 0u);
+    }
     if (Config.SelectedClusterInstanceIndex != UINT32_MAX)
     {
         for (const ResidentClusterInstanceSpan& Span : ResidentClusterInstances)
@@ -7165,7 +7225,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     WriteStamp(1u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     EnsureBufferCapacity(ActiveClusterMaskBuffer, MaskSliceOffsetBytes * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 39u>
+    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 40u>
     {
         const auto& InShadow  = SwapPingPong ? PongShadowAoBuffer : PingShadowAoBuffer;
         const auto& OutShadow = SwapPingPong ? PingShadowAoBuffer : PongShadowAoBuffer;
@@ -7211,6 +7271,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             { 36u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, DummyFloat1x1x1Image3D.ViewHandle, VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 37u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, DummyRgba1x1x1Image3D.ViewHandle,  VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
             { 38u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_NULL_HANDLE, 0ull, 0ull, PrimaryVisImage2D.ViewHandle,      VK_NULL_HANDLE,        VK_IMAGE_LAYOUT_GENERAL },
+            { 39u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         CockpitDisplayAtlasBuffer.BufferHandle, VK_WHOLE_SIZE },
         }};
     };
 
@@ -7252,9 +7313,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    auto MakeLazyViewportSlots = []() -> std::array<VkDescriptorType, 39u>
+    auto MakeLazyViewportSlots = []() -> std::array<VkDescriptorType, 40u>
     {
-        std::array<VkDescriptorType, 39u> LazySlots {};
+        std::array<VkDescriptorType, 40u> LazySlots {};
         LazySlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         LazySlots[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         LazySlots[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

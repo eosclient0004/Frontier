@@ -364,6 +364,8 @@ private:
     DeviceBufferResource   LocalAssetSdfVoxelBuffer        {};
     DeviceBufferResource   DynamicLocalSdfInstanceBuffer   {};
     DeviceBufferResource   ActiveClusterMaskBuffer         {};
+    DeviceBufferResource   CockpitDisplayAtlasBuffer       {};
+    uint64_t               CachedCockpitDisplayAtlasGen    = 0ull;
 
     DeviceImageResource    DisplayOutputImage2D            {};
     std::vector<RetiredDisplayImageEntry> RetiredDisplayImages {};

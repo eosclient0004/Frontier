@@ -28,6 +28,14 @@ struct GpuGlassSphere
     float4 OpticsSlotPacked;   // x = DielectricIOR, y = AbbeDispersion, z = MaterialSlot, w = Roughness
 };
 
+struct GpuCockpitDisplaySurface
+{
+    float4 OriginGain; // xyz = World bottom-left corner, w = LuminanceGain
+    float4 RightWidth; // xyz = Unit U-axis, w = WidthMeters
+    float4 UpHeight;   // xyz = Unit V-axis, w = HeightMeters
+    uint4  AtlasMeta;  // x = WidthPx, y = HeightPx, z = TexelOffset, w = Flags (bit0=Enabled, bit1=AdditiveOptical)
+};
+
 struct WorldViewportUniformBlock
 {
     float4 CameraOriginTanX;         // xyz = CameraOrigin, w = TanHalfFovX
@@ -68,6 +76,7 @@ struct WorldViewportUniformBlock
     float4                      PrevCameraForwardValid;           // xyz = PrevForward, w = PrevValid(0/1)
     float4                      PrevCameraRightTanY;              // xyz = PrevRight, w = PrevTanHalfFovY
     float4                      PrevCameraUpPad;                  // xyz = PrevUp, w = Reserved
+    GpuCockpitDisplaySurface    CockpitDisplays[4];               // [0]=HMI, [1]=Cluster, [2]=WindshieldHUD, [3]=OnScreenHUD
 };
 
 struct GpuWideTreeEntry128
@@ -159,6 +168,106 @@ struct GpuDynamicLocalSdfInstance144
 [[vk::image_format("r16f")]]    [[vk::binding(36, 0)]] RWTexture3D<float>  GdfBakeTargetImg3D;
 [[vk::image_format("rgba16f")]] [[vk::binding(37, 0)]] RWTexture3D<float4> RadiosityBakeDstImg3D;
 [[vk::image_format("r32ui")]]   [[vk::binding(38, 0)]] RWTexture2D<uint>   PrimaryVisImg2D;
+[[vk::binding(39, 0)]] StructuredBuffer<uint> CockpitDisplayAtlasRgba8;
+
+float4 UnpackCockpitAtlasTexelLinear(uint PackedRgba8)
+{
+    float R = float(PackedRgba8 & 0xFFu) * (1.0 / 255.0);
+    float G = float((PackedRgba8 >> 8u) & 0xFFu) * (1.0 / 255.0);
+    float B = float((PackedRgba8 >> 16u) & 0xFFu) * (1.0 / 255.0);
+    float A = float((PackedRgba8 >> 24u) & 0xFFu) * (1.0 / 255.0);
+    return float4(pow(max(R, 0.0), 2.2), pow(max(G, 0.0), 2.2), pow(max(B, 0.0), 2.2), A);
+}
+
+float4 SampleCockpitAtlasBilinear(uint WidthPx, uint HeightPx, uint TexelOffset, float2 Uv)
+{
+    if (WidthPx == 0u || HeightPx == 0u)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float2 ClampedUv = saturate(Uv);
+    float  Fx = ClampedUv.x * float(WidthPx - 1u);
+    float  Fy = ClampedUv.y * float(HeightPx - 1u);
+    uint   X0 = uint(floor(Fx));
+    uint   Y0 = uint(floor(Fy));
+    uint   X1 = min(X0 + 1u, WidthPx - 1u);
+    uint   Y1 = min(Y0 + 1u, HeightPx - 1u);
+    float  Tx = Fx - float(X0);
+    float  Ty = Fy - float(Y0);
+
+    float4 C00 = UnpackCockpitAtlasTexelLinear(CockpitDisplayAtlasRgba8[TexelOffset + Y0 * WidthPx + X0]);
+    float4 C10 = UnpackCockpitAtlasTexelLinear(CockpitDisplayAtlasRgba8[TexelOffset + Y0 * WidthPx + X1]);
+    float4 C01 = UnpackCockpitAtlasTexelLinear(CockpitDisplayAtlasRgba8[TexelOffset + Y1 * WidthPx + X0]);
+    float4 C11 = UnpackCockpitAtlasTexelLinear(CockpitDisplayAtlasRgba8[TexelOffset + Y1 * WidthPx + X1]);
+    return lerp(lerp(C00, C10, Tx), lerp(C01, C11, Tx), Ty);
+}
+
+float3 EvaluateCockpitDisplayEmission(uint DisplaySlot, float3 HitPosWorld)
+{
+    if (DisplaySlot == 0u || DisplaySlot > 2u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    GpuCockpitDisplaySurface Disp = WorldUniforms.CockpitDisplays[DisplaySlot - 1u];
+    if ((Disp.AtlasMeta.w & 1u) == 0u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float3 Rel = HitPosWorld - Disp.OriginGain.xyz;
+    float  U   = dot(Rel, Disp.RightWidth.xyz) / max(1.0e-3, Disp.RightWidth.w);
+    float  V   = dot(Rel, Disp.UpHeight.xyz) / max(1.0e-3, Disp.UpHeight.w);
+    if (U < -0.02 || U > 1.02 || V < -0.02 || V > 1.02)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float4 Sampled = SampleCockpitAtlasBilinear(Disp.AtlasMeta.x, Disp.AtlasMeta.y, Disp.AtlasMeta.z, float2(U, 1.0 - V));
+    return Sampled.xyz * max(0.1, Disp.OriginGain.w);
+}
+
+float4 EvaluateOpticalWindshieldHud(float3 RayOrigin, float3 RayDir, float MaxHitDist)
+{
+    GpuCockpitDisplaySurface Disp = WorldUniforms.CockpitDisplays[2u];
+    if ((Disp.AtlasMeta.w & 1u) == 0u)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float3 PlaneN = normalize(cross(Disp.RightWidth.xyz, Disp.UpHeight.xyz));
+    float  Denom  = dot(RayDir, PlaneN);
+    if (abs(Denom) < 1.0e-4)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float T = dot(Disp.OriginGain.xyz - RayOrigin, PlaneN) / Denom;
+    if (T <= 0.04 || T >= MaxHitDist)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float3 HitPos = RayOrigin + RayDir * T;
+    float3 Rel    = HitPos - Disp.OriginGain.xyz;
+    float  U      = dot(Rel, Disp.RightWidth.xyz) / max(1.0e-3, Disp.RightWidth.w);
+    float  V      = dot(Rel, Disp.UpHeight.xyz) / max(1.0e-3, Disp.UpHeight.w);
+    if (U < 0.0 || U > 1.0 || V < 0.0 || V > 1.0)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float4 Sampled = SampleCockpitAtlasBilinear(Disp.AtlasMeta.x, Disp.AtlasMeta.y, Disp.AtlasMeta.z, float2(U, 1.0 - V));
+    return float4(Sampled.xyz * Sampled.w * max(0.1, Disp.OriginGain.w), Sampled.w);
+}
+
+float3 CompositeOnScreenHudOverlay(float3 DisplayLinear, float2 PixelUv)
+{
+    GpuCockpitDisplaySurface Disp = WorldUniforms.CockpitDisplays[3u];
+    if ((Disp.AtlasMeta.w & 1u) == 0u)
+    {
+        return DisplayLinear;
+    }
+    float4 Hud = SampleCockpitAtlasBilinear(Disp.AtlasMeta.x, Disp.AtlasMeta.y, Disp.AtlasMeta.z, PixelUv);
+    if (Hud.w <= 1.0e-4)
+    {
+        return DisplayLinear;
+    }
+    return lerp(DisplayLinear, Hud.xyz, saturate(Hud.w));
+}
 
 bool QueryClusterBitActive(uint ClusterOrdinal)
 {
@@ -3199,6 +3308,11 @@ void ShadePrimarySurfaceDemod(
 
     // 1. Direct Solar Shadow
     OutDirectBaseHdr      = Mat.EmissiveRadiancePad.xyz;
+    uint DispSlot         = uint(Mat.EmissiveRadiancePad.w + 0.5);
+    if (DispSlot > 0u)
+    {
+        OutDirectBaseHdr += EvaluateCockpitDisplayEmission(DispSlot, Hit.Position);
+    }
     OutSpecReflHdr        = float3(0.0);
     OutUnoccludedSunHdr   = float3(0.0);
     OutIndirectIrradiance = float3(0.0);
@@ -3563,8 +3677,30 @@ float3 EvaluateProgressiveViewportPath(float3 CamOrigin, float3 PrimaryDir, uint
         GpuWorldMaterial80 Mat = MaterialEntries[min(CurHit.MaterialSlot, MatCount - 1u)];
         float3 N        = CurHit.ShadingNormal;
         float3 V        = -RayD;
+        // Transparent thin glass pass-through (automotive windshield/windows)
+        if (Bounce == 0u && Mat.CoatRoughnessOptics.y > 0.50 && Mat.EmissiveRadiancePad.w < 0.5)
+        {
+            float GlassCos = saturate(abs(dot(N, V)));
+            float GlassF   = 0.04 + 0.96 * pow(1.0 - GlassCos, 5.0);
+            Radiance      += Throughput * EvaluateSkyDome(reflect(RayD, N)) * (GlassF * 0.35);
+            Throughput    *= lerp(float3(1.0), float3(0.92, 0.96, 0.95), saturate(Mat.CoatRoughnessOptics.y));
+            RayO           = CurHit.Position + RayD * 0.015;
+            CurHit         = TraceSceneClosest(RayO, RayD, 0.005, 160.0);
+            if (!CurHit.Hit)
+            {
+                Radiance += Throughput * EvaluateSkyDome(RayD);
+                break;
+            }
+            Mat = MaterialEntries[min(CurHit.MaterialSlot, MatCount - 1u)];
+            N   = CurHit.ShadingNormal;
+        }
         float3 SafePos  = ComputeSmoothSurfaceRayOrigin(CurHit.Position, CurHit.GeomNormal, N, 0.012);
         float3 Emissive = Mat.EmissiveRadiancePad.xyz;
+        uint   DispSlot = uint(Mat.EmissiveRadiancePad.w + 0.5);
+        if (DispSlot > 0u)
+        {
+            Emissive += EvaluateCockpitDisplayEmission(DispSlot, CurHit.Position);
+        }
         if (Bounce > 0u)
         {
             Emissive = min(Emissive, float3(18.0));
@@ -3876,6 +4012,24 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         PrimaryHit = TraceSceneClosest(CamOrigin, RayDir, 0.08, PrimaryMaxT);
     }
 
+    // Transparent thin-glass pass-through (allows clear view into/out of vehicle windshield with subtle Fresnel glint)
+    float3 GlassGlintHdr = float3(0.0, 0.0, 0.0);
+    if (DebugMode == 0u)
+    {
+        uint MatCountG = max(1u, WorldUniforms.LightGlassMaterialDebug.z);
+        for (uint GlassHop = 0u; GlassHop < 2u; ++GlassHop)
+        {
+            if (!PrimaryHit.Hit) break;
+            GpuWorldMaterial80 GMat = MaterialEntries[min(PrimaryHit.MaterialSlot, MatCountG - 1u)];
+            if (GMat.CoatRoughnessOptics.y <= 0.50 || GMat.EmissiveRadiancePad.w >= 0.5) break;
+            float3 GN    = PrimaryHit.ShadingNormal;
+            float  CosG  = saturate(abs(dot(GN, -RayDir)));
+            float  FresG = 0.04 + 0.96 * pow(1.0 - CosG, 5.0);
+            GlassGlintHdr += EvaluateSkyDome(reflect(RayDir, GN)) * (FresG * 0.30);
+            PrimaryHit = TraceSceneClosest(CamOrigin, RayDir, PrimaryHit.Distance + 0.015, PrimaryMaxT);
+        }
+    }
+
     float TriHitT      = PrimaryHit.Hit ? PrimaryHit.Distance : PrimaryMaxT;
     float BestGlassT   = TriHitT;
     int   BestGlassIdx = -1;
@@ -4025,7 +4179,7 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         // Defer sky/cloud/celestial background shading to DenoiseCompositeEntry so ComputeEntry stays VGPR-lean!
         GBufPosMask[PixelIdx]            = float4(RayDir, -1.0);
         GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
-        GBufDirectBase[PixelIdx]         = float4(0.0, 0.0, 0.0, HitDistForClouds);
+        GBufDirectBase[PixelIdx]         = float4(GlassGlintHdr, HitDistForClouds);
         GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, HitDistForFog);
         GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
         PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
@@ -4039,7 +4193,12 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     if (EngineMode == 0u && DebugMode == 0u)
     {
-        float3 MatCapHdr = EvaluateMatCapSurface(PrimaryHit);
+        uint MatCountM = max(1u, WorldUniforms.LightGlassMaterialDebug.z);
+        GpuWorldMaterial80 MatM = MaterialEntries[min(PrimaryHit.MaterialSlot, MatCountM - 1u)];
+        uint DispSlotM = uint(MatM.EmissiveRadiancePad.w + 0.5);
+        float3 MatCapHdr = (DispSlotM > 0u)
+            ? EvaluateCockpitDisplayEmission(DispSlotM, PrimaryHit.Position)
+            : (EvaluateMatCapSurface(PrimaryHit) + GlassGlintHdr);
         if (QueryNaniteWireframeEnabled())
         {
             MatCapHdr *= (1.0 - 0.72 * EvaluateAnalyticalWireframeAlpha(PrimaryHit, RayDir, PrimaryHit.EdgeDistMeters));
@@ -4076,6 +4235,7 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         DiffAo,
         SpecRough,
         SpecAo);
+    DirectBaseHdr += GlassGlintHdr;
 
     if (QueryNaniteWireframeEnabled())
     {
@@ -4188,6 +4348,22 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         if (Step == 0u)
         {
             PrimaryHit         = CurHit;
+            float3 GlassGlintRt = float3(0.0, 0.0, 0.0);
+            if (DebugMode == 0u)
+            {
+                uint MatCountRt = max(1u, WorldUniforms.LightGlassMaterialDebug.z);
+                for (uint GlassHop = 0u; GlassHop < 2u; ++GlassHop)
+                {
+                    if (!PrimaryHit.Hit) break;
+                    GpuWorldMaterial80 GMat = MaterialEntries[min(PrimaryHit.MaterialSlot, MatCountRt - 1u)];
+                    if (GMat.CoatRoughnessOptics.y <= 0.50 || GMat.EmissiveRadiancePad.w >= 0.5) break;
+                    float3 GN    = PrimaryHit.ShadingNormal;
+                    float  CosG  = saturate(abs(dot(GN, -RayDir)));
+                    float  FresG = 0.04 + 0.96 * pow(1.0 - CosG, 5.0);
+                    GlassGlintRt += EvaluateSkyDome(reflect(RayDir, GN)) * (FresG * 0.30);
+                    PrimaryHit = TraceSceneClosest(CamOrigin, RayDir, PrimaryHit.Distance + 0.015, PrimaryMaxT);
+                }
+            }
             float TriHitT      = PrimaryHit.Hit ? PrimaryHit.Distance : PrimaryMaxT;
             float BestGlassT   = TriHitT;
             int   BestGlassIdx = FindClosestGlassSphere(CamOrigin, RayDir, 0.08, TriHitT, BestGlassT);
@@ -4320,7 +4496,7 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             {
                 GBufPosMask[PixelIdx]            = float4(RayDir, -1.0);
                 GBufNormAo[PixelIdx]             = float4(0.0, 0.0, 1.0, 0.0);
-                GBufDirectBase[PixelIdx]         = float4(0.0, 0.0, 0.0, HitDistForClouds);
+                GBufDirectBase[PixelIdx]         = float4(GlassGlintRt, HitDistForClouds);
                 GBufSunContrib[PixelIdx]         = float4(0.0, 0.0, 0.0, HitDistForFog);
                 GBufAlbedo[PixelIdx]             = float4(0.0, 0.0, 0.0, 1.0);
                 PingShadowAo[PixelIdx]           = float4(1.0, 1.0, 0.0, 1.0);
@@ -4336,7 +4512,12 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             float3 SunIrr         = WorldUniforms.SolarIrradiancePad.xyz;
             float3 SafePrimaryPos = ComputeSmoothSurfaceRayOrigin(PrimaryHit.Position, PrimaryHit.GeomNormal, N, 0.012);
 
-            DirectSurfaceHdr = Mat.EmissiveRadiancePad.xyz;
+            DirectSurfaceHdr = Mat.EmissiveRadiancePad.xyz + GlassGlintRt;
+            uint DispSlotRt  = uint(Mat.EmissiveRadiancePad.w + 0.5);
+            if (DispSlotRt > 0u)
+            {
+                DirectSurfaceHdr += EvaluateCockpitDisplayEmission(DispSlotRt, PrimaryHit.Position);
+            }
             if (dot(N, SunDir) > 1.0e-5)
             {
                 float EnvSunTrans = EvaluateSolarCloudTransmittanceGpu(PrimaryHit.Position, SunDir);
@@ -4550,11 +4731,17 @@ void ViewportPathTraceEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     AccumulationHdrBuffer[PixelIdx] = float4(NextAccum, float(SampleIdx + 1u));
 
     float3 FinalHdr = NextAccum;
+    float4 HudOptPt = EvaluateOpticalWindshieldHud(CamOrigin, RayDir, 5000.0);
+    if (HudOptPt.w > 1.0e-4)
+    {
+        FinalHdr = FinalHdr * (1.0 - 0.14 * HudOptPt.w) + HudOptPt.xyz;
+    }
     if (WorldUniforms.LensFlareParams.GhostRotationTint.w > 0.5)
     {
         FinalHdr += EvaluateBakedLensFlareGpu(WorldUniforms.LensFlareParams, BakedLensFlareAtlasTexels, PixelUv);
     }
     float3 DisplayLinear = ApplyExposureAndPostProcessGpu(FinalHdr, PixelUv);
+    DisplayLinear = CompositeOnScreenHudOverlay(DisplayLinear, PixelUv);
     if (WorldUniforms.MotionBlurParams0.x > 0.5)
     {
         PongShadowAo[PixelIdx] = float4(DisplayLinear, 1.0);
@@ -4907,7 +5094,7 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     {
         FinalHdr = UsesShadingDebug
             ? float3(0.03, 0.04, 0.07)
-            : EvaluateBackgroundSkyCloudsGpu(normalize(CenterPos.xyz), float2(DispatchThreadID.xy));
+            : (EvaluateBackgroundSkyCloudsGpu(normalize(CenterPos.xyz), float2(DispatchThreadID.xy)) + DirectBase.xyz);
     }
     else if (CenterPos.w > 0.0 && DebugMode == 0u)
     {
@@ -5041,6 +5228,13 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             WorldUniforms.SolarIrradiancePad.xyz,
             float2(DispatchThreadID.xy));
 
+        // Optical Windshield Glass Head-Up Display (additive emissive on glass plane)
+        float4 HudOpt = EvaluateOpticalWindshieldHud(CamOrigin, RayDir, SkyRayUnoccluded ? 5000.0 : HitDistForClouds);
+        if (HudOpt.w > 1.0e-4)
+        {
+            FinalHdr = FinalHdr * (1.0 - 0.14 * HudOpt.w) + HudOpt.xyz;
+        }
+
         if (WorldUniforms.LensFlareParams.GhostRotationTint.w > 0.5)
         {
             FinalHdr += EvaluateBakedLensFlareGpu(WorldUniforms.LensFlareParams, BakedLensFlareAtlasTexels, PixelUv);
@@ -5082,6 +5276,12 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
                 DisplayLinear       = lerp(DisplayLinear, OutlineCol, OutlineAlpha * 0.94);
             }
         }
+    }
+
+    if (DebugMode == 0u)
+    {
+        float2 HudPixelUv = (float2(DispatchThreadID.xy) + float2(0.5, 0.5)) / float2(float(Width), float(Height));
+        DisplayLinear = CompositeOnScreenHudOverlay(DisplayLinear, HudPixelUv);
     }
 
     if (WorldUniforms.MotionBlurParams0.x > 0.5 && DebugMode == 0u)

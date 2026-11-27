@@ -216,7 +216,10 @@ bool AutoSpaceLifecycle::VerifyProjectContracts(std::string& OutDiagnostic) cons
         OutDiagnostic = "AutoSpace LobbyLifecycle failed to load ControlVehicle or PhotometrySuite.";
         return false;
     }
-    if (Telemetry.VehicleCount < 3u || Telemetry.SurfaceInstanceCount < 6u)
+    const bool IsTrainingGround = (Telemetry.ActiveLobby == StudioLobbyId::StudioLobby4TrainingGround);
+    const uint32_t MinVehicles  = IsTrainingGround ? 1u : 3u;
+    const uint32_t MinSurfaces  = IsTrainingGround ? 2u : 6u;
+    if (Telemetry.VehicleCount < MinVehicles || Telemetry.SurfaceInstanceCount < MinSurfaces)
     {
         OutDiagnostic = "AutoSpace LobbyLifecycle produced fewer vehicles or surfaces than expected.";
         return false;

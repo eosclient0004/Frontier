@@ -128,6 +128,7 @@ struct PorosityEmissionParameters
     float                  EmissionLuminanceNits      = 0.0f;                  // [cd/m2] - Explicit non-thermal luminance
     float                  BlackbodyTemperatureKelvin = 0.0f;                  // [K]     - Thermal radiator temperature (0 = inactive)
     Mathematics::LinearRGB EmissionTint               { 1.0f, 1.0f, 1.0f };    // [-]     - Spectral filter over emitted radiance
+    uint8_t                DynamicDisplaySlot         = 0u;                    // [idx]   - 0=none, 1=HMI display, 2=Instrument cluster, 3=Optical glass HUD
 };
 
 struct BindlessChannelBindings

@@ -21,9 +21,10 @@ namespace AutoSpace
 
 enum class StudioLobbyId : uint8_t
 {
-    StudioLobby1Cyclorama    = 1u, // [-] - Lobby 1 · Cyclorama (photographic infinity cove, 3 vehicles, 5 lighting rigs)
-    StudioLobby2ForestStage  = 2u, // [-] - Lobby 2 · Forest Stage (LED backdrop, 4 vehicles, wind fan + engine dust, rocks/plants left blank)
-    StudioLobby3RacingGarage = 3u, // [-] - Lobby 3 · Racing Garage (3D track & grandstands, pit garage, car lift, tools, smoke & dust)
+    StudioLobby1Cyclorama      = 1u, // [-] - Lobby 1 · Cyclorama (photographic infinity cove, 3 vehicles, 5 lighting rigs)
+    StudioLobby2ForestStage    = 2u, // [-] - Lobby 2 · Forest Stage (LED backdrop, 4 vehicles, wind fan + engine dust, rocks/plants left blank)
+    StudioLobby3RacingGarage   = 3u, // [-] - Lobby 3 · Racing Garage (3D track & grandstands, pit garage, car lift, tools, smoke & dust)
+    StudioLobby4TrainingGround = 4u, // [-] - Lobby 4 · Training Ground (flat proving plane, interactive driving physics, live Eulerian tire smoke)
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -33,13 +34,14 @@ enum class StudioLobbyId : uint8_t
 struct LobbyPolicy
 {
     StudioLobbyId SelectedLobby              = StudioLobbyId::StudioLobby1Cyclorama; // [-]   - Active lobby loaded into MainWorld
-    bool          EnableEngineParticles      = true;  // [-] - Load and simulate Frontier::ParticleSpace emitters
+    bool          EnableEngineParticles      = true;  // [-] - Load and simulate Frontier::ParticleSpace clouds
     bool          LeaveBotanicalAndRockBlank = true;  // [-] - Leave rocks, moss, wood, ferns, grass, and leaves blank
     bool          EnableStudioLightingRigs   = true;  // [-] - Mount physical light stands/modifiers & Area/IES luminaires
     bool          EnableCameraRigs           = true;  // [-] - Mount procedural cinema tripods, bodies & scene cameras
     bool          EnableCrewProps            = true;  // [-] - Mount tether workstation, Pelican cases, garage props & cables
     bool          EnableConfiguratorOrbit    = true;  // [-] - Advance configurator camera orbit when ticking
     bool          EnableHeroVehiclePhysics   = false; // [-] - Bind live Jolt VehiclePhysicsRig (3-lane fan trace + Constraints) to Hero Vehicle
+    bool          EnableTireFluidSmoke       = false; // [-] - Couple live 3D Eulerian tire pyrolysis fluid smoke solver into world volumetric media
     uint32_t      ActiveCameraPresetIndex    = 0u;    // [idx] - Active configurator camera preset [0..5]
 };
 

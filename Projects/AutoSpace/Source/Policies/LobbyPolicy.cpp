@@ -23,7 +23,9 @@ LobbyPolicy LobbyPolicyEngine::BuildDefault(StudioLobbyId Lobby) noexcept
     Policy.EnableStudioLightingRigs   = true;
     Policy.EnableCameraRigs           = true;
     Policy.EnableCrewProps            = true;
-    Policy.EnableConfiguratorOrbit    = true;
+    Policy.EnableConfiguratorOrbit    = (Lobby != StudioLobbyId::StudioLobby4TrainingGround);
+    Policy.EnableHeroVehiclePhysics   = (Lobby == StudioLobbyId::StudioLobby4TrainingGround);
+    Policy.EnableTireFluidSmoke       = (Lobby == StudioLobbyId::StudioLobby4TrainingGround);
     Policy.ActiveCameraPresetIndex    = 0u;
     ClampToSafeBounds(Policy);
     return Policy;
@@ -32,7 +34,7 @@ LobbyPolicy LobbyPolicyEngine::BuildDefault(StudioLobbyId Lobby) noexcept
 void LobbyPolicyEngine::ClampToSafeBounds(LobbyPolicy& InOutPolicy) noexcept
 {
     const uint8_t Raw = static_cast<uint8_t>(InOutPolicy.SelectedLobby);
-    if (Raw < 1u || Raw > 3u)
+    if (Raw < 1u || Raw > 4u)
     {
         InOutPolicy.SelectedLobby = StudioLobbyId::StudioLobby1Cyclorama;
     }
@@ -45,10 +47,11 @@ std::string_view LobbyPolicyEngine::QuerySlug(StudioLobbyId Lobby) noexcept
 {
     switch (Lobby)
     {
-        case StudioLobbyId::StudioLobby2ForestStage:  return "studio-lobby-2";
-        case StudioLobbyId::StudioLobby3RacingGarage: return "studio-lobby-3";
+        case StudioLobbyId::StudioLobby2ForestStage:    return "studio-lobby-2";
+        case StudioLobbyId::StudioLobby3RacingGarage:   return "studio-lobby-3";
+        case StudioLobbyId::StudioLobby4TrainingGround: return "training-ground";
         case StudioLobbyId::StudioLobby1Cyclorama:
-        default:                                      return "studio-lobby";
+        default:                                        return "studio-lobby";
     }
 }
 
@@ -56,10 +59,11 @@ std::string_view LobbyPolicyEngine::QueryLabel(StudioLobbyId Lobby) noexcept
 {
     switch (Lobby)
     {
-        case StudioLobbyId::StudioLobby2ForestStage:  return "Lobby 2 · Forest Stage";
-        case StudioLobbyId::StudioLobby3RacingGarage: return "Lobby 3 · Racing Garage";
+        case StudioLobbyId::StudioLobby2ForestStage:    return "Lobby 2 · Forest Stage";
+        case StudioLobbyId::StudioLobby3RacingGarage:   return "Lobby 3 · Racing Garage";
+        case StudioLobbyId::StudioLobby4TrainingGround: return "Lobby 4 · Training Ground";
         case StudioLobbyId::StudioLobby1Cyclorama:
-        default:                                      return "Lobby 1 · Cyclorama";
+        default:                                        return "Lobby 1 · Cyclorama";
     }
 }
 
@@ -78,6 +82,12 @@ bool LobbyPolicyEngine::ParseLobbyId(std::string_view Text, StudioLobbyId& OutLo
     if (Text == "3" || Text == "lobby3" || Text == "lobby-3" || Text == "studio-lobby-3" || Text == "garage")
     {
         OutLobby = StudioLobbyId::StudioLobby3RacingGarage;
+        return true;
+    }
+    if (Text == "4" || Text == "lobby4" || Text == "lobby-4" || Text == "studio-lobby-4" ||
+        Text == "training" || Text == "training-ground" || Text == "proving-ground")
+    {
+        OutLobby = StudioLobbyId::StudioLobby4TrainingGround;
         return true;
     }
     return false;

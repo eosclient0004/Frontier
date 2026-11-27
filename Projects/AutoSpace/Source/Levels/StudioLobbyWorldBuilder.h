@@ -141,5 +141,6 @@ public:
 void BuildLobby1CycloramaLevel(IStudioLobbySceneBuilderContext& Ctx, const LobbyPolicy& Policy);
 void BuildLobby2ForestStageLevel(IStudioLobbySceneBuilderContext& Ctx, const LobbyPolicy& Policy);
 void BuildLobby3RacingGarageLevel(IStudioLobbySceneBuilderContext& Ctx, const LobbyPolicy& Policy);
+void BuildLobby4TrainingGroundLevel(IStudioLobbySceneBuilderContext& Ctx, const LobbyPolicy& Policy);
 
 } // namespace AutoSpace

@@ -11,6 +11,8 @@ add_library(AutoSpaceProject STATIC
     Source/Levels/Lobby1CycloramaLevel.cpp
     Source/Levels/Lobby2ForestStageLevel.cpp
     Source/Levels/Lobby3RacingGarageLevel.cpp
+    Source/Levels/Lobby4TrainingGroundLevel.cpp
+    Source/Cockpit/VehicleCockpitInstrumentation.cpp
     Source/Gameplay/LobbyLifecycle.cpp
     Source/Gameplay/AutoSpaceLifecycle.cpp
 )

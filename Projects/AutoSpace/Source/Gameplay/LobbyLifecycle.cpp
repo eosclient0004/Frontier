@@ -10,9 +10,11 @@
 #include "Source/Gameplay/LobbyLifecycle.h"
 
 #include "Engine/Codecs/PhotometrySpaceCodec.h"
+#include "Engine/Constants/MathConstants.h"
 #include "Engine/Mathematics/CoordinateSpace.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 
@@ -56,9 +58,17 @@ void LobbyLifecycle::ClearLobbyObjects() noexcept
         HeroPhysics->Finalize();
     }
     HeroPhysics.reset();
+    HeroTireSmoke.reset();
     HeroVehiclePhysicsActive     = false;
+    HeroTireSmokeActive          = false;
     HeroVehicleEntityToken       = {};
     HeroVehicleSpawnZUp          = {};
+    HeroCurrentPositionZUp       = {};
+    HeroCurrentYawZUpDegrees     = 0.0f;
+    HeroSettledChassisHeightY    = 0.41715f;
+    HeroVehicleSpec              = {};
+    TireSmokeStepAccumulator     = 0.0;
+    StaticLocalFogBaselineCount  = 0u;
     DynamicEmissiveOrbToken      = {};
     DynamicEmissiveOrbClusterIdx = UINT32_MAX;
     DynamicEmissiveOrbMatSlot    = 0u;
@@ -195,13 +205,17 @@ bool LobbyLifecycle::InitializeAndBuild(
         case StudioLobbyId::StudioLobby3RacingGarage:
             BuildLobby3RacingGarageLevel(*this, ActivePolicy);
             break;
+        case StudioLobbyId::StudioLobby4TrainingGround:
+            BuildLobby4TrainingGroundLevel(*this, ActivePolicy);
+            break;
         case StudioLobbyId::StudioLobby1Cyclorama:
         default:
             BuildLobby1CycloramaLevel(*this, ActivePolicy);
             break;
     }
 
-    // Spawn the moving, color-cycling dynamic emissive GI orb across all 3 AutoSpace lobbies
+    // Spawn the moving, color-cycling dynamic emissive GI orb across Studio Lobbies 1..3 (keep Level 4 Training Ground unobstructed)
+    if (ActivePolicy.SelectedLobby != StudioLobbyId::StudioLobby4TrainingGround)
     {
         DynamicEmissiveOrbMatSlot = MaterialPalette.Resolve(StudioMaterialCode::DynamicEmissiveOrb);
         const uint32_t LobbyVariant = static_cast<uint32_t>(ActivePolicy.SelectedLobby);
@@ -232,40 +246,11 @@ bool LobbyLifecycle::InitializeAndBuild(
     (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
     FinalizeWorldSceneAcceleration();
 
-    if (ActivePolicy.EnableHeroVehiclePhysics && ControlVehicleClassReady && HeroVehicleEntityToken.QueryValid())
-    {
-        using namespace Frontier::SimulationSpace::PhysicsSpace;
-        PhysicsSimulationParameters PhysParams {};
-        PhysParams.GravityMps2 = { 0.0f, -9.80665f, 0.0f };
-        PhysParams.FixedStepHz = 120.0f;
-        HeroPhysics = std::make_unique<PhysicsExtension>(PhysParams);
-        if (HeroPhysics->Initialize())
-        {
-            RigidBodyDescriptor FloorDesc {};
-            FloorDesc.Shape.ShapeCategory     = CollisionShapeCategory::Box;
-            FloorDesc.Shape.HalfExtentsMeters = { 500.0f, 0.5f, 500.0f };
-            FloorDesc.MotionCategory          = RigidMotionCategory::Static;
-            FloorDesc.PositionMeters          = { 0.0f, -0.5f, 0.0f };
-            FloorDesc.CollisionChannel        = static_cast<uint16_t>(CollisionLayerChannel::StaticEnvironment);
-            (void)HeroPhysics->IssueRigidBody(FloorDesc);
+    StaticLocalFogBaselineCount = WorldScene.Atmosphere.Fog.LocalFogs.size();
+    HeroCurrentPositionZUp      = HeroVehicleSpawnZUp;
+    HeroCurrentYawZUpDegrees    = 0.0f;
 
-            VehicleRigSpecification Spec =
-                VehiclePhysicsRig::ConstructSpecificationFromControlVehicle(ControlVehicleClass.ClassDefinition);
-            Spec.WheelContactMode          = WheelContactQueryMode::HeroThreeLaneFanArc;
-            Spec.BindAttachmentConstraints = true;
-
-            HeroVehicleRig = std::make_unique<VehiclePhysicsRig>();
-            const Axis3D SpawnYUp = ConvertVectorBetweenBases(
-                HeroVehicleSpawnZUp,
-                WorldCoordinateBasis::RightHandedZUp,
-                WorldCoordinateBasis::RightHandedYUp);
-            constexpr float ChassisGroundOffsetY = 0.41715f;
-            HeroVehiclePhysicsActive = HeroVehicleRig->Initialize(
-                *HeroPhysics,
-                Spec,
-                { SpawnYUp.X, SpawnYUp.Y + ChassisGroundOffsetY, SpawnYUp.Z });
-        }
-    }
+    InitializeHeroVehicleSimulation();
 
     if (ActivePolicy.EnableEngineParticles && !ParticleClouds.empty())
     {
@@ -625,9 +610,339 @@ void LobbyLifecycle::UpdateDynamicEmissiveOrb(double ElapsedSeconds) noexcept
     }
 }
 
+void LobbyLifecycle::InitializeHeroVehicleSimulation() noexcept
+{
+    if (HeroVehicleRig && HeroPhysics)
+    {
+        HeroVehicleRig->Finalize(*HeroPhysics);
+    }
+    HeroVehicleRig.reset();
+    if (HeroPhysics)
+    {
+        HeroPhysics->Finalize();
+    }
+    HeroPhysics.reset();
+    HeroTireSmoke.reset();
+    HeroVehiclePhysicsActive = false;
+    HeroTireSmokeActive      = false;
+    TireSmokeStepAccumulator = 0.0;
+
+    if (!ActivePolicy.EnableHeroVehiclePhysics || !ControlVehicleClassReady || !HeroVehicleEntityToken.QueryValid())
+    {
+        return;
+    }
+
+    using namespace Frontier::SimulationSpace::PhysicsSpace;
+    PhysicsSimulationParameters PhysParams {};
+    PhysParams.GravityMps2 = { 0.0f, -9.80665f, 0.0f };
+    PhysParams.FixedStepHz = 120.0f;
+    HeroPhysics = std::make_unique<PhysicsExtension>(PhysParams);
+    if (!HeroPhysics->Initialize())
+    {
+        HeroPhysics.reset();
+        return;
+    }
+
+    RigidBodyDescriptor FloorDesc {};
+    FloorDesc.Shape.ShapeCategory     = CollisionShapeCategory::Box;
+    FloorDesc.Shape.HalfExtentsMeters = { 500.0f, 0.5f, 500.0f };
+    FloorDesc.MotionCategory          = RigidMotionCategory::Static;
+    FloorDesc.PositionMeters          = { 0.0f, -0.5f, 0.0f };
+    FloorDesc.CollisionChannel        = static_cast<uint16_t>(CollisionLayerChannel::StaticEnvironment);
+    (void)HeroPhysics->IssueRigidBody(FloorDesc);
+
+    HeroVehicleSpec =
+        VehiclePhysicsRig::ConstructSpecificationFromControlVehicle(ControlVehicleClass.ClassDefinition);
+    HeroVehicleSpec.WheelContactMode          = WheelContactQueryMode::HeroThreeLaneFanArc;
+    HeroVehicleSpec.BindAttachmentConstraints = true;
+
+    HeroVehicleRig = std::make_unique<VehiclePhysicsRig>();
+    const Axis3D SpawnYUp = ConvertVectorBetweenBases(
+        HeroVehicleSpawnZUp,
+        WorldCoordinateBasis::RightHandedZUp,
+        WorldCoordinateBasis::RightHandedYUp);
+    constexpr float InitialChassisOffsetY = 0.41715f;
+    HeroVehiclePhysicsActive = HeroVehicleRig->Initialize(
+        *HeroPhysics,
+        HeroVehicleSpec,
+        { SpawnYUp.X, SpawnYUp.Y + InitialChassisOffsetY, SpawnYUp.Z });
+
+    if (!HeroVehiclePhysicsActive)
+    {
+        return;
+    }
+
+    // Settle suspension cleanly onto Z = 0 flat deck so tyres rest flush at startup
+    VehicleControlDirective SettleBrake {};
+    SettleBrake.Category        = VehicleDirectiveCategory::DriverInput;
+    SettleBrake.BrakeNormalized = 0.50f;
+    (void)HeroVehicleRig->SubmitControlDirective(SettleBrake);
+    constexpr double SettleDt = 1.0 / 120.0;
+    for (int Step = 0; Step < 45; ++Step)
+    {
+        HeroVehicleRig->StepOnPhysicsThread(*HeroPhysics, SettleDt);
+        HeroPhysics->Tick(SettleDt);
+    }
+
+    VehicleControlDirective ReleaseControls {};
+    ReleaseControls.Category = VehicleDirectiveCategory::DriverInput;
+    (void)HeroVehicleRig->SubmitControlDirective(ReleaseControls);
+
+    HeroSettledChassisHeightY = InitialChassisOffsetY;
+    if (const auto SettledReading = HeroVehicleRig->AcquireVehicleReading(); SettledReading.Valid())
+    {
+        HeroSettledChassisHeightY = std::max(0.10f, SettledReading->WorldPositionMeters.Y - SpawnYUp.Y);
+    }
+
+    HeroCurrentPositionZUp   = HeroVehicleSpawnZUp;
+    HeroCurrentYawZUpDegrees = 0.0f;
+    (void)WorldRegister.AssignWorldTransform(
+        HeroVehicleEntityToken,
+        HeroVehicleSpawnZUp.X,
+        HeroVehicleSpawnZUp.Y,
+        HeroVehicleSpawnZUp.Z,
+        0.0f,
+        0.0f,
+        0.0f);
+    (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
+
+    if (ActivePolicy.EnableTireFluidSmoke)
+    {
+        using namespace Frontier::SimulationSpace::Fluid;
+        VehicleTireFluidSmokeConfig SmokeCfg {};
+        SmokeCfg.UseWorldGridRelocation = true;
+        SmokeCfg.WorldGridTileSpan      = 4u;
+        SmokeCfg.WorldGridTileCells     = 8u; // 32 x 16 x 32 * 0.40 m = 12.8 m x 6.4 m x 12.8 m sliding domain
+        SmokeCfg.CellSizeMeters         = 0.40f;
+        SmokeCfg.PressureIterations     = 8u;
+        SmokeCfg.Vorticity              = 3.4f;
+        SmokeCfg.Buoyancy               = 1.45f;
+        SmokeCfg.AmbientWindMps         = { -0.35f, 0.0f, 0.25f };
+        HeroTireSmoke = std::make_unique<VehicleTireFluidSmokeBridge>();
+        HeroTireSmoke->Initialize(SmokeCfg, { SpawnYUp.X, 0.0f, SpawnYUp.Z });
+        HeroTireSmokeActive = true;
+    }
+}
+
+void LobbyLifecycle::SetTireSmokeEnabled(bool Enabled) noexcept
+{
+    HeroTireSmokeActive = Enabled && ActivePolicy.EnableTireFluidSmoke && (HeroTireSmoke != nullptr);
+    if (!HeroTireSmokeActive)
+    {
+        if (HeroTireSmoke)
+        {
+            HeroTireSmoke->Initialize(
+                HeroTireSmoke->InspectConfig(),
+                { HeroCurrentPositionZUp.X, 0.0f, -HeroCurrentPositionZUp.Y });
+        }
+        if (WorldScene.Atmosphere.Fog.LocalFogs.size() > StaticLocalFogBaselineCount)
+        {
+            WorldScene.Atmosphere.Fog.LocalFogs.resize(StaticLocalFogBaselineCount);
+        }
+    }
+}
+
+void LobbyLifecycle::ResetHeroVehicleToSpawn() noexcept
+{
+    if (WorldScene.Atmosphere.Fog.LocalFogs.size() > StaticLocalFogBaselineCount)
+    {
+        WorldScene.Atmosphere.Fog.LocalFogs.resize(StaticLocalFogBaselineCount);
+    }
+    InitializeHeroVehicleSimulation();
+}
+
+void LobbyLifecycle::QueryHeroVehicleWorldPose(
+    Axis3D& OutPositionZUp,
+    float&  OutYawZUpDegrees) const noexcept
+{
+    OutPositionZUp   = HeroCurrentPositionZUp;
+    OutYawZUpDegrees = HeroCurrentYawZUpDegrees;
+}
+
+Frontier::SimulationSpace::Fluid::TireSmokeBridgeTelemetry LobbyLifecycle::InspectTireSmokeTelemetry() const noexcept
+{
+    if (!HeroTireSmokeActive || !HeroTireSmoke)
+    {
+        return {};
+    }
+    return HeroTireSmoke->InspectTelemetry();
+}
+
+void LobbyLifecycle::ProjectTireFluidSmokeToLocalFogs(
+    const Frontier::SimulationSpace::PhysicsSpace::VehicleReading& Reading) noexcept
+{
+    if (WorldScene.Atmosphere.Fog.LocalFogs.size() > StaticLocalFogBaselineCount)
+    {
+        WorldScene.Atmosphere.Fog.LocalFogs.resize(StaticLocalFogBaselineCount);
+    }
+    if (!HeroTireSmokeActive || !HeroTireSmoke)
+    {
+        return;
+    }
+
+    const auto& FluidState = HeroTireSmoke->InspectFluidState();
+    const auto& DensityGrid = FluidState.State;
+    if (DensityGrid.Width == 0u || DensityGrid.Height == 0u || DensityGrid.Depth == 0u)
+    {
+        return;
+    }
+
+    const auto  VolU     = FluidState.TileBank.BuildVolumeUniforms(HeroTireSmoke->InspectStepSettings().Boundary, {});
+    const float CellSize = HeroTireSmoke->InspectConfig().CellSizeMeters;
+
+    // Vehicle forward (+X) & right (+Z) unit axes in Y-up physics space from unit quaternion
+    const auto& Q = Reading.WorldOrientation;
+    const Axis3D FwdYUp = NormalizeAxis(
+        { 1.0f - 2.0f * (Q.Y * Q.Y + Q.Z * Q.Z),
+          2.0f * (Q.X * Q.Y + Q.W * Q.Z),
+          2.0f * (Q.X * Q.Z - Q.W * Q.Y) },
+        { 1.0f, 0.0f, 0.0f });
+    const Axis3D RightYUp = NormalizeAxis(
+        { 2.0f * (Q.X * Q.Z + Q.W * Q.Y),
+          2.0f * (Q.Y * Q.Z - Q.W * Q.X),
+          1.0f - 2.0f * (Q.X * Q.X + Q.Y * Q.Y) },
+        { 0.0f, 0.0f, 1.0f });
+
+    struct PlumeAccumulator
+    {
+        double   WeightSum = 0.0;
+        double   SumX      = 0.0;
+        double   SumY      = 0.0;
+        double   SumZ      = 0.0;
+        double   SumXX     = 0.0;
+        double   SumYY     = 0.0;
+        double   SumZZ     = 0.0;
+        float    PeakRho   = 0.0f;
+        uint32_t CellCount = 0u;
+    };
+    std::array<PlumeAccumulator, 8u> Buckets {};
+
+    const uint32_t W = DensityGrid.Width;
+    const uint32_t H = DensityGrid.Height;
+    const uint32_t D = DensityGrid.Depth;
+    for (uint32_t Z = 0u; Z < D; ++Z)
+    {
+        for (uint32_t Y = 0u; Y < H; ++Y)
+        {
+            for (uint32_t X = 0u; X < W; ++X)
+            {
+                const std::size_t Idx = DensityGrid.LinearIndex(
+                    static_cast<int32_t>(X), static_cast<int32_t>(Y), static_cast<int32_t>(Z));
+                const float Rho = DensityGrid.Cells[Idx][0];
+                if (Rho <= 0.020f)
+                {
+                    continue;
+                }
+
+                const auto Wp = Frontier::SimulationSpace::Fluid::WorldFromFluidCell(VolU, {
+                    static_cast<float>(X) + 0.5f,
+                    static_cast<float>(Y) + 0.5f,
+                    static_cast<float>(Z) + 0.5f
+                });
+                const float Rx = Wp[0] - Reading.WorldPositionMeters.X;
+                const float Ry = Wp[1] - Reading.WorldPositionMeters.Y;
+                const float Rz = Wp[2] - Reading.WorldPositionMeters.Z;
+                const float LocalFwd   = Rx * FwdYUp.X + Ry * FwdYUp.Y + Rz * FwdYUp.Z;
+                const float LocalRight = Rx * RightYUp.X + Ry * RightYUp.Y + Rz * RightYUp.Z;
+
+                uint32_t BIdx = 0u;
+                if (LocalFwd > -2.6f)
+                {
+                    const bool Rising = (Wp[1] >= 1.15f);
+                    BIdx = (Rising ? 2u : 0u) + ((LocalRight > 0.0f) ? 1u : 0u);
+                }
+                else if (LocalFwd > -5.2f)
+                {
+                    BIdx = (LocalRight > 0.0f) ? 5u : 4u;
+                }
+                else if (LocalFwd > -8.2f)
+                {
+                    BIdx = 6u;
+                }
+                else
+                {
+                    BIdx = 7u;
+                }
+
+                auto& B = Buckets[BIdx];
+                const double Wd = static_cast<double>(Rho);
+                B.WeightSum += Wd;
+                B.SumX      += Wd * static_cast<double>(Wp[0]);
+                B.SumY      += Wd * static_cast<double>(Wp[1]);
+                B.SumZ      += Wd * static_cast<double>(Wp[2]);
+                B.SumXX     += Wd * static_cast<double>(Wp[0]) * static_cast<double>(Wp[0]);
+                B.SumYY     += Wd * static_cast<double>(Wp[1]) * static_cast<double>(Wp[1]);
+                B.SumZZ     += Wd * static_cast<double>(Wp[2]) * static_cast<double>(Wp[2]);
+                B.PeakRho    = std::max(B.PeakRho, Rho);
+                ++B.CellCount;
+            }
+        }
+    }
+
+    const std::size_t MaxDynamicVolumes =
+        (StaticLocalFogBaselineCount < 8u) ? (8u - StaticLocalFogBaselineCount) : 0u;
+    std::size_t Added = 0u;
+    for (const auto& B : Buckets)
+    {
+        if (Added >= MaxDynamicVolumes || B.CellCount == 0u || B.WeightSum < 0.08)
+        {
+            continue;
+        }
+        const double InvW = 1.0 / B.WeightSum;
+        const float MeanX = static_cast<float>(B.SumX * InvW);
+        const float MeanY = static_cast<float>(B.SumY * InvW);
+        const float MeanZ = static_cast<float>(B.SumZ * InvW);
+
+        const float StdX = std::sqrt(std::max(0.0f, static_cast<float>(B.SumXX * InvW) - MeanX * MeanX));
+        const float StdY = std::sqrt(std::max(0.0f, static_cast<float>(B.SumYY * InvW) - MeanY * MeanY));
+        const float StdZ = std::sqrt(std::max(0.0f, static_cast<float>(B.SumZZ * InvW) - MeanZ * MeanZ));
+
+        const float HalfYUpX = std::clamp(StdX * 2.15f + CellSize * 0.90f, 0.55f, 4.2f);
+        const float HalfYUpY = std::clamp(StdY * 2.15f + CellSize * 0.85f, 0.48f, 3.4f);
+        const float HalfYUpZ = std::clamp(StdZ * 2.15f + CellSize * 0.90f, 0.55f, 4.2f);
+
+        Axis3D CenterZUp = ConvertVectorBetweenBases(
+            { MeanX, MeanY, MeanZ },
+            WorldCoordinateBasis::RightHandedYUp,
+            WorldCoordinateBasis::RightHandedZUp);
+        const Scalar3D HalfZUp { HalfYUpX, HalfYUpZ, HalfYUpY };
+        CenterZUp.Z = std::max(CenterZUp.Z, HalfZUp.Z * 0.42f);
+
+        const float MeanRho = static_cast<float>(B.WeightSum / static_cast<double>(B.CellCount));
+        const float EffRho  = 0.55f * MeanRho + 0.45f * B.PeakRho;
+        const float MassRamp = std::clamp(static_cast<float>(B.WeightSum / 0.65), 0.15f, 1.0f);
+        const float VolDensity = std::clamp(EffRho * 13.5f * MassRamp, 0.0f, 18.0f);
+        if (VolDensity <= 0.03f)
+        {
+            continue;
+        }
+
+        LocalFogVolume SmokeVol {};
+        SmokeVol.Enabled               = true;
+        SmokeVol.FollowWind            = false;
+        SmokeVol.Shape                 = AtmosphericVolumeShape::Ellipsoid;
+        SmokeVol.VolumeCenterMeters    = CenterZUp;
+        SmokeVol.HalfExtentMeters      = HalfZUp;
+        SmokeVol.YawDegrees            = 0.0f;
+        SmokeVol.EdgeSoftness          = 0.62f;
+        SmokeVol.Density               = VolDensity;
+        SmokeVol.Coverage              = 0.78f;
+        SmokeVol.FeatureScaleMeters    = 0.78f;
+        SmokeVol.AnisotropyG           = 0.54f;
+        SmokeVol.AbsorptionRatio       = 0.06f;
+        SmokeVol.SelfShadowEnabled     = true;
+        SmokeVol.DensityFalloffEnabled = true;
+        SmokeVol.MarchSteps            = 32u;
+        SmokeVol.FogTint               = { 0.89f, 0.91f, 0.94f };
+        WorldScene.Atmosphere.Fog.LocalFogs.push_back(SmokeVol);
+        ++Added;
+    }
+}
+
 void LobbyLifecycle::ApplySimulationTime(double ElapsedSeconds) noexcept
 {
     SimulationClockSeconds = std::max(0.0, ElapsedSeconds);
+    WorldScene.Atmosphere.SimulationSeconds = static_cast<float>(SimulationClockSeconds);
     UpdateDynamicEmissiveOrb(SimulationClockSeconds);
     (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
 }
@@ -635,6 +950,7 @@ void LobbyLifecycle::ApplySimulationTime(double ElapsedSeconds) noexcept
 void LobbyLifecycle::TickSimulation(double FixedDeltaSeconds) noexcept
 {
     SimulationClockSeconds += FixedDeltaSeconds;
+    WorldScene.Atmosphere.SimulationSeconds = static_cast<float>(SimulationClockSeconds);
     const float Dt = static_cast<float>(std::clamp(FixedDeltaSeconds, 0.001, 0.05));
 
     UpdateDynamicEmissiveOrb(SimulationClockSeconds);
@@ -651,17 +967,60 @@ void LobbyLifecycle::TickSimulation(double FixedDeltaSeconds) noexcept
         const auto Reading = HeroVehicleRig->AcquireVehicleReading();
         if (Reading.Valid())
         {
-            constexpr float ChassisGroundOffsetY = 0.41715f;
-            const Axis3D WorldZUp = ConvertVectorBetweenBases(
+            Axis3D WorldZUp = ConvertVectorBetweenBases(
                 { Reading->WorldPositionMeters.X,
-                  Reading->WorldPositionMeters.Y - ChassisGroundOffsetY,
+                  Reading->WorldPositionMeters.Y - HeroSettledChassisHeightY,
                   Reading->WorldPositionMeters.Z },
                 WorldCoordinateBasis::RightHandedYUp,
                 WorldCoordinateBasis::RightHandedZUp);
-            (void)WorldRegister.AssignWorldTransform(HeroVehicleEntityToken, WorldZUp.X, WorldZUp.Y, WorldZUp.Z);
+            WorldZUp.Z = std::max(0.0f, WorldZUp.Z);
+
+            // Extract chassis world yaw around +Z from Jolt Y-up orientation quaternion (+X forward)
+            const auto& Q = Reading->WorldOrientation;
+            const Axis3D FwdYUp {
+                1.0f - 2.0f * (Q.Y * Q.Y + Q.Z * Q.Z),
+                2.0f * (Q.X * Q.Y + Q.W * Q.Z),
+                2.0f * (Q.X * Q.Z - Q.W * Q.Y)
+            };
+            const Axis3D FwdZUp = ConvertVectorBetweenBases(
+                FwdYUp,
+                WorldCoordinateBasis::RightHandedYUp,
+                WorldCoordinateBasis::RightHandedZUp);
+            const float YawZUpDeg = std::atan2(FwdZUp.Y, FwdZUp.X) * Frontier::Constants::RadToDegFloat;
+
+            HeroCurrentPositionZUp   = WorldZUp;
+            HeroCurrentYawZUpDegrees = YawZUpDeg;
+
+            (void)WorldRegister.AssignWorldTransform(
+                HeroVehicleEntityToken,
+                WorldZUp.X,
+                WorldZUp.Y,
+                WorldZUp.Z,
+                0.0f,
+                0.0f,
+                YawZUpDeg);
+
+            if (HeroTireSmokeActive && HeroTireSmoke)
+            {
+                constexpr double FluidStepSec = 1.0 / 30.0;
+                TireSmokeStepAccumulator += static_cast<double>(Dt);
+                uint32_t FluidSteps = 0u;
+                while (TireSmokeStepAccumulator >= FluidStepSec && FluidSteps < 2u)
+                {
+                    HeroTireSmoke->StepSingleVehicle(*Reading, HeroVehicleSpec, static_cast<float>(FluidStepSec));
+                    TireSmokeStepAccumulator -= FluidStepSec;
+                    ++FluidSteps;
+                }
+                if (FluidSteps > 0u)
+                {
+                    ProjectTireFluidSmokeToLocalFogs(*Reading);
+                }
+            }
         }
     }
 
+    // Flush dirty world transforms (including HeroVehicle live position & yaw) BEFORE simulation clears rebuild flags!
+    (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
     (void)World::ExecuteWorldSimulationSequence(WorldRegister, Dt, true);
     (void)SceneSyncBridge.FlushRebuiltTransformsToScene(WorldRegister, WorldScene);
 
