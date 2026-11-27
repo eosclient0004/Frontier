@@ -12,6 +12,7 @@
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Engine/GeometrySpace/Primitives/RevolutionSweepPrimitives.h"
 #include "Engine/GeometrySpace/Selection/IslandFloodSelection.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -34,8 +35,6 @@ using namespace Frontier::Mathematics;
 namespace
 {
 
-constexpr float TwoPiF = 6.283185307179586f;
-constexpr float PiF    = 3.141592653589793f;
 
 [[nodiscard]] Axis3D SafeNormalize(Axis3D V, Axis3D DefaultAxis = { 0.0f, 0.0f, 1.0f }) noexcept
 {
@@ -203,7 +202,7 @@ void AppendSculptedBox(
                             const float DB = std::sqrt(Dx * Dx + Dy * Dy);
                             if (DB < 0.095f)
                             {
-                                Disp += 0.030f * std::cos((DB / 0.095f) * (PiF * 0.5f));
+                                Disp += 0.030f * std::cos((DB / 0.095f) * (Frontier::Constants::PiFloat * 0.5f));
                             }
                         }
                     }
@@ -212,7 +211,7 @@ void AppendSculptedBox(
                     const float CrossMin = std::min(std::fabs(Lx), std::fabs(Ly));
                     if (RCenter > 0.24f && RCenter < 0.72f && CrossMin < 0.035f)
                     {
-                        Disp -= 0.014f * std::cos((CrossMin / 0.035f) * (PiF * 0.5f));
+                        Disp -= 0.014f * std::cos((CrossMin / 0.035f) * (Frontier::Constants::PiFloat * 0.5f));
                     }
                 }
                 else
@@ -269,14 +268,14 @@ void AppendSculptedUvSphere(
     for (uint32_t Lat = 0u; Lat <= LatRings; ++Lat)
     {
         const float V     = static_cast<float>(Lat) / static_cast<float>(LatRings);
-        const float Theta = (1.0f - V) * PiF; // V=1 North pole (+Z), V=0 South pole (-Z)
+        const float Theta = (1.0f - V) * Frontier::Constants::PiFloat; // V=1 North pole (+Z), V=0 South pole (-Z)
         const float SinT  = std::sin(Theta);
         const float CosT  = std::cos(Theta);
 
         for (uint32_t Lon = 0u; Lon <= LonSegs; ++Lon)
         {
             const float U   = static_cast<float>(Lon) / static_cast<float>(LonSegs);
-            const float Phi = U * TwoPiF;
+            const float Phi = U * Frontier::Constants::TauFloat;
             const float CosP = std::cos(Phi);
             const float SinP = std::sin(Phi);
 
@@ -370,7 +369,7 @@ void AppendUtahTeapotStudy(PolygonNetwork& Target, bool HighDetail)
         { 0.0f, 0.0f, 1.0f },
         BodyProfile,
         BodyRadial,
-        TwoPiF,
+        Frontier::Constants::TauFloat,
         false,
         { { 0.03f, 0.03f }, { 0.52f, 0.54f } },
         {},
@@ -404,7 +403,7 @@ void AppendUtahTeapotStudy(PolygonNetwork& Target, bool HighDetail)
         { 0.0f, 0.0f, 1.0f },
         LidProfile,
         HighDetail ? 64u : 24u,
-        TwoPiF,
+        Frontier::Constants::TauFloat,
         false,
         { { 0.56f, 0.03f }, { 0.97f, 0.44f } },
         {},
@@ -415,7 +414,7 @@ void AppendUtahTeapotStudy(PolygonNetwork& Target, bool HighDetail)
     std::vector<Axis2D> SpoutSection;
     for (uint32_t I = 0u; I < TubeSegs; ++I)
     {
-        const float Ang = TwoPiF * static_cast<float>(I) / static_cast<float>(TubeSegs);
+        const float Ang = Frontier::Constants::TauFloat * static_cast<float>(I) / static_cast<float>(TubeSegs);
         float Mod = 1.0f;
         if (HighDetail)
         {
@@ -447,7 +446,7 @@ void AppendUtahTeapotStudy(PolygonNetwork& Target, bool HighDetail)
     std::vector<Axis2D> HandleSection;
     for (uint32_t I = 0u; I < TubeSegs; ++I)
     {
-        const float Ang = TwoPiF * static_cast<float>(I) / static_cast<float>(TubeSegs);
+        const float Ang = Frontier::Constants::TauFloat * static_cast<float>(I) / static_cast<float>(TubeSegs);
         float Ridge = HighDetail ? (1.0f + 0.08f * std::cos(Ang * 2.0f)) : 1.0f;
         HandleSection.push_back({ std::cos(Ang) * 0.064f * Ridge, std::sin(Ang) * 0.048f });
     }
@@ -562,7 +561,7 @@ void AppendTorusKnotStudy(PolygonNetwork& Target, bool HighDetail)
     std::vector<Axis2D> Section;
     for (uint32_t J = 0u; J < RadialSegs; ++J)
     {
-        const float Ang = TwoPiF * static_cast<float>(J) / static_cast<float>(RadialSegs);
+        const float Ang = Frontier::Constants::TauFloat * static_cast<float>(J) / static_cast<float>(RadialSegs);
         float R = 0.155f;
         if (HighDetail)
         {
@@ -575,7 +574,7 @@ void AppendTorusKnotStudy(PolygonNetwork& Target, bool HighDetail)
     Spine.reserve(SpineSamples);
     for (uint32_t I = 0u; I < SpineSamples; ++I)
     {
-        const float T = TwoPiF * static_cast<float>(I) / static_cast<float>(SpineSamples);
+        const float T = Frontier::Constants::TauFloat * static_cast<float>(I) / static_cast<float>(SpineSamples);
         const float P = 2.0f * T;
         const float Q = 3.0f * T;
         const float R = 0.52f + 0.22f * std::cos(Q);

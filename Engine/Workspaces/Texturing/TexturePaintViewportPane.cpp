@@ -10,6 +10,7 @@
 #include "Engine/Components/Controls/ControlAppearance.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Workspaces/Texturing/TexturingPaneAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -224,7 +225,7 @@ void ConstructProceduralStampPreview(
         case 12u: // Star
             for (int I = 0; I < 5; ++I)
             {
-                const float A = static_cast<float>(I) * 1.256637f - 1.570796f;
+                const float A = static_cast<float>(I) * 1.256637f - Frontier::Constants::HalfPiFloat;
                 Surface.StrokeLine(Center, { Center.X + std::cos(A) * 15.0f, Center.Y + std::sin(A) * 15.0f }, WhiteFull, 3.2f);
             }
             Surface.FillCircle(Center, 5.5f, WhiteFull);
@@ -296,9 +297,9 @@ void ConstructBrushStrokePreviewWave(
     for (int I = 0; I <= Samples; ++I)
     {
         const float T     = static_cast<float>(I) / static_cast<float>(Samples);
-        const float Taper = std::sin(T * 3.14159f);
+        const float Taper = std::sin(T * Frontier::Constants::PiFloat);
         const float X     = StartX + T * SpanX;
-        const float Y     = MidY - std::sin(T * 6.28318f) * 7.2f;
+        const float Y     = MidY - std::sin(T * Frontier::Constants::TauFloat) * 7.2f;
         const float R     = std::max(1.2f, BaseRadius * (0.28f + 0.72f * Taper));
 
         if (Preset.TipShape == BrushTipShape::Splatter)

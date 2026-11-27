@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/ComponentClassSimulationAssembler.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,13 +20,12 @@ namespace Frontier::SimulationSpace
 namespace
 {
 
-constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 
 std::array<float, 3> RotateYzx(const std::array<float, 3>& v, const Mathematics::Axis3D& deg) noexcept
 {
-    const float ry = deg.Y * kDegToRad;
-    const float rz = deg.Z * kDegToRad;
-    const float rx = deg.X * kDegToRad;
+    const float ry = deg.Y * Frontier::Constants::DegToRadFloat;
+    const float rz = deg.Z * Frontier::Constants::DegToRadFloat;
+    const float rx = deg.X * Frontier::Constants::DegToRadFloat;
 
     // X rotation
     const float cx = std::cos(rx), sx = std::sin(rx);

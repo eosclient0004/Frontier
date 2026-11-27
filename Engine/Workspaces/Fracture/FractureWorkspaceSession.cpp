@@ -4,6 +4,8 @@
 // 🧩 Implementation of FractureWorkspaceSession: 9 Port-8091 analytical primitives, Torus/Pipe convex wedges, 6-solver dispatch & Jolt sim
 
 #include "Engine/Workspaces/Fracture/FractureWorkspaceSession.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -21,8 +23,7 @@ using namespace GeometrySpace::Fracture;
 namespace
 {
 
-constexpr double PiConst  = 3.14159265358979323846;
-constexpr double TauConst = PiConst * 2.0;
+constexpr double TauConst = Frontier::Constants::Pi * 2.0;
 
 [[nodiscard]] const char* SolverShortTitle(FractureSolverMethod Method) noexcept
 {
@@ -53,7 +54,7 @@ constexpr double TauConst = PiConst * 2.0;
     Poly.Vertices.push_back({ 0.0f, 0.0f, R });
     for (uint32_t I = 1u; I < Rings; ++I)
     {
-        const double Phi = PiConst * static_cast<double>(I) / static_cast<double>(Rings);
+        const double Phi = Frontier::Constants::Pi * static_cast<double>(I) / static_cast<double>(Rings);
         const float Z    = static_cast<float>(R * std::cos(Phi));
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
@@ -103,7 +104,7 @@ constexpr double TauConst = PiConst * 2.0;
     const uint32_t HalfRings = std::max(2u, Rings / 2u);
     for (uint32_t I = 1u; I <= HalfRings; ++I)
     {
-        const double Phi  = (PiConst * 0.5) * static_cast<double>(I) / static_cast<double>(HalfRings);
+        const double Phi  = (Frontier::Constants::Pi * 0.5) * static_cast<double>(I) / static_cast<double>(HalfRings);
         const float Z     = HalfL + static_cast<float>(R * std::cos(Phi));
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
@@ -114,7 +115,7 @@ constexpr double TauConst = PiConst * 2.0;
     }
     for (uint32_t I = 0u; I < HalfRings; ++I)
     {
-        const double Phi  = (PiConst * 0.5) + (PiConst * 0.5) * static_cast<double>(I) / static_cast<double>(HalfRings);
+        const double Phi  = (Frontier::Constants::Pi * 0.5) + (Frontier::Constants::Pi * 0.5) * static_cast<double>(I) / static_cast<double>(HalfRings);
         const float Z     = -HalfL + static_cast<float>(R * std::cos(Phi));
         const float RingR = static_cast<float>(R * std::sin(Phi));
         for (uint32_t J = 0u; J < Slices; ++J)
@@ -926,7 +927,7 @@ void FractureWorkspaceSession::RebuildSourceGeometry()
         break;
     case FractureIcons::PrimitiveShapeId::HexColumn:
     {
-        const float SideR = (DimPrimaryA * 0.5f) / std::cos(static_cast<float>(PiConst / 6.0));
+        const float SideR = (DimPrimaryA * 0.5f) / std::cos(static_cast<float>(Frontier::Constants::Pi / 6.0));
         SourceSolid = ConvexPartitioning::ConstructPrismPolyhedron(SideR, SideR, DimPrimaryB, 6u);
         SourceParts.push_back(SourceSolid);
         SourceSegmentCount = 1u;
@@ -1271,7 +1272,7 @@ void FractureWorkspaceSession::ExecuteFracturePartitionOnly()
             const double Spread = Falloff * 0.55;
             for (uint32_t K = 0u; K < 72u && TouchCount < TargetCells; ++K)
             {
-                const double Ang  = Rand.NextDouble() * PiConst;
+                const double Ang  = Rand.NextDouble() * Frontier::Constants::Pi;
                 const double Tilt = (Rand.NextDouble() - 0.5) * 0.65;
                 const auto N = Mathematics::NormalizeAxis(
                     Tu * static_cast<float>(std::cos(Ang)) + Tv * static_cast<float>(std::sin(Ang)) + Travel * static_cast<float>(Tilt));
@@ -1878,12 +1879,12 @@ double FractureWorkspaceSession::QueryExactVolumeM3() const noexcept
     switch (ActiveShape)
     {
     case FractureIcons::PrimitiveShapeId::Box:       return static_cast<double>(DimPrimaryA) * DimPrimaryB * DimPrimaryC;
-    case FractureIcons::PrimitiveShapeId::Sphere:    return (4.0 / 3.0) * PiConst * std::pow(DimPrimaryA, 3.0);
-    case FractureIcons::PrimitiveShapeId::Cylinder:  return PiConst * DimPrimaryA * DimPrimaryA * DimPrimaryB;
-    case FractureIcons::PrimitiveShapeId::Cone:      return (PiConst * DimPrimaryA * DimPrimaryA * DimPrimaryB) / 3.0;
-    case FractureIcons::PrimitiveShapeId::Capsule:   return PiConst * DimPrimaryA * DimPrimaryA * DimPrimaryB + (4.0 / 3.0) * PiConst * std::pow(DimPrimaryA, 3.0);
-    case FractureIcons::PrimitiveShapeId::Torus:     return 2.0 * PiConst * PiConst * DimPrimaryA * DimPrimaryB * DimPrimaryB;
-    case FractureIcons::PrimitiveShapeId::Pipe:      return PiConst * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB) * DimPrimaryC;
+    case FractureIcons::PrimitiveShapeId::Sphere:    return (4.0 / 3.0) * Frontier::Constants::Pi * std::pow(DimPrimaryA, 3.0);
+    case FractureIcons::PrimitiveShapeId::Cylinder:  return Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA * DimPrimaryB;
+    case FractureIcons::PrimitiveShapeId::Cone:      return (Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA * DimPrimaryB) / 3.0;
+    case FractureIcons::PrimitiveShapeId::Capsule:   return Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA * DimPrimaryB + (4.0 / 3.0) * Frontier::Constants::Pi * std::pow(DimPrimaryA, 3.0);
+    case FractureIcons::PrimitiveShapeId::Torus:     return 2.0 * Frontier::Constants::Pi * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryB * DimPrimaryB;
+    case FractureIcons::PrimitiveShapeId::Pipe:      return Frontier::Constants::Pi * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB) * DimPrimaryC;
     case FractureIcons::PrimitiveShapeId::Pane:      return static_cast<double>(DimPrimaryA) * DimPrimaryB * (DimPrimaryC / 1000.0);
     case FractureIcons::PrimitiveShapeId::HexColumn: return 2.0 * std::sqrt(3.0) * std::pow(DimPrimaryA * 0.5, 2.0) * DimPrimaryB;
     default: return PartitionResult.Receipt.SourceVolumeM3;
@@ -1895,12 +1896,12 @@ double FractureWorkspaceSession::QueryExactAreaM2() const noexcept
     switch (ActiveShape)
     {
     case FractureIcons::PrimitiveShapeId::Box:       return 2.0 * (DimPrimaryA * DimPrimaryB + DimPrimaryB * DimPrimaryC + DimPrimaryA * DimPrimaryC);
-    case FractureIcons::PrimitiveShapeId::Sphere:    return 4.0 * PiConst * DimPrimaryA * DimPrimaryA;
+    case FractureIcons::PrimitiveShapeId::Sphere:    return 4.0 * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA;
     case FractureIcons::PrimitiveShapeId::Cylinder:  return TauConst * DimPrimaryA * (DimPrimaryA + DimPrimaryB);
-    case FractureIcons::PrimitiveShapeId::Cone:      return PiConst * DimPrimaryA * (DimPrimaryA + std::hypot(DimPrimaryA, DimPrimaryB));
-    case FractureIcons::PrimitiveShapeId::Capsule:   return TauConst * DimPrimaryA * DimPrimaryB + 4.0 * PiConst * DimPrimaryA * DimPrimaryA;
-    case FractureIcons::PrimitiveShapeId::Torus:     return 4.0 * PiConst * PiConst * DimPrimaryA * DimPrimaryB;
-    case FractureIcons::PrimitiveShapeId::Pipe:      return TauConst * (DimPrimaryA + DimPrimaryB) * DimPrimaryC + 2.0 * PiConst * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB);
+    case FractureIcons::PrimitiveShapeId::Cone:      return Frontier::Constants::Pi * DimPrimaryA * (DimPrimaryA + std::hypot(DimPrimaryA, DimPrimaryB));
+    case FractureIcons::PrimitiveShapeId::Capsule:   return TauConst * DimPrimaryA * DimPrimaryB + 4.0 * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryA;
+    case FractureIcons::PrimitiveShapeId::Torus:     return 4.0 * Frontier::Constants::Pi * Frontier::Constants::Pi * DimPrimaryA * DimPrimaryB;
+    case FractureIcons::PrimitiveShapeId::Pipe:      return TauConst * (DimPrimaryA + DimPrimaryB) * DimPrimaryC + 2.0 * Frontier::Constants::Pi * (DimPrimaryA * DimPrimaryA - DimPrimaryB * DimPrimaryB);
     case FractureIcons::PrimitiveShapeId::Pane:      return 2.0 * (DimPrimaryA * DimPrimaryB + (DimPrimaryA + DimPrimaryB) * (DimPrimaryC / 1000.0));
     case FractureIcons::PrimitiveShapeId::HexColumn:
     {
@@ -1985,11 +1986,11 @@ const char* FractureWorkspaceSession::QuerySolverShortLabel(FractureSolverMethod
 
 uint64_t FractureWorkspaceSession::ComputeViewportRenderSignature() const noexcept
 {
-    uint64_t H = 14695981039346656037ull;
+    uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     auto Mix = [&](uint64_t V)
     {
         H ^= V;
-        H *= 1099511628211ull;
+        H *= Frontier::Constants::Fnv1a64Prime;
     };
     Mix(SessionRevision);
     Mix(static_cast<uint64_t>(ActiveShape));

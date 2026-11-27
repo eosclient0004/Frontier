@@ -7,6 +7,7 @@
 #include "Engine/GeometricRaster/Atmosphere/AtmosphericSkySequence.h"
 #include "Engine/GeometricRaster/Atmosphere/J2000BrightStarRepository.h"
 #include "Engine/Codecs/ImageCodec.h"
+#include "Engine/Mathematics/LinearColors.h"
 
 #if __has_include(<stb_image.h>)
 #define STB_IMAGE_STATIC
@@ -1598,7 +1599,7 @@ Mathematics::LinearRGB LunarStarfieldSequence::EvaluateCelestialField(
                 constexpr float TexV = 1.0f / static_cast<float>(AtlasTileHeightPx);
                 auto TexLum = [](const Mathematics::LinearRGB& C) noexcept -> float
                 {
-                    return 0.2126f * C.R + 0.7152f * C.G + 0.0722f * C.B;
+                    return Frontier::Mathematics::EvaluateRec709Luminance(C);
                 };
                 const float HEast  = TexLum(SampleAtlasEquirectangular(Atlas, static_cast<uint32_t>(Moon.SurfacePreset), LonU + TexU, LatV));
                 const float HWest  = TexLum(SampleAtlasEquirectangular(Atlas, static_cast<uint32_t>(Moon.SurfacePreset), LonU - TexU, LatV));

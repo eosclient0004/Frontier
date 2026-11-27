@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Appearance/TypographyRepository.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <imgui.h>
 #include <toml++/toml.hpp>
@@ -53,16 +54,6 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 //                                              STRING & WEIGHT QUANTIZATION
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Input)
-{
-    std::string Lowered{};
-    Lowered.reserve(Input.size());
-    for (unsigned char Character : Input)
-    {
-        Lowered.push_back(static_cast<char>(std::tolower(Character)));
-    }
-    return Lowered;
-}
 
 [[nodiscard]] std::string NormalizeGroupKey(std::string_view Input)
 {
@@ -85,7 +76,7 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 
 [[nodiscard]] FontWeightClass ClassifyWeightFromFilename(std::string_view Stem, bool& ItalicDetected)
 {
-    const std::string Lower = LowercaseAscii(Stem);
+    const std::string Lower = Frontier::Serialization::LowercaseAscii(Stem);
     ItalicDetected          = Lower.find("italic") != std::string::npos || Lower.find("oblique") != std::string::npos;
 
     if (Lower.find("thin") != std::string::npos || Lower.find("hairline") != std::string::npos)
@@ -125,7 +116,7 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 
 [[nodiscard]] bool QueryMonospacedGroup(std::string_view Name)
 {
-    return LowercaseAscii(Name).find("mono") != std::string::npos;
+    return Frontier::Serialization::LowercaseAscii(Name).find("mono") != std::string::npos;
 }
 
 } // namespace
@@ -258,7 +249,7 @@ uint32_t TypographyRepository::LoadRepository(const std::filesystem::path& Repos
             {
                 continue;
             }
-            const std::string Extension = LowercaseAscii(DirectoryEntry.path().extension().string());
+            const std::string Extension = Frontier::Serialization::LowercaseAscii(DirectoryEntry.path().extension().string());
             if (Extension != ".ttf" && Extension != ".otf")
             {
                 continue;

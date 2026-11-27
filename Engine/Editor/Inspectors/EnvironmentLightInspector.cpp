@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/EnvironmentLightInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -38,7 +39,7 @@ void EnvironmentLightInspector::UpdateHemisphereSurface(const EnvironmentLightIn
     {
         const float SideCx = 166.0f, SideCy = 216.0f, SideR = 132.0f;
         const float TopCx  = 416.0f, TopCy  = 144.0f, TopR  = 86.0f;
-        const float AzRad  = (135.0f + Instance.RotationDegrees) * 0.01745329f;
+        const float AzRad  = (135.0f + Instance.RotationDegrees) * Frontier::Constants::DegToRadFloat;
         const float SunTx  = TopCx + std::sin(AzRad) * TopR * 0.56f;
         const float SunTy  = TopCy - std::cos(AzRad) * TopR * 0.56f;
 

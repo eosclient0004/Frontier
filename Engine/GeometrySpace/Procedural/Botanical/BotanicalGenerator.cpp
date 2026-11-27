@@ -12,6 +12,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalGenerator.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,9 +26,7 @@ namespace
 {
 
 using V3 = std::array<float, 3>;
-constexpr float kPi      = 3.14159265358979323846f;
-constexpr float kTau     = 6.28318530717958647692f;
-constexpr float kDeg2Rad = kPi / 180.0f;
+constexpr float kDeg2Rad = Frontier::Constants::PiFloat / 180.0f;
 constexpr float kGolden  = 2.39996322972865332f;
 constexpr V3    kUpZ     { 0.0f, 0.0f, 1.0f };
 
@@ -34,12 +34,7 @@ constexpr V3    kUpZ     { 0.0f, 0.0f, 1.0f };
 [[nodiscard]] inline V3 Sub3(const V3& a, const V3& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] inline V3 Mul3(const V3& a, float s) noexcept     { return { a[0] * s, a[1] * s, a[2] * s }; }
 [[nodiscard]] inline V3 AddScaled3(const V3& a, const V3& b, float s) noexcept { return { a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s }; }
-[[nodiscard]] inline float Dot3(const V3& a, const V3& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-[[nodiscard]] inline V3 Cross3(const V3& a, const V3& b) noexcept
-{
-    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-}
-[[nodiscard]] inline float LenSq3(const V3& a) noexcept { return Dot3(a, a); }
+[[nodiscard]] inline float LenSq3(const V3& a) noexcept { return Frontier::Mathematics::EvaluateDot3(a, a); }
 [[nodiscard]] inline float Len3(const V3& a) noexcept   { return std::sqrt(LenSq3(a)); }
 [[nodiscard]] inline V3 Norm3(const V3& a, const V3& fb = kUpZ) noexcept
 {
@@ -50,35 +45,30 @@ constexpr V3    kUpZ     { 0.0f, 0.0f, 1.0f };
 {
     return { a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t };
 }
-[[nodiscard]] inline V3 ProjectOnPlane3(const V3& v, const V3& n) noexcept { return Sub3(v, Mul3(n, Dot3(v, n))); }
+[[nodiscard]] inline V3 ProjectOnPlane3(const V3& v, const V3& n) noexcept { return Sub3(v, Mul3(n, Frontier::Mathematics::EvaluateDot3(v, n))); }
 [[nodiscard]] inline V3 AnyPerp3(const V3& n) noexcept
 {
     const V3 ref = (std::fabs(n[2]) < 0.85f) ? kUpZ : V3{ 1.0f, 0.0f, 0.0f };
-    return Norm3(Cross3(ref, n));
-}
-[[nodiscard]] inline float SmoothStep(float e0, float e1, float x) noexcept
-{
-    const float t = std::clamp((x - e0) / std::max(e1 - e0, 1.0e-5f), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+    return Norm3(Frontier::Mathematics::EvaluateCross3(ref, n));
 }
 [[nodiscard]] inline V3 RotateAxis(const V3& v, const V3& axis, float rad) noexcept
 {
     const V3 k = Norm3(axis);
     const float c = std::cos(rad), s = std::sin(rad);
-    return Add3(Add3(Mul3(v, c), Mul3(Cross3(k, v), s)), Mul3(k, Dot3(k, v) * (1.0f - c)));
+    return Add3(Add3(Mul3(v, c), Mul3(Frontier::Mathematics::EvaluateCross3(k, v), s)), Mul3(k, Frontier::Mathematics::EvaluateDot3(k, v) * (1.0f - c)));
 }
 [[nodiscard]] inline V3 RotateTowards(const V3& from, const V3& to, float maxRad) noexcept
 {
-    const float ang = std::acos(std::clamp(Dot3(from, to), -1.0f, 1.0f));
+    const float ang = std::acos(std::clamp(Frontier::Mathematics::EvaluateDot3(from, to), -1.0f, 1.0f));
     if (ang <= 1.0e-6f || maxRad <= 0.0f) return from;
     if (ang <= maxRad) return to;
-    V3 ax = Cross3(from, to);
+    V3 ax = Frontier::Mathematics::EvaluateCross3(from, to);
     if (LenSq3(ax) < 1.0e-10f) ax = AnyPerp3(from);
     return Norm3(RotateAxis(from, ax, maxRad));
 }
 [[nodiscard]] inline float AngleBetween(const V3& a, const V3& b) noexcept
 {
-    return std::acos(std::clamp(Dot3(a, b) / std::max(1.0e-7f, Len3(a) * Len3(b)), -1.0f, 1.0f));
+    return std::acos(std::clamp(Frontier::Mathematics::EvaluateDot3(a, b) / std::max(1.0e-7f, Len3(a) * Len3(b)), -1.0f, 1.0f));
 }
 
 class DetRng
@@ -107,8 +97,8 @@ void EmitTriSmooth(
     const V3& n0, const V3& n1, const V3& n2,
     const V3& col, float windFlex, float phase, BotanicalPartTag part)
 {
-    const V3 fn = Cross3(Sub3(v1, v0), Sub3(v2, v0));
-    if (Dot3(fn, fn) < 1.0e-12f) return;
+    const V3 fn = Frontier::Mathematics::EvaluateCross3(Sub3(v1, v0), Sub3(v2, v0));
+    if (Frontier::Mathematics::EvaluateDot3(fn, fn) < 1.0e-12f) return;
     BotanicalTriangle t {};
     t.V0 = v0; t.V1 = v1; t.V2 = v2;
     t.RestV0 = v0; t.RestV1 = v1; t.RestV2 = v2;
@@ -131,7 +121,7 @@ void EmitTri(
     const V3& v0, const V3& v1, const V3& v2,
     const V3& col, float windFlex, float phase, BotanicalPartTag part)
 {
-    const V3 fn = Norm3(Cross3(Sub3(v1, v0), Sub3(v2, v0)));
+    const V3 fn = Norm3(Frontier::Mathematics::EvaluateCross3(Sub3(v1, v0), Sub3(v2, v0)));
     EmitTriSmooth(out, v0, v1, v2, fn, fn, fn, col, windFlex, phase, part);
 }
 
@@ -158,8 +148,8 @@ void EmitWeldedQuadMeshToPlant(
         const V3& p1 = wm.Positions[q[1]];
         const V3& p2 = wm.Positions[q[2]];
         const V3& p3 = wm.Positions[q[3]];
-        const V3 nA  = Cross3(Sub3(p1, p0), Sub3(p2, p0));
-        const V3 nB  = Cross3(Sub3(p2, p0), Sub3(p3, p0));
+        const V3 nA  = Frontier::Mathematics::EvaluateCross3(Sub3(p1, p0), Sub3(p2, p0));
+        const V3 nB  = Frontier::Mathematics::EvaluateCross3(Sub3(p2, p0), Sub3(p3, p0));
         const V3 fn  = Add3(nA, nB);
         for (int k = 0; k < 4; ++k)
         {
@@ -168,7 +158,7 @@ void EmitWeldedQuadMeshToPlant(
     }
     for (const auto& t : wm.Tris)
     {
-        const V3 fn = Cross3(Sub3(wm.Positions[t[1]], wm.Positions[t[0]]), Sub3(wm.Positions[t[2]], wm.Positions[t[0]]));
+        const V3 fn = Frontier::Mathematics::EvaluateCross3(Sub3(wm.Positions[t[1]], wm.Positions[t[0]]), Sub3(wm.Positions[t[2]], wm.Positions[t[0]]));
         for (int k = 0; k < 3; ++k)
         {
             smoothNormals[t[static_cast<std::size_t>(k)]] = Add3(smoothNormals[t[static_cast<std::size_t>(k)]], fn);
@@ -244,12 +234,12 @@ void EmitOvoid(
     constexpr int rings = 4, segs = 6;
     for (int i = 0; i < rings; ++i)
     {
-        const float p0 = -0.5f * kPi + kPi * (static_cast<float>(i) / rings);
-        const float p1 = -0.5f * kPi + kPi * (static_cast<float>(i + 1) / rings);
+        const float p0 = -0.5f * Frontier::Constants::PiFloat + Frontier::Constants::PiFloat * (static_cast<float>(i) / rings);
+        const float p1 = -0.5f * Frontier::Constants::PiFloat + Frontier::Constants::PiFloat * (static_cast<float>(i + 1) / rings);
         for (int j = 0; j < segs; ++j)
         {
-            const float t0 = kTau * (static_cast<float>(j) / segs);
-            const float t1 = kTau * (static_cast<float>(j + 1) / segs);
+            const float t0 = Frontier::Constants::TauFloat * (static_cast<float>(j) / segs);
+            const float t1 = Frontier::Constants::TauFloat * (static_cast<float>(j + 1) / segs);
             auto pt = [&](float phi, float th) -> V3 {
                 return { center[0] + rx * std::cos(phi) * std::cos(th),
                          center[1] + ry * std::cos(phi) * std::sin(th),
@@ -279,7 +269,7 @@ struct CurveFrame3
     const V3 dir = Norm3(Mix3(frs[i0].Dir, frs[i0 + 1u].Dir, a));
     V3 rgt = ProjectOnPlane3(Mix3(frs[i0].Right, frs[i0 + 1u].Right, a), dir);
     rgt = (LenSq3(rgt) < 1.0e-8f) ? AnyPerp3(dir) : Norm3(rgt);
-    const V3 up = Norm3(Cross3(dir, rgt));
+    const V3 up = Norm3(Frontier::Mathematics::EvaluateCross3(dir, rgt));
     return { pos, dir, rgt, up, t };
 }
 
@@ -307,7 +297,7 @@ void EmitGroovedRachis(
         const float r = rStart + (rEnd - rStart) * std::pow(fr.T, 0.85f);
         for (uint32_t j = 0u; j < sides; ++j)
         {
-            const float th = (static_cast<float>(j) / static_cast<float>(sides)) * kTau;
+            const float th = (static_cast<float>(j) / static_cast<float>(sides)) * Frontier::Constants::TauFloat;
             const float c = std::cos(th), s = std::sin(th);
             // Adaxial U-sulcus groove indentation along upper (+Up) face of fern rachis!
             const float sulcus = (s > 0.25f) ? (1.0f - 0.34f * std::pow((s - 0.25f) / 0.75f, 1.5f)) : 1.0f;
@@ -319,7 +309,7 @@ void EmitGroovedRachis(
     for (std::size_t i = 0u; i + 1u < frames.size(); ++i)
     {
         const float tm = 0.5f * (frames[i].T + frames[i + 1u].T);
-        const V3 col = Mix3(colBase, colTip, SmoothStep(0.05f, 0.65f, tm));
+        const V3 col = Mix3(colBase, colTip, Frontier::Mathematics::EvaluateSmoothStep(0.05f, 0.65f, tm));
         const float fl = baseFlex + flexSpan * std::pow(tm, 1.35f);
         for (uint32_t j = 0u; j < sides; ++j)
         {
@@ -375,15 +365,15 @@ void EmitSculptedBladeAndSdf(
     for (int i = 0; i <= lengthSegs; ++i)
     {
         const float u = static_cast<float>(i) / static_cast<float>(lengthSegs);
-        float env = std::sin(kPi * std::pow(std::clamp(u, 0.01f, 0.99f), 0.72f));
+        float env = std::sin(Frontier::Constants::PiFloat * std::pow(std::clamp(u, 0.01f, 0.99f), 0.72f));
         if (arch == LeafSdfArchetype::LobedOak)
         {
-            env *= (0.74f + 0.26f * std::fabs(std::sin(u * kPi * 3.5f)));
+            env *= (0.74f + 0.26f * std::fabs(std::sin(u * Frontier::Constants::PiFloat * 3.5f)));
         }
         else if (arch == LeafSdfArchetype::FernPinna)
         {
             env = std::pow(1.0f - std::pow(u, 1.35f), 0.72f) * (0.35f + 0.65f * std::min(1.0f, u * 5.0f));
-            env *= (1.0f + serrationDepth * 0.45f * std::sin(u * kPi * 12.0f) * std::sin(kPi * u));
+            env *= (1.0f + serrationDepth * 0.45f * std::sin(u * Frontier::Constants::PiFloat * 12.0f) * std::sin(Frontier::Constants::PiFloat * u));
         }
         const float aurLobe = auricle * 0.55f * std::exp(-std::pow((u - 0.14f) / 0.11f, 2.0f));
         const float wL = std::max(lengthM * 0.025f, halfWidthM * (env + (rachisSide < 0 ? aurLobe : 0.0f)));
@@ -403,7 +393,7 @@ void EmitSculptedBladeAndSdf(
     for (int i = 0; i < lengthSegs; ++i)
     {
         const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(lengthSegs);
-        const V3 c = Mix3(colBase, colTip, SmoothStep(0.08f, 0.88f, u));
+        const V3 c = Mix3(colBase, colTip, Frontier::Mathematics::EvaluateSmoothStep(0.08f, 0.88f, u));
         const auto& r0 = rows[static_cast<std::size_t>(i)];
         const auto& r1 = rows[static_cast<std::size_t>(i + 1)];
         const auto& n0 = nRows[static_cast<std::size_t>(i)];
@@ -456,7 +446,7 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     {
         const float az = static_cast<float>(c) * kGolden + rng.Range(0.0f, 0.45f);
         const V3 outH { std::cos(az), std::sin(az), 0.0f };
-        const V3 rgt  = Norm3(Cross3(kUpZ, outH));
+        const V3 rgt  = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, outH));
         const int steps = 18;
         std::vector<CurveFrame3> frs(static_cast<std::size_t>(steps + 1));
         V3 cur { outH[0] * fp.CrownRadiusMeters * 0.32f, outH[1] * fp.CrownRadiusMeters * 0.32f, fp.CaudexHeightMeters * 0.72f };
@@ -465,8 +455,8 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         for (int s = 0; s <= steps; ++s)
         {
             const float t = static_cast<float>(s) / static_cast<float>(steps);
-            frs[static_cast<std::size_t>(s)] = { cur, dir, rgt, Norm3(Cross3(dir, rgt)), t };
-            const float curlRate = (t > 0.40f) ? (fp.CrosierTurns * kTau / static_cast<float>(steps)) * 1.28f : 0.07f;
+            frs[static_cast<std::size_t>(s)] = { cur, dir, rgt, Norm3(Frontier::Mathematics::EvaluateCross3(dir, rgt)), t };
+            const float curlRate = (t > 0.40f) ? (fp.CrosierTurns * Frontier::Constants::TauFloat / static_cast<float>(steps)) * 1.28f : 0.07f;
             dir = Norm3(RotateAxis(dir, rgt, -curlRate));
             cur = AddScaled3(cur, dir, segL * (1.0f - 0.48f * t));
         }
@@ -484,10 +474,10 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         const float age01 = static_cast<float>(fi) / static_cast<float>(std::max(1u, frondCount - 1u));
         const float az    = static_cast<float>(fi) * kGolden + rng.Vary(0.0f, 0.12f);
         const V3 outH { std::cos(az), std::sin(az), 0.0f };
-        const V3 rgt0 = Norm3(Cross3(kUpZ, outH));
+        const V3 rgt0 = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, outH));
 
         const float tiltRad  = std::clamp(fp.RosetteAngleDeg * (0.52f + 0.76f * age01) + rng.Vary(0.0f, 4.5f), 6.0f, 84.0f) * kDeg2Rad;
-        const float L        = fp.FrondLengthMeters * (0.76f + 0.30f * std::sin(age01 * kPi * 0.72f + 0.25f)) * (1.0f + rng.Vary(0.0f, fp.FrondLengthVar));
+        const float L        = fp.FrondLengthMeters * (0.76f + 0.30f * std::sin(age01 * Frontier::Constants::PiFloat * 0.72f + 0.25f)) * (1.0f + rng.Vary(0.0f, fp.FrondLengthVar));
         const float droopRad = (fp.ArchDroopDeg * (0.58f + 0.66f * age01) + rng.Vary(0.0f, 6.5f)) * kDeg2Rad;
         const float twistRad = rng.Vary(0.0f, fp.RachisTwistDeg) * kDeg2Rad;
         const float waveRad  = fp.RachisWaveDeg * kDeg2Rad;
@@ -504,14 +494,14 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         for (uint32_t s = 0u; s <= rachisSteps; ++s)
         {
             const float t = static_cast<float>(s) / static_cast<float>(rachisSteps);
-            const V3 up = Norm3(Cross3(dir, rgt));
+            const V3 up = Norm3(Frontier::Mathematics::EvaluateCross3(dir, rgt));
             frs[s] = { cur, dir, rgt, up, t };
             if (s < rachisSteps)
             {
                 const float t1 = static_cast<float>(s + 1u) / static_cast<float>(rachisSteps);
                 float dPitch = droopRad * (std::pow(t1, fp.ArchPower) - std::pow(t, fp.ArchPower));
                 if (cur[2] < 0.05f && t > 0.42f) dPitch *= 0.32f;
-                const float dYaw  = (std::sin(t1 * kPi * 2.2f + phase * kTau) - std::sin(t * kPi * 2.2f + phase * kTau)) * waveRad;
+                const float dYaw  = (std::sin(t1 * Frontier::Constants::PiFloat * 2.2f + phase * Frontier::Constants::TauFloat) - std::sin(t * Frontier::Constants::PiFloat * 2.2f + phase * Frontier::Constants::TauFloat)) * waveRad;
                 const float dRoll = (t1 - t) * twistRad;
                 dir = Norm3(RotateAxis(dir, rgt, dPitch));
                 dir = Norm3(RotateAxis(dir, up, dYaw));
@@ -532,7 +522,7 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
             const float th = static_cast<float>(sc) * kGolden;
             const V3 rad = Norm3(Add3(Mul3(sf.Right, std::cos(th)), Mul3(sf.Up, std::sin(th))));
             const V3 scDir = Norm3(Add3(Mul3(sf.Dir, 0.75f), Mul3(rad, 0.65f)));
-            const V3 scWid = Norm3(Cross3(sf.Dir, rad));
+            const V3 scWid = Norm3(Frontier::Mathematics::EvaluateCross3(sf.Dir, rad));
             const float sL = stipeR * 3.4f * (1.0f - ts);
             const V3 p0 = AddScaled3(sf.Pos, rad, stipeR * 0.9f);
             EmitTri(out, AddScaled3(p0, scWid, -sL * 0.18f), AddScaled3(p0, scWid, +sL * 0.18f), AddScaled3(p0, scDir, sL),
@@ -549,16 +539,16 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                 const float tR = s0 + (1.0f - s0) * uLeaf;
                 const auto rf = SampleCurveFrames(frs, tR);
                 const float env = bipinnate
-                    ? std::max(0.06f, std::pow(std::sin(std::pow(uLeaf, 0.68f) * kPi), 0.78f))
-                    : std::max(0.06f, (0.42f + 0.58f * SmoothStep(0.0f, 0.22f, uLeaf)) * std::pow(1.0f - std::pow(uLeaf, 1.65f), 0.68f));
+                    ? std::max(0.06f, std::pow(std::sin(std::pow(uLeaf, 0.68f) * Frontier::Constants::PiFloat), 0.78f))
+                    : std::max(0.06f, (0.42f + 0.58f * Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.22f, uLeaf)) * std::pow(1.0f - std::pow(uLeaf, 1.65f), 0.68f));
 
                 const float pLen = std::max(0.014f, fp.FrondWidthMeters * (bipinnate ? 0.56f : 0.52f) * env * (1.0f + rng.Vary(0.0f, 0.06f)));
                 const float insRad = (fp.PinnaAngleDeg * (1.06f - 0.50f * uLeaf) + rng.Vary(0.0f, 3.0f)) * kDeg2Rad;
                 const float dihRad = (12.0f - 14.0f * age01 + 6.0f * (1.0f - uLeaf)) * kDeg2Rad;
                 V3 pDir = Norm3(Add3(Mul3(rf.Dir, std::cos(insRad)), Mul3(rf.Right, static_cast<float>(side) * std::sin(insRad))));
                 pDir = Norm3(RotateAxis(pDir, rf.Dir, static_cast<float>(side) * dihRad));
-                const V3 pWidAx = Norm3(Cross3(rf.Up, pDir));
-                const V3 pNorm  = Norm3(Cross3(pDir, pWidAx));
+                const V3 pWidAx = Norm3(Frontier::Mathematics::EvaluateCross3(rf.Up, pDir));
+                const V3 pNorm  = Norm3(Frontier::Mathematics::EvaluateCross3(pDir, pWidAx));
 
                 if (!bipinnate)
                 {
@@ -575,14 +565,14 @@ void BuildFernGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                     {
                         const float su = (static_cast<float>(si) + 0.4f) / static_cast<float>(nSub);
                         const V3 sPos = AddScaled3(rf.Pos, pDir, su * pLen);
-                        const float sEnv = std::sin(kPi * std::pow(std::clamp(su, 0.05f, 0.96f), 0.70f));
+                        const float sEnv = std::sin(Frontier::Constants::PiFloat * std::pow(std::clamp(su, 0.05f, 0.96f), 0.70f));
                         const float subLen = std::max(0.012f, pLen * 0.32f * std::max(0.25f, sEnv));
                         const float subWid = subLen * 0.42f;
                         for (int sSide : { -1, 1 })
                         {
                             const V3 subDir = Norm3(Add3(Mul3(pDir, 0.58f), Mul3(pWidAx, static_cast<float>(sSide) * 0.81f)));
-                            const V3 subW   = Norm3(Cross3(pNorm, subDir));
-                            const V3 subN   = Norm3(Cross3(subDir, subW));
+                            const V3 subW   = Norm3(Frontier::Mathematics::EvaluateCross3(pNorm, subDir));
+                            const V3 subN   = Norm3(Frontier::Mathematics::EvaluateCross3(subDir, subW));
                             EmitSculptedBladeAndSdf(out, sPos, subDir, subW, subN, subLen, subWid * 0.5f,
                                 fp.LaminaCamber, 0.18f, 0.0f, 0.15f, sSide,
                                 frondCol, colYoung, std::pow(tR, 1.25f), phase + su * 0.25f, arch, 3);
@@ -632,12 +622,12 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     trunkCfg.CapTips             = true;
 
     // 1. Build curved phototropic trunk WeldedStem in +Z Up
-    const float leanAz = rng.Range(0.0f, kTau);
+    const float leanAz = rng.Range(0.0f, Frontier::Constants::TauFloat);
     const V3 leanHoriz { std::cos(leanAz), std::sin(leanAz), 0.0f };
     const float leanRad  = pp.TrunkLeanDeg * kDeg2Rad;
     const float curveRad = pp.TrunkCurveDeg * kDeg2Rad;
     V3 dir = Norm3(Add3(Mul3(kUpZ, std::cos(leanRad)), Mul3(leanHoriz, std::sin(leanRad))));
-    V3 rgt = Norm3(Cross3(kUpZ, leanHoriz));
+    V3 rgt = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, leanHoriz));
     V3 pos { 0.0f, 0.0f, 0.0f };
 
     auto trunk = std::make_shared<WeldedStem>();
@@ -656,7 +646,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     {
         const float t = static_cast<float>(i) / static_cast<float>(nSteps);
         const float pitchUp = (curveRad / static_cast<float>(nSteps)) * (0.4f + 1.2f * t);
-        const V3 rotAx = Cross3(dir, kUpZ);
+        const V3 rotAx = Frontier::Mathematics::EvaluateCross3(dir, kUpZ);
         if (LenSq3(rotAx) > 1.0e-8f && std::fabs(pitchUp) > 1.0e-5f)
         {
             dir = Norm3(RotateAxis(dir, Norm3(rotAx), -pitchUp));
@@ -733,7 +723,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         {
             const float scar = std::pow(0.5f + 0.5f * std::cos(z * H * 18.5f), 2.4f);
             bCol = Mix3(colBark, colWeathered, scar * 0.65f);
-            bCol = Mix3(colBarkDark, bCol, SmoothStep(0.0f, 0.14f, z) * 0.65f + 0.35f);
+            bCol = Mix3(colBarkDark, bCol, Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.14f, z) * 0.65f + 0.35f);
         }
         return { bCol, std::pow(h01, 1.65f) * 0.48f, palmPhase };
     };
@@ -742,16 +732,16 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     const uint32_t rootCount = std::min(lobes, trunkCfg.TrunkRadialSegments / 2u - 1u);
     for (uint32_t k = 0u; k < rootCount; ++k)
     {
-        const float colStep = kTau / static_cast<float>(trunkCfg.TrunkRadialSegments);
+        const float colStep = Frontier::Constants::TauFloat / static_cast<float>(trunkCfg.TrunkRadialSegments);
         const uint32_t col = static_cast<uint32_t>(std::lround((static_cast<float>(k) / static_cast<float>(rootCount)) * static_cast<float>(trunkCfg.TrunkRadialSegments))) % trunkCfg.TrunkRadialSegments;
         const float theta = static_cast<float>(col + 1u) * colStep;
         const float attachS = stubDepth + rcBase * 0.55f;
         const auto smp = SampleWeldedStem(*trunk, attachS);
-        const V3 up = Cross3(smp.Dir, smp.Right);
+        const V3 up = Frontier::Mathematics::EvaluateCross3(smp.Dir, smp.Right);
         const V3 radial = Norm3(Add3(Mul3(smp.Right, std::cos(theta)), Mul3(up, std::sin(theta))));
         const float rSurf = trunk->BaseRadiusAt(attachS) * trunk->ProfileFactor(attachS, theta);
         const V3 origin = AddScaled3(smp.Pos, radial, rSurf);
-        const V3 horizAx = Norm3(Cross3(radial, kUpZ));
+        const V3 horizAx = Norm3(Frontier::Mathematics::EvaluateCross3(radial, kUpZ));
         const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -28.0f * kDeg2Rad));
         const float rootLen = R0 * 2.8f * rng.Vary(1.0f, 0.14f);
         const float rRoot0  = rcBase * rng.Vary(1.0f, 0.10f);
@@ -784,7 +774,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
             constexpr int steps = 9;
             V3 cur = o;
             V3 curD = Norm3(d);
-            V3 curR = ProjectOnPlane3(Cross3(kUpZ, curD), curD);
+            V3 curR = ProjectOnPlane3(Frontier::Mathematics::EvaluateCross3(kUpZ, curD), curD);
             curR = (LenSq3(curR) < 1.0e-8f) ? AnyPerp3(curD) : Norm3(curR);
             rRaw->Nodes.push_back({ cur, curD, curR, 0.0f });
             float s = 0.0f;
@@ -795,10 +785,10 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                 const float t = static_cast<float>(i) / static_cast<float>(steps);
                 const float nx = cur[0] + hDir[0] * stp;
                 const float ny = cur[1] + hDir[1] * stp;
-                const float dive = SmoothStep(0.65f, 1.0f, t) * (rRoot0 * 2.0f + 0.08f);
+                const float dive = Frontier::Mathematics::EvaluateSmoothStep(0.65f, 1.0f, t) * (rRoot0 * 2.0f + 0.08f);
                 const float targetZ = rRoot0 * (1.0f - t) * 0.35f - dive;
-                const float nz = (cur[2] + curD[2] * stp) * (1.0f - SmoothStep(0.08f, 0.40f, t) * 0.65f)
-                               + targetZ * (SmoothStep(0.08f, 0.40f, t) * 0.65f);
+                const float nz = (cur[2] + curD[2] * stp) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.08f, 0.40f, t) * 0.65f)
+                               + targetZ * (Frontier::Mathematics::EvaluateSmoothStep(0.08f, 0.40f, t) * 0.65f);
                 const V3 np { nx, ny, nz };
                 curD = Norm3(Sub3(np, cur));
                 curR = Norm3(ProjectOnPlane3(curR, curD));
@@ -834,10 +824,10 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         const float age01 = static_cast<float>(fi) / static_cast<float>(std::max(1u, nFronds - 1u));
         const float az    = static_cast<float>(fi) * kGolden + rng.Vary(0.0f, 0.12f);
         const V3 radDir { std::cos(az), std::sin(az), 0.0f };
-        const V3 rgt0   = Norm3(Cross3(kUpZ, radDir));
+        const V3 rgt0   = Norm3(Frontier::Mathematics::EvaluateCross3(kUpZ, radDir));
         const float elevRad = (70.0f - 82.0f * age01 + rng.Vary(0.0f, 5.5f)) * kDeg2Rad;
         const float archRad = (pp.FrondArchDeg * (0.65f + 0.55f * age01)) * kDeg2Rad;
-        const float fLen    = pp.FrondLengthMeters * (0.82f + 0.24f * std::sin(age01 * kPi * 0.8f + 0.2f));
+        const float fLen    = pp.FrondLengthMeters * (0.82f + 0.24f * std::sin(age01 * Frontier::Constants::PiFloat * 0.8f + 0.2f));
         const float phase   = rng.Next01();
 
         V3 fCur = Add3(crownApex, Add3(Mul3(radDir, crownR * 0.62f), { 0.0f, 0.0f, 0.22f * (1.0f - age01) - 0.16f }));
@@ -849,7 +839,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         for (uint32_t s = 0u; s <= fSteps; ++s)
         {
             const float t = static_cast<float>(s) / static_cast<float>(fSteps);
-            frs[s] = { fCur, fDir, fRgt, Norm3(Cross3(fDir, fRgt)), t };
+            frs[s] = { fCur, fDir, fRgt, Norm3(Frontier::Mathematics::EvaluateCross3(fDir, fRgt)), t };
             if (s < fSteps)
             {
                 const float dt = 1.0f / static_cast<float>(fSteps);
@@ -864,7 +854,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         {
             const float u = 0.14f + 0.84f * (static_cast<float>(pi) / static_cast<float>(std::max(1u, nPairs - 1u)));
             const auto rf = SampleCurveFrames(frs, u);
-            const float env = std::sin(kPi * std::pow(u, 0.72f));
+            const float env = std::sin(Frontier::Constants::PiFloat * std::pow(u, 0.72f));
             const float lLen = pp.FrondWidthMeters * 0.56f * std::max(0.18f, env);
             const float lWid = lLen * 0.13f;
 
@@ -874,8 +864,8 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                 const float vTiltRad = (24.0f + pp.PlumoseSplay * rng.Vary(0.0f, 38.0f)) * kDeg2Rad;
                 V3 lDir = Norm3(Add3(Mul3(rf.Dir, std::cos(sweepRad)), Mul3(rf.Right, static_cast<float>(side) * std::sin(sweepRad))));
                 lDir = Norm3(RotateAxis(lDir, rf.Dir, static_cast<float>(side) * vTiltRad));
-                const V3 lWidAx = Norm3(Cross3(rf.Up, lDir));
-                const V3 lNorm  = Norm3(Cross3(lDir, lWidAx));
+                const V3 lWidAx = Norm3(Frontier::Mathematics::EvaluateCross3(rf.Up, lDir));
+                const V3 lNorm  = Norm3(Frontier::Mathematics::EvaluateCross3(lDir, lWidAx));
                 EmitSculptedBladeAndSdf(out, rf.Pos, lDir, lWidAx, lNorm, lLen, lWid * 0.5f,
                     0.22f, 0.24f, 0.0f, 0.0f, side, frondCol, colLeafYoung, 0.55f + 0.45f * u, phase + u * 0.41f, arch, 3);
             }
@@ -887,7 +877,7 @@ void BuildPalmGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         const bool isCoconut = !isDatePalm;
         for (uint32_t b = 0u; b < pp.FruitBunches; ++b)
         {
-            const float az = (static_cast<float>(b) / static_cast<float>(pp.FruitBunches)) * kTau + 0.35f;
+            const float az = (static_cast<float>(b) / static_cast<float>(pp.FruitBunches)) * Frontier::Constants::TauFloat + 0.35f;
             const V3 base = Add3(crownApex, { std::cos(az) * crownR * 1.15f, std::sin(az) * crownR * 1.15f, -0.34f });
             const int nFruits = isCoconut ? 5 : 16;
             for (int k = 0; k < nFruits; ++k)
@@ -956,7 +946,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     struct Turtle { V3 Pos; V3 Dir; V3 Right; };
     auto pitchDown = [](Turtle& t, float deg) { t.Dir = Norm3(RotateAxis(t.Dir, t.Right, -deg * kDeg2Rad)); };
     auto turnLeft  = [](Turtle& t, float deg) {
-        const V3 ax = Norm3(Cross3(t.Dir, t.Right));
+        const V3 ax = Norm3(Frontier::Mathematics::EvaluateCross3(t.Dir, t.Right));
         t.Dir   = Norm3(RotateAxis(t.Dir, ax, -deg * kDeg2Rad));
         t.Right = Norm3(RotateAxis(t.Right, ax, -deg * kDeg2Rad));
     };
@@ -966,9 +956,9 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         t.Right = Norm3(RotateAxis(t.Right, kUpZ, deg * kDeg2Rad));
     };
     auto setDir = [](Turtle& t, const V3& nd) {
-        const V3 ax = Cross3(t.Dir, nd);
+        const V3 ax = Frontier::Mathematics::EvaluateCross3(t.Dir, nd);
         const float s = Len3(ax);
-        const float c = std::clamp(Dot3(t.Dir, nd), -1.0f, 1.0f);
+        const float c = std::clamp(Frontier::Mathematics::EvaluateDot3(t.Dir, nd), -1.0f, 1.0f);
         if (s < 1.0e-7f)
         {
             t.Dir = nd;
@@ -1077,7 +1067,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
     auto crownEnvelope = [](float ratio) -> float
     {
-        return 0.25f + 0.75f * std::sin(0.5f * kPi * std::clamp(ratio, 0.0f, 1.0f));
+        return 0.25f + 0.75f * std::sin(0.5f * Frontier::Constants::PiFloat * std::clamp(ratio, 0.0f, 1.0f));
     };
 
     const uint32_t maxLevels = std::clamp(tp.BranchLevels + 1u, 3u, 4u);
@@ -1148,7 +1138,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                 }
                 if (level >= 1u)
                 {
-                    const V3 hxt = Cross3(turtle.Dir, { 0.0f, 0.0f, kAttractionUp });
+                    const V3 hxt = Frontier::Mathematics::EvaluateCross3(turtle.Dir, { 0.0f, 0.0f, kAttractionUp });
                     const float mag = Len3(hxt);
                     if (mag > 1.0e-6f)
                     {
@@ -1258,7 +1248,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
             if (numSplits > 0)
             {
-                const float declDeg = std::acos(std::clamp(turtle.Dir[2], -1.0f, 1.0f)) * (180.0f / kPi);
+                const float declDeg = std::acos(std::clamp(turtle.Dir[2], -1.0f, 1.0f)) * (180.0f / Frontier::Constants::PiFloat);
                 const float splAng  = std::max(14.0f, std::fabs(profSplitAngle[std::min(level, 3u)]) + rng.Uniform() * 8.0f - declDeg * 0.45f);
                 const float nextSplitCorr = splAng / static_cast<float>(std::max(1, remSegs));
                 const float sprAng  = -(24.0f + 0.65f * (28.0f + std::fabs(declDeg - 90.0f) * rng.Next01()));
@@ -1283,7 +1273,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
                         {
                             const float ang = AngleBetween(ts[i].Dir, ts[j].Dir);
                             if (ang >= minAng) continue;
-                            V3 ax = Cross3(ts[i].Dir, ts[j].Dir);
+                            V3 ax = Frontier::Mathematics::EvaluateCross3(ts[i].Dir, ts[j].Dir);
                             ax = (LenSq3(ax) < 1.0e-10f) ? AnyPerp3(ts[i].Dir) : Norm3(ax);
                             const float delta = (minAng - ang) * 0.5f + 1.0e-3f;
                             setDir(ts[i], Norm3(RotateAxis(ts[i].Dir, ax, -delta)));
@@ -1366,7 +1356,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         rs->StyleAt = [=](float sVal, float th, const Vec3f& p, const Vec3f&, bool) -> WeldedVertexStyle
         {
             const float furrow = 0.84f + 0.16f * std::sin(th * 7.0f + sVal * 5.0f);
-            const float moss = SmoothStep(0.35f, -0.05f, p[2]);
+            const float moss = Frontier::Mathematics::EvaluateSmoothStep(0.35f, -0.05f, p[2]);
             const V3 bark = Mix3(colBarkDeep, colBark, furrow);
             return { Mix3(bark, { 0.04f, 0.08f, 0.02f }, moss * 0.22f), 0.0f, 0.0f };
         };
@@ -1381,7 +1371,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         const float stepLen = totalLen / static_cast<float>(nSteps);
         V3 cur = origin;
         V3 dir = Norm3(dir0);
-        V3 rgt = ProjectOnPlane3(Cross3(kUpZ, dir), dir);
+        V3 rgt = ProjectOnPlane3(Frontier::Mathematics::EvaluateCross3(kUpZ, dir), dir);
         rgt = (LenSq3(rgt) < 1.0e-8f) ? AnyPerp3(dir) : Norm3(rgt);
         V3 horiz = Norm3({ dir[0], dir[1], 0.0f }, { 1.0f, 0.0f, 0.0f });
         const V3 goalHoriz = horiz;
@@ -1400,9 +1390,9 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
             const float nx = cur[0] + horiz[0] * stepLen;
             const float ny = cur[1] + horiz[1] * stepLen;
-            const float dive = SmoothStep(0.74f, 1.0f, t) * (r0Root * 2.2f + 0.12f);
+            const float dive = Frontier::Mathematics::EvaluateSmoothStep(0.74f, 1.0f, t) * (r0Root * 2.2f + 0.12f);
             const float targetZ = rLoc * 0.36f - dive;
-            const float blend = SmoothStep(0.06f, 0.34f, t) * 0.55f;
+            const float blend = Frontier::Mathematics::EvaluateSmoothStep(0.06f, 0.34f, t) * 0.55f;
             const float nz = (cur[2] + dir[2] * stepLen) * (1.0f - blend) + targetZ * blend;
             const V3 np { nx, ny, nz };
             dir = Norm3(Sub3(np, cur));
@@ -1434,7 +1424,7 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
     {
         DetRng rRng = rng.Fork(0x726F6F74u);
         const int32_t N = static_cast<int32_t>(meshCfg.TrunkRadialSegments);
-        const float colStep = kTau / static_cast<float>(N);
+        const float colStep = Frontier::Constants::TauFloat / static_cast<float>(N);
         const float rNom = metaMap[trunk->Id].LogicalRadius * (1.0f + basalFlare * 0.45f);
         const int32_t maxSlots = std::min<int32_t>(static_cast<int32_t>(sp.Roots.Count), N / 2 - 1);
 
@@ -1442,12 +1432,12 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         std::vector<RootSlot> slots {};
         for (int32_t k = 0; k < maxSlots; ++k)
         {
-            const float th = (kTau * static_cast<float>(k)) / static_cast<float>(maxSlots) + rRng.Uniform() * 0.1f * (kTau / static_cast<float>(maxSlots));
+            const float th = (Frontier::Constants::TauFloat * static_cast<float>(k)) / static_cast<float>(maxSlots) + rRng.Uniform() * 0.1f * (Frontier::Constants::TauFloat / static_cast<float>(maxSlots));
             const float rad = std::max(meshCfg.MinRadius * 4.0f, rNom * 0.34f * rRng.Vary(1.0f, 0.12f));
             const float rLen = std::max(rad * 6.5f, sp.Roots.SpreadMeters * rRng.Vary(1.0f, 0.16f));
             float c = std::fmod(th / colStep, static_cast<float>(N));
             if (c < 0.0f) c += static_cast<float>(N);
-            const float chord = (kTau * trunk->BaseRadiusAt(0.05f)) / static_cast<float>(N);
+            const float chord = (Frontier::Constants::TauFloat * trunk->BaseRadiusAt(0.05f)) / static_cast<float>(N);
             const int32_t wEst = std::clamp<int32_t>(static_cast<int32_t>(std::lround((2.0f * rad * meshCfg.CollarScale) / std::max(1.0e-4f, chord))), 1, 3);
             slots.push_back({ c, wEst, 0, rad, rLen, rRng.NextU32(), th });
         }
@@ -1511,11 +1501,11 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
         {
             const float attachS = depth + sl.radius * 0.62f;
             const auto smp = SampleWeldedStem(*trunk, attachS);
-            const V3 up = Cross3(smp.Dir, smp.Right);
+            const V3 up = Frontier::Mathematics::EvaluateCross3(smp.Dir, smp.Right);
             const V3 radial = Norm3(Add3(Mul3(smp.Right, std::cos(sl.theta)), Mul3(up, std::sin(sl.theta))));
             const float rSurf = trunk->BaseRadiusAt(attachS) * trunk->ProfileFactor(attachS, sl.theta);
             const V3 origin = AddScaled3(smp.Pos, radial, rSurf);
-            const V3 horizAx = Norm3(Cross3(radial, kUpZ));
+            const V3 horizAx = Norm3(Frontier::Mathematics::EvaluateCross3(radial, kUpZ));
             const V3 emergeDir = Norm3(RotateAxis(radial, horizAx, -24.0f * kDeg2Rad));
 
             auto rootStem = makeRootStem(trunk.get(), sl.radius, sl.len, static_cast<uint32_t>(sl.w));
@@ -1560,9 +1550,9 @@ void BuildTreeGeometry(const BotanicalSpeciesDefinition& sp, uint32_t seed, uint
 
         const float rTwig = lp.Stem->BaseRadiusAt(s);
         const V3 basePos = AddScaled3(smp.Pos, rad, rTwig * 0.88f);
-        V3 leafRgt = Cross3(kUpZ, dir);
+        V3 leafRgt = Frontier::Mathematics::EvaluateCross3(kUpZ, dir);
         leafRgt = (LenSq3(leafRgt) < 1.0e-6f) ? rgt : Norm3(leafRgt);
-        const V3 normal = Norm3(Cross3(dir, leafRgt));
+        const V3 normal = Norm3(Frontier::Mathematics::EvaluateCross3(dir, leafRgt));
 
         const float h01 = std::clamp(basePos[2] / std::max(1.0f, treeHeightEst), 0.0f, 1.0f);
         const V3 leafTint = Mix3(colLeafBase, colLeafTip, std::clamp(0.45f + lp.HueJitter * 0.35f + h01 * 0.20f, 0.08f, 0.96f));
@@ -1685,7 +1675,7 @@ void ApplyWindPoseToPlant(
     {
         if (rest[2] <= 0.0f || flex <= 1.0e-5f) return rest; // Keep sub-ground welded roots rock-solid!
         const float h = rest[2];
-        const float rustle = rustleAmp * flex * std::sin(gustTimeSec * 6.5f + phase * kTau) * 0.04f;
+        const float rustle = rustleAmp * flex * std::sin(gustTimeSec * 6.5f + phase * Frontier::Constants::TauFloat) * 0.04f;
         const float dx = (bendAngleXRad * h + rustle) * flex;
         const float dy = (bendAngleYRad * h + rustle * 0.7f) * flex;
         const float dz = -0.35f * (dx * dx + dy * dy) / std::max(h, 0.35f);
@@ -1697,7 +1687,7 @@ void ApplyWindPoseToPlant(
         t.V0 = bendPt(t.RestV0, t.WindFlex, t.Phase);
         t.V1 = bendPt(t.RestV1, t.WindFlex, t.Phase);
         t.V2 = bendPt(t.RestV2, t.WindFlex, t.Phase);
-        t.Normal = Norm3(Cross3(Sub3(t.V1, t.V0), Sub3(t.V2, t.V0)), t.Normal);
+        t.Normal = Norm3(Frontier::Mathematics::EvaluateCross3(Sub3(t.V1, t.V0), Sub3(t.V2, t.V0)), t.Normal);
     }
 
     plant.SdfVolume.ApplyWindBend(bendAngleXRad, bendAngleYRad, gustTimeSec, rustleAmp);

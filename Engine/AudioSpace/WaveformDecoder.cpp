@@ -9,6 +9,7 @@
 
 #include "Engine/AudioSpace/WaveformDecoder.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -28,13 +29,6 @@ namespace
            (static_cast<uint16_t>(std::to_integer<uint8_t>(Ptr[1])) << 8u);
 }
 
-[[nodiscard]] uint32_t ReadLe32(const std::byte* Ptr) noexcept
-{
-    return static_cast<uint32_t>(std::to_integer<uint8_t>(Ptr[0])) |
-           (static_cast<uint32_t>(std::to_integer<uint8_t>(Ptr[1])) << 8u) |
-           (static_cast<uint32_t>(std::to_integer<uint8_t>(Ptr[2])) << 16u) |
-           (static_cast<uint32_t>(std::to_integer<uint8_t>(Ptr[3])) << 24u);
-}
 
 [[nodiscard]] int32_t ReadLeSigned24(const std::byte* Ptr) noexcept
 {
@@ -55,13 +49,6 @@ void WriteLe16(std::vector<std::byte>& Buffer, uint16_t Word)
     Buffer.push_back(static_cast<std::byte>((Word >> 8u) & 0xFFu));
 }
 
-void WriteLe32(std::vector<std::byte>& Buffer, uint32_t Word)
-{
-    Buffer.push_back(static_cast<std::byte>(Word & 0xFFu));
-    Buffer.push_back(static_cast<std::byte>((Word >> 8u) & 0xFFu));
-    Buffer.push_back(static_cast<std::byte>((Word >> 16u) & 0xFFu));
-    Buffer.push_back(static_cast<std::byte>((Word >> 24u) & 0xFFu));
-}
 
 [[nodiscard]] bool MatchFourCc(const std::byte* Ptr, const char (&Tag)[5]) noexcept
 {
@@ -152,7 +139,7 @@ bool WaveformDecoder::DecodeWavFromBytes(
     while (Cursor + 8u <= RawWavBytes.size())
     {
         const std::byte* ChunkPtr  = RawWavBytes.data() + Cursor;
-        const uint32_t   ChunkSize = ReadLe32(ChunkPtr + 4u);
+        const uint32_t   ChunkSize = Frontier::Serialization::ReadLittleEndian32(ChunkPtr + 4u);
         Cursor += 8u;
 
         if (Cursor + ChunkSize > RawWavBytes.size())
@@ -170,7 +157,7 @@ bool WaveformDecoder::DecodeWavFromBytes(
             }
             FormatCode    = ReadLe16(RawWavBytes.data() + Cursor + 0u);
             Channels      = ReadLe16(RawWavBytes.data() + Cursor + 2u);
-            SampleRateHz  = ReadLe32(RawWavBytes.data() + Cursor + 4u);
+            SampleRateHz  = Frontier::Serialization::ReadLittleEndian32(RawWavBytes.data() + Cursor + 4u);
             BitsPerSample = ReadLe16(RawWavBytes.data() + Cursor + 14u);
 
             if (FormatCode == 0xFFFEu && ChunkSize >= 40u)
@@ -186,11 +173,11 @@ bool WaveformDecoder::DecodeWavFromBytes(
         }
         else if (MatchFourCc(ChunkPtr, "smpl") && ChunkSize >= 36u)
         {
-            const uint32_t LoopCount = ReadLe32(RawWavBytes.data() + Cursor + 28u);
+            const uint32_t LoopCount = Frontier::Serialization::ReadLittleEndian32(RawWavBytes.data() + Cursor + 28u);
             if (LoopCount > 0u && ChunkSize >= 60u)
             {
-                LoopStart      = ReadLe32(RawWavBytes.data() + Cursor + 44u);
-                LoopEnd        = ReadLe32(RawWavBytes.data() + Cursor + 48u);
+                LoopStart      = Frontier::Serialization::ReadLittleEndian32(RawWavBytes.data() + Cursor + 44u);
+                LoopEnd        = Frontier::Serialization::ReadLittleEndian32(RawWavBytes.data() + Cursor + 48u);
                 LoopChunkFound = (LoopEnd > LoopStart);
             }
         }
@@ -254,7 +241,7 @@ bool WaveformDecoder::DecodeWavFromBytes(
         constexpr float Scale = 1.0f / 2147483648.0f;
         for (std::size_t Idx = 0u; Idx < TotalFloats; ++Idx)
         {
-            const int32_t Raw = static_cast<int32_t>(ReadLe32(BytesPtr + Idx * 4u));
+            const int32_t Raw = static_cast<int32_t>(Frontier::Serialization::ReadLittleEndian32(BytesPtr + Idx * 4u));
             OutWaveform.Samples[Idx] = std::clamp(static_cast<float>(Raw) * Scale, -1.0f, 1.0f);
         }
     }
@@ -352,20 +339,20 @@ bool WaveformDecoder::EncodeWavToBytes(
     };
 
     AppendFourCc("RIFF");
-    WriteLe32(OutWavBytes, TotalPayload);
+    Frontier::Serialization::AppendLittleEndian32(OutWavBytes, TotalPayload);
     AppendFourCc("WAVE");
 
     AppendFourCc("fmt ");
-    WriteLe32(OutWavBytes, FmtChunkBytes);
+    Frontier::Serialization::AppendLittleEndian32(OutWavBytes, FmtChunkBytes);
     WriteLe16(OutWavBytes, 3u); // IEEE float32
     WriteLe16(OutWavBytes, static_cast<uint16_t>(Waveform.ChannelCount));
-    WriteLe32(OutWavBytes, Waveform.SampleRateHz);
-    WriteLe32(OutWavBytes, Waveform.SampleRateHz * Waveform.ChannelCount * 4u);
+    Frontier::Serialization::AppendLittleEndian32(OutWavBytes, Waveform.SampleRateHz);
+    Frontier::Serialization::AppendLittleEndian32(OutWavBytes, Waveform.SampleRateHz * Waveform.ChannelCount * 4u);
     WriteLe16(OutWavBytes, static_cast<uint16_t>(Waveform.ChannelCount * 4u));
     WriteLe16(OutWavBytes, 32u);
 
     AppendFourCc("data");
-    WriteLe32(OutWavBytes, SampleBytes);
+    Frontier::Serialization::AppendLittleEndian32(OutWavBytes, SampleBytes);
     const std::size_t OldSize = OutWavBytes.size();
     OutWavBytes.resize(OldSize + SampleBytes);
     if (SampleBytes > 0u)
@@ -376,19 +363,19 @@ bool WaveformDecoder::EncodeWavToBytes(
     if (Waveform.LoopEnabled)
     {
         AppendFourCc("smpl");
-        WriteLe32(OutWavBytes, SmplChunkBytes);
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, SmplChunkBytes);
         for (int ZeroWord = 0; ZeroWord < 7; ++ZeroWord)
         {
-            WriteLe32(OutWavBytes, 0u);
+            Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u);
         }
-        WriteLe32(OutWavBytes, 1u); // SampleLoopCount
-        WriteLe32(OutWavBytes, 0u); // SamplerSpecificBytes
-        WriteLe32(OutWavBytes, 0u); // CuePointIdentifier
-        WriteLe32(OutWavBytes, 0u); // ForwardLoopMode
-        WriteLe32(OutWavBytes, Waveform.LoopStartSamplePoint);
-        WriteLe32(OutWavBytes, Waveform.LoopEndSamplePoint);
-        WriteLe32(OutWavBytes, 0u);
-        WriteLe32(OutWavBytes, 0u);
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 1u); // SampleLoopCount
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u); // SamplerSpecificBytes
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u); // CuePointIdentifier
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u); // ForwardLoopMode
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, Waveform.LoopStartSamplePoint);
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, Waveform.LoopEndSamplePoint);
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u);
+        Frontier::Serialization::AppendLittleEndian32(OutWavBytes, 0u);
     }
 
     return true;

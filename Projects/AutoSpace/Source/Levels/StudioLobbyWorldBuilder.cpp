@@ -10,6 +10,7 @@
 #include "Source/Levels/StudioLobbyWorldBuilder.h"
 
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,11 +34,11 @@ HtmlAimAngles ComputeHtmlAimAngles(Axis3D FromHtml, Axis3D TargetHtml) noexcept
 
 uint64_t HashStableId64(std::string_view Text) noexcept
 {
-    uint64_t H = 14695981039346656037ull;
+    uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     for (const char Ch : Text)
     {
         H ^= static_cast<uint64_t>(static_cast<unsigned char>(Ch));
-        H *= 1099511628211ull;
+        H *= Frontier::Constants::Fnv1a64Prime;
     }
     return H;
 }

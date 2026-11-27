@@ -14,6 +14,7 @@
 #include "Engine/GeometrySpace/Parametric/Measurement/MassProperties.h"
 #include "Engine/GeometrySpace/Parametric/Measurement/MinimumDistance.h"
 #include "Engine/GeometrySpace/Parametric/Measurement/PlaneSection.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -104,7 +105,7 @@ std::string DescribeSurface(const GeometrySpace::Parametric::SurfaceGeometry& Su
     if (const auto* Sphere = std::get_if<GeometrySpace::Parametric::SphereSurface>(&Surface)) return Figure("Sphere r %.4f", Sphere->Radius);
     if (const auto* Torus = std::get_if<GeometrySpace::Parametric::TorusSurface>(&Surface)) return Figure("Torus R %.4f r %.4f", Torus->MajorRadius, Torus->MinorRadius);
     if (const auto* Cone = std::get_if<GeometrySpace::Parametric::ConeSurface>(&Surface))
-        return Figure("Cone half-angle %.3f°", std::atan(std::fabs(Cone->RadialSlope)) * 180.0 / 3.14159265358979323846);
+        return Figure("Cone half-angle %.3f°", std::atan(std::fabs(Cone->RadialSlope)) * 180.0 / Frontier::Constants::Pi);
     return GeometrySpace::Parametric::SurfaceCategoryLabel(Surface);
 }
 
@@ -112,7 +113,7 @@ std::string DescribeCurve(const GeometrySpace::Parametric::CurveGeometry& Curve,
 {
     if (const auto* Arc = std::get_if<GeometrySpace::Parametric::CircularArc>(&Curve))
     {
-        const double Sweep = std::fabs(IntervalHigh - IntervalLow) * 180.0 / 3.14159265358979323846;
+        const double Sweep = std::fabs(IntervalHigh - IntervalLow) * 180.0 / Frontier::Constants::Pi;
         return Sweep > 359.999 ? Figure("Circle r %.4f", Arc->Radius) : Figure("Arc r %.4f · %.2f°", Arc->Radius, Sweep);
     }
     if (const auto* Ellipse = std::get_if<GeometrySpace::Parametric::EllipticalArc>(&Curve)) return Figure("Ellipse a %.4f b %.4f", Ellipse->MajorRadius, Ellipse->MinorRadius);
@@ -301,7 +302,7 @@ void MeasureEdge(const SketcherDocument& Document, const MeasureOperand& Operand
 //    the acute angle between them; a plane and a line → the acute angle between the line and the plane.
 std::optional<double> AngleBetween(const MeasureOperand& First, const MeasureOperand& Second)
 {
-    constexpr double Degrees = 180.0 / 3.14159265358979323846;
+    constexpr double Degrees = 180.0 / Frontier::Constants::Pi;
     const auto Clamp = [](double Value) { return std::clamp(Value, -1.0, 1.0); };
     if (First.Normal && Second.Normal) return std::acos(Clamp(GeometrySpace::Parametric::Dot(*First.Normal, *Second.Normal))) * Degrees;
     if (First.Line && Second.Line) return std::acos(std::fabs(Clamp(GeometrySpace::Parametric::Dot(*First.Line, *Second.Line)))) * Degrees;

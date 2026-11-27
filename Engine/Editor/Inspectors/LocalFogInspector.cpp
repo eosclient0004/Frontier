@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/LocalFogInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -82,12 +83,12 @@ void BuildVolumeWireframe(
         const float R = std::max(HX, HY);
         for (uint32_t I = 0u; I < N; ++I)
         {
-            const float A = (static_cast<float>(I) / static_cast<float>(N)) * 6.2831853f;
+            const float A = (static_cast<float>(I) / static_cast<float>(N)) * Frontier::Constants::TauFloat;
             OutVerts.push_back({ R * std::cos(A), R * std::sin(A), -HZ });
         }
         for (uint32_t I = 0u; I < N; ++I)
         {
-            const float A = (static_cast<float>(I) / static_cast<float>(N)) * 6.2831853f;
+            const float A = (static_cast<float>(I) / static_cast<float>(N)) * Frontier::Constants::TauFloat;
             OutVerts.push_back({ R * std::cos(A), R * std::sin(A),  HZ });
         }
         for (uint32_t I = 0u; I < N; ++I)
@@ -104,7 +105,7 @@ void BuildVolumeWireframe(
         const float R = std::max(HX, HY);
         for (uint32_t I = 0u; I < N; ++I)
         {
-            const float A = (static_cast<float>(I) / static_cast<float>(N)) * 6.2831853f;
+            const float A = (static_cast<float>(I) / static_cast<float>(N)) * Frontier::Constants::TauFloat;
             OutVerts.push_back({ R * std::cos(A), R * std::sin(A), -HZ });
         }
         OutVerts.push_back({ 0.0f, 0.0f, HZ });
@@ -126,7 +127,7 @@ void BuildVolumeWireframe(
             const std::size_t Base = OutVerts.size();
             for (uint32_t I = 0u; I < Segs; ++I)
             {
-                const float A = (static_cast<float>(I) / static_cast<float>(Segs)) * 6.2831853f;
+                const float A = (static_cast<float>(I) / static_cast<float>(Segs)) * Frontier::Constants::TauFloat;
                 OutVerts.push_back({ RR * std::cos(A), RR * std::sin(A), Z });
             }
             for (uint32_t I = 0u; I < Segs; ++I) OutEdges.push_back({ Base + I, Base + ((I + 1u) % Segs) });

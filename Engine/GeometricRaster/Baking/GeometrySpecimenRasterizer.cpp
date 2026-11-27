@@ -13,6 +13,7 @@
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/MaterialSpace/CompactMaterialRegister.h"
 #include "Engine/MaterialSpace/Scattering/OpenPbrSurfaceScattering.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -60,16 +61,6 @@ struct SpecimenPart
     Matrix3x3              LocalFromWorld {};
 };
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Input)
-{
-    std::string Result;
-    Result.reserve(Input.size());
-    for (const unsigned char Ch : Input)
-    {
-        Result.push_back(static_cast<char>(std::tolower(Ch)));
-    }
-    return Result;
-}
 
 [[nodiscard]] bool ContainsToken(std::string_view LowerHaystack, std::string_view Needle) noexcept
 {
@@ -127,10 +118,9 @@ struct SpecimenPart
 // R = Rz * Ry * Rx matching FrontierWorldMirror WorldPropLibrary.js
 [[nodiscard]] Matrix3x3 BuildEulerDegMatrix(Mathematics::Scalar3D RotDeg) noexcept
 {
-    constexpr float DegToRad = 0.017453292519943295f;
-    const float Rx = RotDeg.X * DegToRad;
-    const float Ry = RotDeg.Y * DegToRad;
-    const float Rz = RotDeg.Z * DegToRad;
+    const float Rx = RotDeg.X * Frontier::Constants::DegToRadFloat;
+    const float Ry = RotDeg.Y * Frontier::Constants::DegToRadFloat;
+    const float Rz = RotDeg.Z * Frontier::Constants::DegToRadFloat;
     const float Cx = std::cos(Rx), Sx = std::sin(Rx);
     const float Cy = std::cos(Ry), Sy = std::sin(Ry);
     const float Cz = std::cos(Rz), Sz = std::sin(Rz);
@@ -508,7 +498,7 @@ void BuildPropParts(
             for (int B = 0; B < 6; ++B)
             {
                 const float ThetaDeg = static_cast<float>(B) * 60.0f;
-                const float ThetaRad = ThetaDeg * 0.0174532925f;
+                const float ThetaRad = ThetaDeg * Frontier::Constants::DegToRadFloat;
                 const float Cx = std::cos(ThetaRad) * 0.19f;
                 const float Cz = 0.04f + std::sin(ThetaRad) * 0.19f;
                 Add(SpecimenPartShape::Box, { Cx, -0.01f, Cz }, { 0.11f, 0.012f, 0.042f }, { 26.0f, -ThetaDeg, 0.0f }, Silver);
@@ -946,10 +936,7 @@ bool IntersectPart(
 [[nodiscard]] uint8_t EncodeStudioPixel(float LinearVal) noexcept
 {
     // EV Compensation +0.28 (2^0.28 = 1.2142) + Narkowicz ACES filmic + sRGB
-    const float X = std::max(0.0f, LinearVal * 1.2142f * 0.56f);
-    const float Mapped = std::clamp((X * (2.51f * X + 0.03f)) / (X * (2.43f * X + 0.59f) + 0.14f), 0.0f, 1.0f);
-    const float Srgb   = (Mapped <= 0.0031308f) ? (12.92f * Mapped) : (1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::lround(std::clamp(Srgb, 0.0f, 1.0f) * 255.0f));
+    return Frontier::ColourSpace::EncodeAcesSrgbByte(LinearVal, 1.2142f * 0.56f);
 }
 
 void FitSilhouetteRgba(
@@ -1064,7 +1051,7 @@ void FitSilhouetteRgba(
 
 GeometrySpecimenArchetype ResolveGeometrySpecimenArchetype(std::string_view DisplayTitle) noexcept
 {
-    const std::string Lower = LowercaseAscii(DisplayTitle);
+    const std::string Lower = Frontier::Serialization::LowercaseAscii(DisplayTitle);
 
     if (ContainsToken(Lower, "traffic") || (ContainsToken(Lower, "cone") && !ContainsToken(Lower, "cylinder")))
     {

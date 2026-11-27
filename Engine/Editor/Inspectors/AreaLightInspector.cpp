@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/AreaLightInspector.h"
 #include "Engine/Editor/Inspectors/LightInspectorShared.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -92,7 +93,7 @@ float AreaLightInspector::Construct(
 
     const float AreaM2 = (Instance.ApertureFormIndex == 0u)
         ? (Instance.WidthMeters * Instance.HeightMeters)
-        : (3.14159265f * 0.25f * Instance.WidthMeters * Instance.HeightMeters);
+        : (Frontier::Constants::PiFloat * 0.25f * Instance.WidthMeters * Instance.HeightMeters);
 
     if (ActivePage == 0u)
     {
@@ -160,7 +161,7 @@ float AreaLightInspector::Construct(
         for (int I = 0; I <= Segs; ++I)
         {
             const float T   = static_cast<float>(I) / static_cast<float>(Segs);
-            const float Rad = (-1.570796f) + T * 3.14159265f;
+            const float Rad = (-Frontier::Constants::HalfPiFloat) + T * Frontier::Constants::PiFloat;
             const float Amp = std::max(0.0f, std::cos(Rad));
             const Point2D P { Plot.X + T * Plot.Width, (Plot.Bottom() - 16.0f) - Amp * (Plot.Height - 20.0f) };
             if (I > 0) Surface.StrokeLine(Prev, P, ColorRgba{ 212u, 206u, 192u, 255u }, 1.5f);

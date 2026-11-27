@@ -10,6 +10,8 @@
 #include "Engine/GeometricRaster/Baking/GeometrySpecimenRasterizer.h"
 #include "Engine/MaterialSpace/Baking/MaterialSpecimenRasterizer.h"
 #include "Engine/MaterialSpace/SurfaceMaterial.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <atomic>
@@ -42,25 +44,15 @@ constexpr uint32_t WorkspaceBit(WorkspaceCategory Workspace) noexcept
 
 [[nodiscard]] uint64_t ComputeFnv1a64(std::string_view Text) noexcept
 {
-    uint64_t Hash = 14695981039346656037ull;
+    uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
     for (const unsigned char Byte : Text)
     {
         Hash ^= static_cast<uint64_t>(Byte);
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     }
     return Hash;
 }
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Input)
-{
-    std::string Result;
-    Result.reserve(Input.size());
-    for (const unsigned char Ch : Input)
-    {
-        Result.push_back(static_cast<char>(std::tolower(Ch)));
-    }
-    return Result;
-}
 
 [[nodiscard]] uint8_t ClampChannel(float Intensity) noexcept
 {
@@ -560,7 +552,7 @@ const char* ThumbnailSheetRepository::QueryWorkspaceTitle(WorkspaceCategory Work
 
 ContentCategory ThumbnailSheetRepository::ClassifyExternalSuffix(const std::filesystem::path& SourceFile) noexcept
 {
-    const std::string Ext = LowercaseAscii(SourceFile.extension().string());
+    const std::string Ext = Frontier::Serialization::LowercaseAscii(SourceFile.extension().string());
     if (Ext == ".colourswatch" || Ext == ".colourramp" || Ext == ".colourspace" || Ext == ".toml"
         || Ext == ".gpl" || Ext == ".ggr" || Ext == ".ase" || Ext == ".aco" || Ext == ".cube")
     {
@@ -735,7 +727,7 @@ void SynthesizeMaterialPreviewTileRgba(
         };
     };
 
-    const std::string LowerTitle = LowercaseAscii(DisplayTitle);
+    const std::string LowerTitle = Frontier::Serialization::LowercaseAscii(DisplayTitle);
     MaterialSpace::SurfaceMaterial Mat{};
     if (LowerTitle.find("glass") != std::string::npos || LowerTitle.find("dielectric") != std::string::npos)
     {
@@ -1618,7 +1610,7 @@ std::vector<std::size_t> ThumbnailSheetRepository::QueryFilteredEntries(
         return Filtered;
     }
 
-    const std::string LowerQuery = LowercaseAscii(SearchQuery);
+    const std::string LowerQuery = Frontier::Serialization::LowercaseAscii(SearchQuery);
     for (std::size_t Idx = 0u; Idx < Entries.size(); ++Idx)
     {
         const ContentRepositoryEntry& Entry         = Entries[Idx];
@@ -1662,7 +1654,7 @@ std::vector<std::size_t> ThumbnailSheetRepository::QueryFilteredEntries(
 
         if (!LowerQuery.empty())
         {
-            const std::string Haystack = LowercaseAscii(Entry.DisplayTitle + " " + Entry.ContainerFormat);
+            const std::string Haystack = Frontier::Serialization::LowercaseAscii(Entry.DisplayTitle + " " + Entry.ContainerFormat);
             if (Haystack.find(LowerQuery) == std::string::npos)
             {
                 continue;

@@ -4,6 +4,7 @@
 // 🧩 Directional, light/dark, and split-header diagnostic tooltip implementation
 
 #include "Engine/Components/Controls/ControlTooltip.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,7 +23,6 @@ namespace
 //                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-constexpr float PiConstant           = 3.14159265358979323846f; // [rad] - Mathematical pi constant
 constexpr float HorizontalPadding    = 18.0f;                   // [px]  - Interior left/right content inset
 constexpr float VerticalPadding      = 15.0f;                   // [px]  - Interior top/bottom content inset
 constexpr float SplitHeaderHeight    = 40.0f;                   // [px]  - Upper header band height in SplitHeader layout
@@ -232,7 +232,7 @@ void AppendDistinctVertex(std::vector<Point2D>& Vertices, Point2D Candidate)
     }
 
     // 📝 Smooth C1 raised-cosine speech pointer (matches b705d179... and 8226e835... references).
-    const float CosineBell = 0.5f * (1.0f + std::cos(PiConstant * AbsU));
+    const float CosineBell = 0.5f * (1.0f + std::cos(Frontier::Constants::PiFloat * AbsU));
     return TailLength * std::pow(CosineBell, 1.38f);
 }
 
@@ -305,7 +305,7 @@ void AppendDistinctVertex(std::vector<Point2D>& Vertices, Point2D Candidate)
     };
 
     // ① Top-Left corner (-pi -> -pi/2)
-    AppendCornerArc({ Body.X + SafeRadius, Body.Y + SafeRadius }, -PiConstant, -0.5f * PiConstant);
+    AppendCornerArc({ Body.X + SafeRadius, Body.Y + SafeRadius }, -Frontier::Constants::PiFloat, -0.5f * Frontier::Constants::PiFloat);
 
     // ② Top edge (Left -> Right): carries upward tail when Direction == TooltipDirection::Below
     if (Direction == TooltipDirection::Below && Body.Width >= 2.0f * (SafeRadius + TailHalfSpan))
@@ -323,7 +323,7 @@ void AppendDistinctVertex(std::vector<Point2D>& Vertices, Point2D Candidate)
     }
 
     // ③ Top-Right corner (-pi/2 -> 0)
-    AppendCornerArc({ Body.Right() - SafeRadius, Body.Y + SafeRadius }, -0.5f * PiConstant, 0.0f);
+    AppendCornerArc({ Body.Right() - SafeRadius, Body.Y + SafeRadius }, -0.5f * Frontier::Constants::PiFloat, 0.0f);
 
     // ④ Right edge (Top -> Bottom): carries rightward tail when Direction == TooltipDirection::Left
     if (Direction == TooltipDirection::Left && Body.Height >= 2.0f * (SafeRadius + TailHalfSpan))
@@ -340,7 +340,7 @@ void AppendDistinctVertex(std::vector<Point2D>& Vertices, Point2D Candidate)
     }
 
     // ⑤ Bottom-Right corner (0 -> +pi/2)
-    AppendCornerArc({ Body.Right() - SafeRadius, Body.Bottom() - SafeRadius }, 0.0f, 0.5f * PiConstant);
+    AppendCornerArc({ Body.Right() - SafeRadius, Body.Bottom() - SafeRadius }, 0.0f, 0.5f * Frontier::Constants::PiFloat);
 
     // ⑥ Bottom edge (Right -> Left): carries downward tail when Direction == TooltipDirection::Above
     if (Direction == TooltipDirection::Above && Body.Width >= 2.0f * (SafeRadius + TailHalfSpan))
@@ -357,7 +357,7 @@ void AppendDistinctVertex(std::vector<Point2D>& Vertices, Point2D Candidate)
     }
 
     // ⑦ Bottom-Left corner (+pi/2 -> +pi)
-    AppendCornerArc({ Body.X + SafeRadius, Body.Bottom() - SafeRadius }, 0.5f * PiConstant, PiConstant);
+    AppendCornerArc({ Body.X + SafeRadius, Body.Bottom() - SafeRadius }, 0.5f * Frontier::Constants::PiFloat, Frontier::Constants::PiFloat);
 
     // ⑧ Left edge (Bottom -> Top): carries leftward tail when Direction == TooltipDirection::Right
     if (Direction == TooltipDirection::Right && Body.Height >= 2.0f * (SafeRadius + TailHalfSpan))

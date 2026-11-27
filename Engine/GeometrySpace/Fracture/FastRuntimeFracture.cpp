@@ -4,6 +4,7 @@
 // 🧩 Sub-millisecond preallocated flat-array convex fracture kernel, Boussinesq-Hertz stress, and CutToken bond builder
 
 #include "Engine/GeometrySpace/Fracture/FastRuntimeFracture.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -20,7 +21,6 @@ namespace
 {
 
 constexpr double ClipEpsilon = 1.0e-7;
-constexpr double PiConst     = 3.14159265358979323846;
 
 uint32_t FindOrInsertCapPoint(FlatClipScratch& Scratch, double Px, double Py, double Pz, uint32_t Count) noexcept
 {
@@ -808,7 +808,7 @@ FracturePartitionResult FastRuntimeFracture::Execute(
     const uint32_t Ceiling      = std::clamp(Specification.Ceiling, 2u, 256u);
     const double   ImpactEnergy = std::max(10.0, Specification.EnergyJoules);
     const double   MinSpan      = std::max(0.015, Specification.MinimumSizeM);
-    const double   GrainRad     = Specification.GrainAngleDeg * (PiConst / 180.0);
+    const double   GrainRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
     const double   BondScale    = Specification.BondStrengthScale > 0.0 ? Specification.BondStrengthScale : 1.0;
 
     FlatConvexCell RootCell     = PackFlatConvexCell(SourcePolyhedron);
@@ -878,7 +878,7 @@ FracturePartitionResult FastRuntimeFracture::Execute(
         WorkQueue.pop_back();
         for (uint32_t S = 0u; S < Sides && (WorkQueue.size() + Completed.size() + 1u) < Ceiling; ++S)
         {
-            const double Ang = (static_cast<double>(S) / static_cast<double>(Sides)) * PiConst * 2.0 + Rand.NextDouble() * 0.16;
+            const double Ang = (static_cast<double>(S) / static_cast<double>(Sides)) * Frontier::Constants::Pi * 2.0 + Rand.NextDouble() * 0.16;
             const double Ca  = std::cos(Ang), Sa = std::sin(Ang);
             const double Ch  = std::sin(static_cast<double>(Material.HertzConeRad));
             const double Sh  = std::cos(static_cast<double>(Material.HertzConeRad));

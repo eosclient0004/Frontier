@@ -33,6 +33,7 @@
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherDocumentCodec.h"
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherSpecimen.h"
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherCurveImport.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -6465,10 +6466,9 @@ void ResolveGizmoTarget(SketcherWorkspaceStatus& State)
 [[nodiscard]] int ViewAxisCondition(const OrbitCamera& Camera) noexcept
 {
     constexpr double Tolerance = 1.0e-2;                                                     // [rad] - As ViewGridPlane
-    constexpr double HalfPi    = 0.5 * std::numbers::pi;
-    if (std::abs(std::abs(Camera.Elevation) - HalfPi) <= Tolerance) return 2;
+    if (std::abs(std::abs(Camera.Elevation) - Frontier::Constants::HalfPi) <= Tolerance) return 2;
     if (std::abs(Camera.Elevation) > Tolerance) return -1;
-    if (std::abs(std::remainder(Camera.Azimuth, HalfPi)) > Tolerance) return -1;
+    if (std::abs(std::remainder(Camera.Azimuth, Frontier::Constants::HalfPi)) > Tolerance) return -1;
     return std::abs(std::remainder(Camera.Azimuth, std::numbers::pi)) < Tolerance ? 0 : 1;
 }
 
@@ -13570,10 +13570,9 @@ void DrawDimensionsOverlay(SketcherWorkspaceStatus& State, ImDrawList* Canvas, c
                 Preview.Value = 2.0 * (Tool.Radius > 0.0 ? Tool.Radius : Distance(Preview.FirstPoint, Preview.SecondPoint));
             else if (Preview.Kind == SketcherDimensionCategory::Angular)
             {
-                constexpr double RadToDeg = 180.0 / std::numbers::pi;
                 const Vector3 RA = DimensionSafeNormal(Preview.SecondPoint, { 1.0, 0.0, 0.0 });
                 const Vector3 RB = DimensionSafeNormal(Preview.Direction, { 0.0, 1.0, 0.0 });
-                Preview.Value = std::acos(std::clamp(Dot(RA, RB), -1.0, 1.0)) * RadToDeg;
+                Preview.Value = std::acos(std::clamp(Dot(RA, RB), -1.0, 1.0)) * Frontier::Constants::RadToDeg;
             }
             else
             {
@@ -14363,9 +14362,8 @@ void PickCurve(SketcherWorkspaceStatus& State, const std::string& Label, Sketche
 int ViewGridPlane(const OrbitCamera& Camera) noexcept
 {
     constexpr double Tolerance = 1.0e-2;                                                     // [rad] - As CurrentViewLabel
-    constexpr double HalfPi    = 0.5 * std::numbers::pi;
     if (std::abs(Camera.Elevation) > Tolerance) return 0;                                    // Above / below: ground (Top / Bottom too)
-    const double Quarter = std::remainder(Camera.Azimuth, HalfPi);                           // Off a 90° step → ground
+    const double Quarter = std::remainder(Camera.Azimuth, Frontier::Constants::HalfPi);                           // Off a 90° step → ground
     if (std::abs(Quarter) > Tolerance) return 0;
     const double Turn = std::remainder(Camera.Azimuth, std::numbers::pi);                    // 0: ±x (Right / Left), ±½π: ±y
     return std::abs(Turn) < Tolerance ? 2 : 1;

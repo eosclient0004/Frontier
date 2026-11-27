@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/Baking/TextureBakerRasterizer.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -488,9 +489,9 @@ bool TextureBakerRasterizer::RenderSpatialViewport(const BakeViewportRenderSpec&
     float EffectiveFovDeg = Spec.Camera.VerticalFovDeg;
     if (SafeAspect < 1.0f)
     {
-        const float HalfRad = (Spec.Camera.VerticalFovDeg * 0.5f) * 3.14159265f / 180.0f;
+        const float HalfRad = (Spec.Camera.VerticalFovDeg * 0.5f) * Frontier::Constants::PiFloat / 180.0f;
         EffectiveFovDeg = std::clamp(
-            2.0f * std::atan(std::tan(HalfRad) / SafeAspect) * (180.0f / 3.14159265f),
+            2.0f * std::atan(std::tan(HalfRad) / SafeAspect) * (180.0f / Frontier::Constants::PiFloat),
             Spec.Camera.VerticalFovDeg,
             108.0f);
     }

@@ -139,13 +139,7 @@ void CompressSha256Block(const uint8_t Block[64u], std::array<uint32_t, 8u>& Wor
 
 uint64_t ComputeFnv1a64(std::span<const std::byte> InputBytes) noexcept
 {
-    uint64_t Hash = 14695981039346656037ULL;
-    for (const std::byte Octet : InputBytes)
-    {
-        Hash ^= static_cast<uint64_t>(std::to_integer<uint8_t>(Octet));
-        Hash *= 1099511628211ULL;
-    }
-    return Hash;
+    return ComputeFnv1a64Bytes(InputBytes.data(), InputBytes.size());
 }
 
 uint64_t ComputeXxHash64(std::span<const std::byte> InputBytes, uint64_t Seed) noexcept

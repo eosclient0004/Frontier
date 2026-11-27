@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/SimulationCheckpointBuffer.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cstring>
@@ -28,7 +29,7 @@ void HashBytesFnv1a(uint64_t& h, const void* data, size_t byteLen) noexcept
     for (size_t i = 0u; i < byteLen; ++i)
     {
         h ^= static_cast<uint64_t>(bytes[i]);
-        h *= 1099511628211ull;
+        h *= Frontier::Constants::Fnv1a64Prime;
     }
 }
 
@@ -63,7 +64,7 @@ void SimulationCheckpointBuffer::Clear() noexcept
 
 uint64_t SimulationCheckpointBuffer::ComputeCheckpointHash(const SimulationCheckpointRecord& record) noexcept
 {
-    uint64_t h = 14695981039346656037ull;
+    uint64_t h = Frontier::Constants::Fnv1a64OffsetBasis;
     HashBytesFnv1a(h, &record.CompletedTicks, sizeof(record.CompletedTicks));
     HashBytesFnv1a(h, &record.AccumulatedSeconds, sizeof(record.AccumulatedSeconds));
     HashBytesFnv1a(h, &record.FluidSimTime, sizeof(record.FluidSimTime));

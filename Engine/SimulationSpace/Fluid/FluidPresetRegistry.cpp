@@ -11,6 +11,9 @@
 #include "Engine/SimulationSpace/Fluid/FluidPresetRegistry.h"
 #include "Engine/SimulationSpace/ForceFields/ForceFieldSampler.h"
 #include "Engine/SimulationSpace/ForceFields/ForceModelRegistry.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
+#include "Engine/Codecs/LosslessPngEncoder.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,10 +30,6 @@ namespace
 namespace EL = Frontier::SimulationSpace::EffectLayers;
 namespace FF = Frontier::SimulationSpace::ForceFields;
 
-[[nodiscard]] float FractF(const float x) noexcept
-{
-    return x - std::floor(x);
-}
 
 [[nodiscard]] std::array<float, 3> ParseHexRgb(const std::string_view hex, const std::array<float, 3>& fallback) noexcept
 {
@@ -172,53 +171,14 @@ namespace FF = Frontier::SimulationSpace::ForceFields;
 [[nodiscard]] std::array<float, 3> RandomUnitDirectionCpu(const float sx, const float sy, const float sz) noexcept
 {
     const float z = FF::Hash31({ sx, sy, sz }) * 2.0f - 1.0f;
-    const float a = FF::Hash31({ sz + 5.1f, sx + 5.1f, sy + 5.1f }) * 6.2831853f;
+    const float a = FF::Hash31({ sz + 5.1f, sx + 5.1f, sy + 5.1f }) * Frontier::Constants::TauFloat;
     const float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
     return { r * std::cos(a), z, r * std::sin(a) };
 }
 
-[[nodiscard]] uint32_t ComputeCrc32(const uint8_t* data, const size_t len) noexcept
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    for (size_t i = 0u; i < len; ++i)
-    {
-        crc ^= static_cast<uint32_t>(data[i]);
-        for (int b = 0; b < 8; ++b)
-        {
-            crc = (crc & 1u) ? ((crc >> 1u) ^ 0xEDB88320u) : (crc >> 1u);
-        }
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
 
-[[nodiscard]] uint32_t ComputeAdler32(const uint8_t* data, const size_t len) noexcept
-{
-    uint32_t s1 = 1u, s2 = 0u;
-    for (size_t i = 0u; i < len; ++i)
-    {
-        s1 = (s1 + static_cast<uint32_t>(data[i])) % 65521u;
-        s2 = (s2 + s1) % 65521u;
-    }
-    return (s2 << 16u) | s1;
-}
 
-void AppendBe32(std::vector<uint8_t>& out, const uint32_t v)
-{
-    out.push_back(static_cast<uint8_t>((v >> 24u) & 0xFFu));
-    out.push_back(static_cast<uint8_t>((v >> 16u) & 0xFFu));
-    out.push_back(static_cast<uint8_t>((v >>  8u) & 0xFFu));
-    out.push_back(static_cast<uint8_t>( v         & 0xFFu));
-}
 
-void AppendPngChunk(std::vector<uint8_t>& out, const char tag[4], const std::vector<uint8_t>& payload)
-{
-    AppendBe32(out, static_cast<uint32_t>(payload.size()));
-    const size_t crcStart = out.size();
-    out.insert(out.end(), tag, tag + 4);
-    out.insert(out.end(), payload.begin(), payload.end());
-    const uint32_t crc = ComputeCrc32(out.data() + crcStart, out.size() - crcStart);
-    AppendBe32(out, crc);
-}
 
 } // namespace
 
@@ -641,7 +601,7 @@ void StepFluidDebrisCpu(
                     velX = src.Source.VelocityMps[0] + dir[0] * spd;
                     velY = src.Source.VelocityMps[1] + dir[1] * spd + 0.45f * src.DebrisSpeed;
                     velZ = src.Source.VelocityMps[2] + dir[2] * spd;
-                    vw   = static_cast<float>(src.DebrisKind) + FractF(vw);
+                    vw   = static_cast<float>(src.DebrisKind) + Frontier::Mathematics::EvaluateFractionalPart(vw);
                     age  = 0.0f;
                     dead = false;
                 }
@@ -651,7 +611,7 @@ void StepFluidDebrisCpu(
             {
                 age += deltaTimeSeconds;
                 const int32_t kind = static_cast<int32_t>(std::floor(vw));
-                const float seedValue = FractF(vw);
+                const float seedValue = Frontier::Mathematics::EvaluateFractionalPart(vw);
                 const auto cell = FluidCellFromWorld(volume, { posX, posY, posZ });
                 const auto gas  = velocity.SampleTrilinear(cell[0], cell[1], cell[2]);
 
@@ -720,62 +680,7 @@ bool WriteRgba8PngFile(
     const uint32_t height,
     const std::span<const uint8_t> rgba8Bytes)
 {
-    const size_t expected = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
-    if (width == 0u || height == 0u || rgba8Bytes.size() < expected) return false;
-
-    // Build raw scanlines (1 filter byte 0x00 per row + 4*width RGBA bytes)
-    const size_t rowStride = static_cast<size_t>(width) * 4u;
-    std::vector<uint8_t> raw;
-    raw.reserve(static_cast<size_t>(height) * (rowStride + 1u));
-    for (uint32_t y = 0u; y < height; ++y)
-    {
-        raw.push_back(0u);
-        const uint8_t* rowPtr = rgba8Bytes.data() + static_cast<size_t>(y) * rowStride;
-        raw.insert(raw.end(), rowPtr, rowPtr + rowStride);
-    }
-
-    // Wrap raw scanlines in valid RFC 1950 zlib stream using stored deflate blocks (max 65535 bytes/block)
-    std::vector<uint8_t> zlibData;
-    zlibData.reserve(raw.size() + 64u);
-    zlibData.push_back(0x78u);
-    zlibData.push_back(0x01u);
-    size_t offset = 0u;
-    while (offset < raw.size())
-    {
-        const size_t chunkLen = std::min<size_t>(65535u, raw.size() - offset);
-        const bool isFinal = (offset + chunkLen >= raw.size());
-        zlibData.push_back(isFinal ? 0x01u : 0x00u);
-        const uint16_t len16  = static_cast<uint16_t>(chunkLen);
-        const uint16_t nlen16 = static_cast<uint16_t>(~len16);
-        zlibData.push_back(static_cast<uint8_t>(len16 & 0xFFu));
-        zlibData.push_back(static_cast<uint8_t>((len16 >> 8u) & 0xFFu));
-        zlibData.push_back(static_cast<uint8_t>(nlen16 & 0xFFu));
-        zlibData.push_back(static_cast<uint8_t>((nlen16 >> 8u) & 0xFFu));
-        zlibData.insert(zlibData.end(), raw.begin() + static_cast<ptrdiff_t>(offset), raw.begin() + static_cast<ptrdiff_t>(offset + chunkLen));
-        offset += chunkLen;
-    }
-    AppendBe32(zlibData, ComputeAdler32(raw.data(), raw.size()));
-
-    std::vector<uint8_t> png;
-    static constexpr uint8_t kSig[8] { 137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u };
-    png.insert(png.end(), kSig, kSig + 8);
-
-    std::vector<uint8_t> ihdr;
-    AppendBe32(ihdr, width);
-    AppendBe32(ihdr, height);
-    ihdr.push_back(8u); // bit depth
-    ihdr.push_back(6u); // RGBA colour type
-    ihdr.push_back(0u); // compression
-    ihdr.push_back(0u); // filter
-    ihdr.push_back(0u); // interlace
-    AppendPngChunk(png, "IHDR", ihdr);
-    AppendPngChunk(png, "IDAT", zlibData);
-    AppendPngChunk(png, "IEND", {});
-
-    std::ofstream out(std::string(filePath), std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) return false;
-    out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
-    return out.good();
+    return Frontier::Codecs::WriteLosslessRgba8PngFile(std::filesystem::path(filePath), width, height, rgba8Bytes);
 }
 
 } // namespace Frontier::SimulationSpace::Fluid

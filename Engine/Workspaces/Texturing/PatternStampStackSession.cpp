@@ -4,6 +4,7 @@
 // 🧩 Pattern Studio and Stamp Studio shared document, layer-stack tree, 22-channel PBR bindings, 8 modifiers, and undo/redo history.
 
 #include "Engine/Workspaces/Texturing/PatternStampStackSession.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -19,7 +20,6 @@ namespace
 {
 
 constexpr float KappaBezierCircle = 0.55228475f;
-constexpr float TwoPiScalar       = 6.28318530718f;
 
 std::filesystem::path ResolveWorkspaceFontPath(std::string_view CandidateOrRelative) noexcept
 {
@@ -1577,7 +1577,7 @@ void PatternStampWorkspaceSession::SeedMotifCubicSubpathsIfEmpty(PatternStampLay
             std::vector<GeometricRaster::VectorVertex2D> Pts;
             for (int I = 0; I < 6; ++I)
             {
-                const float A = TwoPiScalar * (static_cast<float>(I) / 6.0f) - 1.5707963f;
+                const float A = Frontier::Constants::TauFloat * (static_cast<float>(I) / 6.0f) - Frontier::Constants::HalfPiFloat;
                 Pts.push_back({ std::cos(A) * HalfW, std::sin(A) * HalfH });
             }
             AppendSharpPoly(Pts, true);
@@ -1593,7 +1593,7 @@ void PatternStampWorkspaceSession::SeedMotifCubicSubpathsIfEmpty(PatternStampLay
             std::vector<GeometricRaster::VectorVertex2D> Pts;
             for (int I = 0; I < 10; ++I)
             {
-                const float A = TwoPiScalar * (static_cast<float>(I) / 10.0f) - 1.5707963f;
+                const float A = Frontier::Constants::TauFloat * (static_cast<float>(I) / 10.0f) - Frontier::Constants::HalfPiFloat;
                 const float S = ((I & 1) == 0) ? 1.0f : 0.44f;
                 Pts.push_back({ std::cos(A) * HalfW * S, std::sin(A) * HalfH * S });
             }
@@ -1631,12 +1631,12 @@ void PatternStampWorkspaceSession::SeedMotifCubicSubpathsIfEmpty(PatternStampLay
             std::vector<GeometricRaster::VectorVertex2D> Pts;
             for (int I = 0; I <= 14; ++I)
             {
-                const float A = 3.14159265f * (static_cast<float>(I) / 14.0f) - 3.14159265f;
+                const float A = Frontier::Constants::PiFloat * (static_cast<float>(I) / 14.0f) - Frontier::Constants::PiFloat;
                 Pts.push_back({ std::cos(A) * HalfW, std::sin(A) * HalfH });
             }
             for (int I = 14; I >= 0; --I)
             {
-                const float A = 3.14159265f * (static_cast<float>(I) / 14.0f) - 3.14159265f;
+                const float A = Frontier::Constants::PiFloat * (static_cast<float>(I) / 14.0f) - Frontier::Constants::PiFloat;
                 Pts.push_back({ std::cos(A) * HalfW * 0.62f, std::sin(A) * HalfH * 0.62f });
             }
             AppendSharpPoly(Pts, true);
@@ -1669,7 +1669,7 @@ void PatternStampWorkspaceSession::SeedMotifCubicSubpathsIfEmpty(PatternStampLay
             std::vector<GeometricRaster::VectorVertex2D> Pts;
             for (int I = 0; I < 40; ++I)
             {
-                const float A = TwoPiScalar * (static_cast<float>(I) / 40.0f);
+                const float A = Frontier::Constants::TauFloat * (static_cast<float>(I) / 40.0f);
                 const float R = 0.52f + 0.48f * std::fabs(std::cos(2.5f * A));
                 Pts.push_back({ std::cos(A) * HalfW * R, std::sin(A) * HalfH * R });
             }
@@ -1682,7 +1682,7 @@ void PatternStampWorkspaceSession::SeedMotifCubicSubpathsIfEmpty(PatternStampLay
             const int Teeth = 10;
             for (int I = 0; I < Teeth * 4; ++I)
             {
-                const float A = TwoPiScalar * (static_cast<float>(I) / static_cast<float>(Teeth * 4));
+                const float A = Frontier::Constants::TauFloat * (static_cast<float>(I) / static_cast<float>(Teeth * 4));
                 const float R = ((I % 4) < 2) ? 1.0f : 0.72f;
                 Pts.push_back({ std::cos(A) * HalfW * R, std::sin(A) * HalfH * R });
             }

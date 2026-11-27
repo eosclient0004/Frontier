@@ -10,6 +10,7 @@
 #include "Source/UntitledLifecycle.h"
 
 #include "Engine/Serialization/Container/DocumentContainerCodec.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -79,7 +80,7 @@ bool UntitledLifecycle::Initialize(
         BotanicalPlantInstance inst {};
         inst.SpeciesId         = speciesId;
         inst.WorldPosMeters    = { x, y, 0.0f };
-        inst.YawRad            = yawDeg * 0.0174532925f;
+        inst.YawRad            = yawDeg * Frontier::Constants::DegToRadFloat;
         inst.Scale             = scale;
         inst.GrowthForm        = sp ? sp->GrowthForm : BotanicalGrowthForm::Fern;
         inst.HeightMeters      = sp ? (sp->GrowthForm == BotanicalGrowthForm::Fern ? sp->Fern.FrondLengthMeters : sp->Trunk.HeightMeters) : 1.0f;

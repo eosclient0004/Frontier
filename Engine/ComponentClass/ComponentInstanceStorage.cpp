@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/ComponentClass/ComponentInstanceStorage.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -31,15 +32,6 @@ namespace
     return std::string(View);
 }
 
-[[nodiscard]] std::string ToLowerAscii(std::string_view View)
-{
-    std::string Out(View);
-    for (char& Ch : Out)
-    {
-        Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
-    }
-    return Out;
-}
 
 } // namespace
 
@@ -672,7 +664,7 @@ bool ComponentInstanceStorage::QuerySlotLive(uint32_t SlotZeroIndex) const noexc
 
 bool ComponentInstanceStorage::QueryDockTagAccepted(std::string_view DockKey, std::string_view TagCsv) noexcept
 {
-    const std::string CleanKey = ToLowerAscii(TrimWhitespace(DockKey));
+    const std::string CleanKey = Frontier::Serialization::LowercaseAscii(TrimWhitespace(DockKey));
     if (CleanKey.empty())
     {
         return true;
@@ -683,7 +675,7 @@ bool ComponentInstanceStorage::QueryDockTagAccepted(std::string_view DockKey, st
     {
         const std::size_t Comma = TagCsv.find(',', Start);
         const std::size_t End   = (Comma == std::string_view::npos) ? TagCsv.size() : Comma;
-        const std::string Tag   = ToLowerAscii(TrimWhitespace(TagCsv.substr(Start, End - Start)));
+        const std::string Tag   = Frontier::Serialization::LowercaseAscii(TrimWhitespace(TagCsv.substr(Start, End - Start)));
         if (!Tag.empty() && Tag == CleanKey)
         {
             return true;

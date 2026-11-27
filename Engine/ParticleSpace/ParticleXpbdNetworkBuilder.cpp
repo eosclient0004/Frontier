@@ -10,6 +10,8 @@
 
 #include "Engine/ParticleSpace/ParticleXpbdNetworkBuilder.h"
 #include "Engine/SimulationSpace/PhysicsSpace/RigidBodyDynamics.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,10 +27,6 @@ namespace
 namespace PS = Frontier::SimulationSpace::PhysicsSpace;
 namespace FF = Frontier::SimulationSpace::ForceFields;
 
-[[nodiscard]] float Length3(const std::array<float, 3>& v) noexcept
-{
-    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-}
 
 /// Evaluates unilateral signed distance + outward normal against a single 80-byte RigidColliderProxy (Sphere, OBB, Capsule +Z).
 [[nodiscard]] bool QueryRigidProxySdf(
@@ -424,13 +422,12 @@ XpbdConstraintNetwork BuildStrandWebNetwork(
     net.RestPositions[0] = centerMeters;
     net.MaterialUV[0]    = { 0.0f, 0.0f };
 
-    constexpr float kTwoPi = 6.28318530717958647692f;
     for (uint32_t r = 1u; r <= rings; ++r)
     {
         const float rad = radiusMeters * (static_cast<float>(r) / static_cast<float>(rings));
         for (uint32_t s = 0u; s < spokes; ++s)
         {
-            const float ang = kTwoPi * (static_cast<float>(s) / static_cast<float>(spokes));
+            const float ang = Frontier::Constants::TauFloat * (static_cast<float>(s) / static_cast<float>(spokes));
             const uint32_t idx = 1u + (r - 1u) * spokes + s;
             const float ox = std::cos(ang) * rad;
             const float oy = std::sin(ang) * rad;
@@ -446,7 +443,7 @@ XpbdConstraintNetwork BuildStrandWebNetwork(
     auto addEdge = [&](const uint32_t a, const uint32_t b, const float stiff) {
         const auto& pa = net.RestPositions[a];
         const auto& pb = net.RestPositions[b];
-        const float len = Length3({ pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2] });
+        const float len = Frontier::Mathematics::EvaluateLength3({ pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2] });
         net.DistanceIndices.push_back(a);
         net.DistanceIndices.push_back(b);
         net.DistanceRestLength.push_back(len);
@@ -765,7 +762,7 @@ void StepParticleXpbdCpu(
                             (pB[1] - pA[1]) * q00 + (pC[1] - pA[1]) * q10,
                             (pB[2] - pA[2]) * q00 + (pC[2] - pA[2]) * q10
                         };
-                        const float lu = Length3(fu);
+                        const float lu = Frontier::Mathematics::EvaluateLength3(fu);
                         if (lu > 1.0e-6f)
                         {
                             const float wG = wa * cuA * cuA + wb * cuB * cuB + wc * cuC * cuC;
@@ -798,7 +795,7 @@ void StepParticleXpbdCpu(
                             (pB[1] - pA[1]) * q01 + (pC[1] - pA[1]) * q11,
                             (pB[2] - pA[2]) * q01 + (pC[2] - pA[2]) * q11
                         };
-                        const float lv = Length3(fv);
+                        const float lv = Frontier::Mathematics::EvaluateLength3(fv);
                         if (lv > 1.0e-6f)
                         {
                             const float wG = wa * cvA * cvA + wb * cvB * cvB + wc * cvC * cvC;
@@ -836,7 +833,7 @@ void StepParticleXpbdCpu(
                             (pB[1] - pA[1]) * q01 + (pC[1] - pA[1]) * q11,
                             (pB[2] - pA[2]) * q01 + (pC[2] - pA[2]) * q11
                         };
-                        const float lu2 = Length3(fu2), lv2 = Length3(fv2);
+                        const float lu2 = Frontier::Mathematics::EvaluateLength3(fu2), lv2 = Frontier::Mathematics::EvaluateLength3(fv2);
                         if (lu2 > 1.0e-6f && lv2 > 1.0e-6f)
                         {
                             const float invN = 1.0f / (lu2 * lv2);
@@ -908,7 +905,7 @@ void StepParticleXpbdCpu(
                         c0 * x0[1] + c1 * x1[1] + c2 * x2[1] + c3 * x3[1],
                         c0 * x0[2] + c1 * x1[2] + c2 * x2[2] + c3 * x3[2]
                     };
-                    const float bLen = Length3(bVec);
+                    const float bLen = Frontier::Mathematics::EvaluateLength3(bVec);
                     if (bLen < 1.0e-9f) continue;
 
                     const float aTilde = invDt2 / std::max(1.0e-5f, cfg.BendStiffness * net.HingeArea[hi]);
@@ -987,7 +984,7 @@ void StepParticleXpbdCpu(
                 (p[2] - xPrev[2]) * invDt
             };
             const std::array<float, 3> colDelta { p[0] - pPre[0], p[1] - pPre[1], p[2] - pPre[2] };
-            const float cLen = Length3(colDelta);
+            const float cLen = Frontier::Mathematics::EvaluateLength3(colDelta);
             if (cLen > 1.0e-6f)
             {
                 const float invC = 1.0f / cLen;
@@ -999,7 +996,7 @@ void StepParticleXpbdCpu(
                     v[0] -= cnx * sv; v[1] -= cny * sv; v[2] -= cnz * sv;
                 }
             }
-            const float spd = Length3(v);
+            const float spd = Frontier::Mathematics::EvaluateLength3(v);
             if (spd > cfg.MaxSpeed)
             {
                 const float s = cfg.MaxSpeed / spd;

@@ -11,6 +11,7 @@
 
 #include "Engine/Components/Controls/InspectorSectionPrimitives.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +21,6 @@ namespace Frontier::PolarDirectionDial
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
 } // namespace
 
 const char* ResolveCompassLabel(float AzimuthDegrees) noexcept
@@ -62,7 +62,7 @@ void Construct(
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Center.X + Radius - 11.0f, Center.Y - 4.5f           }, 8.5f, InspectorMetrics::DimInk, "E");
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Center.X - Radius + 4.0f,  Center.Y - 4.5f           }, 8.5f, InspectorMetrics::DimInk, "W");
 
-    const float AzRad = AzimuthDegrees * (PiF / 180.0f);
+    const float AzRad = AzimuthDegrees * (Frontier::Constants::PiFloat / 180.0f);
     const float Radial = ShowElevation
                              ? (std::clamp(1.0f - std::max(0.0f, ElevationDegrees) / 90.0f, 0.05f, 0.94f) * Radius)
                              : (Radius * 0.78f);
@@ -79,7 +79,7 @@ void Construct(
         const float Dist = std::sqrt(DX * DX + DY * DY);
         if (Dist <= Radius && Input.PrimaryPointer.Down)
         {
-            float NextAz = std::atan2(DX, -DY) * (180.0f / PiF);
+            float NextAz = std::atan2(DX, -DY) * (180.0f / Frontier::Constants::PiFloat);
             if (NextAz < 0.0f) NextAz += 360.0f;
             OutAzimuthDegrees = NextAz;
             if (ShowElevation)

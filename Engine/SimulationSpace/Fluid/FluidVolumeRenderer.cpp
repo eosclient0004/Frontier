@@ -9,6 +9,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/Fluid/FluidVolumeRenderer.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,55 +21,14 @@ namespace Frontier::SimulationSpace::Fluid
 namespace
 {
 
-constexpr float kPi = 3.14159265358979323846f;
 
-[[nodiscard]] float ClampF(const float v, const float lo, const float hi) noexcept
-{
-    return std::max(lo, std::min(hi, v));
-}
 
-[[nodiscard]] float LerpF(const float a, const float b, const float t) noexcept
-{
-    return a + (b - a) * t;
-}
 
-[[nodiscard]] float FractF(const float x) noexcept
-{
-    return x - std::floor(x);
-}
 
-[[nodiscard]] float SmoothStepF(const float e0, const float e1, const float x) noexcept
-{
-    const float d = e1 - e0;
-    const float t = (std::fabs(d) > 1.0e-9f) ? ClampF((x - e0) / d, 0.0f, 1.0f) : 0.0f;
-    return t * t * (3.0f - 2.0f * t);
-}
 
-[[nodiscard]] float Dot3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
 
-[[nodiscard]] std::array<float, 3> Cross3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return {
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    };
-}
 
-[[nodiscard]] std::array<float, 3> Normalize3(const std::array<float, 3>& v) noexcept
-{
-    const float len = std::sqrt(Dot3(v, v));
-    if (len <= 1.0e-8f) return { 0.0f, 1.0f, 0.0f };
-    return { v[0] / len, v[1] / len, v[2] / len };
-}
 
-[[nodiscard]] std::array<float, 3> Lerp3(const std::array<float, 3>& a, const std::array<float, 3>& b, const float t) noexcept
-{
-    return { LerpF(a[0], b[0], t), LerpF(a[1], b[1], t), LerpF(a[2], b[2], t) };
-}
 
 [[nodiscard]] std::array<float, 4> MulMat4Vec4ColMajor(const std::array<float, 16>& m, const std::array<float, 4>& v) noexcept
 {
@@ -137,8 +98,8 @@ constexpr float kPi = 3.14159265358979323846f;
     const float radius) noexcept
 {
     const std::array<float, 3> oc { origin[0] - centre[0], origin[1] - centre[1], origin[2] - centre[2] };
-    const float b = Dot3(oc, dir);
-    const float c = Dot3(oc, oc) - radius * radius;
+    const float b = Frontier::Mathematics::EvaluateDot3(oc, dir);
+    const float c = Frontier::Mathematics::EvaluateDot3(oc, oc) - radius * radius;
     const float h = b * b - c;
     if (h < 0.0f) return -1.0f;
     return -b - std::sqrt(h);
@@ -148,12 +109,12 @@ constexpr float kPi = 3.14159265358979323846f;
 {
     const float g2 = g * g;
     const float denom = std::max(1.0e-4f, std::pow(std::max(1.0e-5f, 1.0f + g2 - 2.0f * g * cosTheta), 1.5f));
-    return (1.0f - g2) / (4.0f * kPi * denom);
+    return (1.0f - g2) / (4.0f * Frontier::Constants::PiFloat * denom);
 }
 
 [[nodiscard]] float StableJitterCpu(const float px, const float py) noexcept
 {
-    return FractF(52.9829189f * FractF(px * 0.06711056f + py * 0.00583715f));
+    return Frontier::Mathematics::EvaluateFractionalPart(52.9829189f * Frontier::Mathematics::EvaluateFractionalPart(px * 0.06711056f + py * 0.00583715f));
 }
 
 } // namespace
@@ -173,20 +134,20 @@ FluidRenderCamera BuildFluidPerspectiveCamera(
     cam.ViewportWidth  = std::max(1u, width);
     cam.ViewportHeight = std::max(1u, height);
 
-    const std::array<float, 3> fwd = Normalize3({
+    const std::array<float, 3> fwd = Frontier::Mathematics::NormalizeVector3({
         targetMeters[0] - eyeMeters[0],
         targetMeters[1] - eyeMeters[1],
         targetMeters[2] - eyeMeters[2]
     });
     const std::array<float, 3> worldUp { 0.0f, 1.0f, 0.0f };
-    const std::array<float, 3> right = Normalize3(Cross3(fwd, worldUp));
-    const std::array<float, 3> up    = Cross3(right, fwd);
+    const std::array<float, 3> right = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(fwd, worldUp));
+    const std::array<float, 3> up    = Frontier::Mathematics::EvaluateCross3(right, fwd);
 
     // Standard right-handed OpenGL/WebGL look-at (column-major)
     std::array<float, 16> view {};
-    view[0]  = right[0]; view[4]  = right[1]; view[8]  = right[2]; view[12] = -Dot3(right, eyeMeters);
-    view[1]  = up[0];    view[5]  = up[1];    view[9]  = up[2];    view[13] = -Dot3(up, eyeMeters);
-    view[2]  = -fwd[0];  view[6]  = -fwd[1];  view[10] = -fwd[2];  view[14] =  Dot3(fwd, eyeMeters);
+    view[0]  = right[0]; view[4]  = right[1]; view[8]  = right[2]; view[12] = -Frontier::Mathematics::EvaluateDot3(right, eyeMeters);
+    view[1]  = up[0];    view[5]  = up[1];    view[9]  = up[2];    view[13] = -Frontier::Mathematics::EvaluateDot3(up, eyeMeters);
+    view[2]  = -fwd[0];  view[6]  = -fwd[1];  view[10] = -fwd[2];  view[14] =  Frontier::Mathematics::EvaluateDot3(fwd, eyeMeters);
     view[3]  = 0.0f;     view[7]  = 0.0f;     view[11] = 0.0f;     view[15] =  1.0f;
 
     const float aspect = static_cast<float>(cam.ViewportWidth) / static_cast<float>(cam.ViewportHeight);
@@ -225,7 +186,7 @@ FluidVolumeRaymarchUniformBlock BuildFluidVolumeRaymarchUniforms(
 
     const float halfY = static_cast<float>(volume.GridBoundary[1]) * volume.GridCentreCellSize[3] * 0.5f;
     const float groundHeight = isSparse ? -0.02f : (volume.GridCentreCellSize[1] - halfY - 0.02f);
-    const auto lightDir = Normalize3(settings.LightDirection);
+    const auto lightDir = Frontier::Mathematics::NormalizeVector3(settings.LightDirection);
 
     u.CameraPositionFireLight = { camera.PositionMeters[0], camera.PositionMeters[1], camera.PositionMeters[2], settings.FireLight };
     u.ViewportGroundExposure  = { static_cast<float>(camera.ViewportWidth), static_cast<float>(camera.ViewportHeight), groundHeight, settings.Exposure };
@@ -257,11 +218,11 @@ std::array<float, 3> EvaluateFireRadianceCpu(
 {
     const float threshold = u.FireFlameThreshold[3];
     const float softness  = std::max(u.FireCoreSoftness[3], 0.05f);
-    const float t = ClampF((temperature - threshold) / softness, 0.0f, 1.0f);
+    const float t = Frontier::Mathematics::ClampScalar((temperature - threshold) / softness, 0.0f, 1.0f);
     const std::array<float, 3> ember { u.FireEmberIntensity[0], u.FireEmberIntensity[1], u.FireEmberIntensity[2] };
     const std::array<float, 3> flame { u.FireFlameThreshold[0], u.FireFlameThreshold[1], u.FireFlameThreshold[2] };
     const std::array<float, 3> core  { u.FireCoreSoftness[0],   u.FireCoreSoftness[1],   u.FireCoreSoftness[2]   };
-    const auto col = (t < 0.5f) ? Lerp3(ember, flame, t * 2.0f) : Lerp3(flame, core, (t - 0.5f) * 2.0f);
+    const auto col = (t < 0.5f) ? Frontier::Mathematics::InterpolateVector3(ember, flame, t * 2.0f) : Frontier::Mathematics::InterpolateVector3(flame, core, (t - 0.5f) * 2.0f);
     const float gain = 0.2f + 4.0f * t * t;
     return { col[0] * gain, col[1] * gain, col[2] * gain };
 }
@@ -271,12 +232,12 @@ float EvaluateFirePresenceCpu(
     const float temperature) noexcept
 {
     const float threshold = u.FireFlameThreshold[3];
-    return SmoothStepF(threshold * 0.7f, threshold * 1.15f, temperature);
+    return Frontier::Mathematics::EvaluateSmoothStep(threshold * 0.7f, threshold * 1.15f, temperature);
 }
 
 float EvaluateSmokePhaseCpu(const float cosTheta, const float g) noexcept
 {
-    return LerpF(HenyeyGreensteinCpu(cosTheta, -0.25f), HenyeyGreensteinCpu(cosTheta, g), 0.72f) * 4.0f * kPi;
+    return Frontier::Mathematics::InterpolateScalar(HenyeyGreensteinCpu(cosTheta, -0.25f), HenyeyGreensteinCpu(cosTheta, g), 0.72f) * 4.0f * Frontier::Constants::PiFloat;
 }
 
 std::array<float, 3> EvaluateAcesFilmCpu(const std::array<float, 3>& x) noexcept
@@ -284,7 +245,7 @@ std::array<float, 3> EvaluateAcesFilmCpu(const std::array<float, 3>& x) noexcept
     auto curve = [](const float v) -> float {
         const float num = v * (2.51f * v + 0.03f);
         const float den = v * (2.43f * v + 0.59f) + 0.14f;
-        return ClampF(num / std::max(den, 1.0e-6f), 0.0f, 1.0f);
+        return Frontier::Mathematics::ClampScalar(num / std::max(den, 1.0e-6f), 0.0f, 1.0f);
     };
     return { curve(x[0]), curve(x[1]), curve(x[2]) };
 }
@@ -339,7 +300,7 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
     const std::array<float, 3> origin { u.CameraPositionFireLight[0], u.CameraPositionFireLight[1], u.CameraPositionFireLight[2] };
     const auto farPt = MulMat4Vec4ColMajor(u.InverseViewProjection, { ndcX, ndcY, 1.0f, 1.0f });
     const float invW = (std::fabs(farPt[3]) > 1.0e-8f) ? (1.0f / farPt[3]) : 1.0f;
-    const std::array<float, 3> direction = Normalize3({
+    const std::array<float, 3> direction = Frontier::Mathematics::NormalizeVector3({
         farPt[0] * invW - origin[0],
         farPt[1] * invW - origin[1],
         farPt[2] * invW - origin[2]
@@ -350,10 +311,10 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
     const int32_t selSphere  = u.FlagsSelection[3];
     const bool showVolume    = (static_cast<int32_t>(u.FireOpacitySteps[3]) == 1);
 
-    const float horizon = ClampF(direction[1] * 0.5f + 0.5f, 0.0f, 1.0f);
+    const float horizon = Frontier::Mathematics::ClampScalar(direction[1] * 0.5f + 0.5f, 0.0f, 1.0f);
     std::array<float, 3> colour = transparent
         ? std::array<float, 3>{ 0.0f, 0.0f, 0.0f }
-        : Lerp3({ 0.055f, 0.058f, 0.068f }, { 0.028f, 0.029f, 0.034f }, std::pow(horizon, 0.6f));
+        : Frontier::Mathematics::InterpolateVector3({ 0.055f, 0.058f, 0.068f }, { 0.028f, 0.029f, 0.034f }, std::pow(horizon, 0.6f));
 
     const std::array<float, 3> gridCentre { u.Volume.GridCentreCellSize[0], u.Volume.GridCentreCellSize[1], u.Volume.GridCentreCellSize[2] };
     const float cellSize = u.Volume.GridCentreCellSize[3];
@@ -364,7 +325,7 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
     };
     const std::array<float, 3> boxMin { gridCentre[0] - halfExt[0], gridCentre[1] - halfExt[1], gridCentre[2] - halfExt[2] };
     const std::array<float, 3> boxMax { gridCentre[0] + halfExt[0], gridCentre[1] + halfExt[1], gridCentre[2] + halfExt[2] };
-    const std::array<float, 3> fireGlow = Lerp3(
+    const std::array<float, 3> fireGlow = Frontier::Mathematics::InterpolateVector3(
         { u.FireEmberIntensity[0], u.FireEmberIntensity[1], u.FireEmberIntensity[2] },
         { u.FireFlameThreshold[0], u.FireFlameThreshold[1], u.FireFlameThreshold[2] },
         0.6f);
@@ -387,7 +348,7 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
         if (showVolume)
         {
             const float shade = std::exp(-EvaluateSunOpticalDepthCpu(u, state, hit, boxMin, boxMax));
-            const float shadowFactor = LerpF(0.4f, 1.0f, shade);
+            const float shadowFactor = Frontier::Mathematics::InterpolateScalar(0.4f, 1.0f, shade);
             colour[0] *= shadowFactor; colour[1] *= shadowFactor; colour[2] *= shadowFactor;
 
             const auto nearCell = FluidCellFromWorld(u.Volume, { hit[0], hit[1] + cellSize * 1.5f, hit[2] });
@@ -416,9 +377,9 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
         if (t > 0.0f && t < sceneDepth)
         {
             const std::array<float, 3> hit { origin[0] + direction[0] * t, origin[1] + direction[1] * t, origin[2] + direction[2] * t };
-            const auto n = Normalize3({ hit[0] - sc[0], hit[1] - sc[1], hit[2] - sc[2] });
-            const float diffuse = std::max(Dot3(n, lightDir), 0.0f);
-            const float rim = std::pow(1.0f - std::max(Dot3(n, { -direction[0], -direction[1], -direction[2] }), 0.0f), 3.0f);
+            const auto n = Frontier::Mathematics::NormalizeVector3({ hit[0] - sc[0], hit[1] - sc[1], hit[2] - sc[2] });
+            const float diffuse = std::max(Frontier::Mathematics::EvaluateDot3(n, lightDir), 0.0f);
+            const float rim = std::pow(1.0f - std::max(Frontier::Mathematics::EvaluateDot3(n, { -direction[0], -direction[1], -direction[2] }), 0.0f), 3.0f);
             const std::array<float, 3> baseCol = (i == selSphere)
                 ? std::array<float, 3>{ 0.86f, 0.72f, 0.36f }
                 : std::array<float, 3>{ 0.42f, 0.44f, 0.50f };
@@ -442,7 +403,7 @@ std::array<float, 4> RenderFluidVolumePixelCpu(
             float transmittance = 1.0f;
             std::array<float, 3> accumulated { 0.0f, 0.0f, 0.0f };
 
-            const float cosTheta = Dot3(direction, lightDir);
+            const float cosTheta = Frontier::Mathematics::EvaluateDot3(direction, lightDir);
             const float g = u.LightColourAnisotropy[3];
             const float phase0 = EvaluateSmokePhaseCpu(cosTheta, g);
             const float phase1 = EvaluateSmokePhaseCpu(cosTheta, g * 0.5f);
@@ -566,7 +527,7 @@ void RenderFluidVolumeImageCpu(
                 outRgba32f[idx + c] = rgba[c];
                 if (outRgba8 != nullptr)
                 {
-                    (*outRgba8)[idx + c] = static_cast<uint8_t>(std::lround(ClampF(rgba[c], 0.0f, 1.0f) * 255.0f));
+                    (*outRgba8)[idx + c] = static_cast<uint8_t>(std::lround(Frontier::Mathematics::ClampScalar(rgba[c], 0.0f, 1.0f) * 255.0f));
                 }
             }
         }

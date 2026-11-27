@@ -26,10 +26,6 @@ constexpr float PillStripWidth       = 6.0f + EditCapsuleWidth + 2.0f + Simulate
 constexpr float RewindButtonWidth    = 34.0f;
 constexpr float RewindGapWidth       = 8.0f;
 
-ColorRgba ScaleAlpha(ColorRgba Base, float Opacity) noexcept
-{
-    return Base.ScaledAlpha(Opacity);
-}
 
 } // namespace
 

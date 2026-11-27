@@ -18,8 +18,14 @@ namespace Frontier::ColourSpace
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] float DecodePiecewiseSrgbChannel(float Encoded01) noexcept;
-[[nodiscard]] float EncodePiecewiseSrgbChannel(float Linear01) noexcept;
+[[nodiscard]] float   DecodePiecewiseSrgbChannel(float Encoded01) noexcept;
+[[nodiscard]] float   EncodePiecewiseSrgbChannel(float Linear01) noexcept;
+[[nodiscard]] float   DecodeSrgbByteToLinear(uint8_t EncodedByte) noexcept;
+[[nodiscard]] uint8_t EncodeLinearToSrgbByte(float Linear01) noexcept;
+
+[[nodiscard]] float                 ApplyAcesFilmicChannel(float LinearIntensity, float ExposureScale = 0.85f) noexcept;
+[[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmicRgb(Mathematics::LinearRGB HdrRadiance, float ExposureScale = 0.85f) noexcept;
+[[nodiscard]] uint8_t               EncodeAcesSrgbByte(float LinearIntensity, float ExposureScale = 0.85f) noexcept;
 
 [[nodiscard]] float DecodeGamma22Channel(float Encoded01) noexcept;
 [[nodiscard]] float EncodeGamma22Channel(float Linear01) noexcept;

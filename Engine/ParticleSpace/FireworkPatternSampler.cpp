@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/ParticleSpace/FireworkPatternSampler.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -22,7 +23,6 @@ namespace Frontier::ParticleSpace
 namespace
 {
 
-constexpr double kPi = 3.14159265358979323846;
 
 constexpr std::array<FireworkShapeMetadata, 10u> kFireworkShapes {{
     { FireworkPatternOrdinal::ClassicBouquet, "bouquet",   "ClassicBouquet", "Grand Bouquet (Multi-Shell Pyro)" },
@@ -334,7 +334,7 @@ void SampleTextPoints(
         else
         {
             const double u = static_cast<double>(i - textN) / static_cast<double>(std::max(1u, count - textN));
-            const double ang = u * kPi * 2.0 + static_cast<double>(shellIdx) * 0.4;
+            const double ang = u * Frontier::Constants::Pi * 2.0 + static_cast<double>(shellIdx) * 0.4;
             const double rad = 1.12 + 0.16 * FireworkHash(static_cast<double>(i), 5.0);
             const auto& spark = pal[2];
             out.Points.push_back(FireworkSamplePoint {
@@ -368,7 +368,7 @@ void SampleShapePoints(
         const bool isWillow = (style == 1 || style == 2);
         const uint32_t outerN = static_cast<uint32_t>(std::floor(static_cast<double>(count) * 0.68));
         const uint32_t coreN  = static_cast<uint32_t>(std::floor(static_cast<double>(count) * 0.24));
-        const double goldenAngle = kPi * (1.0 + std::sqrt(5.0));
+        const double goldenAngle = Frontier::Constants::Pi * (1.0 + std::sqrt(5.0));
 
         for (uint32_t i = 0u; i < count; ++i)
         {
@@ -447,7 +447,7 @@ void SampleShapePoints(
             else
             {
                 const double u = static_cast<double>(i - outerN - coreN) / static_cast<double>(std::max(1u, count - outerN - coreN));
-                const double ang = u * kPi * 2.0;
+                const double ang = u * Frontier::Constants::Pi * 2.0;
                 const double r = 1.06 + 0.08 * FireworkHash(static_cast<double>(i), 4.0);
                 out.Points.push_back(FireworkSamplePoint {
                     std::cos(ang) * r,
@@ -470,7 +470,7 @@ void SampleShapePoints(
         {
             if (i < rimN)
             {
-                const double t = (static_cast<double>(i) / static_cast<double>(rimN)) * kPi * 2.0;
+                const double t = (static_cast<double>(i) / static_cast<double>(rimN)) * Frontier::Constants::Pi * 2.0;
                 const double layer = (i % 3u == 0u) ? 0.76 : 1.0;
                 const double sinT = std::sin(t);
                 const double hx = 16.0 * (sinT * sinT * sinT) / 16.5;
@@ -488,7 +488,7 @@ void SampleShapePoints(
             }
             else
             {
-                const double t = FireworkHash(static_cast<double>(i), 5.0) * kPi * 2.0;
+                const double t = FireworkHash(static_cast<double>(i), 5.0) * Frontier::Constants::Pi * 2.0;
                 const double sc = 0.25 + 0.55 * std::sqrt(FireworkHash(static_cast<double>(i), 6.0));
                 const double sinT = std::sin(t);
                 const double hx = 16.0 * (sinT * sinT * sinT) / 16.5;
@@ -510,7 +510,7 @@ void SampleShapePoints(
         std::array<std::array<double, 2>, 10u> verts {};
         for (uint32_t k = 0u; k < 10u; ++k)
         {
-            const double ang = kPi * 0.5 + (static_cast<double>(k) / 10.0) * kPi * 2.0;
+            const double ang = Frontier::Constants::Pi * 0.5 + (static_cast<double>(k) / 10.0) * Frontier::Constants::Pi * 2.0;
             const double r = (k % 2u == 0u) ? 1.05 : 0.44;
             verts[k] = { std::cos(ang) * r, std::sin(ang) * r };
         }
@@ -537,7 +537,7 @@ void SampleShapePoints(
             }
             else
             {
-                const double ang = FireworkHash(static_cast<double>(i), 5.0) * kPi * 2.0;
+                const double ang = FireworkHash(static_cast<double>(i), 5.0) * Frontier::Constants::Pi * 2.0;
                 const double r = 1.15 + 0.14 * FireworkHash(static_cast<double>(i), 6.0);
                 out.Points.push_back(FireworkSamplePoint {
                     std::cos(ang) * r, std::sin(ang) * r, (FireworkHash(static_cast<double>(i), 7.0) - 0.5) * 0.32,
@@ -559,7 +559,7 @@ void SampleShapePoints(
         {
             if (i < faceN)
             {
-                const double t = (static_cast<double>(i) / static_cast<double>(faceN)) * kPi * 2.0;
+                const double t = (static_cast<double>(i) / static_cast<double>(faceN)) * Frontier::Constants::Pi * 2.0;
                 const double r = 0.96 + (FireworkHash(static_cast<double>(i), 1.0) - 0.5) * 0.07;
                 out.Points.push_back(FireworkSamplePoint {
                     std::cos(t) * r, std::sin(t) * r, (FireworkHash(static_cast<double>(i), 2.0) - 0.5) * 0.12,
@@ -570,7 +570,7 @@ void SampleShapePoints(
             else if (i < faceN + eyeN)
             {
                 const double side = (i % 2u == 0u) ? -1.0 : 1.0;
-                const double a = FireworkHash(static_cast<double>(i), 3.0) * kPi * 2.0;
+                const double a = FireworkHash(static_cast<double>(i), 3.0) * Frontier::Constants::Pi * 2.0;
                 const double r = std::sqrt(FireworkHash(static_cast<double>(i), 4.0)) * 0.14;
                 out.Points.push_back(FireworkSamplePoint {
                     side * 0.35 + std::cos(a) * r, 0.30 + std::sin(a) * r, (FireworkHash(static_cast<double>(i), 5.0) - 0.5) * 0.10,
@@ -581,7 +581,7 @@ void SampleShapePoints(
             else
             {
                 const double u = static_cast<double>(i - faceN - eyeN) / static_cast<double>(std::max(1u, count - faceN - eyeN));
-                const double ang = -kPi * 0.84 + u * (kPi * 0.68);
+                const double ang = -Frontier::Constants::Pi * 0.84 + u * (Frontier::Constants::Pi * 0.68);
                 const double r = 0.55 + (FireworkHash(static_cast<double>(i), 6.0) - 0.5) * 0.06;
                 out.Points.push_back(FireworkSamplePoint {
                     std::cos(ang) * r, std::sin(ang) * r - 0.02, (FireworkHash(static_cast<double>(i), 7.0) - 0.5) * 0.10,
@@ -601,7 +601,7 @@ void SampleShapePoints(
         constexpr double kTilt = 0.42;
         const double cs = std::cos(kTilt);
         const double sn = std::sin(kTilt);
-        const double goldenAngle = kPi * (1.0 + std::sqrt(5.0));
+        const double goldenAngle = Frontier::Constants::Pi * (1.0 + std::sqrt(5.0));
         for (uint32_t i = 0u; i < count; ++i)
         {
             if (i < coreN)
@@ -621,7 +621,7 @@ void SampleShapePoints(
             else
             {
                 const uint32_t j = i - coreN;
-                const double ang = (static_cast<double>(j) / static_cast<double>(std::max(1u, count - coreN))) * kPi * 2.0;
+                const double ang = (static_cast<double>(j) / static_cast<double>(std::max(1u, count - coreN))) * Frontier::Constants::Pi * 2.0;
                 const double band = (j % 3u == 0u) ? 1.18 : (0.86 + 0.22 * FireworkHash(static_cast<double>(i), 2.0));
                 const double rx = std::cos(ang) * band;
                 const double rz = std::sin(ang) * band;
@@ -673,7 +673,7 @@ void SampleShapePoints(
             else
             {
                 const auto& j = kJewels[i % 3u];
-                const double a = FireworkHash(static_cast<double>(i), 5.0) * kPi * 2.0;
+                const double a = FireworkHash(static_cast<double>(i), 5.0) * Frontier::Constants::Pi * 2.0;
                 const double r = std::sqrt(FireworkHash(static_cast<double>(i), 6.0)) * 0.14;
                 const std::array<double, 3> col = (i % 3u == 0u)
                     ? std::array<double, 3> { 0.42, 0.94, 1.0 }
@@ -694,7 +694,7 @@ void SampleShapePoints(
     {
         for (uint32_t i = 0u; i < count; ++i)
         {
-            const double t = (static_cast<double>(i) / static_cast<double>(count)) * kPi * 2.0;
+            const double t = (static_cast<double>(i) / static_cast<double>(count)) * Frontier::Constants::Pi * 2.0;
             const double s12 = std::sin(t / 12.0);
             const double rRaw = std::exp(std::cos(t)) - 2.0 * std::cos(4.0 * t) + std::pow(s12, 5.0);
             const double sc = (i % 5u == 0u) ? 0.65 : 1.0;
@@ -721,7 +721,7 @@ void SampleShapePoints(
     {
         const uint32_t arm = i % 2u;
         const double u = static_cast<double>(i) / static_cast<double>(count);
-        const double ang = u * kPi * 5.2 + static_cast<double>(arm) * kPi;
+        const double ang = u * Frontier::Constants::Pi * 5.2 + static_cast<double>(arm) * Frontier::Constants::Pi;
         const double r = 0.08 + std::pow(u, 0.78) * 1.04;
         const std::array<double, 3> col = (u < 0.25)
             ? std::array<double, 3> { 1.0, 0.96, 0.78 }

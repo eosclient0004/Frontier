@@ -215,23 +215,20 @@ struct VehicleFastMath
     // 7th-order Bhaskara/minimax sine on [-pi, pi]
     [[nodiscard]] static inline float FastSin(float AngleRad) noexcept
     {
-        constexpr float TwoPi  = static_cast<float>(Constants::Tau);
-        constexpr float Pi     = static_cast<float>(Constants::Pi);
-        constexpr float HalfPi = static_cast<float>(Constants::HalfPi);
 
-        float X = std::fmod(AngleRad + Pi, TwoPi);
+        float X = std::fmod(AngleRad + Frontier::Constants::PiFloat, Frontier::Constants::TauFloat);
         if (X < 0.0f)
         {
-            X += TwoPi;
+            X += Frontier::Constants::TauFloat;
         }
-        X -= Pi;
-        if (X > HalfPi)
+        X -= Frontier::Constants::PiFloat;
+        if (X > Frontier::Constants::HalfPiFloat)
         {
-            X = Pi - X;
+            X = Frontier::Constants::PiFloat - X;
         }
-        else if (X < -HalfPi)
+        else if (X < -Frontier::Constants::HalfPiFloat)
         {
-            X = -Pi - X;
+            X = -Frontier::Constants::PiFloat - X;
         }
         const float X2 = X * X;
         return X * (1.0f + X2 * (-0.16666667f + X2 * (0.00833333f - 0.00019841f * X2)));

@@ -52,6 +52,36 @@ float EncodePiecewiseSrgbChannel(float Linear01) noexcept
     return (L <= 0.0031308f) ? (12.92f * L) : (1.055f * std::pow(L, 1.0f / 2.4f) - 0.055f);
 }
 
+float DecodeSrgbByteToLinear(uint8_t EncodedByte) noexcept
+{
+    return DecodePiecewiseSrgbChannel(static_cast<float>(EncodedByte) / 255.0f);
+}
+
+uint8_t EncodeLinearToSrgbByte(float Linear01) noexcept
+{
+    return QuantizeNormalizedByte(EncodePiecewiseSrgbChannel(Linear01));
+}
+
+float ApplyAcesFilmicChannel(float LinearIntensity, float ExposureScale) noexcept
+{
+    const float Scaled = std::max(0.0f, LinearIntensity * ExposureScale);
+    return std::clamp((Scaled * (2.51f * Scaled + 0.03f)) / (Scaled * (2.43f * Scaled + 0.59f) + 0.14f), 0.0f, 1.0f);
+}
+
+Mathematics::LinearRGB ApplyAcesFilmicRgb(Mathematics::LinearRGB HdrRadiance, float ExposureScale) noexcept
+{
+    return {
+        ApplyAcesFilmicChannel(HdrRadiance.R, ExposureScale),
+        ApplyAcesFilmicChannel(HdrRadiance.G, ExposureScale),
+        ApplyAcesFilmicChannel(HdrRadiance.B, ExposureScale),
+    };
+}
+
+uint8_t EncodeAcesSrgbByte(float LinearIntensity, float ExposureScale) noexcept
+{
+    return EncodeLinearToSrgbByte(ApplyAcesFilmicChannel(LinearIntensity, ExposureScale));
+}
+
 float DecodeGamma22Channel(float Encoded01) noexcept
 {
     return std::pow(std::clamp(Encoded01, 0.0f, 1.0f), 2.2f);
@@ -150,15 +180,15 @@ SrgbRgba8 ConvertLinearToSrgb8(LinearRgba SceneColour, TransferCurveCategory Cur
 
 float ComputeLinearRec709Luminance(LinearRgba SceneColour) noexcept
 {
-    return 0.2126f * SceneColour.Red + 0.7152f * SceneColour.Green + 0.0722f * SceneColour.Blue;
+    return Mathematics::EvaluateRec709Luminance(SceneColour.Red, SceneColour.Green, SceneColour.Blue);
 }
 
 float ComputeWcagRelativeLuminance(SrgbRgba8 DisplayColour) noexcept
 {
-    const float R = DecodePiecewiseSrgbChannel(static_cast<float>(DisplayColour.Red) / 255.0f);
-    const float G = DecodePiecewiseSrgbChannel(static_cast<float>(DisplayColour.Green) / 255.0f);
-    const float B = DecodePiecewiseSrgbChannel(static_cast<float>(DisplayColour.Blue) / 255.0f);
-    return 0.2126f * R + 0.7152f * G + 0.0722f * B;
+    const float R = DecodeSrgbByteToLinear(DisplayColour.Red);
+    const float G = DecodeSrgbByteToLinear(DisplayColour.Green);
+    const float B = DecodeSrgbByteToLinear(DisplayColour.Blue);
+    return Mathematics::EvaluateRec709Luminance(R, G, B);
 }
 
 ContrastInkSet SelectContrastInk(SrgbRgba8 FillColour) noexcept

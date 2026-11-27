@@ -11,6 +11,7 @@
 
 #include "Engine/GeometrySpace/Parametric/Surfacing/CarrierApproximation.h"
 #include "Engine/GeometrySpace/Parametric/Connectivity/ModelPartition.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <string>
 #include <limits>
@@ -105,6 +106,6 @@ struct ApproximationOutcome
 // Circular array: Count − 1 copies rotated by k·Sweep / Count about the axis (k = 1 … Count − 1; Sweep = 2π spaces them
 // evenly around a full turn). Rotations are similarities, so every carrier stays exact.
 [[nodiscard]] std::vector<TransformOutcome> CircularArrayBody(ModelPartition& Partition, BodyToken Source, Vector3 AxisPoint, Vector3 AxisDirection, int Count,
-                                                              double Sweep = 6.283185307179586);
+                                                              double Sweep = Frontier::Constants::Tau);
 
 } // namespace Frontier::GeometrySpace::Parametric

@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Codecs/GeometryCodec.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -22,66 +23,48 @@ namespace
 constexpr uint32_t NativePolygonSectionMagic   = 0x314E4750u; // 'PGN1'
 constexpr uint32_t NativePolygonSectionVersion = 1u;
 
-template <typename PodType>
-void AppendPod(std::vector<std::byte>& OutBytes, const PodType& SourceEntry)
-{
-    const std::size_t Offset = OutBytes.size();
-    OutBytes.resize(Offset + sizeof(PodType));
-    std::memcpy(OutBytes.data() + Offset, &SourceEntry, sizeof(PodType));
-}
 
-template <typename PodType>
-bool ReadPod(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
-{
-    if (Cursor.size() < sizeof(PodType))
-    {
-        return false;
-    }
-    std::memcpy(&OutEntry, Cursor.data(), sizeof(PodType));
-    Cursor = Cursor.subspan(sizeof(PodType));
-    return true;
-}
 
 [[nodiscard]] std::vector<std::byte> EncodePolygonNetworkBinary(const GeometrySpace::PolygonNetwork& Network)
 {
     std::vector<std::byte> Bytes;
     Bytes.reserve(32u + Network.Vertices.size() * 12u + Network.Faces.size() * 48u + Network.Edges.size() * 16u);
 
-    AppendPod(Bytes, NativePolygonSectionMagic);
-    AppendPod(Bytes, NativePolygonSectionVersion);
+    Frontier::Serialization::AppendPodBytes(Bytes, NativePolygonSectionMagic);
+    Frontier::Serialization::AppendPodBytes(Bytes, NativePolygonSectionVersion);
     const auto VertCount = static_cast<uint32_t>(Network.Vertices.size());
     const auto FaceCount = static_cast<uint32_t>(Network.Faces.size());
-    AppendPod(Bytes, VertCount);
-    AppendPod(Bytes, FaceCount);
-    AppendPod(Bytes, Network.NetworkRevision);
-    AppendPod(Bytes, Network.UVRevision);
-    AppendPod(Bytes, Network.ShadingRevision);
+    Frontier::Serialization::AppendPodBytes(Bytes, VertCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, FaceCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, Network.NetworkRevision);
+    Frontier::Serialization::AppendPodBytes(Bytes, Network.UVRevision);
+    Frontier::Serialization::AppendPodBytes(Bytes, Network.ShadingRevision);
 
     for (const GeometrySpace::Vertex& Vert : Network.Vertices)
     {
-        AppendPod(Bytes, Vert.Axes);
+        Frontier::Serialization::AppendPodBytes(Bytes, Vert.Axes);
     }
 
     for (const GeometrySpace::Face& CurrentFace : Network.Faces)
     {
-        AppendPod(Bytes, CurrentFace.CornerCount);
-        AppendPod(Bytes, CurrentFace.PriorityLayerOrdinal);
-        AppendPod(Bytes, CurrentFace.PartGroupOrdinal);
-        AppendPod(Bytes, CurrentFace.Shading.AlbedoLinearRGB);
-        AppendPod(Bytes, CurrentFace.Shading.Metallic);
-        AppendPod(Bytes, CurrentFace.Shading.Roughness);
-        AppendPod(Bytes, CurrentFace.Shading.Specular);
-        AppendPod(Bytes, CurrentFace.Shading.MatCapBlend);
-        AppendPod(Bytes, CurrentFace.Shading.MatCapSlot);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.CornerCount);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.PriorityLayerOrdinal);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.PartGroupOrdinal);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.AlbedoLinearRGB);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.Metallic);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.Roughness);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.Specular);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.MatCapBlend);
+        Frontier::Serialization::AppendPodBytes(Bytes, CurrentFace.Shading.MatCapSlot);
 
         uint32_t Walk = CurrentFace.BoundaryLoopEdgeIndex;
         for (uint16_t Step = 0u; Step < CurrentFace.CornerCount; ++Step)
         {
             const GeometrySpace::DirectedEdge& Edge = Network.Edges[Walk];
-            AppendPod(Bytes, Edge.OriginVertexIndex);
-            AppendPod(Bytes, Edge.ParameterUV);
+            Frontier::Serialization::AppendPodBytes(Bytes, Edge.OriginVertexIndex);
+            Frontier::Serialization::AppendPodBytes(Bytes, Edge.ParameterUV);
             const auto MaskByte = static_cast<uint8_t>(Edge.AttributeMask);
-            AppendPod(Bytes, MaskByte);
+            Frontier::Serialization::AppendPodBytes(Bytes, MaskByte);
             Walk = Edge.NextEdgeIndex;
         }
     }
@@ -97,10 +80,10 @@ bool ReadPod(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
     std::span<const std::byte> Cursor = RawBytes;
     uint32_t Magic = 0u, Version = 0u, VertCount = 0u, FaceCount = 0u;
     uint64_t NetRev = 1ull, UVRev = 1ull, ShadeRev = 1ull;
-    if (!ReadPod(Cursor, Magic) || !ReadPod(Cursor, Version) ||
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Magic) || !Frontier::Serialization::ReadPodBytes(Cursor, Version) ||
         Magic != NativePolygonSectionMagic || Version != NativePolygonSectionVersion ||
-        !ReadPod(Cursor, VertCount) || !ReadPod(Cursor, FaceCount) ||
-        !ReadPod(Cursor, NetRev) || !ReadPod(Cursor, UVRev) || !ReadPod(Cursor, ShadeRev))
+        !Frontier::Serialization::ReadPodBytes(Cursor, VertCount) || !Frontier::Serialization::ReadPodBytes(Cursor, FaceCount) ||
+        !Frontier::Serialization::ReadPodBytes(Cursor, NetRev) || !Frontier::Serialization::ReadPodBytes(Cursor, UVRev) || !Frontier::Serialization::ReadPodBytes(Cursor, ShadeRev))
     {
         return false;
     }
@@ -112,7 +95,7 @@ bool ReadPod(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
     for (uint32_t VIdx = 0u; VIdx < VertCount; ++VIdx)
     {
         Mathematics::Axis3D Axes {};
-        if (!ReadPod(Cursor, Axes))
+        if (!Frontier::Serialization::ReadPodBytes(Cursor, Axes))
         {
             return false;
         }
@@ -123,10 +106,10 @@ bool ReadPod(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
     {
         uint16_t CornerCount = 0u, LayerOrd = 0u, PartOrd = 0u;
         GeometrySpace::FaceShadingAssignment Shading {};
-        if (!ReadPod(Cursor, CornerCount) || !ReadPod(Cursor, LayerOrd) || !ReadPod(Cursor, PartOrd) ||
-            !ReadPod(Cursor, Shading.AlbedoLinearRGB) || !ReadPod(Cursor, Shading.Metallic) ||
-            !ReadPod(Cursor, Shading.Roughness) || !ReadPod(Cursor, Shading.Specular) ||
-            !ReadPod(Cursor, Shading.MatCapBlend) || !ReadPod(Cursor, Shading.MatCapSlot) ||
+        if (!Frontier::Serialization::ReadPodBytes(Cursor, CornerCount) || !Frontier::Serialization::ReadPodBytes(Cursor, LayerOrd) || !Frontier::Serialization::ReadPodBytes(Cursor, PartOrd) ||
+            !Frontier::Serialization::ReadPodBytes(Cursor, Shading.AlbedoLinearRGB) || !Frontier::Serialization::ReadPodBytes(Cursor, Shading.Metallic) ||
+            !Frontier::Serialization::ReadPodBytes(Cursor, Shading.Roughness) || !Frontier::Serialization::ReadPodBytes(Cursor, Shading.Specular) ||
+            !Frontier::Serialization::ReadPodBytes(Cursor, Shading.MatCapBlend) || !Frontier::Serialization::ReadPodBytes(Cursor, Shading.MatCapSlot) ||
             CornerCount < 3u)
         {
             return false;
@@ -138,7 +121,7 @@ bool ReadPod(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
         for (uint16_t Step = 0u; Step < CornerCount; ++Step)
         {
             uint8_t MaskByte = 0u;
-            if (!ReadPod(Cursor, LoopV[Step]) || !ReadPod(Cursor, LoopUV[Step]) || !ReadPod(Cursor, MaskByte))
+            if (!Frontier::Serialization::ReadPodBytes(Cursor, LoopV[Step]) || !Frontier::Serialization::ReadPodBytes(Cursor, LoopUV[Step]) || !Frontier::Serialization::ReadPodBytes(Cursor, MaskByte))
             {
                 return false;
             }

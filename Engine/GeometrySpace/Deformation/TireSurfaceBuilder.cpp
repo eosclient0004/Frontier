@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Deformation/TireSurfaceBuilder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -19,7 +20,6 @@ namespace Frontier::GeometrySpace::Deformation
 
 namespace
 {
-constexpr float kTwoPi = 6.28318530717958647692f;
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -120,7 +120,7 @@ HighPolySurfaceRest TireSurfaceBuilder::ConstructSportTireSurface(
 
     for (uint32_t si = 0u; si < SECS; ++si)
     {
-        const float a  = (static_cast<float>(si) / static_cast<float>(SECS)) * kTwoPi;
+        const float a  = (static_cast<float>(si) / static_cast<float>(SECS)) * Frontier::Constants::TauFloat;
         const float ca = std::cos(a), sa = std::sin(a);
         for (uint32_t pi = 0u; pi < P; ++pi)
         {
@@ -185,7 +185,7 @@ HighPolySurfaceRest TireSurfaceBuilder::ConstructSportTireSurface(
         {  halfW * 0.54f,  halfW * 0.75f, outerR - 0.011f, 0.016f, 0.0f,   0.022f }
     }};
     constexpr uint32_t PITCHES = 64u;
-    const float dPitch = kTwoPi / static_cast<float>(PITCHES);
+    const float dPitch = Frontier::Constants::TauFloat / static_cast<float>(PITCHES);
     for (size_t bi = 0u; bi < lugBands.size(); ++bi)
     {
         const LugBand& b = lugBands[bi];
@@ -199,7 +199,7 @@ HighPolySurfaceRest TireSurfaceBuilder::ConstructSportTireSurface(
     }
 
     constexpr uint32_t PAD_COUNT = 32u;
-    const float dPad = kTwoPi / static_cast<float>(PAD_COUNT);
+    const float dPad = Frontier::Constants::TauFloat / static_cast<float>(PAD_COUNT);
     for (float sgn : { -1.0f, 1.0f })
     {
         const float zSurf = sgn * (halfW * 0.95f);

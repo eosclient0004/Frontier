@@ -6,6 +6,7 @@
 #include "Engine/Editor/Inspectors/LunarInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/GeometricRaster/Atmosphere/LunarStarfieldSequence.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -99,7 +100,7 @@ void LunarInspector::RasterizeLunarGlobe(
         const auto& Atlas = GeometricRaster::LunarStarfieldSequence::QueryLunarSurfaceAtlasRgba8();
         const float Cx = static_cast<float>(WidthPx) * 0.5f;
         const float Cy = static_cast<float>(HeightPx) * 0.5f;
-        const float PhaseRad = (Moon.SynodicPhaseFraction - 0.5f) * 6.2831853f;
+        const float PhaseRad = (Moon.SynodicPhaseFraction - 0.5f) * Frontier::Constants::TauFloat;
         const float Lx = std::sin(PhaseRad), Ly = -0.14f, Lz = std::cos(PhaseRad);
 
         for (uint32_t Y = 0u; Y < HeightPx; ++Y)
@@ -140,8 +141,8 @@ void LunarInspector::RasterizeLunarGlobe(
                     const float Nz = std::sqrt(std::max(0.0f, 1.0f - Nx * Nx - Ny * Ny));
 
                     // Sample real 2K Lunar Surface Atlas texture from EngineContent/Skies/LunarSurfaceAtlas.ImageSpace
-                    const float LonU = std::atan2(Nx, Nz) * (0.5f / 3.14159265f) + 0.5f;
-                    const float LatV = std::acos(std::clamp(-Ny, -1.0f, 1.0f)) / 3.14159265f;
+                    const float LonU = std::atan2(Nx, Nz) * (0.5f / Frontier::Constants::PiFloat) + 0.5f;
+                    const float LatV = std::acos(std::clamp(-Ny, -1.0f, 1.0f)) / Frontier::Constants::PiFloat;
                     float TexR = 200.0f, TexG = 196.0f, TexB = 188.0f;
                     SampleLunarAtlasBilinear(Atlas, Preset, LonU, LatV, TexR, TexG, TexB);
 
@@ -219,7 +220,7 @@ float LunarInspector::Construct(
         InspectorPrimitives::ConstructSectionSurface(Surface, PhaseCard, "Lunar phase");
 
         const float SynodicDays = Moon.SynodicPhaseFraction * 29.53f;
-        const int IllumPct = static_cast<int>(std::lround(50.0f * (1.0f - std::cos(Moon.SynodicPhaseFraction * 6.2831853f))));
+        const int IllumPct = static_cast<int>(std::lround(50.0f * (1.0f - std::cos(Moon.SynodicPhaseFraction * Frontier::Constants::TauFloat))));
         char DayBuf[24]{};
         std::snprintf(DayBuf, sizeof(DayBuf), "%.1f", SynodicDays);
         (void)InspectorPrimitives::ConstructMetricReadout(Surface, BodyX, PhaseCard.Y + 62.0f, DayBuf, "days", nullptr, 36.0f);
@@ -324,8 +325,8 @@ float LunarInspector::Construct(
         // Horizon ellipse + meridian line + center dot
         for (int Seg = 0; Seg < 36; ++Seg)
         {
-            const float A0 = static_cast<float>(Seg) / 36.0f * 6.2831853f;
-            const float A1 = static_cast<float>(Seg + 1) / 36.0f * 6.2831853f;
+            const float A0 = static_cast<float>(Seg) / 36.0f * Frontier::Constants::TauFloat;
+            const float A1 = static_cast<float>(Seg + 1) / 36.0f * Frontier::Constants::TauFloat;
             Surface.StrokeLine({ DialC.X + std::cos(A0) * R, DialC.Y + std::sin(A0) * R * 0.34f },
                                { DialC.X + std::cos(A1) * R, DialC.Y + std::sin(A1) * R * 0.34f },
                                ColorRgba{ 148u, 164u, 184u, 125u }, 1.0f);
@@ -338,8 +339,8 @@ float LunarInspector::Construct(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { DialC.X - R - 26.0f, DialC.Y - 4.0f }, 9.2f, InspectorMetrics::MutedInk, "W");
 
         // Moon position handle dot
-        const float AzRad = Moon.AzimuthDegrees * 0.01745329f;
-        const float ElRad = std::clamp(Moon.ElevationDegrees, -85.0f, 85.0f) * 0.01745329f;
+        const float AzRad = Moon.AzimuthDegrees * Frontier::Constants::DegToRadFloat;
+        const float ElRad = std::clamp(Moon.ElevationDegrees, -85.0f, 85.0f) * Frontier::Constants::DegToRadFloat;
         const Point2D Handle { DialC.X + std::sin(AzRad) * std::cos(ElRad) * R * 0.92f, DialC.Y - std::sin(ElRad) * R * 0.85f };
         InspectorPrimitives::ConstructDashedSegment(Surface, DialC, Handle, ColorRgba{ 165u, 186u, 215u, 135u }, 2.0f, 3.0f, 1.0f);
         Surface.FillCircle(Handle, 5.5f, ColorRgba{ 168u, 200u, 238u, 255u });

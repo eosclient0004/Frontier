@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/MotionBlurInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -55,12 +56,12 @@ float MotionBlurInspector::Construct(
         const float DiscR = 29.0f;
         Surface.FillCircle(DiscC, DiscR, ColorRgba{ 16u, 16u, 18u, 255u });
         Surface.StrokeCircle(DiscC, DiscR, ColorRgba{ 255u, 255u, 255u, 28u }, 1.0f);
-        const float OpenRad = std::clamp(Instance.ShutterAngleDegrees, 1.0f, 360.0f) * 0.01745329f;
+        const float OpenRad = std::clamp(Instance.ShutterAngleDegrees, 1.0f, 360.0f) * Frontier::Constants::DegToRadFloat;
         const int WedgeSteps = 24;
         for (int I = 0; I < WedgeSteps; ++I)
         {
-            const float A0 = -1.570796f + OpenRad * (static_cast<float>(I) / static_cast<float>(WedgeSteps));
-            const float A1 = -1.570796f + OpenRad * (static_cast<float>(I + 1) / static_cast<float>(WedgeSteps));
+            const float A0 = -Frontier::Constants::HalfPiFloat + OpenRad * (static_cast<float>(I) / static_cast<float>(WedgeSteps));
+            const float A1 = -Frontier::Constants::HalfPiFloat + OpenRad * (static_cast<float>(I + 1) / static_cast<float>(WedgeSteps));
             Surface.StrokeLine(DiscC, { DiscC.X + std::cos((A0 + A1) * 0.5f) * (DiscR - 1.5f), DiscC.Y + std::sin((A0 + A1) * 0.5f) * (DiscR - 1.5f) }, ColorRgba{ 212u, 152u, 74u, 235u }, 3.2f);
         }
         Surface.FillCircle(DiscC, 2.5f, ColorRgba{ 245u, 245u, 245u, 255u });

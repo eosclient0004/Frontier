@@ -9,6 +9,7 @@
 
 #include "Engine/NetworkingSpace/DifferentialWorldEncoder.h"
 #include "Engine/NetworkingSpace/PacketSerializer.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -495,11 +496,11 @@ uint64_t ComputeWorldAlignmentDigest(std::span<const ReplicatedActorKinematics> 
             return Left.EntityIdentifier < Right.EntityIdentifier;
         });
 
-    uint64_t Digest = 14695981039346656037ull;
+    uint64_t Digest = Frontier::Constants::Fnv1a64OffsetBasis;
     auto MixByte = [&Digest](uint8_t Byte) noexcept
     {
         Digest ^= static_cast<uint64_t>(Byte);
-        Digest *= 1099511628211ull;
+        Digest *= Frontier::Constants::Fnv1a64Prime;
     };
     auto MixUint32 = [&MixByte](uint32_t Word) noexcept
     {

@@ -6,6 +6,7 @@
 #include "Engine/Editor/Inspectors/LocalCloudInspector.h"
 #include "Engine/Editor/Inspectors/CloudInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -99,7 +100,7 @@ float LocalCloudInspector::Construct(
                 {
                     if (AltM < BaseMeters || AltM > BaseMeters + ThicknessMeters) return 0.0f;
                     const float U = (AltM - BaseMeters) / ThicknessMeters;
-                    return Ext * std::sin(U * 3.14159265f);
+                    return Ext * std::sin(U * Frontier::Constants::PiFloat);
                 },
             },
         }};

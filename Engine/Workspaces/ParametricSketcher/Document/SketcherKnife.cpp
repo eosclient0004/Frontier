@@ -15,6 +15,7 @@
 
 #include "Engine/GeometrySpace/Parametric/Exchange/StepExchange.h"
 #include "Engine/GeometrySpace/Parametric/Tessellation/BodyTessellation.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -394,7 +395,6 @@ std::vector<std::array<Vector3, 2>> BuildSketcherCompoundCutterSegments(const Sk
     const auto SampleLoop = [&](bool OuterStage, double Rad) -> std::vector<Vector2>
     {
         std::vector<Vector2> Loop;
-        constexpr double TwoPi = 2.0 * std::numbers::pi;
         if (Spec.Kind == SketcherCompoundCutterCategory::Countersink ||
             Spec.Kind == SketcherCompoundCutterCategory::Counterbore ||
             Spec.Kind == SketcherCompoundCutterCategory::SteppedHole ||
@@ -403,7 +403,7 @@ std::vector<std::array<Vector3, 2>> BuildSketcherCompoundCutterSegments(const Sk
             constexpr int Steps = 32;
             for (int Index = 0; Index < Steps; ++Index)
             {
-                const double Angle = TwoPi * Index / Steps;
+                const double Angle = Frontier::Constants::Tau * Index / Steps;
                 Loop.push_back({ Rad * std::cos(Angle), Rad * std::sin(Angle) });
             }
         }

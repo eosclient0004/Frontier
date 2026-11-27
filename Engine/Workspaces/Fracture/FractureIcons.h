@@ -11,6 +11,7 @@
 
 #include "Engine/Components/PixelSpace.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -106,7 +107,7 @@ inline void FillEllipse(
     std::array<Point2D, 24> Pts {};
     for (size_t I = 0u; I < Pts.size(); ++I)
     {
-        const float A = (6.2831853f * static_cast<float>(I)) / static_cast<float>(Pts.size());
+        const float A = (Frontier::Constants::TauFloat * static_cast<float>(I)) / static_cast<float>(Pts.size());
         Pts[I] = { Center.X + std::cos(A) * Rx, Center.Y + std::sin(A) * Ry };
     }
     Surface.FillPolygon(Pts, Color);
@@ -124,7 +125,7 @@ inline void StrokeEllipse(
     Point2D Prev { Center.X + Rx, Center.Y };
     for (size_t I = 1u; I <= N; ++I)
     {
-        const float A = (6.2831853f * static_cast<float>(I % N)) / static_cast<float>(N);
+        const float A = (Frontier::Constants::TauFloat * static_cast<float>(I % N)) / static_cast<float>(N);
         const Point2D Next { Center.X + std::cos(A) * Rx, Center.Y + std::sin(A) * Ry };
         Surface.StrokeLine(Prev, Next, Color, Thickness);
         Prev = Next;
@@ -312,7 +313,7 @@ inline void DrawSimulateGearPlayIcon(PixelSpace& Surface, Rectangle2D Box) noexc
     std::array<Point2D, 24> Gear {};
     for (int I = 0; I < 24; ++I)
     {
-        const float Ang = (static_cast<float>(I) / 24.0f) * 6.2831853f;
+        const float Ang = (static_cast<float>(I) / 24.0f) * Frontier::Constants::TauFloat;
         const float Rad = (I % 2 == 0) ? R : (R * 0.78f);
         Gear[static_cast<size_t>(I)] = { C.X + Rad * std::cos(Ang), C.Y + Rad * std::sin(Ang) };
     }

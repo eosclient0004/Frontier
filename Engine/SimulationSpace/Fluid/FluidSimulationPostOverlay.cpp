@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/Fluid/FluidSimulationPostOverlay.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,31 +20,13 @@ namespace Frontier::SimulationSpace::Fluid
 namespace
 {
 
-[[nodiscard]] float ClampF(const float v, const float lo, const float hi) noexcept
-{
-    return std::max(lo, std::min(hi, v));
-}
 
-[[nodiscard]] float LerpF(const float a, const float b, const float t) noexcept
-{
-    return a + (b - a) * t;
-}
 
-[[nodiscard]] float FractF(const float x) noexcept
-{
-    return x - std::floor(x);
-}
 
-[[nodiscard]] float SmoothStepF(const float e0, const float e1, const float x) noexcept
-{
-    const float d = e1 - e0;
-    const float t = (std::fabs(d) > 1.0e-9f) ? ClampF((x - e0) / d, 0.0f, 1.0f) : 0.0f;
-    return t * t * (3.0f - 2.0f * t);
-}
 
 [[nodiscard]] float Hash21Overlay(const float px, const float py) noexcept
 {
-    return FractF(std::sin(px * 127.1f + py * 311.7f) * 43758.5453123f);
+    return Frontier::Mathematics::EvaluateFractionalPart(std::sin(px * 127.1f + py * 311.7f) * 43758.5453123f);
 }
 
 [[nodiscard]] float SmoothNoise2DOverlay(const float px, const float py) noexcept
@@ -54,9 +37,9 @@ namespace
     const float fy = py - iy;
     const float ux = fx * fx * (3.0f - 2.0f * fx);
     const float uy = fy * fy * (3.0f - 2.0f * fy);
-    const float a = LerpF(Hash21Overlay(ix, iy),        Hash21Overlay(ix + 1.0f, iy),        ux);
-    const float b = LerpF(Hash21Overlay(ix, iy + 1.0f), Hash21Overlay(ix + 1.0f, iy + 1.0f), ux);
-    return LerpF(a, b, uy);
+    const float a = Frontier::Mathematics::InterpolateScalar(Hash21Overlay(ix, iy),        Hash21Overlay(ix + 1.0f, iy),        ux);
+    const float b = Frontier::Mathematics::InterpolateScalar(Hash21Overlay(ix, iy + 1.0f), Hash21Overlay(ix + 1.0f, iy + 1.0f), ux);
+    return Frontier::Mathematics::InterpolateScalar(a, b, uy);
 }
 
 [[nodiscard]] std::array<float, 4> SampleBilinearRgba(
@@ -66,8 +49,8 @@ namespace
     const float u,
     const float v) noexcept
 {
-    const float fx = ClampF(u * static_cast<float>(width) - 0.5f, 0.0f, static_cast<float>(width - 1u));
-    const float fy = ClampF(v * static_cast<float>(height) - 0.5f, 0.0f, static_cast<float>(height - 1u));
+    const float fx = Frontier::Mathematics::ClampScalar(u * static_cast<float>(width) - 0.5f, 0.0f, static_cast<float>(width - 1u));
+    const float fy = Frontier::Mathematics::ClampScalar(v * static_cast<float>(height) - 0.5f, 0.0f, static_cast<float>(height - 1u));
     const uint32_t x0 = static_cast<uint32_t>(std::floor(fx));
     const uint32_t y0 = static_cast<uint32_t>(std::floor(fy));
     const uint32_t x1 = std::min(x0 + 1u, width - 1u);
@@ -81,9 +64,9 @@ namespace
     std::array<float, 4> out {};
     for (size_t c = 0u; c < 4u; ++c)
     {
-        const float top = LerpF(fetch(x0, y0, c), fetch(x1, y0, c), tx);
-        const float bot = LerpF(fetch(x0, y1, c), fetch(x1, y1, c), tx);
-        out[c] = LerpF(top, bot, ty);
+        const float top = Frontier::Mathematics::InterpolateScalar(fetch(x0, y0, c), fetch(x1, y0, c), tx);
+        const float bot = Frontier::Mathematics::InterpolateScalar(fetch(x0, y1, c), fetch(x1, y1, c), tx);
+        out[c] = Frontier::Mathematics::InterpolateScalar(top, bot, ty);
     }
     return out;
 }
@@ -122,7 +105,7 @@ ProjectedScreenSphere ProjectWorldSphereToScreenUv(
     const float dy = worldPos[1] - camera.PositionMeters[1];
     const float dz = worldPos[2] - camera.PositionMeters[2];
     const float dist = std::max(0.25f, std::sqrt(dx * dx + dy * dy + dz * dz));
-    const float screenRadius = ClampF(worldRadius / (2.0f * dist * std::tan(camera.FovYRadians * 0.5f)), 0.03f, 1.2f);
+    const float screenRadius = Frontier::Mathematics::ClampScalar(worldRadius / (2.0f * dist * std::tan(camera.FovYRadians * 0.5f)), 0.03f, 1.2f);
     return { uvX, uvY, screenRadius, true };
 }
 
@@ -242,13 +225,13 @@ void ApplySimulationPostOverlayCpu(
                 {
                     const float einstein = rad * (0.22f + 0.65f * strength);
                     const float rs       = r - (einstein * einstein) / std::max(r, 1.0e-4f);
-                    const float taper    = 1.0f - SmoothStepF(rad * 0.65f, rad * 1.45f, r);
-                    const float rr       = LerpF(r, rs, taper);
+                    const float taper    = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(rad * 0.65f, rad * 1.45f, r);
+                    const float rr       = Frontier::Mathematics::InterpolateScalar(r, rs, taper);
                     srcX += (cx + dirX * rr / aspect - uvX);
                     srcY += (cy + dirY * rr - uvY);
                     if (horizon > 0.001f)
                     {
-                        insideHorizon = std::max(insideHorizon, 1.0f - SmoothStepF(horizon * 0.88f, horizon, r));
+                        insideHorizon = std::max(insideHorizon, 1.0f - Frontier::Mathematics::EvaluateSmoothStep(horizon * 0.88f, horizon, r));
                         const float q = (r - 1.28f * horizon) / std::max(0.14f * horizon, 1.0e-4f);
                         photonRing += std::exp(-q * q) * (0.55f + 0.85f * strength);
                     }
@@ -257,7 +240,7 @@ void ApplySimulationPostOverlayCpu(
                 }
                 else if (mode == 2)
                 {
-                    const float fall = 1.0f - SmoothStepF(rad * 0.35f, rad * 1.15f, r);
+                    const float fall = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(rad * 0.35f, rad * 1.15f, r);
                     const float wave = std::sin(r / rad * 22.0f - simTime * 6.5f);
                     srcX += (dirX / aspect) * (wave * 0.024f * strength * fall);
                     srcY += dirY * (wave * 0.024f * strength * fall);
@@ -266,7 +249,7 @@ void ApplySimulationPostOverlayCpu(
                 }
                 else if (mode == 3)
                 {
-                    const float fall = 1.0f - SmoothStepF(rad * 0.25f, rad, r);
+                    const float fall = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(rad * 0.25f, rad, r);
                     const float npx = uvX * 12.0f + simTime * 0.8f;
                     const float npy = uvY * 12.0f - simTime * 1.4f;
                     const float wx = SmoothNoise2DOverlay(npx, npy) - 0.5f;
@@ -283,7 +266,7 @@ void ApplySimulationPostOverlayCpu(
                 const float sdx   = (uvX - u.ShimmerArea[0]) * aspect;
                 const float sdy   = (uvY - u.ShimmerArea[1]) * 0.72f;
                 const float sr    = std::sqrt(sdx * sdx + sdy * sdy) / std::max(u.ShimmerArea[2], 0.02f);
-                const float sFall = 1.0f - SmoothStepF(0.45f, 1.05f, sr);
+                const float sFall = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.45f, 1.05f, sr);
                 if (sFall > 0.001f)
                 {
                     const float freq = u.ShimmerParams[0];
@@ -308,7 +291,7 @@ void ApplySimulationPostOverlayCpu(
                 const float gdx  = (uvX - u.GlitchA[static_cast<size_t>(g)][0]) * aspect;
                 const float gdy  = (uvY - u.GlitchA[static_cast<size_t>(g)][1]);
                 const float gd   = std::sqrt(gdx * gdx + gdy * gdy) / std::max(u.GlitchA[static_cast<size_t>(g)][2], 0.02f);
-                const float mask = 1.0f - SmoothStepF(0.50f, 1.05f, gd);
+                const float mask = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.50f, 1.05f, gd);
                 const float amt  = u.GlitchA[static_cast<size_t>(g)][3] * mask;
                 if (amt > 0.001f)
                 {
@@ -317,15 +300,15 @@ void ApplySimulationPostOverlayCpu(
                     const float gate  = (Hash21Overlay(band, stepT + static_cast<float>(g) * 19.0f) >= (0.74f - amt * 0.50f)) ? 1.0f : 0.0f;
                     const float shift = (Hash21Overlay(band + 17.0f, stepT * 1.3f) - 0.5f) * 0.06f * amt * u.GlitchB[static_cast<size_t>(g)][1] * gate;
                     srcX += shift;
-                    scanMod *= LerpF(1.0f, 0.84f + 0.16f * std::sin(fragY * 1.8f), ClampF(amt * u.GlitchB[static_cast<size_t>(g)][1], 0.0f, 1.0f));
+                    scanMod *= Frontier::Mathematics::InterpolateScalar(1.0f, 0.84f + 0.16f * std::sin(fragY * 1.8f), Frontier::Mathematics::ClampScalar(amt * u.GlitchB[static_cast<size_t>(g)][1], 0.0f, 1.0f));
                     chromaSpread = std::max(chromaSpread, amt * u.GlitchB[static_cast<size_t>(g)][2] * 0.014f);
                     chromaDirX = 1.0f;
                     chromaDirY = 0.0f;
                 }
             }
 
-            const float cSrcX = ClampF(srcX, 0.001f, 0.999f);
-            const float cSrcY = ClampF(srcY, 0.001f, 0.999f);
+            const float cSrcX = Frontier::Mathematics::ClampScalar(srcX, 0.001f, 0.999f);
+            const float cSrcY = Frontier::Mathematics::ClampScalar(srcY, 0.001f, 0.999f);
             const auto sampled = SampleBilinearRgba(sceneRgba32f, width, height, cSrcX, cSrcY);
             float colR = sampled[0], colG = sampled[1], colB = sampled[2];
 
@@ -336,8 +319,8 @@ void ApplySimulationPostOverlayCpu(
                 const float olen = std::max(std::sqrt(ox * ox + oy * oy), 1.0e-6f);
                 const float offX = (ox / olen) * chromaSpread;
                 const float offY = (oy / olen) * chromaSpread;
-                colR = SampleBilinearRgba(sceneRgba32f, width, height, ClampF(cSrcX + offX, 0.001f, 0.999f), ClampF(cSrcY + offY, 0.001f, 0.999f))[0];
-                colB = SampleBilinearRgba(sceneRgba32f, width, height, ClampF(cSrcX - offX, 0.001f, 0.999f), ClampF(cSrcY - offY, 0.001f, 0.999f))[2];
+                colR = SampleBilinearRgba(sceneRgba32f, width, height, Frontier::Mathematics::ClampScalar(cSrcX + offX, 0.001f, 0.999f), Frontier::Mathematics::ClampScalar(cSrcY + offY, 0.001f, 0.999f))[0];
+                colB = SampleBilinearRgba(sceneRgba32f, width, height, Frontier::Mathematics::ClampScalar(cSrcX - offX, 0.001f, 0.999f), Frontier::Mathematics::ClampScalar(cSrcY - offY, 0.001f, 0.999f))[2];
             }
 
             const float dim = (1.0f - insideHorizon) * scanMod;

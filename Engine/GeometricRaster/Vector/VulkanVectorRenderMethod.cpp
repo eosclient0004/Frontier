@@ -4,6 +4,7 @@
 // 🧩 Implementation of ThorVG 1.0.0 symbolic SVG + TTF RenderMethod frontend producing GPU stencil-cover fans & stroke triangles for Vulkan .slang.
 
 #include "Engine/GeometricRaster/Vector/VulkanVectorRenderMethod.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <thorvg.h>
 #include "tvgCommon.h"
@@ -39,7 +40,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-constexpr float PiScalar = 3.14159265358979323846f;
 
 std::mutex& AccessThorVGInitMutex() noexcept
 {
@@ -203,9 +203,9 @@ void AppendRoundFanArc(
     float A0 = std::atan2(StartDir.Y, StartDir.X);
     float A1 = std::atan2(EndDir.Y, EndDir.X);
     float Delta = A1 - A0;
-    while (Delta > PiScalar)  Delta -= 2.0f * PiScalar;
-    while (Delta < -PiScalar) Delta += 2.0f * PiScalar;
-    const uint32_t Segments = std::max(3u, static_cast<uint32_t>(std::ceil(std::fabs(Delta) * 8.0f / PiScalar)));
+    while (Delta > Frontier::Constants::PiFloat)  Delta -= 2.0f * Frontier::Constants::PiFloat;
+    while (Delta < -Frontier::Constants::PiFloat) Delta += 2.0f * Frontier::Constants::PiFloat;
+    const uint32_t Segments = std::max(3u, static_cast<uint32_t>(std::ceil(std::fabs(Delta) * 8.0f / Frontier::Constants::PiFloat)));
     for (uint32_t Step = 0u; Step < Segments; ++Step)
     {
         const float T0 = A0 + Delta * (static_cast<float>(Step) / static_cast<float>(Segments));

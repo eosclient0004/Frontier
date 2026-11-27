@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/MaterialSpace/Dynamic/DynamicParameterBlock.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,14 +19,6 @@ namespace Frontier::MaterialSpace::Dynamic
 namespace
 {
 
-[[nodiscard]] float ClampFinite(float Scalar, float MinBound, float MaxBound, float Fallback) noexcept
-{
-    if (!std::isfinite(Scalar))
-    {
-        return Fallback;
-    }
-    return std::clamp(Scalar, MinBound, MaxBound);
-}
 
 } // namespace
 
@@ -43,7 +36,7 @@ void ResolveDynamicParameters(
     TargetBlock.ClockSeconds = NextClock;
 
     const auto Driver = static_cast<ParameterDriverMode>(TargetBlock.PrimaryDriverOrdinal);
-    const float EffectiveTime = NextClock * ClampFinite(TargetBlock.AnimationSpeed, 0.0f, 8.0f, 1.0f);
+    const float EffectiveTime = NextClock * Frontier::Mathematics::ClampFinite(TargetBlock.AnimationSpeed, 0.0f, 8.0f, 1.0f);
 
     switch (Driver)
     {
@@ -164,31 +157,31 @@ Mathematics::Axis3D NormalizeAssetCoordinate(
 
 void SanitizeDynamicParameterBlock(DynamicParameterBlock& TargetBlock) noexcept
 {
-    TargetBlock.ClockSeconds         = ClampFinite(TargetBlock.ClockSeconds,         0.0f,  1.0e6f, 0.0f);
-    TargetBlock.AnimationSpeed       = ClampFinite(TargetBlock.AnimationSpeed,       0.0f,  8.0f,   1.0f);
-    TargetBlock.TransitionProgress   = ClampFinite(TargetBlock.TransitionProgress,   0.0f,  1.0f,   0.5f);
-    TargetBlock.DetailScale          = ClampFinite(TargetBlock.DetailScale,          0.25f, 32.0f,  4.0f);
-    TargetBlock.ReliefStrength       = ClampFinite(TargetBlock.ReliefStrength,       0.0f,  2.5f,   0.65f);
-    TargetBlock.OpacityScale         = ClampFinite(TargetBlock.OpacityScale,         0.0f,  1.0f,   1.0f);
-    TargetBlock.WeatherRainIntensity = ClampFinite(TargetBlock.WeatherRainIntensity, 0.0f,  1.0f,   0.5f);
-    TargetBlock.WeatherSnowDepth     = ClampFinite(TargetBlock.WeatherSnowDepth,     0.0f,  1.0f,   0.0f);
-    TargetBlock.OpticalIor           = ClampFinite(TargetBlock.OpticalIor,           1.0f,  3.0f,   1.5f);
-    TargetBlock.ThinFilmNanometers   = ClampFinite(TargetBlock.ThinFilmNanometers,   0.0f,  2000.0f,460.0f);
-    TargetBlock.RoughnessBias        = ClampFinite(TargetBlock.RoughnessBias,       -0.6f,  0.6f,   0.0f);
-    TargetBlock.MetalnessBias        = ClampFinite(TargetBlock.MetalnessBias,       -0.6f,  0.6f,   0.0f);
-    TargetBlock.SeamGlowIntensity    = ClampFinite(TargetBlock.SeamGlowIntensity,    0.0f,  6.0f,   1.85f);
-    TargetBlock.WaveAmplitude        = ClampFinite(TargetBlock.WaveAmplitude,        0.0f,  2.0f,   0.55f);
-    TargetBlock.TurbulenceAmount     = ClampFinite(TargetBlock.TurbulenceAmount,     0.0f,  2.0f,   0.50f);
-    TargetBlock.ThinFilmSpread       = ClampFinite(TargetBlock.ThinFilmSpread,       0.0f,  600.0f, 120.0f);
+    TargetBlock.ClockSeconds         = Frontier::Mathematics::ClampFinite(TargetBlock.ClockSeconds,         0.0f,  1.0e6f, 0.0f);
+    TargetBlock.AnimationSpeed       = Frontier::Mathematics::ClampFinite(TargetBlock.AnimationSpeed,       0.0f,  8.0f,   1.0f);
+    TargetBlock.TransitionProgress   = Frontier::Mathematics::ClampFinite(TargetBlock.TransitionProgress,   0.0f,  1.0f,   0.5f);
+    TargetBlock.DetailScale          = Frontier::Mathematics::ClampFinite(TargetBlock.DetailScale,          0.25f, 32.0f,  4.0f);
+    TargetBlock.ReliefStrength       = Frontier::Mathematics::ClampFinite(TargetBlock.ReliefStrength,       0.0f,  2.5f,   0.65f);
+    TargetBlock.OpacityScale         = Frontier::Mathematics::ClampFinite(TargetBlock.OpacityScale,         0.0f,  1.0f,   1.0f);
+    TargetBlock.WeatherRainIntensity = Frontier::Mathematics::ClampFinite(TargetBlock.WeatherRainIntensity, 0.0f,  1.0f,   0.5f);
+    TargetBlock.WeatherSnowDepth     = Frontier::Mathematics::ClampFinite(TargetBlock.WeatherSnowDepth,     0.0f,  1.0f,   0.0f);
+    TargetBlock.OpticalIor           = Frontier::Mathematics::ClampFinite(TargetBlock.OpticalIor,           1.0f,  3.0f,   1.5f);
+    TargetBlock.ThinFilmNanometers   = Frontier::Mathematics::ClampFinite(TargetBlock.ThinFilmNanometers,   0.0f,  2000.0f,460.0f);
+    TargetBlock.RoughnessBias        = Frontier::Mathematics::ClampFinite(TargetBlock.RoughnessBias,       -0.6f,  0.6f,   0.0f);
+    TargetBlock.MetalnessBias        = Frontier::Mathematics::ClampFinite(TargetBlock.MetalnessBias,       -0.6f,  0.6f,   0.0f);
+    TargetBlock.SeamGlowIntensity    = Frontier::Mathematics::ClampFinite(TargetBlock.SeamGlowIntensity,    0.0f,  6.0f,   1.85f);
+    TargetBlock.WaveAmplitude        = Frontier::Mathematics::ClampFinite(TargetBlock.WaveAmplitude,        0.0f,  2.0f,   0.55f);
+    TargetBlock.TurbulenceAmount     = Frontier::Mathematics::ClampFinite(TargetBlock.TurbulenceAmount,     0.0f,  2.0f,   0.50f);
+    TargetBlock.ThinFilmSpread       = Frontier::Mathematics::ClampFinite(TargetBlock.ThinFilmSpread,       0.0f,  600.0f, 120.0f);
 
     for (uint32_t C = 0u; C < 3u; ++C)
     {
-        TargetBlock.PrimaryColorRgba[C]   = ClampFinite(TargetBlock.PrimaryColorRgba[C],   0.0f, 1.0f, 0.1f);
-        TargetBlock.SecondaryColorRgba[C] = ClampFinite(TargetBlock.SecondaryColorRgba[C], 0.0f, 1.0f, 0.5f);
-        TargetBlock.TertiaryColorRgba[C]  = ClampFinite(TargetBlock.TertiaryColorRgba[C],  0.0f, 1.0f, 0.8f);
-        TargetBlock.AccentRadianceRgba[C] = ClampFinite(TargetBlock.AccentRadianceRgba[C], 0.0f, 4.0f, 0.5f);
+        TargetBlock.PrimaryColorRgba[C]   = Frontier::Mathematics::ClampFinite(TargetBlock.PrimaryColorRgba[C],   0.0f, 1.0f, 0.1f);
+        TargetBlock.SecondaryColorRgba[C] = Frontier::Mathematics::ClampFinite(TargetBlock.SecondaryColorRgba[C], 0.0f, 1.0f, 0.5f);
+        TargetBlock.TertiaryColorRgba[C]  = Frontier::Mathematics::ClampFinite(TargetBlock.TertiaryColorRgba[C],  0.0f, 1.0f, 0.8f);
+        TargetBlock.AccentRadianceRgba[C] = Frontier::Mathematics::ClampFinite(TargetBlock.AccentRadianceRgba[C], 0.0f, 4.0f, 0.5f);
     }
-    TargetBlock.AccentRadianceRgba[3] = ClampFinite(TargetBlock.AccentRadianceRgba[3], 0.0f, 12.0f, 1.5f);
+    TargetBlock.AccentRadianceRgba[3] = Frontier::Mathematics::ClampFinite(TargetBlock.AccentRadianceRgba[3], 0.0f, 12.0f, 1.5f);
 }
 
 } // namespace Frontier::MaterialSpace::Dynamic

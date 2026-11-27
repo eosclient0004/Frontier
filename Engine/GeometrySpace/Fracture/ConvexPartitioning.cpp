@@ -7,6 +7,7 @@
 #include "Engine/GeometrySpace/Fracture/EngineeringBakedFracture.h"
 #include "Engine/GeometrySpace/Fracture/FastRuntimeFracture.h"
 #include "Engine/GeometrySpace/Primitives/WatertightSewing.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -23,7 +24,6 @@ namespace Frontier::GeometrySpace::Fracture
 namespace
 {
 
-constexpr double PiConst = 3.14159265358979323846;
 
 Mathematics::Axis3D PerpendicularVector(Mathematics::Axis3D N) noexcept
 {
@@ -222,7 +222,7 @@ SolverOutput SolveGriffithStressBudget(
 
         for (uint32_t K = 0u; K < ConePlanes && Queue.size() < Ceiling; ++K)
         {
-            const double Azimuth = (2.0 * PiConst * static_cast<double>(K)) / static_cast<double>(ConePlanes)
+            const double Azimuth = (2.0 * Frontier::Constants::Pi * static_cast<double>(K)) / static_cast<double>(ConePlanes)
                                  + Rand.NextDouble() * 0.35;
             const Mathematics::Axis3D Tang = PerpU * static_cast<float>(std::cos(Azimuth))
                                            + PerpV * static_cast<float>(std::sin(Azimuth));
@@ -367,8 +367,8 @@ SolverOutput SolveLefmWavefront(
 
     for (uint32_t S = 0u; S < RadialSpokes && Pieces.size() < Ceiling; ++S)
     {
-        const double Theta = (2.0 * PiConst * static_cast<double>(S)) / static_cast<double>(RadialSpokes)
-                           + (Rand.NextDouble() - 0.5) * (0.38 / static_cast<double>(RadialSpokes)) * PiConst;
+        const double Theta = (2.0 * Frontier::Constants::Pi * static_cast<double>(S)) / static_cast<double>(RadialSpokes)
+                           + (Rand.NextDouble() - 0.5) * (0.38 / static_cast<double>(RadialSpokes)) * Frontier::Constants::Pi;
         const Mathematics::Axis3D RayDir    = TangentU * static_cast<float>(std::cos(Theta)) + TangentV * static_cast<float>(std::sin(Theta));
         const Mathematics::Axis3D PlaneNorm = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(ImpactNormal, RayDir));
         const double              Offset    = static_cast<double>(Mathematics::EvaluateDot(PlaneNorm, ImpactPoint));
@@ -464,7 +464,7 @@ std::vector<ConvexPolyhedron> SolveClusteredVoronoi(
         if (Rand.NextDouble() < 0.62)
         {
             const double U     = std::pow(Rand.NextDouble(), 1.65);
-            const double Theta = Rand.NextDouble() * PiConst * 2.0;
+            const double Theta = Rand.NextDouble() * Frontier::Constants::Pi * 2.0;
             const double Phi   = std::acos(2.0 * Rand.NextDouble() - 1.0);
             const double R     = U * SourceMetrics.RadiusM * 1.15;
             Candidate = {
@@ -801,7 +801,7 @@ ConvexPolyhedron ConvexPartitioning::ConstructPrismPolyhedron(float RadiusBottom
     {
         for (uint32_t S = 0u; S < Sides; ++S)
         {
-            const double Theta = (2.0 * PiConst * static_cast<double>(S)) / static_cast<double>(Sides);
+            const double Theta = (2.0 * Frontier::Constants::Pi * static_cast<double>(S)) / static_cast<double>(Sides);
             Polyhedron.Vertices.push_back({
                 static_cast<float>(RadiusBottom * std::cos(Theta)),
                 static_cast<float>(RadiusBottom * std::sin(Theta)),
@@ -825,7 +825,7 @@ ConvexPolyhedron ConvexPartitioning::ConstructPrismPolyhedron(float RadiusBottom
     {
         for (uint32_t S = 0u; S < Sides; ++S)
         {
-            const double Theta = (2.0 * PiConst * static_cast<double>(S)) / static_cast<double>(Sides);
+            const double Theta = (2.0 * Frontier::Constants::Pi * static_cast<double>(S)) / static_cast<double>(Sides);
             Polyhedron.Vertices.push_back({
                 static_cast<float>(RadiusBottom * std::cos(Theta)),
                 static_cast<float>(RadiusBottom * std::sin(Theta)),
@@ -834,7 +834,7 @@ ConvexPolyhedron ConvexPartitioning::ConstructPrismPolyhedron(float RadiusBottom
         }
         for (uint32_t S = 0u; S < Sides; ++S)
         {
-            const double Theta = (2.0 * PiConst * static_cast<double>(S)) / static_cast<double>(Sides);
+            const double Theta = (2.0 * Frontier::Constants::Pi * static_cast<double>(S)) / static_cast<double>(Sides);
             Polyhedron.Vertices.push_back({
                 static_cast<float>(RadiusTop * std::cos(Theta)),
                 static_cast<float>(RadiusTop * std::sin(Theta)),
@@ -891,7 +891,7 @@ ConvexPolyhedron ConvexPartitioning::ConstructSolidPolyhedron(
             const uint32_t Cuts = Category == FractureSolidCategory::HollowCavity ? 18u : 14u;
             for (uint32_t I = 0u; I < Cuts; ++I)
             {
-                const double Theta = (2.0 * PiConst * static_cast<double>(I)) / static_cast<double>(Cuts) + (Rand.NextDouble() - 0.5) * 0.35;
+                const double Theta = (2.0 * Frontier::Constants::Pi * static_cast<double>(I)) / static_cast<double>(Cuts) + (Rand.NextDouble() - 0.5) * 0.35;
                 const double Phi   = std::acos(1.0 - 2.0 * ((static_cast<double>(I) + 0.5) / static_cast<double>(Cuts))) + (Rand.NextDouble() - 0.5) * 0.25;
                 const auto   N     = Mathematics::NormalizeAxis({
                     static_cast<float>(std::sin(Phi) * std::cos(Theta)),
@@ -1274,7 +1274,7 @@ FracturePartitionResult ConvexPartitioning::ExecuteFracturePartition(
     const auto     ImpactNormal      = Mathematics::NormalizeAxis(Specification.ImpactNormal, { 0.0f, -1.0f, 0.0f });
     const uint32_t Ceiling           = std::clamp(Specification.Ceiling, 2u, 160u);
     const double   MinSpan           = std::max(0.015, Specification.MinimumSizeM);
-    const double   GrainAngleRad     = Specification.GrainAngleDeg * (PiConst / 180.0);
+    const double   GrainAngleRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
     const double   StoredTotalEnergy = static_cast<double>(Material.StoredEnergyJPerM3) * SourceMetrics.VolumeM3;
     const double   TotalEnergyBudget = std::max(40.0, Specification.EnergyJoules) + StoredTotalEnergy;
 

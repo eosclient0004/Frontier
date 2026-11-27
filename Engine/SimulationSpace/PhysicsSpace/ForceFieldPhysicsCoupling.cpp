@@ -10,6 +10,7 @@
 
 #include "Engine/SimulationSpace/PhysicsSpace/ForceFieldPhysicsCoupling.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -35,14 +36,6 @@ namespace
     return { f.X * scale, f.Y * scale, f.Z * scale };
 }
 
-[[nodiscard]] std::array<float, 3> Cross3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return {
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    };
-}
 
 [[nodiscard]] float FetchHullVoxelCpu(
     const CompoundHullSdfHeaderGpu& hdr,
@@ -530,7 +523,7 @@ void ResolveParticleRigidCollisionsCpu(
             const std::array<float, 3> omega = (p < proxyAngularVelocities.size())
                 ? std::array<float, 3>{ proxyAngularVelocities[p][0], proxyAngularVelocities[p][1], proxyAngularVelocities[p][2] }
                 : std::array<float, 3>{ 0.0f, 0.0f, 0.0f };
-            const auto omegaCrossR = Cross3(omega, leverArm);
+            const auto omegaCrossR = Frontier::Mathematics::EvaluateCross3(omega, leverArm);
             const std::array<float, 3> surfVel {
                 proxy.VelocityMps[0] + omegaCrossR[0],
                 proxy.VelocityMps[1] + omegaCrossR[1],
@@ -575,7 +568,7 @@ void ResolveParticleRigidCollisionsCpu(
                         const float s = maxImpulse / jMag;
                         bodyLinJ[0] *= s; bodyLinJ[1] *= s; bodyLinJ[2] *= s;
                     }
-                    const auto bodyAngJ = Cross3(leverArm, bodyLinJ);
+                    const auto bodyAngJ = Frontier::Mathematics::EvaluateCross3(leverArm, bodyLinJ);
 
                     auto& acc = outAtomics[p];
                     acc.LinearImpulseFixed[0]   += static_cast<int32_t>(std::lround(bodyLinJ[0] * fixedScale));

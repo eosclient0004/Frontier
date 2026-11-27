@@ -4,6 +4,8 @@
 // 🧩 Adaptive Conty Estevez & Kulla (2018) binary photometric (.ies) importance light tree and unified GPU light register packer
 
 #include "Engine/GeometricRaster/DirectLighting/PhotometricLightTree.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/LinearColors.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,7 +19,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-constexpr float PiConstant           = 3.14159265358979323846f;
 constexpr float CandelaToSceneFactor = 1.0f / 40.0f; // Matches PracticalLighting.js CandelaToScene
 constexpr float ParkingRowPitch      = 9.7f;         // [m] - Studio X row spacing (6.22 m vehicle + 3.5 m aisle)
 constexpr float ParkingBayPitch      = 3.6f;         // [m] - Studio Z bay spacing (2.5 m vehicle + 1.1 m door gap)
@@ -77,30 +78,30 @@ struct BoundingAxisCone
 // PBRT-v4 DirectionCone::Union — exact smallest bounding cone around two photometric axis cones
 [[nodiscard]] BoundingAxisCone UniteBoundingCones(const BoundingAxisCone& A, const BoundingAxisCone& B) noexcept
 {
-    if (A.Spread >= PiConstant || B.Spread >= PiConstant)
+    if (A.Spread >= Frontier::Constants::PiFloat || B.Spread >= Frontier::Constants::PiFloat)
     {
-        return { A.Axis, PiConstant };
+        return { A.Axis, Frontier::Constants::PiFloat };
     }
     const float ClampedCos = std::clamp(VecDot(A.Axis, B.Axis), -1.0f, 1.0f);
     const float Between    = std::acos(ClampedCos);
-    if (std::min(Between + B.Spread, PiConstant) <= A.Spread)
+    if (std::min(Between + B.Spread, Frontier::Constants::PiFloat) <= A.Spread)
     {
         return A;
     }
-    if (std::min(Between + A.Spread, PiConstant) <= B.Spread)
+    if (std::min(Between + A.Spread, Frontier::Constants::PiFloat) <= B.Spread)
     {
         return B;
     }
     const float MergedSpread = 0.5f * (A.Spread + Between + B.Spread);
-    if (MergedSpread >= PiConstant)
+    if (MergedSpread >= Frontier::Constants::PiFloat)
     {
-        return { A.Axis, PiConstant };
+        return { A.Axis, Frontier::Constants::PiFloat };
     }
     const std::array<float, 3> Pivot    = VecCross(A.Axis, B.Axis);
     const float                PivotLen = VecLength(Pivot);
     if (PivotLen < 1.0e-9f)
     {
-        return { A.Axis, PiConstant };
+        return { A.Axis, Frontier::Constants::PiFloat };
     }
     const std::array<float, 3> UnitPivot = { Pivot[0] / PivotLen, Pivot[1] / PivotLen, Pivot[2] / PivotLen };
     return {
@@ -121,7 +122,7 @@ struct BoundingAxisCone
         C = 1.0f;
         S = 0.0f;
     }
-    else if (std::abs(Bay.YawRadians - PiConstant) < 1.0e-5f)
+    else if (std::abs(Bay.YawRadians - Frontier::Constants::PiFloat) < 1.0e-5f)
     {
         C = -1.0f;
         S = 0.0f;
@@ -255,7 +256,7 @@ std::vector<VehicleBayPlacement> ResolveStudioParkingBays(
             VehicleBayPlacement Entry {};
             Entry.BayX       = static_cast<float>(Row) * ParkingRowPitch;
             Entry.BayZ       = -static_cast<float>(Bay) * ParkingBayPitch;
-            Entry.YawRadians = (std::abs(Row) % 2 == 1) ? PiConstant : 0.0f;
+            Entry.YawRadians = (std::abs(Row) % 2 == 1) ? Frontier::Constants::PiFloat : 0.0f;
             Candidates.push_back(Entry);
         }
     }
@@ -334,7 +335,7 @@ std::vector<PracticalLampPlacement> ConstructFleetPracticalLamps(
         Placement.Reference     = Reference;
         Placement.PeakIntensity = { Colour[0] * Peak, Colour[1] * Peak, Colour[2] * Peak };
         Placement.ProfileIndex  = ProfileIdx;
-        const float Luminance   = 0.2126f * Placement.PeakIntensity[0] + 0.7152f * Placement.PeakIntensity[1] + 0.0722f * Placement.PeakIntensity[2];
+        const float Luminance   = Frontier::Mathematics::EvaluateRec709Luminance(Placement.PeakIntensity[0], Placement.PeakIntensity[1], Placement.PeakIntensity[2]);
         Placement.FluxPower     = Luminance * Profile.NormalizedFluxSr;
         Placement.CutoffHalfAngle = Profile.CutoffHalfAngleRad;
         Lamps.push_back(Placement);
@@ -344,7 +345,7 @@ std::vector<PracticalLampPlacement> ConstructFleetPracticalLamps(
     {
         for (const VehicleLampSpec& Mount : VehicleMounts)
         {
-            const float                PitchRad  = Mount.PitchDegrees * PiConstant / 180.0f;
+            const float                PitchRad  = Mount.PitchDegrees * Frontier::Constants::PiFloat / 180.0f;
             const std::array<float, 3> LocalAxis = VecNormalize({
                 (Mount.Rearward ? -1.0f : 1.0f) * std::cos(PitchRad),
                 std::sin(PitchRad),

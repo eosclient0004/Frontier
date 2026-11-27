@@ -14,6 +14,8 @@
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Engine/Serialization/Configuration/BootConfigurationLoader.h"
 #include "Engine/Tools/DefaultContentGenerator.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -336,8 +338,7 @@ void EnsureObjectLocalSmoothTriangles(ShowcaseWorldAssetEntry& Obj)
 
 [[nodiscard]] float SrgbByteToLinear(uint8_t ByteVal) noexcept
 {
-    const float S = static_cast<float>(ByteVal) / 255.0f;
-    return (S <= 0.04045f) ? (S / 12.92f) : std::pow((S + 0.055f) / 1.055f, 2.4f);
+    return Frontier::ColourSpace::DecodeSrgbByteToLinear(ByteVal);
 }
 
 [[nodiscard]] bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
@@ -1775,7 +1776,7 @@ void RebuildShowcaseSceneAcceleration(ShowcaseWorldSceneBundle& InOutBundle)
         }
 
         const float Scale   = Inst.UniformScale;
-        const float YawRad  = Obj.RotationZDegrees * 0.01745329252f;
+        const float YawRad  = Obj.RotationZDegrees * Frontier::Constants::DegToRadFloat;
         const bool  HasYaw  = std::fabs(YawRad) > 1.0e-5f;
         const float CosZ    = HasYaw ? std::cos(YawRad) : 1.0f;
         const float SinZ    = HasYaw ? std::sin(YawRad) : 0.0f;
@@ -2834,7 +2835,7 @@ OutlinerSlotToken PickShowcaseGalleryEntryAtUv(
                 std::max(0.04f, 0.5f * Obj.DimensionsMeters.Y * Scale),
                 std::max(0.04f, 0.5f * Obj.DimensionsMeters.Z * Scale),
             };
-            const float YawRad = Obj.RotationZDegrees * 0.01745329252f;
+            const float YawRad = Obj.RotationZDegrees * Frontier::Constants::DegToRadFloat;
             if (std::fabs(YawRad) > 1.0e-5f)
             {
                 const float CosZ = std::cos(YawRad);

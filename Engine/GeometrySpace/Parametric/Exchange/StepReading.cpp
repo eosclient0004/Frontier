@@ -19,6 +19,7 @@
 #include "Engine/GeometrySpace/Parametric/Geometry/NurbsCarrier.h"
 #include "Engine/GeometrySpace/Parametric/Geometry/SurfaceGeometry.h"
 #include "Engine/GeometrySpace/Parametric/Precision/PrecisionSpecification.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -42,7 +43,6 @@ namespace Frontier::GeometrySpace::Parametric
 namespace
 {
 
-constexpr double FullCircle = 6.283185307179586476925;                                       // [rad] - 2π
 
 // Unit to rounding → as read; otherwise normalised (the writer's rule, so a file read and written again is unchanged).
 Vector3 KeepUnit(Vector3 Value)
@@ -915,7 +915,7 @@ public:
             const double Margin = 0.5 * (High - Low) + 1.0e-3;
             return *ConvertLineToNurbs(*Line, Low - Margin, High + Margin).Definition;
         }
-        std::optional<NurbsCurve> Converted = ConvertCurveToNurbs(*Swept, 0.0, FullCircle);
+        std::optional<NurbsCurve> Converted = ConvertCurveToNurbs(*Swept, 0.0, Frontier::Constants::Tau);
         if (!Converted) { Fail("a swept curve could not be converted to NURBS"); return std::nullopt; }
         return *Converted->Definition;
     }
@@ -943,7 +943,7 @@ public:
             const std::vector<StepParameter>* Attributes = Parameters(Reference, Name, 4);
             if (!Attributes) return std::nullopt;
             const double Angle = Real((*Attributes)[3]) * AngleRadians;
-            if (!(std::fabs(Angle) < 0.25 * FullCircle)) { Fail("CONICAL_SURFACE #" + std::to_string(Reference) + " has a semi-angle outside (−90°, 90°)"); return std::nullopt; }
+            if (!(std::fabs(Angle) < 0.25 * Frontier::Constants::Tau)) { Fail("CONICAL_SURFACE #" + std::to_string(Reference) + " has a semi-angle outside (−90°, 90°)"); return std::nullopt; }
             return ConeSurface{ Placement(Ref((*Attributes)[1])), Real((*Attributes)[2]) * Scale, std::tan(Angle) };
         }
         if (Name == "SPHERICAL_SURFACE")
@@ -978,7 +978,7 @@ public:
             if (!Profile) return std::nullopt;
             const Vector3 Seed = std::fabs(Direction3.X) < 0.9 ? Vector3{ 1.0, 0.0, 0.0 } : Vector3{ 0.0, 1.0, 0.0 };
             ++Out.ConvertedSurfaces;
-            return ConstructNurbsRevolution(*Profile, ConstructFrame(Origin, Direction3, Seed), 0.0, FullCircle);
+            return ConstructNurbsRevolution(*Profile, ConstructFrame(Origin, Direction3, Seed), 0.0, Frontier::Constants::Tau);
         }
         if (Name == "SURFACE_OF_LINEAR_EXTRUSION")
         {
@@ -1057,7 +1057,7 @@ public:
         const Vector3 EndPosition   = Body.Blueprint.Vertices[Made.End].Position;
         double Period = 0.0, DomainLow = 0.0, DomainHigh = 0.0;
         bool   Bounded = false;
-        if (std::holds_alternative<CircularArc>(Made.Curve) || std::holds_alternative<EllipticalArc>(Made.Curve)) Period = FullCircle;
+        if (std::holds_alternative<CircularArc>(Made.Curve) || std::holds_alternative<EllipticalArc>(Made.Curve)) Period = Frontier::Constants::Tau;
         if (const auto* Spline = std::get_if<NurbsCurve>(&Made.Curve))
         {
             const NurbsDomain Domain = MeasureNurbsCurveDomain(*Spline->Definition);
@@ -1130,7 +1130,7 @@ public:
         BlueprintEdge Seam;
         Seam.Curve = CircularArc{ OrthonormalBasis{ Frame.Origin, -Frame.ZAxis, Frame.XAxis, Cross(-Frame.ZAxis, Frame.XAxis) }, Sphere->Radius };
         Seam.Low   = 0.0;
-        Seam.High  = 0.5 * FullCircle;
+        Seam.High  = 0.5 * Frontier::Constants::Tau;
         Seam.Start = SouthIndex;
         Seam.End   = NorthIndex;
         const int Index = static_cast<int>(Body.Blueprint.Edges.size());

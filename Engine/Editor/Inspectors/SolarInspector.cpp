@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/SolarInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -40,7 +41,7 @@ namespace
 // Simple smooth solar elevation curve matching sun__3 (peaks ~64 deg near 12h, ~34.4 deg at 15.5h)
 [[nodiscard]] float SolarElevationCurve(float Hours) noexcept
 {
-    const float Rad = (Hours - 12.0f) * (3.14159265f / 12.0f);
+    const float Rad = (Hours - 12.0f) * (Frontier::Constants::PiFloat / 12.0f);
     return 1.5f + 54.0f * std::cos(Rad);
 }
 

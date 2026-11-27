@@ -6,6 +6,7 @@
 #include "Engine/GeometrySpace/Parametric/Audit/TessellationAudit.h"
 
 #include "Engine/GeometrySpace/Parametric/Audit/EnclosedVolume.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -194,7 +195,7 @@ uint64_t DigestPolygonComplex(const PolygonNetworkStructure& Complex)
     const auto Mix = [&](const void* Bytes, size_t Count)
     {
         const auto* Cursor = static_cast<const unsigned char*>(Bytes);
-        for (size_t Index = 0; Index < Count; ++Index) Digest = (Digest ^ Cursor[Index]) * 1099511628211ULL;
+        for (size_t Index = 0; Index < Count; ++Index) Digest = (Digest ^ Cursor[Index]) * Frontier::Constants::Fnv1a64Prime;
     };
     for (const Vector3& Position : Complex.Positions) Mix(&Position, sizeof(Position));
     for (const auto& Triangle : Complex.Triangles) Mix(Triangle.data(), sizeof(int) * 3);

@@ -10,6 +10,7 @@
 #include "Engine/Components/Camera/CameraLagComponent.h"
 
 #include "Engine/Components/Camera/Kinematics/InterpolationCurves.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +48,7 @@ namespace
         const Mathematics::Axis3D RefAxis =
             (std::fabs(FromUnit.Z) < 0.9f) ? Mathematics::Axis3D{ 0.0f, 0.0f, 1.0f } : Mathematics::Axis3D{ 1.0f, 0.0f, 0.0f };
         const Mathematics::Axis3D Ortho = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(FromUnit, RefAxis), { 1.0f, 0.0f, 0.0f });
-        const float Angle = 3.14159265358979323846f * ClampedBlend;
+        const float Angle = Frontier::Constants::PiFloat * ClampedBlend;
         return Mathematics::NormalizeAxis(FromUnit * std::cos(Angle) + Ortho * std::sin(Angle), ToUnit);
     }
 

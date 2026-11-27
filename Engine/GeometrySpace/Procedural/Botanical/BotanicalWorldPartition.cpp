@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalWorldPartition.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,7 +19,6 @@ namespace Frontier::GeometrySpace::Botanical
 namespace
 {
 
-constexpr float kTau = 6.28318530717958647692f;
 
 [[nodiscard]] inline float HermiteSmooth(float x) noexcept
 {
@@ -90,7 +90,7 @@ std::array<float, 3> BotanicalWorldPartition::SampleWindAt(
     const BotanicalWindFieldState& wind) const noexcept
 {
     // Travelling coherent spatial gust wave (matches BotanicalSdfWindDeform.slang!)
-    const float phase = pos[0] * 0.14f + pos[1] * 0.11f - timeSec * wind.GustFrequencyHz * kTau;
+    const float phase = pos[0] * 0.14f + pos[1] * 0.11f - timeSec * wind.GustFrequencyHz * Frontier::Constants::TauFloat;
     const float gust  = 0.5f + 0.5f * std::sin(phase) + 0.25f * std::sin(phase * 1.93f + 1.1f);
     const float wLen  = std::max(0.001f, Hypot2(wind.WindVelocityMps[0], wind.WindVelocityMps[1]));
     const float dirX  = wind.WindVelocityMps[0] / wLen;
@@ -135,7 +135,7 @@ void BotanicalWorldPartition::EvaluateGpuWindPose(
         const auto w = SampleWindAt(plant.WorldPosMeters, t, windField);
         const float speed = Hypot2(w[0], w[1]);
         const float dragCoeff = 0.011f * plant.WindFlexibility / std::max(0.25f, std::sqrt(plant.StiffnessNmPerRad * 0.08f));
-        const float osc = 1.0f + 0.22f * std::sin(t * 2.4f + plant.PhaseOffset * kTau);
+        const float osc = 1.0f + 0.22f * std::sin(t * 2.4f + plant.PhaseOffset * Frontier::Constants::TauFloat);
         const float ax = std::clamp(w[0] * speed * dragCoeff * osc * 0.12f, -0.42f, 0.42f);
         const float ay = std::clamp(w[1] * speed * dragCoeff * osc * 0.12f, -0.42f, 0.42f);
         return { ax, ay };

@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Codecs/PhotometrySpaceCodec.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cstring>
 
@@ -244,7 +245,7 @@ bool PhotometrySpaceDecoder::ExtractModel(
         OutModel.CandelaProfile.ProfileLabel       = (*CandelaTbl)["ProfileLabel"].value_or(Payload.DocumentTitle);
         OutModel.CandelaProfile.PeakCandela        = static_cast<float>((*CandelaTbl)["PeakCandela"].value_or(1.0));
         OutModel.CandelaProfile.NormalizedFluxSr   = static_cast<float>((*CandelaTbl)["NormalizedFluxSteradians"].value_or(1.0));
-        OutModel.CandelaProfile.CutoffHalfAngleRad = static_cast<float>((*CandelaTbl)["CutoffHalfAngleRadians"].value_or(3.14159265));
+        OutModel.CandelaProfile.CutoffHalfAngleRad = static_cast<float>((*CandelaTbl)["CutoffHalfAngleRadians"].value_or(Frontier::Constants::Pi));
         UnpackFloat3((*CandelaTbl)["PositionWorld"], OutModel.RadiatorPlacement.PositionWorld.X, OutModel.RadiatorPlacement.PositionWorld.Y, OutModel.RadiatorPlacement.PositionWorld.Z);
         UnpackFloat3((*CandelaTbl)["BeamAxis"], OutModel.RadiatorPlacement.BeamAxis.X, OutModel.RadiatorPlacement.BeamAxis.Y, OutModel.RadiatorPlacement.BeamAxis.Z);
         UnpackFloat3((*CandelaTbl)["ZeroAzimuthAxis"], OutModel.RadiatorPlacement.ZeroAzimuthAxis.X, OutModel.RadiatorPlacement.ZeroAzimuthAxis.Y, OutModel.RadiatorPlacement.ZeroAzimuthAxis.Z);

@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Deformation/TetrahedralCageEmbedder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,7 +18,6 @@ namespace Frontier::GeometrySpace::Deformation
 
 namespace
 {
-constexpr float kTwoPi = 6.28318530717958647692f;
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -108,8 +108,8 @@ CageEmbeddedSurface TetrahedralCageEmbedder::EmbedIntoFemSolid(
         if (hasTireLayout)
         {
             float ang = std::atan2(py - hy, px - hx);
-            if (ang < 0.0f) ang += kTwoPi;
-            const uint32_t si0 = static_cast<uint32_t>(std::floor((ang / kTwoPi) * static_cast<float>(S))) % S;
+            if (ang < 0.0f) ang += Frontier::Constants::TauFloat;
+            const uint32_t si0 = static_cast<uint32_t>(std::floor((ang / Frontier::Constants::TauFloat) * static_cast<float>(S))) % S;
             bool inside = false;
             for (int32_t ds = -1; ds <= 1 && !inside; ++ds)
             {

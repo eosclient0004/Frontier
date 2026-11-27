@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <cmath>
@@ -412,25 +413,7 @@ uint32_t CollapseBinaryToWide4(
     return true;
 }
 
-template <typename PodType>
-void AppendPodBytes(std::vector<std::byte>& OutBytes, const PodType& SourceEntry)
-{
-    const std::size_t Offset = OutBytes.size();
-    OutBytes.resize(Offset + sizeof(PodType));
-    std::memcpy(OutBytes.data() + Offset, &SourceEntry, sizeof(PodType));
-}
 
-template <typename PodType>
-bool ReadPodBytes(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
-{
-    if (Cursor.size() < sizeof(PodType))
-    {
-        return false;
-    }
-    std::memcpy(&OutEntry, Cursor.data(), sizeof(PodType));
-    Cursor = Cursor.subspan(sizeof(PodType));
-    return true;
-}
 
 } // namespace
 
@@ -832,22 +815,22 @@ std::vector<std::byte> WideBoundingTree::SerializeToBinaryBytes() const
 {
     std::vector<std::byte> Bytes;
     Bytes.reserve(48u + WideEntries.size() * sizeof(WideTreeEntry) + Primitives.size() * sizeof(RayTrianglePrimitive));
-    AppendPodBytes(Bytes, WideTreeBinaryMagic);
-    AppendPodBytes(Bytes, WideTreeBinaryVersion);
-    AppendPodBytes(Bytes, RootBoundsMin);
-    AppendPodBytes(Bytes, RootBoundsMax);
-    AppendPodBytes(Bytes, MaxTreeDepth);
+    Frontier::Serialization::AppendPodBytes(Bytes, WideTreeBinaryMagic);
+    Frontier::Serialization::AppendPodBytes(Bytes, WideTreeBinaryVersion);
+    Frontier::Serialization::AppendPodBytes(Bytes, RootBoundsMin);
+    Frontier::Serialization::AppendPodBytes(Bytes, RootBoundsMax);
+    Frontier::Serialization::AppendPodBytes(Bytes, MaxTreeDepth);
     const auto EntryCount = static_cast<uint32_t>(WideEntries.size());
     const auto PrimCount  = static_cast<uint32_t>(Primitives.size());
-    AppendPodBytes(Bytes, EntryCount);
-    AppendPodBytes(Bytes, PrimCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, EntryCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, PrimCount);
     for (const auto& Entry : WideEntries)
     {
-        AppendPodBytes(Bytes, Entry);
+        Frontier::Serialization::AppendPodBytes(Bytes, Entry);
     }
     for (const auto& Prim : Primitives)
     {
-        AppendPodBytes(Bytes, Prim);
+        Frontier::Serialization::AppendPodBytes(Bytes, Prim);
     }
     return Bytes;
 }
@@ -857,10 +840,10 @@ bool WideBoundingTree::DeserializeFromBinaryBytes(std::span<const std::byte> Raw
     Reset();
     std::span<const std::byte> Cursor = RawBytes;
     uint32_t Magic = 0u, Version = 0u, EntryCount = 0u, PrimCount = 0u;
-    if (!ReadPodBytes(Cursor, Magic) || !ReadPodBytes(Cursor, Version) ||
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Magic) || !Frontier::Serialization::ReadPodBytes(Cursor, Version) ||
         Magic != WideTreeBinaryMagic || Version != WideTreeBinaryVersion ||
-        !ReadPodBytes(Cursor, RootBoundsMin) || !ReadPodBytes(Cursor, RootBoundsMax) ||
-        !ReadPodBytes(Cursor, MaxTreeDepth) || !ReadPodBytes(Cursor, EntryCount) || !ReadPodBytes(Cursor, PrimCount))
+        !Frontier::Serialization::ReadPodBytes(Cursor, RootBoundsMin) || !Frontier::Serialization::ReadPodBytes(Cursor, RootBoundsMax) ||
+        !Frontier::Serialization::ReadPodBytes(Cursor, MaxTreeDepth) || !Frontier::Serialization::ReadPodBytes(Cursor, EntryCount) || !Frontier::Serialization::ReadPodBytes(Cursor, PrimCount))
     {
         return false;
     }
@@ -878,11 +861,11 @@ bool WideBoundingTree::DeserializeFromBinaryBytes(std::span<const std::byte> Raw
     Primitives.resize(PrimCount);
     for (uint32_t Idx = 0u; Idx < EntryCount; ++Idx)
     {
-        (void)ReadPodBytes(Cursor, WideEntries[Idx]);
+        (void)Frontier::Serialization::ReadPodBytes(Cursor, WideEntries[Idx]);
     }
     for (uint32_t Idx = 0u; Idx < PrimCount; ++Idx)
     {
-        (void)ReadPodBytes(Cursor, Primitives[Idx]);
+        (void)Frontier::Serialization::ReadPodBytes(Cursor, Primitives[Idx]);
     }
     return true;
 }

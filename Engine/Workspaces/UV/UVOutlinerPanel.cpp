@@ -14,6 +14,7 @@
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <imgui.h>
 
@@ -95,7 +96,7 @@ void UVOutlinerPanel::RefreshCachedAtlasTelemetry()
     for (const auto& Face : Net.Faces)
     {
         AssignmentSignature ^= Face.PriorityLayerOrdinal;
-        AssignmentSignature *= 1099511628211ull;
+        AssignmentSignature *= Frontier::Constants::Fnv1a64Prime;
     }
     const bool AssignmentChanged = CachedLayerAssignmentSignature != AssignmentSignature;
     if (CachedNetworkRevision != Net.NetworkRevision || CachedUVRevision != Net.UVRevision || AssignmentChanged)

@@ -10,6 +10,7 @@
 #include "Engine/Editor/Inspectors/InspectorInstanceRegister.h"
 
 #include "Engine/GeometricRaster/Atmosphere/CelestialEphemerisSolver.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -21,7 +22,6 @@ namespace Frontier
 
 namespace
 {
-constexpr float PiF = 3.14159265359f;
 } // namespace
 
 void InspectorInstanceRegister::Clear() noexcept
@@ -714,7 +714,7 @@ void InspectorInstanceRegister::CombineIntoScene(
                 if (const auto It = Winds.find(Key); It != Winds.end())
                 {
                     const auto& W = It->second.Wind;
-                    const float Rad = W.BearingDegrees * (PiF / 180.0f);
+                    const float Rad = W.BearingDegrees * (Frontier::Constants::PiFloat / 180.0f);
                     WindVelX     += W.SpeedMetersPerSecond * std::sin(Rad);
                     WindVelY     += W.SpeedMetersPerSecond * std::cos(Rad);
                     WindShearSum += W.ShearPerKilometer;
@@ -913,7 +913,7 @@ void InspectorInstanceRegister::CombineIntoScene(
                 GeometricRaster::DirectPointLightSpec Spec {};
                 Spec.PositionWorld = PosWorld; Spec.RangeMeters = I.RangeMeters;
                 Spec.Color = CombineTint(I.RadiantTint, I.KelvinTemperature);
-                Spec.Intensity = (I.LuminousFlux * I.ProfileMultiplier) / (4.0f * PiF); Spec.RadiusMeters = 0.08f;
+                Spec.Intensity = (I.LuminousFlux * I.ProfileMultiplier) / (4.0f * Frontier::Constants::PiFloat); Spec.RadiusMeters = 0.08f;
                 CombinedPointLights.push_back(Spec);
             }
             else if (const auto It = LedLights.find(Key); It != LedLights.end())
@@ -922,7 +922,7 @@ void InspectorInstanceRegister::CombineIntoScene(
                 GeometricRaster::DirectPointLightSpec Spec {};
                 Spec.PositionWorld = PosWorld; Spec.RangeMeters = 18.0f;
                 Spec.Color = CombineTint(L.RadiantTint, L.KelvinTemperature);
-                Spec.Intensity = (L.DriverWatts * L.EfficacyLmPerW * L.Dimmer) / (2.0f * PiF);
+                Spec.Intensity = (L.DriverWatts * L.EfficacyLmPerW * L.Dimmer) / (2.0f * Frontier::Constants::PiFloat);
                 Spec.RadiusMeters = L.PackageDiameterMm * 0.0005f;
                 CombinedPointLights.push_back(Spec);
             }
@@ -1036,7 +1036,7 @@ void InspectorInstanceRegister::CombineIntoScene(
         if (ActiveWindCount > 0u)
         {
             const float CombinedSpeed = std::sqrt(WindVelX * WindVelX + WindVelY * WindVelY);
-            float BearingDeg = std::atan2(WindVelX, WindVelY) * (180.0f / PiF);
+            float BearingDeg = std::atan2(WindVelX, WindVelY) * (180.0f / Frontier::Constants::PiFloat);
             if (BearingDeg < 0.0f) BearingDeg += 360.0f;
             Scene.Atmosphere.Wind.SpeedMetersPerSecond = CombinedSpeed;
             Scene.Atmosphere.Wind.BearingDegrees       = BearingDeg;
@@ -1096,7 +1096,7 @@ void InspectorInstanceRegister::CombineIntoScene(
             DisplaySettings->MotionBlurIntensity           = std::clamp(CombinedMotionBlur.VelocityScale, 0.0f, 2.5f);
             DisplaySettings->MotionBlurMaxRadiusPx         = std::clamp(CombinedMotionBlur.MaxSampleRadiusPx, 2.0f, 48.0f);
             DisplaySettings->MotionBlurSampleCount         = std::clamp(CombinedMotionBlur.SampleCount, 4u, 16u);
-            DisplaySettings->MotionBlurDirectionalAngleRad = CombinedMotionBlur.DirectionalAngleDeg * (PiF / 180.0f);
+            DisplaySettings->MotionBlurDirectionalAngleRad = CombinedMotionBlur.DirectionalAngleDeg * (Frontier::Constants::PiFloat / 180.0f);
         }
         else
         {

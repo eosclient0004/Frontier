@@ -10,6 +10,7 @@
 
 #include "Engine/Codecs/Simulation/ForceFieldCodec.h"
 #include "Engine/SimulationSpace/ForceFields/ForceModelRegistry.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -151,11 +152,11 @@ void PadToAlignment64(std::vector<std::byte>& dst)
 
 uint64_t ComputeSimulationFnv1a64(const std::span<const std::byte> bytes) noexcept
 {
-    uint64_t h = 0xcbf29ce484222325ull;
+    uint64_t h = Frontier::Constants::Fnv1a64OffsetBasis;
     for (const std::byte b : bytes)
     {
         h ^= static_cast<uint64_t>(b);
-        h *= 0x100000001b3ull;
+        h *= Frontier::Constants::Fnv1a64Prime;
     }
     return h;
 }

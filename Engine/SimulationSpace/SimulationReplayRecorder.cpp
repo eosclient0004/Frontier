@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 
 #include "Engine/SimulationSpace/SimulationReplayRecorder.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <cstring>
 #include <fstream>
@@ -14,8 +15,8 @@ namespace
 {
 
 constexpr char     kMagic[4]    = { 'F', 'S', 'R', 'P' };
-constexpr uint64_t kFnvOffset64 = 14695981039346656037ull;
-constexpr uint64_t kFnvPrime64  = 1099511628211ull;
+constexpr uint64_t kFnvOffset64 = Frontier::Constants::Fnv1a64OffsetBasis;
+constexpr uint64_t kFnvPrime64  = Frontier::Constants::Fnv1a64Prime;
 
 inline void HashBytes(uint64_t& h, const void* data, size_t bytes) noexcept
 {

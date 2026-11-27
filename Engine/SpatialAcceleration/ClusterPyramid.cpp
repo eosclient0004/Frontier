@@ -6,6 +6,7 @@
 #include "Engine/SpatialAcceleration/ClusterPyramid.h"
 
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <cmath>
@@ -61,24 +62,7 @@ struct QuantizedCoordHasher
     return (static_cast<uint64_t>(Lo) << 32u) | static_cast<uint64_t>(Hi);
 }
 
-template <typename PodType>
-void AppendPodBytes(std::vector<std::byte>& Destination, const PodType& SourceEntry)
-{
-    const auto* RawPtr = reinterpret_cast<const std::byte*>(&SourceEntry);
-    Destination.insert(Destination.end(), RawPtr, RawPtr + sizeof(PodType));
-}
 
-template <typename PodType>
-[[nodiscard]] bool ReadPodBytes(std::span<const std::byte>& Cursor, PodType& OutEntry) noexcept
-{
-    if (Cursor.size() < sizeof(PodType))
-    {
-        return false;
-    }
-    std::memcpy(&OutEntry, Cursor.data(), sizeof(PodType));
-    Cursor = Cursor.subspan(sizeof(PodType));
-    return true;
-}
 
 [[nodiscard]] Mathematics::Axis3D SafeUnitAxis(Mathematics::Axis3D Vec, Mathematics::Axis3D Fallback = { 0.0f, 0.0f, 1.0f }) noexcept
 {
@@ -2693,29 +2677,29 @@ std::vector<std::byte> ClusterPyramid::SerializeToBinaryBytes() const
                   Triangles.size() * sizeof(ClusterTriangleEntry) +
                   Clusters.size() * sizeof(ClusterHeaderEntry));
 
-    AppendPodBytes(Bytes, ClusterBinaryMagic);
-    AppendPodBytes(Bytes, ClusterBinaryVersion);
-    AppendPodBytes(Bytes, HierarchyDepth);
-    AppendPodBytes(Bytes, FinestClusterCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, ClusterBinaryMagic);
+    Frontier::Serialization::AppendPodBytes(Bytes, ClusterBinaryVersion);
+    Frontier::Serialization::AppendPodBytes(Bytes, HierarchyDepth);
+    Frontier::Serialization::AppendPodBytes(Bytes, FinestClusterCount);
     const auto PosCount = static_cast<uint32_t>(Positions.size());
     const auto TriCount = static_cast<uint32_t>(Triangles.size());
     const auto ClsCount = static_cast<uint32_t>(Clusters.size());
-    AppendPodBytes(Bytes, PosCount);
-    AppendPodBytes(Bytes, TriCount);
-    AppendPodBytes(Bytes, ClsCount);
-    AppendPodBytes(Bytes, CoarsestAllowedLevel);
+    Frontier::Serialization::AppendPodBytes(Bytes, PosCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, TriCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, ClsCount);
+    Frontier::Serialization::AppendPodBytes(Bytes, CoarsestAllowedLevel);
 
     for (const auto& Pos : Positions)
     {
-        AppendPodBytes(Bytes, Pos);
+        Frontier::Serialization::AppendPodBytes(Bytes, Pos);
     }
     for (const auto& Tri : Triangles)
     {
-        AppendPodBytes(Bytes, Tri);
+        Frontier::Serialization::AppendPodBytes(Bytes, Tri);
     }
     for (const auto& Cls : Clusters)
     {
-        AppendPodBytes(Bytes, Cls);
+        Frontier::Serialization::AppendPodBytes(Bytes, Cls);
     }
     return Bytes;
 }
@@ -2725,14 +2709,14 @@ bool ClusterPyramid::DeserializeFromBinaryBytes(std::span<const std::byte> RawBy
     Reset();
     std::span<const std::byte> Cursor = RawBytes;
     uint32_t Magic = 0u, Version = 0u, PosCount = 0u, TriCount = 0u, ClsCount = 0u;
-    if (!ReadPodBytes(Cursor, Magic) || !ReadPodBytes(Cursor, Version) ||
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Magic) || !Frontier::Serialization::ReadPodBytes(Cursor, Version) ||
         Magic != ClusterBinaryMagic || (Version != 1u && Version != ClusterBinaryVersion) ||
-        !ReadPodBytes(Cursor, HierarchyDepth) || !ReadPodBytes(Cursor, FinestClusterCount) ||
-        !ReadPodBytes(Cursor, PosCount) || !ReadPodBytes(Cursor, TriCount) || !ReadPodBytes(Cursor, ClsCount))
+        !Frontier::Serialization::ReadPodBytes(Cursor, HierarchyDepth) || !Frontier::Serialization::ReadPodBytes(Cursor, FinestClusterCount) ||
+        !Frontier::Serialization::ReadPodBytes(Cursor, PosCount) || !Frontier::Serialization::ReadPodBytes(Cursor, TriCount) || !Frontier::Serialization::ReadPodBytes(Cursor, ClsCount))
     {
         return false;
     }
-    if (Version >= 2u && !ReadPodBytes(Cursor, CoarsestAllowedLevel))
+    if (Version >= 2u && !Frontier::Serialization::ReadPodBytes(Cursor, CoarsestAllowedLevel))
     {
         Reset();
         return false;
@@ -2753,15 +2737,15 @@ bool ClusterPyramid::DeserializeFromBinaryBytes(std::span<const std::byte> RawBy
     Clusters.resize(ClsCount);
     for (uint32_t Idx = 0u; Idx < PosCount; ++Idx)
     {
-        (void)ReadPodBytes(Cursor, Positions[Idx]);
+        (void)Frontier::Serialization::ReadPodBytes(Cursor, Positions[Idx]);
     }
     for (uint32_t Idx = 0u; Idx < TriCount; ++Idx)
     {
-        (void)ReadPodBytes(Cursor, Triangles[Idx]);
+        (void)Frontier::Serialization::ReadPodBytes(Cursor, Triangles[Idx]);
     }
     for (uint32_t Idx = 0u; Idx < ClsCount; ++Idx)
     {
-        (void)ReadPodBytes(Cursor, Clusters[Idx]);
+        (void)Frontier::Serialization::ReadPodBytes(Cursor, Clusters[Idx]);
         ClusterHeaderEntry& Cls = Clusters[Idx];
         if (Cls.SelfLodSphereRadiusMeters <= 0.0f)
         {

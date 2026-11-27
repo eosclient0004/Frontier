@@ -9,6 +9,7 @@
 
 #include "Engine/GeometricRaster/Visibility/VisibilityMaterialResolve.h"
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -80,18 +81,12 @@ namespace
 
 [[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
 {
-    const float C = std::clamp(LinearVal, 0.0f, 1.0f);
-    return (C <= 0.0031308f) ? (12.92f * C) : (1.055f * std::pow(C, 1.0f / 2.4f) - 0.055f);
+    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
 }
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmic(Mathematics::LinearRGB Hdr) noexcept
 {
-    const auto Curve = [](float X) noexcept -> float
-    {
-        const float V = std::max(0.0f, X * 0.85f);
-        return std::clamp((V * (2.51f * V + 0.03f)) / (V * (2.43f * V + 0.59f) + 0.14f), 0.0f, 1.0f);
-    };
-    return { Curve(Hdr.R), Curve(Hdr.G), Curve(Hdr.B) };
+    return Frontier::ColourSpace::ApplyAcesFilmicRgb(Hdr, 0.85f);
 }
 
 [[nodiscard]] Mathematics::LinearRGB EvaluateSkyBackdropRadiance(Mathematics::Axis3D RayDir) noexcept

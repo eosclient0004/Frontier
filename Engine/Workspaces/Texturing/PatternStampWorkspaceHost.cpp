@@ -9,6 +9,7 @@
 #include "Engine/Codecs/VectorCodec.h"
 #include "Engine/GeometricRaster/Vector/VulkanVectorRenderMethod.h"
 #include "Engine/Input/InputExtension.h"
+#include "Engine/Codecs/LosslessPngEncoder.h"
 
 #include <algorithm>
 #include <cctype>
@@ -32,111 +33,10 @@ namespace
     return Ext;
 }
 
-void AppendBigEndian32(std::vector<uint8_t>& Buffer, uint32_t Word)
-{
-    Buffer.push_back(static_cast<uint8_t>((Word >> 24u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>((Word >> 16u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>((Word >> 8u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>(Word & 0xFFu));
-}
 
-[[nodiscard]] uint32_t ComputeAdler32(const std::vector<uint8_t>& Bytes) noexcept
-{
-    uint32_t S1 = 1u;
-    uint32_t S2 = 0u;
-    for (const uint8_t Byte : Bytes)
-    {
-        S1 = (S1 + Byte) % 65521u;
-        S2 = (S2 + S1) % 65521u;
-    }
-    return (S2 << 16u) | S1;
-}
 
-[[nodiscard]] uint32_t ComputeCrc32(const uint8_t* Bytes, std::size_t Length) noexcept
-{
-    uint32_t Crc = 0xFFFFFFFFu;
-    for (std::size_t Idx = 0u; Idx < Length; ++Idx)
-    {
-        Crc ^= Bytes[Idx];
-        for (uint32_t Bit = 0u; Bit < 8u; ++Bit)
-        {
-            Crc = (Crc & 1u) != 0u ? ((Crc >> 1u) ^ 0xEDB88320u) : (Crc >> 1u);
-        }
-    }
-    return ~Crc;
-}
 
-void AppendPngChunk(std::vector<uint8_t>& Stream, const char Type[4], const std::vector<uint8_t>& Body)
-{
-    AppendBigEndian32(Stream, static_cast<uint32_t>(Body.size()));
-    const std::size_t TypeStart = Stream.size();
-    Stream.insert(Stream.end(), Type, Type + 4);
-    Stream.insert(Stream.end(), Body.begin(), Body.end());
-    AppendBigEndian32(Stream, ComputeCrc32(Stream.data() + TypeStart, 4u + Body.size()));
-}
 
-[[nodiscard]] bool WriteLosslessRgbaPng(
-    const std::filesystem::path& OutputPath,
-    const std::vector<uint8_t>&  RgbaPixels,
-    uint32_t                     WidthPx,
-    uint32_t                     HeightPx)
-{
-    if (WidthPx == 0u || HeightPx == 0u || RgbaPixels.size() < static_cast<std::size_t>(WidthPx) * HeightPx * 4u)
-    {
-        return false;
-    }
-    if (OutputPath.has_parent_path())
-    {
-        std::error_code Ec {};
-        std::filesystem::create_directories(OutputPath.parent_path(), Ec);
-    }
-
-    std::vector<uint8_t> RawScanlines {};
-    RawScanlines.reserve(static_cast<std::size_t>(HeightPx) * (1u + static_cast<std::size_t>(WidthPx) * 4u));
-    for (uint32_t Row = 0u; Row < HeightPx; ++Row)
-    {
-        RawScanlines.push_back(0u);
-        const std::size_t Start = static_cast<std::size_t>(Row) * WidthPx * 4u;
-        RawScanlines.insert(
-            RawScanlines.end(),
-            RgbaPixels.begin() + static_cast<std::ptrdiff_t>(Start),
-            RgbaPixels.begin() + static_cast<std::ptrdiff_t>(Start + WidthPx * 4u));
-    }
-
-    std::vector<uint8_t> Zlib { 0x78u, 0x01u };
-    std::size_t          Offset = 0u;
-    while (Offset < RawScanlines.size())
-    {
-        const uint16_t BlockLen = static_cast<uint16_t>(std::min<std::size_t>(RawScanlines.size() - Offset, 65535u));
-        const bool     Last     = (Offset + BlockLen == RawScanlines.size());
-        const uint16_t Neg      = static_cast<uint16_t>(~BlockLen);
-        Zlib.push_back(Last ? 0x01u : 0x00u);
-        Zlib.push_back(static_cast<uint8_t>(BlockLen & 0xFFu));
-        Zlib.push_back(static_cast<uint8_t>((BlockLen >> 8u) & 0xFFu));
-        Zlib.push_back(static_cast<uint8_t>(Neg & 0xFFu));
-        Zlib.push_back(static_cast<uint8_t>((Neg >> 8u) & 0xFFu));
-        Zlib.insert(Zlib.end(), RawScanlines.begin() + static_cast<std::ptrdiff_t>(Offset), RawScanlines.begin() + static_cast<std::ptrdiff_t>(Offset + BlockLen));
-        Offset += BlockLen;
-    }
-    AppendBigEndian32(Zlib, ComputeAdler32(RawScanlines));
-
-    std::vector<uint8_t> Png { 137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u };
-    std::vector<uint8_t> Ihdr {};
-    AppendBigEndian32(Ihdr, WidthPx);
-    AppendBigEndian32(Ihdr, HeightPx);
-    Ihdr.insert(Ihdr.end(), { 8u, 6u, 0u, 0u, 0u });
-    AppendPngChunk(Png, "IHDR", Ihdr);
-    AppendPngChunk(Png, "IDAT", Zlib);
-    AppendPngChunk(Png, "IEND", {});
-
-    std::ofstream Out(OutputPath, std::ios::binary | std::ios::trunc);
-    if (!Out)
-    {
-        return false;
-    }
-    Out.write(reinterpret_cast<const char*>(Png.data()), static_cast<std::streamsize>(Png.size()));
-    return Out.good();
-}
 
 } // namespace
 
@@ -870,7 +770,7 @@ bool PatternStampWorkspaceHost::ExportDocumentToPngFile(
     ExportSession.PanOffsetV   = 0.0f;
     std::vector<uint8_t> Pixels {};
     if (!BoundRasterizer->RenderThumbnailRGBA(ExportRes, ExportRes, ExportSession, Pixels) ||
-        !WriteLosslessRgbaPng(OutPath, Pixels, ExportRes, ExportRes))
+        !Frontier::Codecs::WriteLosslessRgba8PngFile(OutPath, ExportRes, ExportRes, Pixels))
     {
         if (OptionalDiagnostic != nullptr) *OptionalDiagnostic = "Failed exporting RGBA PNG: " + OutPath.string();
         return false;

@@ -5,6 +5,7 @@
 
 #include "Engine/GeometricRaster/Atmosphere/AtmosphericSkySequence.h"
 #include "Engine/GeometricRaster/Atmosphere/VolumetricCloudSequence.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -437,7 +438,6 @@ void AtmosphericSkySequence::BuildSkyViewLut(
         constexpr uint32_t MsDirs  = 32u;
         constexpr uint32_t MsSteps = 24u;
         constexpr float GoldenRatio = 1.6180339887498948482f;
-        constexpr float InvFourPi   = 1.0f / (4.0f * Constants::PiFloat);
         const float InvDirs = 1.0f / static_cast<float>(MsDirs);
 
         for (uint32_t Y = 0u; Y < MultiScatterHeightPx; ++Y)
@@ -501,9 +501,9 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                         const auto  SunT = SampleTransmittanceSphericalLut(
                             TransmittanceTexelsRgb, RK, SampleSunCos, GroundKm, TopKm);
 
-                        RayL2R += TR * ScatR * InvFourPi * SunT[0] * IntR;
-                        RayL2G += TG * ScatG * InvFourPi * SunT[1] * IntG;
-                        RayL2B += TB * ScatB * InvFourPi * SunT[2] * IntB;
+                        RayL2R += TR * ScatR * Frontier::Constants::InverseFourPiFloat * SunT[0] * IntR;
+                        RayL2G += TG * ScatG * Frontier::Constants::InverseFourPiFloat * SunT[1] * IntG;
+                        RayL2B += TB * ScatB * Frontier::Constants::InverseFourPiFloat * SunT[2] * IntB;
 
                         RayFmsR += TR * ScatR * IntR;
                         RayFmsG += TG * ScatG * IntG;

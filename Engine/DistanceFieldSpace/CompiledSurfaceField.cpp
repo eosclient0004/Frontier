@@ -8,6 +8,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/DistanceFieldSpace/CompiledSurfaceField.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <bit>
@@ -24,8 +26,6 @@ namespace Frontier::DistanceFieldSpace
 namespace
 {
 
-constexpr float TwoPiFloat = 6.2831853071795864769f;
-constexpr float PiFloat    = 3.1415926535897932384f;
 
 [[nodiscard]] inline Mathematics::Axis3D LoadVec3(const std::array<float, 4u>& Source) noexcept
 {
@@ -95,12 +95,12 @@ constexpr float PiFloat    = 3.1415926535897932384f;
 
 [[nodiscard]] inline float WrapAngleSigned(float Radians) noexcept
 {
-    float Wrapped = std::fmod(Radians + PiFloat, TwoPiFloat);
+    float Wrapped = std::fmod(Radians + Frontier::Constants::PiFloat, Frontier::Constants::TauFloat);
     if (Wrapped < 0.0f)
     {
-        Wrapped += TwoPiFloat;
+        Wrapped += Frontier::Constants::TauFloat;
     }
-    return Wrapped - PiFloat;
+    return Wrapped - Frontier::Constants::PiFloat;
 }
 
 [[nodiscard]] inline float AlignPeriodicCoordinate(float RawCoord, float Period, float WindowCenter) noexcept
@@ -159,7 +159,7 @@ constexpr float PiFloat    = 3.1415926535897932384f;
                 continue;
             }
             // Full 360-degree circular hole/outer loop: exact 6-FLOP disk parity with zero vertex-junction ambiguity!
-            if (std::abs(SweepRad) >= TwoPiFloat - 1.0e-4f)
+            if (std::abs(SweepRad) >= Frontier::Constants::TauFloat - 1.0e-4f)
             {
                 const float Du = ChartU - CenterU;
                 const float Dv = ChartV - CenterV;
@@ -558,7 +558,7 @@ struct ProjectedEdgeFoot
                 }
             }
 
-            if (std::abs(SweepAngle) >= TwoPiFloat - 1.0e-4f)
+            if (std::abs(SweepAngle) >= Frontier::Constants::TauFloat - 1.0e-4f)
             {
                 NormalizedParam = 0.5f;
             }
@@ -621,13 +621,6 @@ struct ProjectedEdgeFoot
     return Out;
 }
 
-template <typename PodT>
-void AppendPodBytes(std::vector<std::byte>& Buffer, const PodT& ScalarInput)
-{
-    const std::size_t OldSize = Buffer.size();
-    Buffer.resize(OldSize + sizeof(PodT));
-    std::memcpy(Buffer.data() + OldSize, &ScalarInput, sizeof(PodT));
-}
 
 template <typename PodT>
 void AppendPodVector(std::vector<std::byte>& Buffer, std::span<const PodT> Elements)
@@ -642,17 +635,6 @@ void AppendPodVector(std::vector<std::byte>& Buffer, std::span<const PodT> Eleme
     std::memcpy(Buffer.data() + OldSize, Elements.data(), ByteCount);
 }
 
-template <typename PodT>
-[[nodiscard]] bool ReadPodBytes(std::span<const std::byte>& Cursor, PodT& OutDecoded) noexcept
-{
-    if (Cursor.size() < sizeof(PodT))
-    {
-        return false;
-    }
-    std::memcpy(&OutDecoded, Cursor.data(), sizeof(PodT));
-    Cursor = Cursor.subspan(sizeof(PodT));
-    return true;
-}
 
 template <typename PodT>
 [[nodiscard]] bool ReadPodVector(std::span<const std::byte>& Cursor, uint32_t Count, std::vector<PodT>& OutVec)
@@ -1136,7 +1118,7 @@ bool EncodeCompiledSurfaceFieldBinary(
     Header.CellEdgeCount    = static_cast<uint32_t>(SourceField.CellEdgeIndices.size());
 
     OutBytes.reserve(sizeof(Header) + SourceField.QueryGpuPayloadBytes());
-    AppendPodBytes(OutBytes, Header);
+    Frontier::Serialization::AppendPodBytes(OutBytes, Header);
     AppendPodVector<CompiledSurfacePrimitive>(OutBytes, SourceField.Surfaces);
     AppendPodVector<CompiledTrimSegment2D>(OutBytes, SourceField.TrimSegments2D);
     AppendPodVector<CompiledBezierPatch4x4>(OutBytes, SourceField.BezierPatches);
@@ -1158,7 +1140,7 @@ bool DecodeCompiledSurfaceFieldBinary(
 
     std::span<const std::byte> Cursor = InputBytes;
     CompiledSurfaceFieldBinaryHeader Header {};
-    if (!ReadPodBytes(Cursor, Header))
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Header))
     {
         OutDiagnostic = "CompiledSurfaceField binary truncated before header.";
         return false;
@@ -1204,7 +1186,7 @@ bool EncodeParametricCurvePackageBinary(
     Header.BezierPoles = static_cast<uint32_t>(SourceCurves.BezierPolesWeighted.size());
 
     OutBytes.reserve(sizeof(Header) + SourceCurves.QueryMemoryBytes());
-    AppendPodBytes(OutBytes, Header);
+    Frontier::Serialization::AppendPodBytes(OutBytes, Header);
     AppendPodVector<ParametricCurveEntry>(OutBytes, SourceCurves.Curves);
     AppendPodVector<std::array<float, 4u>>(OutBytes, SourceCurves.BezierPolesWeighted);
     return true;
@@ -1220,7 +1202,7 @@ bool DecodeParametricCurvePackageBinary(
 
     std::span<const std::byte> Cursor = InputBytes;
     ParametricCurveBinaryHeader Header {};
-    if (!ReadPodBytes(Cursor, Header))
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Header))
     {
         OutDiagnostic = "ParametricCurvePackage binary truncated before header.";
         return false;
@@ -1267,7 +1249,7 @@ bool EncodeLocalDistanceVolumeBinary(
     Header.Spacing     = SourceVolume.VoxelSpacing;
 
     OutBytes.reserve(sizeof(Header) + SourceVolume.HalfDistanceSamples.size() * sizeof(uint16_t));
-    AppendPodBytes(OutBytes, Header);
+    Frontier::Serialization::AppendPodBytes(OutBytes, Header);
     AppendPodVector<uint16_t>(OutBytes, SourceVolume.HalfDistanceSamples);
     return true;
 }
@@ -1282,7 +1264,7 @@ bool DecodeLocalDistanceVolumeBinary(
 
     std::span<const std::byte> Cursor = InputBytes;
     BakedVolumeBinaryHeader Header {};
-    if (!ReadPodBytes(Cursor, Header))
+    if (!Frontier::Serialization::ReadPodBytes(Cursor, Header))
     {
         OutDiagnostic = "BakedVolumeSection binary truncated before header.";
         return false;

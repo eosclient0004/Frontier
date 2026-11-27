@@ -1233,6 +1233,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Codecs/FontCodec.cpp
     Engine/Codecs/UVCodec.cpp
     Engine/Codecs/ImageCodec.cpp
+    Engine/Codecs/LosslessPngEncoder.cpp
     Engine/Codecs/TextureCodec.cpp
     Engine/Codecs/MaterialCodec.cpp
     Engine/Codecs/VectorCodec.cpp

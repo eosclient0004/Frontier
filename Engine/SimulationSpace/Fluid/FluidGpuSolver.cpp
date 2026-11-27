@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/Fluid/FluidGpuSolver.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,16 +20,6 @@ namespace Frontier::SimulationSpace::Fluid
 namespace
 {
 
-[[nodiscard]] float ClampF(const float x, const float lo, const float hi) noexcept { return std::clamp(x, lo, hi); }
-[[nodiscard]] float FractF(const float x) noexcept { return x - std::floor(x); }
-[[nodiscard]] float LerpF(const float a, const float b, const float t) noexcept { return a + (b - a) * t; }
-[[nodiscard]] float StepF(const float edge, const float x) noexcept { return (x < edge) ? 0.0f : 1.0f; }
-[[nodiscard]] float SmoothStepF(const float e0, const float e1, const float x) noexcept
-{
-    const float denom = e1 - e0;
-    const float t = (std::fabs(denom) > 1.0e-9f) ? ClampF((x - e0) / denom, 0.0f, 1.0f) : 0.0f;
-    return t * t * (3.0f - 2.0f * t);
-}
 
 [[nodiscard]] std::array<float, 4> Lerp4(
     const std::array<float, 4>& a,
@@ -36,10 +27,10 @@ namespace
     const float t) noexcept
 {
     return {
-        LerpF(a[0], b[0], t),
-        LerpF(a[1], b[1], t),
-        LerpF(a[2], b[2], t),
-        LerpF(a[3], b[3], t)
+        Frontier::Mathematics::InterpolateScalar(a[0], b[0], t),
+        Frontier::Mathematics::InterpolateScalar(a[1], b[1], t),
+        Frontier::Mathematics::InterpolateScalar(a[2], b[2], t),
+        Frontier::Mathematics::InterpolateScalar(a[3], b[3], t)
     };
 }
 
@@ -80,9 +71,9 @@ std::array<float, 4> FluidVolumeGridCpu::FetchClamped(const int32_t x, const int
 std::array<float, 4> FluidVolumeGridCpu::SampleTrilinear(const float cx, const float cy, const float cz) const noexcept
 {
     if (Cells.empty() || Width == 0u || Height == 0u || Depth == 0u) return { 0.0f, 0.0f, 0.0f, 0.0f };
-    const float px = ClampF(cx - 0.5f, 0.0f, static_cast<float>(Width)  - 1.0f);
-    const float py = ClampF(cy - 0.5f, 0.0f, static_cast<float>(Height) - 1.0f);
-    const float pz = ClampF(cz - 0.5f, 0.0f, static_cast<float>(Depth)  - 1.0f);
+    const float px = Frontier::Mathematics::ClampScalar(cx - 0.5f, 0.0f, static_cast<float>(Width)  - 1.0f);
+    const float py = Frontier::Mathematics::ClampScalar(cy - 0.5f, 0.0f, static_cast<float>(Height) - 1.0f);
+    const float pz = Frontier::Mathematics::ClampScalar(cz - 0.5f, 0.0f, static_cast<float>(Depth)  - 1.0f);
 
     const int32_t x0 = static_cast<int32_t>(std::floor(px));
     const int32_t y0 = static_cast<int32_t>(std::floor(py));
@@ -153,7 +144,7 @@ float EvaluateReleaseSourceMaskCpu(
     if (shape == 0)
     {
         const float dist = std::sqrt(rx * rx + ry * ry + rz * rz);
-        mask = 1.0f - SmoothStepF(radius - edge, radius, dist);
+        mask = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(radius - edge, radius, dist);
     }
     else if (shape == 1)
     {
@@ -165,8 +156,8 @@ float EvaluateReleaseSourceMaskCpu(
         const float along = std::fabs(proj);
         const float px = rx - nx * proj, py = ry - ny * proj, pz = rz - nz * proj;
         const float radial = std::sqrt(px * px + py * py + pz * pz);
-        mask = (1.0f - SmoothStepF(radius - edge, radius, radial))
-             * (1.0f - SmoothStepF(edge * 0.6f, edge * 1.4f, along));
+        mask = (1.0f - Frontier::Mathematics::EvaluateSmoothStep(radius - edge, radius, radial))
+             * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(edge * 0.6f, edge * 1.4f, along));
     }
     else
     {
@@ -174,7 +165,7 @@ float EvaluateReleaseSourceMaskCpu(
         const float qy = std::fabs(ry) - radius;
         const float qz = std::fabs(rz) - radius;
         const float boxDist = std::max({ qx, qy, qz });
-        mask = 1.0f - SmoothStepF(-edge, 0.0f, boxDist);
+        mask = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(-edge, 0.0f, boxDist);
     }
 
     const float simTime = uniforms.InjectTiming[3];
@@ -187,17 +178,17 @@ float EvaluateReleaseSourceMaskCpu(
             worldPos[1] * scale + simTime * 1.6f,
             worldPos[2] * scale + simTime * 0.9f
         });
-        mask *= LerpF(1.0f, SmoothStepF(0.25f, 0.8f, n) * 1.4f, ClampF(jitter, 0.0f, 1.0f));
+        mask *= Frontier::Mathematics::InterpolateScalar(1.0f, Frontier::Mathematics::EvaluateSmoothStep(0.25f, 0.8f, n) * 1.4f, Frontier::Mathematics::ClampScalar(jitter, 0.0f, 1.0f));
     }
 
     const float pulse = d[3];
     if (pulse > 0.0f)
     {
-        const float phase = FractF(simTime / pulse);
-        mask *= std::exp(-phase * 7.0f) * StepF(phase, 0.45f);
+        const float phase = Frontier::Mathematics::EvaluateFractionalPart(simTime / pulse);
+        mask *= std::exp(-phase * 7.0f) * Frontier::Mathematics::EvaluateStep(phase, 0.45f);
     }
 
-    return ClampF(mask, 0.0f, 1.0f);
+    return Frontier::Mathematics::ClampScalar(mask, 0.0f, 1.0f);
 }
 
 void RunFluidAdvectCpu(
@@ -292,9 +283,9 @@ void RunFluidMacCormackCpu(
                     corrected[c] = fwd[c] + 0.5f * (src[c] * dissipation - bwd[c]);
                 }
 
-                const int32_t bx = static_cast<int32_t>(std::floor(ClampF(ox - 0.5f, 0.0f, maxX)));
-                const int32_t by = static_cast<int32_t>(std::floor(ClampF(oy - 0.5f, 0.0f, maxY)));
-                const int32_t bz = static_cast<int32_t>(std::floor(ClampF(oz - 0.5f, 0.0f, maxZ)));
+                const int32_t bx = static_cast<int32_t>(std::floor(Frontier::Mathematics::ClampScalar(ox - 0.5f, 0.0f, maxX)));
+                const int32_t by = static_cast<int32_t>(std::floor(Frontier::Mathematics::ClampScalar(oy - 0.5f, 0.0f, maxY)));
+                const int32_t bz = static_cast<int32_t>(std::floor(Frontier::Mathematics::ClampScalar(oz - 0.5f, 0.0f, maxZ)));
                 std::array<float, 4> lo {  1.0e9f,  1.0e9f,  1.0e9f,  1.0e9f };
                 std::array<float, 4> hi { -1.0e9f, -1.0e9f, -1.0e9f, -1.0e9f };
                 for (int32_t dz = 0; dz < 2; ++dz)
@@ -322,12 +313,12 @@ void RunFluidMacCormackCpu(
 
                 const float speed   = std::sqrt(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
                 const float courant = speed * dt * invH;
-                const float blendW  = 1.0f - SmoothStepF(1.0f, 2.0f, courant);
+                const float blendW  = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(1.0f, 2.0f, courant);
                 std::array<float, 4> result {};
                 for (size_t c = 0u; c < 4u; ++c)
                 {
-                    const float val = overshoot ? fwd[c] : LerpF(fwd[c], corrected[c], blendW);
-                    result[c] = ClampF(val, lo[c], hi[c]);
+                    const float val = overshoot ? fwd[c] : Frontier::Mathematics::InterpolateScalar(fwd[c], corrected[c], blendW);
+                    result[c] = Frontier::Mathematics::ClampScalar(val, lo[c], hi[c]);
                 }
                 output.Cells[output.LinearIndex(ix, iy, iz)] = result;
             }
@@ -395,15 +386,15 @@ void RunFluidInjectCpu(
                         if (b[0] * b[0] + b[1] * b[1] + b[2] * b[2] > 0.0f)
                         {
                             const float w = mask * blend;
-                            value[0] = LerpF(value[0], b[0], w);
-                            value[1] = LerpF(value[1], b[1], w);
-                            value[2] = LerpF(value[2], b[2], w);
+                            value[0] = Frontier::Mathematics::InterpolateScalar(value[0], b[0], w);
+                            value[1] = Frontier::Mathematics::InterpolateScalar(value[1], b[1], w);
+                            value[2] = Frontier::Mathematics::InterpolateScalar(value[2], b[2], w);
                         }
                     }
                     else
                     {
                         value[0] = std::min(value[0] + mask * b[3] * dt * 6.0f, std::max(value[0], b[3] * 1.5f));
-                        value[1] = LerpF(value[1], std::max(value[1], c[0]), mask * blend);
+                        value[1] = Frontier::Mathematics::InterpolateScalar(value[1], std::max(value[1], c[0]), mask * blend);
                         value[2] = std::min(value[2] + mask * c[1] * dt * 6.0f, std::max(value[2], c[1] * 1.5f));
                     }
                 }
@@ -521,14 +512,14 @@ namespace
     const float band = std::max(3.0f, static_cast<float>(std::max({ gx, gy, gz })) * 0.07f);
     float keep = 1.0f;
 
-    if (IsOpenFluidFace(vol, { cx, gy, cz })) keep *= SmoothStepF(0.0f, band, static_cast<float>(gy - 1 - cy));
-    if (IsOpenFluidFace(vol, { cx, -1, cz })) keep *= SmoothStepF(0.0f, band, static_cast<float>(cy));
-    if (IsOpenFluidFace(vol, { gx, cy, cz })) keep *= SmoothStepF(0.0f, band, static_cast<float>(gx - 1 - cx));
-    if (IsOpenFluidFace(vol, { -1, cy, cz })) keep *= SmoothStepF(0.0f, band, static_cast<float>(cx));
-    if (IsOpenFluidFace(vol, { cx, cy, gz })) keep *= SmoothStepF(0.0f, band, static_cast<float>(gz - 1 - cz));
-    if (IsOpenFluidFace(vol, { cx, cy, -1 })) keep *= SmoothStepF(0.0f, band, static_cast<float>(cz));
+    if (IsOpenFluidFace(vol, { cx, gy, cz })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(gy - 1 - cy));
+    if (IsOpenFluidFace(vol, { cx, -1, cz })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(cy));
+    if (IsOpenFluidFace(vol, { gx, cy, cz })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(gx - 1 - cx));
+    if (IsOpenFluidFace(vol, { -1, cy, cz })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(cx));
+    if (IsOpenFluidFace(vol, { cx, cy, gz })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(gz - 1 - cz));
+    if (IsOpenFluidFace(vol, { cx, cy, -1 })) keep *= Frontier::Mathematics::EvaluateSmoothStep(0.0f, band, static_cast<float>(cz));
 
-    return LerpF(0.82f, 1.0f, keep);
+    return Frontier::Mathematics::InterpolateScalar(0.82f, 1.0f, keep);
 }
 
 [[nodiscard]] float SampleVelocityAxisCpu(
@@ -712,7 +703,7 @@ void RunFluidThermodynamicsCpu(
                 {
                     const float burn = std::min(
                         fuel,
-                        combustion * 2.5f * dt * fuel * SmoothStepF(kIgnition, kIgnition + 1.0f, temperature));
+                        combustion * 2.5f * dt * fuel * Frontier::Mathematics::EvaluateSmoothStep(kIgnition, kIgnition + 1.0f, temperature));
                     reaction = burn / std::max(dt, 1.0e-4f);
                     fuel -= burn;
                     temperature += burn * 12.0f;
@@ -773,8 +764,8 @@ void RunFluidDivergenceCpu(
                 const auto st = state.FetchClamped(ix, iy, iz);
                 divergence -= expansion * 0.08f * st[3];
 
-                const float flame    = ClampF((st[1] - fireThreshold) / fireSoftness, 0.0f, 1.0f);
-                const float presence = SmoothStepF(fireThreshold * 0.7f, fireThreshold * 1.15f, st[1]);
+                const float flame    = Frontier::Mathematics::ClampScalar((st[1] - fireThreshold) / fireSoftness, 0.0f, 1.0f);
+                const float presence = Frontier::Mathematics::EvaluateSmoothStep(fireThreshold * 0.7f, fireThreshold * 1.15f, st[1]);
                 const float lightSrc = std::min(8.0f, presence * (0.2f + 4.0f * flame * flame));
 
                 outputDivergence.Cells[outputDivergence.LinearIndex(ix, iy, iz)] = { divergence, lightSrc, 0.0f, 0.0f };

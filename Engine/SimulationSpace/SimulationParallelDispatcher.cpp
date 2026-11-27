@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 
 #include "Engine/SimulationSpace/SimulationParallelDispatcher.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,8 +14,8 @@ namespace Frontier::SimulationSpace
 namespace
 {
 
-constexpr uint64_t kFnvOffset64 = 14695981039346656037ull;
-constexpr uint64_t kFnvPrime64  = 1099511628211ull;
+constexpr uint64_t kFnvOffset64 = Frontier::Constants::Fnv1a64OffsetBasis;
+constexpr uint64_t kFnvPrime64  = Frontier::Constants::Fnv1a64Prime;
 
 inline void HashBytes(uint64_t& h, const void* ptr, size_t bytes) noexcept
 {

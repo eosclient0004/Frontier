@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/MaterialSpace/MaterialSurfaceLayer/MaterialSurfaceLayer.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,11 +29,6 @@ namespace
     };
 }
 
-[[nodiscard]] float LerpScalar(float A, float B, float T) noexcept
-{
-    const float ClampedT = std::clamp(T, 0.0f, 1.0f);
-    return A + (B - A) * ClampedT;
-}
 
 [[nodiscard]] float ComputeEffectiveBlendFactor(const MaterialSurfaceLayer& Layer) noexcept
 {
@@ -96,8 +92,8 @@ SurfaceMaterial FlattenMaterialSurfaceStack(std::span<const MaterialSurfaceLayer
         {
             // 📝 Layering a dielectric varnish/lacquer coat over existing substrate widens underlying roughness (OpenPBR Eq. 44)
             Composite.Clearcoat.CoatWeight              = std::clamp(Composite.Clearcoat.CoatWeight + Alpha * Top.Clearcoat.CoatWeight, 0.0f, 1.0f);
-            Composite.Clearcoat.CoatRoughness           = LerpScalar(Composite.Clearcoat.CoatRoughness, Top.Clearcoat.CoatRoughness, Alpha);
-            Composite.Clearcoat.CoatIOR                 = LerpScalar(Composite.Clearcoat.CoatIOR, Top.Clearcoat.CoatIOR, Alpha);
+            Composite.Clearcoat.CoatRoughness           = Frontier::Mathematics::InterpolateScalar(Composite.Clearcoat.CoatRoughness, Top.Clearcoat.CoatRoughness, Alpha);
+            Composite.Clearcoat.CoatIOR                 = Frontier::Mathematics::InterpolateScalar(Composite.Clearcoat.CoatIOR, Top.Clearcoat.CoatIOR, Alpha);
             Composite.Clearcoat.CoatAbsorptionTint      = LerpColor(Composite.Clearcoat.CoatAbsorptionTint, Top.Clearcoat.CoatAbsorptionTint, Alpha);
             Composite.Clearcoat.CoatThicknessMillimeter += Alpha * Top.Clearcoat.CoatThicknessMillimeter;
         }
@@ -107,45 +103,45 @@ SurfaceMaterial FlattenMaterialSurfaceStack(std::span<const MaterialSurfaceLayer
                 Composite.PorosityLight.SurfaceWetnessFraction + Alpha * std::max(0.25f, Top.PorosityLight.SurfaceWetnessFraction),
                 0.0f,
                 1.0f);
-            Composite.Specular.Roughness = LerpScalar(Composite.Specular.Roughness, 0.04f, 0.65f * Alpha);
+            Composite.Specular.Roughness = Frontier::Mathematics::InterpolateScalar(Composite.Specular.Roughness, 0.04f, 0.65f * Alpha);
         }
         else
         {
             Composite.MaterialName             = Top.MaterialName;
             Composite.Diffuse.BaseColor        = LerpColor(Composite.Diffuse.BaseColor, Top.Diffuse.BaseColor, Alpha);
-            Composite.Diffuse.BaseWeight       = LerpScalar(Composite.Diffuse.BaseWeight, Top.Diffuse.BaseWeight, Alpha);
-            Composite.Diffuse.DiffuseRoughness = LerpScalar(Composite.Diffuse.DiffuseRoughness, Top.Diffuse.DiffuseRoughness, Alpha);
+            Composite.Diffuse.BaseWeight       = Frontier::Mathematics::InterpolateScalar(Composite.Diffuse.BaseWeight, Top.Diffuse.BaseWeight, Alpha);
+            Composite.Diffuse.DiffuseRoughness = Frontier::Mathematics::InterpolateScalar(Composite.Diffuse.DiffuseRoughness, Top.Diffuse.DiffuseRoughness, Alpha);
 
-            Composite.Specular.Metalness       = LerpScalar(Composite.Specular.Metalness, Top.Specular.Metalness, Alpha);
-            Composite.Specular.SpecularWeight  = LerpScalar(Composite.Specular.SpecularWeight, Top.Specular.SpecularWeight, Alpha);
-            Composite.Specular.Roughness       = LerpScalar(Composite.Specular.Roughness, Top.Specular.Roughness, Alpha);
-            Composite.Specular.Anisotropy      = LerpScalar(Composite.Specular.Anisotropy, Top.Specular.Anisotropy, Alpha);
-            Composite.Specular.DielectricIOR   = LerpScalar(Composite.Specular.DielectricIOR, Top.Specular.DielectricIOR, Alpha);
+            Composite.Specular.Metalness       = Frontier::Mathematics::InterpolateScalar(Composite.Specular.Metalness, Top.Specular.Metalness, Alpha);
+            Composite.Specular.SpecularWeight  = Frontier::Mathematics::InterpolateScalar(Composite.Specular.SpecularWeight, Top.Specular.SpecularWeight, Alpha);
+            Composite.Specular.Roughness       = Frontier::Mathematics::InterpolateScalar(Composite.Specular.Roughness, Top.Specular.Roughness, Alpha);
+            Composite.Specular.Anisotropy      = Frontier::Mathematics::InterpolateScalar(Composite.Specular.Anisotropy, Top.Specular.Anisotropy, Alpha);
+            Composite.Specular.DielectricIOR   = Frontier::Mathematics::InterpolateScalar(Composite.Specular.DielectricIOR, Top.Specular.DielectricIOR, Alpha);
             Composite.Specular.EdgeTintF82     = LerpColor(Composite.Specular.EdgeTintF82, Top.Specular.EdgeTintF82, Alpha);
 
-            Composite.Clearcoat.CoatWeight     = LerpScalar(Composite.Clearcoat.CoatWeight, Top.Clearcoat.CoatWeight, Alpha);
-            Composite.Clearcoat.CoatRoughness  = LerpScalar(Composite.Clearcoat.CoatRoughness, Top.Clearcoat.CoatRoughness, Alpha);
+            Composite.Clearcoat.CoatWeight     = Frontier::Mathematics::InterpolateScalar(Composite.Clearcoat.CoatWeight, Top.Clearcoat.CoatWeight, Alpha);
+            Composite.Clearcoat.CoatRoughness  = Frontier::Mathematics::InterpolateScalar(Composite.Clearcoat.CoatRoughness, Top.Clearcoat.CoatRoughness, Alpha);
 
-            Composite.ThinFilm.ThinFilmWeight              = LerpScalar(Composite.ThinFilm.ThinFilmWeight, Top.ThinFilm.ThinFilmWeight, Alpha);
-            Composite.ThinFilm.ThinFilmThicknessNanometers = LerpScalar(Composite.ThinFilm.ThinFilmThicknessNanometers, Top.ThinFilm.ThinFilmThicknessNanometers, Alpha);
+            Composite.ThinFilm.ThinFilmWeight              = Frontier::Mathematics::InterpolateScalar(Composite.ThinFilm.ThinFilmWeight, Top.ThinFilm.ThinFilmWeight, Alpha);
+            Composite.ThinFilm.ThinFilmThicknessNanometers = Frontier::Mathematics::InterpolateScalar(Composite.ThinFilm.ThinFilmThicknessNanometers, Top.ThinFilm.ThinFilmThicknessNanometers, Alpha);
 
-            Composite.GlintFlakes.FlakeCoverage     = LerpScalar(Composite.GlintFlakes.FlakeCoverage, Top.GlintFlakes.FlakeCoverage, Alpha);
+            Composite.GlintFlakes.FlakeCoverage     = Frontier::Mathematics::InterpolateScalar(Composite.GlintFlakes.FlakeCoverage, Top.GlintFlakes.FlakeCoverage, Alpha);
             Composite.GlintFlakes.FlakePrimaryTint  = LerpColor(Composite.GlintFlakes.FlakePrimaryTint, Top.GlintFlakes.FlakePrimaryTint, Alpha);
 
-            Composite.Transmission.TransmissionWeight = LerpScalar(Composite.Transmission.TransmissionWeight, Top.Transmission.TransmissionWeight, Alpha);
-            Composite.Subsurface.SubsurfaceWeight     = LerpScalar(Composite.Subsurface.SubsurfaceWeight, Top.Subsurface.SubsurfaceWeight, Alpha);
+            Composite.Transmission.TransmissionWeight = Frontier::Mathematics::InterpolateScalar(Composite.Transmission.TransmissionWeight, Top.Transmission.TransmissionWeight, Alpha);
+            Composite.Subsurface.SubsurfaceWeight     = Frontier::Mathematics::InterpolateScalar(Composite.Subsurface.SubsurfaceWeight, Top.Subsurface.SubsurfaceWeight, Alpha);
             Composite.Subsurface.SubsurfaceColor      = LerpColor(Composite.Subsurface.SubsurfaceColor, Top.Subsurface.SubsurfaceColor, Alpha);
 
-            Composite.Sheen.SheenWeight    = LerpScalar(Composite.Sheen.SheenWeight, Top.Sheen.SheenWeight, Alpha);
-            Composite.Sheen.SheenRoughness = LerpScalar(Composite.Sheen.SheenRoughness, Top.Sheen.SheenRoughness, Alpha);
+            Composite.Sheen.SheenWeight    = Frontier::Mathematics::InterpolateScalar(Composite.Sheen.SheenWeight, Top.Sheen.SheenWeight, Alpha);
+            Composite.Sheen.SheenRoughness = Frontier::Mathematics::InterpolateScalar(Composite.Sheen.SheenRoughness, Top.Sheen.SheenRoughness, Alpha);
             Composite.Sheen.SheenColor     = LerpColor(Composite.Sheen.SheenColor, Top.Sheen.SheenColor, Alpha);
 
-            Composite.Fiber.FiberWeight = LerpScalar(Composite.Fiber.FiberWeight, Top.Fiber.FiberWeight, Alpha);
+            Composite.Fiber.FiberWeight = Frontier::Mathematics::InterpolateScalar(Composite.Fiber.FiberWeight, Top.Fiber.FiberWeight, Alpha);
 
-            Composite.PorosityLight.PorosityFraction           = LerpScalar(Composite.PorosityLight.PorosityFraction, Top.PorosityLight.PorosityFraction, Alpha);
-            Composite.PorosityLight.SurfaceWetnessFraction     = LerpScalar(Composite.PorosityLight.SurfaceWetnessFraction, Top.PorosityLight.SurfaceWetnessFraction, Alpha);
-            Composite.PorosityLight.EmissionLuminanceNits      = LerpScalar(Composite.PorosityLight.EmissionLuminanceNits, Top.PorosityLight.EmissionLuminanceNits, Alpha);
-            Composite.PorosityLight.BlackbodyTemperatureKelvin = LerpScalar(Composite.PorosityLight.BlackbodyTemperatureKelvin, Top.PorosityLight.BlackbodyTemperatureKelvin, Alpha);
+            Composite.PorosityLight.PorosityFraction           = Frontier::Mathematics::InterpolateScalar(Composite.PorosityLight.PorosityFraction, Top.PorosityLight.PorosityFraction, Alpha);
+            Composite.PorosityLight.SurfaceWetnessFraction     = Frontier::Mathematics::InterpolateScalar(Composite.PorosityLight.SurfaceWetnessFraction, Top.PorosityLight.SurfaceWetnessFraction, Alpha);
+            Composite.PorosityLight.EmissionLuminanceNits      = Frontier::Mathematics::InterpolateScalar(Composite.PorosityLight.EmissionLuminanceNits, Top.PorosityLight.EmissionLuminanceNits, Alpha);
+            Composite.PorosityLight.BlackbodyTemperatureKelvin = Frontier::Mathematics::InterpolateScalar(Composite.PorosityLight.BlackbodyTemperatureKelvin, Top.PorosityLight.BlackbodyTemperatureKelvin, Alpha);
         }
     }
 

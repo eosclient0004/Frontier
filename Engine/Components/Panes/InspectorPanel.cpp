@@ -13,6 +13,7 @@
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Lifecycle/ThoughtLog.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <imgui.h>
 
@@ -1849,11 +1850,11 @@ void InspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
 
     auto MixString = [](uint64_t Seed, std::string_view Text) noexcept -> uint64_t
     {
-        uint64_t Fnv = 14695981039346656037ull;
+        uint64_t Fnv = Frontier::Constants::Fnv1a64OffsetBasis;
         for (const char Ch : Text)
         {
             Fnv ^= static_cast<uint8_t>(Ch);
-            Fnv *= 1099511628211ull;
+            Fnv *= Frontier::Constants::Fnv1a64Prime;
         }
         return RetainedCanvasCache::MixHash(Seed, Fnv);
     };

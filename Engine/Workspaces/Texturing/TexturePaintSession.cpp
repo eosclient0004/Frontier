@@ -6,6 +6,8 @@
 #include "Engine/Workspaces/Texturing/TexturePaintSession.h"
 
 #include "Engine/GeometricRaster/Baking/StudyGeometryBuilder.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <cmath>
@@ -237,7 +239,7 @@ void InitializeDefaultLayerChannels(PaintLayerEntry& Layer) noexcept
     const float Y = V * Scale;
     const float S = std::sin(X * 12.9898f + Y * 78.233f) * 43758.5453f;
     const float Frac = S - std::floor(S);
-    const float Wave = 0.5f + 0.5f * std::sin(X * 3.14159f) * std::cos(Y * 3.14159f);
+    const float Wave = 0.5f + 0.5f * std::sin(X * Frontier::Constants::PiFloat) * std::cos(Y * Frontier::Constants::PiFloat);
     return std::clamp(0.55f * Wave + 0.45f * Frac, 0.0f, 1.0f);
 }
 
@@ -350,7 +352,7 @@ struct EvaluatedPbrTexel
             if (Layer.Category == PaintLayerCategory::Fill && Layer.PatternRepeats > 1)
             {
                 const float Rep    = static_cast<float>(Layer.PatternRepeats);
-                const float PatMod = std::sin(WrappedU * Rep * 6.28318f) * std::sin(WrappedV * Rep * 6.28318f);
+                const float PatMod = std::sin(WrappedU * Rep * Frontier::Constants::TauFloat) * std::sin(WrappedV * Rep * Frontier::Constants::TauFloat);
                 const float Mod    = 0.94f + 0.06f * PatMod;
                 LayerR = std::clamp(LayerR * Mod, 0.0f, 1.0f);
                 LayerG = std::clamp(LayerG * Mod, 0.0f, 1.0f);
@@ -529,10 +531,7 @@ struct EvaluatedPbrTexel
 
 [[nodiscard]] uint8_t EncodeAcesSrgbByte(float LinearVal) noexcept
 {
-    const float X      = std::max(0.0f, LinearVal * 0.92f);
-    const float Mapped = std::clamp((X * (2.51f * X + 0.03f)) / (X * (2.43f * X + 0.59f) + 0.14f), 0.0f, 1.0f);
-    const float Srgb   = (Mapped <= 0.0031308f) ? (12.92f * Mapped) : (1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::lround(std::clamp(Srgb, 0.0f, 1.0f) * 255.0f));
+    return Frontier::ColourSpace::EncodeAcesSrgbByte(LinearVal, 0.92f);
 }
 
 } // namespace
@@ -661,7 +660,7 @@ void TexturePaintSession::ResetDefaults() noexcept
         const float T = static_cast<float>(Step) / 13.0f;
         PaintStrokeDabSpec Dab {};
         Dab.U          = 0.16f + T * 0.68f;
-        Dab.V          = 0.46f + 0.10f * std::sin(T * 6.28318f);
+        Dab.V          = 0.46f + 0.10f * std::sin(T * Frontier::Constants::TauFloat);
         Dab.RadiusUv   = 0.075f - 0.02f * std::abs(T - 0.5f);
         Dab.Hardness   = 0.68f;
         Dab.Opacity    = 0.88f;
@@ -676,7 +675,7 @@ void TexturePaintSession::ResetDefaults() noexcept
         const float T = static_cast<float>(Step) / 8.0f;
         PaintStrokeDabSpec AccentDab {};
         AccentDab.U          = 0.22f + T * 0.54f;
-        AccentDab.V          = 0.64f - 0.06f * std::cos(T * 3.14159f);
+        AccentDab.V          = 0.64f - 0.06f * std::cos(T * Frontier::Constants::PiFloat);
         AccentDab.RadiusUv   = 0.052f;
         AccentDab.Hardness   = 0.74f;
         AccentDab.Opacity    = 0.82f;
@@ -1645,12 +1644,12 @@ bool TexturePaintSession::RenderSpatialViewportRgba8(
                         const float Alpha = Rough * Rough;
                         const float A2    = std::max(0.001f, Alpha * Alpha);
                         const float Denom = (NdotH * NdotH * (A2 - 1.0f) + 1.0f);
-                        const float D     = A2 / std::max(1.0e-4f, 3.14159f * Denom * Denom);
+                        const float D     = A2 / std::max(1.0e-4f, Frontier::Constants::PiFloat * Denom * Denom);
                         const float Spec  = std::min(12.0f, D * 0.25f) * NdotL;
 
-                        OutR += (DiffR * (NdotL / 3.14159f) + FrR * Spec) * Lr;
-                        OutG += (DiffG * (NdotL / 3.14159f) + FrG * Spec) * Lg;
-                        OutB += (DiffB * (NdotL / 3.14159f) + FrB * Spec) * Lb;
+                        OutR += (DiffR * (NdotL / Frontier::Constants::PiFloat) + FrR * Spec) * Lr;
+                        OutG += (DiffG * (NdotL / Frontier::Constants::PiFloat) + FrG * Spec) * Lg;
+                        OutB += (DiffB * (NdotL / Frontier::Constants::PiFloat) + FrB * Spec) * Lb;
                     };
 
                     AccumLight(KeyX,  KeyY,  KeyZ,  2.55f, 2.48f, 2.38f);

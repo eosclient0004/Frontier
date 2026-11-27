@@ -4,6 +4,7 @@
 // 🧩 Phase K01 Implementation of zero-allocation SimulationEventTimeline & FNV-1a binary persistence.
 
 #include "Engine/SimulationSpace/SimulationEventTimeline.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <cstring>
 #include <fstream>
@@ -24,7 +25,7 @@ uint64_t Fnv1aMix(uint64_t hash, const void* data, std::size_t bytes) noexcept
     for (std::size_t i = 0u; i < bytes; ++i)
     {
         hash ^= static_cast<uint64_t>(p[i]);
-        hash *= 1099511628211ull;
+        hash *= Frontier::Constants::Fnv1a64Prime;
     }
     return hash;
 }
@@ -210,7 +211,7 @@ void SimulationEventTimeline::Rewind(double toTimeSeconds) noexcept
 
 uint64_t SimulationEventTimeline::ComputeScheduleHash() const noexcept
 {
-    uint64_t h = 14695981039346656037ull;
+    uint64_t h = Frontier::Constants::Fnv1a64OffsetBasis;
     h = Fnv1aMix(h, &EventCount_, sizeof(EventCount_));
     for (uint32_t i = 0u; i < EventCount_; ++i)
     {

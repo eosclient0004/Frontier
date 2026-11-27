@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/ForceFields/ForceFieldGpuUploader.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,8 +21,6 @@ namespace Frontier::SimulationSpace::ForceFields
 namespace
 {
 
-constexpr float kPi    = 3.14159265358979323846f;
-constexpr float kTwoPi = 6.28318530717958647692f;
 
 using Vec3 = std::array<float, 3>;
 using Rgba = std::array<float, 4>;
@@ -93,7 +92,7 @@ public:
         Vec3 prev = Add(centre, Scale(u, radius));
         for (int i = 1; i <= segments; ++i)
         {
-            const float a = (static_cast<float>(i) / static_cast<float>(segments)) * kTwoPi;
+            const float a = (static_cast<float>(i) / static_cast<float>(segments)) * Frontier::Constants::TauFloat;
             const Vec3 cur = Add(centre, Add(Scale(u, std::cos(a) * radius), Scale(v, std::sin(a) * radius)));
             Line(prev, cur, colour);
             prev = cur;
@@ -107,8 +106,8 @@ public:
         const Vec3 v = Cross(n, u);
         for (int i = 0; i < segments; i += 2)
         {
-            const float a0 = (static_cast<float>(i) / static_cast<float>(segments)) * kTwoPi;
-            const float a1 = (static_cast<float>(i + 1) / static_cast<float>(segments)) * kTwoPi;
+            const float a0 = (static_cast<float>(i) / static_cast<float>(segments)) * Frontier::Constants::TauFloat;
+            const float a1 = (static_cast<float>(i + 1) / static_cast<float>(segments)) * Frontier::Constants::TauFloat;
             const Vec3 p0 = Add(centre, Add(Scale(u, std::cos(a0) * radius), Scale(v, std::sin(a0) * radius)));
             const Vec3 p1 = Add(centre, Add(Scale(u, std::cos(a1) * radius), Scale(v, std::sin(a1) * radius)));
             Line(p0, p1, colour);
@@ -146,7 +145,7 @@ public:
         const Vec3 v = Cross(n, u);
         for (int i = 0; i < count; ++i)
         {
-            const float a = (static_cast<float>(i) / static_cast<float>(count)) * kTwoPi;
+            const float a = (static_cast<float>(i) / static_cast<float>(count)) * Frontier::Constants::TauFloat;
             const Vec3 radial = Add(Scale(u, std::cos(a)), Scale(v, std::sin(a)));
             const Vec3 point = Add(centre, Scale(radial, radius));
             const Vec3 tangent = Scale(Cross(n, radial), sign);
@@ -172,7 +171,7 @@ public:
         for (int i = 0; i <= steps; ++i)
         {
             const float t = static_cast<float>(i) / static_cast<float>(steps);
-            const float a = t * kTwoPi * turns + phase;
+            const float a = t * Frontier::Constants::TauFloat * turns + phase;
             const Vec3 p = Add(centre, Add(Scale(n, (t - 0.5f) * height), Add(Scale(u, std::cos(a) * radius), Scale(v, std::sin(a) * radius))));
             pts.push_back(p);
         }
@@ -286,7 +285,7 @@ void AppendForceGizmoLineVertices(
             w.DashedCircle(c, axis, r, faint, 32);
             w.Line(bottom, top, faint);
             const float spin = time * 1.2f * sign;
-            for (float phase : { 0.0f, kPi })
+            for (float phase : { 0.0f, Frontier::Constants::PiFloat })
             {
                 std::vector<Vec3> pts;
                 pts.reserve(73u);
@@ -294,7 +293,7 @@ void AppendForceGizmoLineVertices(
                 {
                     const float t = static_cast<float>(i) / 72.0f;
                     const float radius = r * (0.35f + 0.6f * t);
-                    const float angle = t * kPi * 5.0f * sign + phase + spin;
+                    const float angle = t * Frontier::Constants::PiFloat * 5.0f * sign + phase + spin;
                     pts.push_back(Add(bottom, Add(Scale(axis, t * height), Add(Scale(u, std::cos(angle) * radius), Scale(v, std::sin(angle) * radius)))));
                 }
                 w.Polyline(pts, colour);
@@ -358,7 +357,7 @@ void AppendForceGizmoLineVertices(
             }
             for (int i = 0; i < 12; ++i)
             {
-                const float theta = (static_cast<float>(i) / 12.0f) * kTwoPi;
+                const float theta = (static_cast<float>(i) / 12.0f) * Frontier::Constants::TauFloat;
                 const Vec3 d = Normalize({ std::cos(theta), std::sin(theta * 2.0f) * 0.6f, std::sin(theta) });
                 const float spike = r * (0.25f + 0.2f * (static_cast<float>(i % 3) / 2.0f));
                 w.Line(Add(c, Scale(d, r * 0.05f)), Add(c, Scale(d, spike)), colour);
@@ -376,21 +375,21 @@ void AppendForceGizmoLineVertices(
             }
             for (int i = 0; i < 4; ++i)
             {
-                const float theta = (static_cast<float>(i) / 4.0f) * kTwoPi;
+                const float theta = (static_cast<float>(i) / 4.0f) * Frontier::Constants::TauFloat;
                 const Vec3 foot = Add(bottom, Add(Scale(u, std::cos(theta) * r), Scale(v, std::sin(theta) * r)));
                 w.Line(foot, Add(foot, Scale(axis, height)), faint);
             }
             const float rise = PositiveMod(time * 0.7f, 1.0f);
             for (int i = 0; i < 5; ++i)
             {
-                const float theta = (static_cast<float>(i) / 5.0f) * kTwoPi + 0.4f;
+                const float theta = (static_cast<float>(i) / 5.0f) * Frontier::Constants::TauFloat + 0.4f;
                 const Vec3 base = Add(bottom, Add(Scale(u, std::cos(theta) * r * 0.55f), Scale(v, std::sin(theta) * r * 0.55f)));
                 std::vector<Vec3> pts;
                 pts.reserve(25u);
                 for (int k = 0; k <= 24; ++k)
                 {
                     const float t = static_cast<float>(k) / 24.0f;
-                    const float wobble = std::sin(t * kPi * 3.0f + rise * kTwoPi + static_cast<float>(i)) * r * 0.12f;
+                    const float wobble = std::sin(t * Frontier::Constants::PiFloat * 3.0f + rise * Frontier::Constants::TauFloat + static_cast<float>(i)) * r * 0.12f;
                     const float axial = t * height * sign + (sign > 0.0f ? 0.0f : height);
                     pts.push_back(Add(base, Add(Scale(axis, axial), Scale(u, wobble))));
                 }
@@ -415,7 +414,7 @@ void AppendForceGizmoLineVertices(
                 w.Circle(ringCentre, axis, animR, { colour[0], colour[1], colour[2], alpha * 0.4f }, 32);
                 for (int i = 0; i < 6; ++i)
                 {
-                    const float theta = (static_cast<float>(i) / 6.0f) * kTwoPi;
+                    const float theta = (static_cast<float>(i) / 6.0f) * Frontier::Constants::TauFloat;
                     const Vec3 d = Add(Scale(u, std::cos(theta)), Scale(v, std::sin(theta)));
                     const Vec3 outer = Add(ringCentre, Scale(d, r * 0.95f));
                     const Vec3 inner = Add(ringCentre, Scale(d, r * 0.1f));
@@ -433,7 +432,7 @@ void AppendForceGizmoLineVertices(
             w.Circle(c, axis, std::max(0.01f, r - tube), faint, 64);
             for (int i = 0; i < 8; ++i)
             {
-                const float theta = (static_cast<float>(i) / 8.0f) * kTwoPi;
+                const float theta = (static_cast<float>(i) / 8.0f) * Frontier::Constants::TauFloat;
                 const Vec3 radialDir = Add(Scale(u, std::cos(theta)), Scale(v, std::sin(theta)));
                 const Vec3 ringPoint = Add(c, Scale(radialDir, r));
                 const Vec3 ringTangent = Cross(axis, radialDir);
@@ -523,7 +522,7 @@ void AppendForceGizmoLineVertices(
             const float reach = r * (0.5f + 1.1f * (1.0f - std::exp(-phase * 4.0f)));
             for (int i = 0; i < 5; ++i)
             {
-                const float theta = (static_cast<float>(i) / 5.0f) * kTwoPi;
+                const float theta = (static_cast<float>(i) / 5.0f) * Frontier::Constants::TauFloat;
                 const Vec3 offset = (i == 0)
                     ? Vec3 { 0.0f, 0.0f, 0.0f }
                     : Add(Scale(u, std::cos(theta) * r * 0.3f), Scale(v, std::sin(theta) * r * 0.3f));
@@ -559,7 +558,7 @@ void AppendForceGizmoLineVertices(
             const float slide = PositiveMod(time * std::max(node.Frequency, 0.3f) * 0.3f, 1.0f);
             for (int i = 0; i < 7; ++i)
             {
-                const float theta = (static_cast<float>(i) / 7.0f) * kTwoPi;
+                const float theta = (static_cast<float>(i) / 7.0f) * Frontier::Constants::TauFloat;
                 const float radial = (i == 6) ? 0.0f : r * 0.65f;
                 const Vec3 start = Add(Sub(c, Scale(axis, length * 0.5f)), Add(Scale(u, std::cos(theta) * radial), Scale(v, std::sin(theta) * radial)));
                 const Rgba lineCol = (i == 6) ? colour : faint;
@@ -580,7 +579,7 @@ void AppendForceGizmoLineVertices(
             for (int i = 0; i < kLayers; ++i)
             {
                 const float h = static_cast<float>(i) / static_cast<float>(kLayers - 1) * 2.0f - 1.0f;
-                const float angle = h * node.Secondary * kPi;
+                const float angle = h * node.Secondary * Frontier::Constants::PiFloat;
                 const Vec3 heading = Add(Scale(u, std::cos(angle)), Scale(v, std::sin(angle)));
                 const Vec3 centre = Add(bottom, Scale(axis, (h * 0.5f + 0.5f) * height));
                 w.Arrow(Sub(centre, Scale(heading, r * 0.6f)), Scale(heading, sign), r * 1.2f, (i == kLayers / 2) ? colour : faint);
@@ -599,7 +598,7 @@ void AppendForceGizmoLineVertices(
             }
             for (int i = 0; i < 4; ++i)
             {
-                const float theta = (static_cast<float>(i) / 4.0f) * kTwoPi + spinPhase;
+                const float theta = (static_cast<float>(i) / 4.0f) * Frontier::Constants::TauFloat + spinPhase;
                 const Vec3 d = Add(Scale(u, std::cos(theta)), Scale(v, std::sin(theta)));
                 w.Line(c, Add(c, Scale(d, r)), faint);
             }
@@ -612,7 +611,7 @@ void AppendForceGizmoLineVertices(
             w.DashedCircle(c, { 0.0f, 1.0f, 0.0f }, r, faint, 40);
             for (int plane = 0; plane < 3; ++plane)
             {
-                const float theta0 = (static_cast<float>(plane) / 3.0f) * kPi;
+                const float theta0 = (static_cast<float>(plane) / 3.0f) * Frontier::Constants::PiFloat;
                 const Vec3 wDir = Add(Scale(u, std::cos(theta0)), Scale(v, std::sin(theta0)));
                 for (float shellL : { r * 0.45f, r * 0.8f, r * 1.15f })
                 {
@@ -622,7 +621,7 @@ void AppendForceGizmoLineVertices(
                         pts.reserve(37u);
                         for (int k = 0; k <= 36; ++k)
                         {
-                            const float th = 0.12f + (static_cast<float>(k) / 36.0f) * (kPi - 0.24f);
+                            const float th = 0.12f + (static_cast<float>(k) / 36.0f) * (Frontier::Constants::PiFloat - 0.24f);
                             const float sinTh = std::sin(th);
                             const float rad = shellL * sinTh * sinTh;
                             if (rad > r) continue;

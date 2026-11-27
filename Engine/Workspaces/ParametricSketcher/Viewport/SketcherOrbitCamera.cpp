@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Viewport/SketcherOrbitCamera.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,7 +25,6 @@ namespace
 //------------------------------------------------------------------------------------------------------------------------
 
 using Triple = std::array<double, 3>;
-constexpr double HalfPi = 0.5 * std::numbers::pi;
 
 [[nodiscard]] double Dot(const Triple& Left, const Triple& Right) { return Left[0] * Right[0] + Left[1] * Right[1] + Left[2] * Right[2]; }
 
@@ -162,7 +162,7 @@ OrbitRay CastOrbitRay(const OrbitCameraBasis& Frame, double PixelX, double Pixel
 void RevolveOrbitCamera(OrbitCamera& Camera, double DeltaX, double DeltaY)
 {
     Camera.Azimuth  -= DeltaX * 0.008;
-    Camera.Elevation = std::clamp(Camera.Elevation + DeltaY * 0.008, -HalfPi, HalfPi);
+    Camera.Elevation = std::clamp(Camera.Elevation + DeltaY * 0.008, -Frontier::Constants::HalfPi, Frontier::Constants::HalfPi);
 }
 
 void PanOrbitCamera(OrbitCamera& Camera, const OrbitCameraBasis& Frame, double DeltaX, double DeltaY)
@@ -181,10 +181,10 @@ void PresentOrbitView(OrbitCamera& Camera, OrbitViewPreset Preset)
     switch (Preset)
     {
     case OrbitViewPreset::Isometric: Camera.Azimuth = -0.25 * std::numbers::pi; Camera.Elevation = std::atan(1.0 / std::sqrt(2.0)); break;
-    case OrbitViewPreset::Top:       Camera.Azimuth = -HalfPi;                  Camera.Elevation = HalfPi;                          break;
-    case OrbitViewPreset::Bottom:    Camera.Azimuth = -HalfPi;                  Camera.Elevation = -HalfPi;                         break;
-    case OrbitViewPreset::Front:     Camera.Azimuth = -HalfPi;                  Camera.Elevation = 0.0;                             break;
-    case OrbitViewPreset::Back:      Camera.Azimuth = HalfPi;                   Camera.Elevation = 0.0;                             break;
+    case OrbitViewPreset::Top:       Camera.Azimuth = -Frontier::Constants::HalfPi;                  Camera.Elevation = Frontier::Constants::HalfPi;                          break;
+    case OrbitViewPreset::Bottom:    Camera.Azimuth = -Frontier::Constants::HalfPi;                  Camera.Elevation = -Frontier::Constants::HalfPi;                         break;
+    case OrbitViewPreset::Front:     Camera.Azimuth = -Frontier::Constants::HalfPi;                  Camera.Elevation = 0.0;                             break;
+    case OrbitViewPreset::Back:      Camera.Azimuth = Frontier::Constants::HalfPi;                   Camera.Elevation = 0.0;                             break;
     case OrbitViewPreset::Right:     Camera.Azimuth = 0.0;                      Camera.Elevation = 0.0;                             break;
     case OrbitViewPreset::Left:      Camera.Azimuth = std::numbers::pi;         Camera.Elevation = 0.0;                             break;
     }

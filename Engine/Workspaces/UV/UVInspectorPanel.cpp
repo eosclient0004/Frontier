@@ -16,6 +16,7 @@
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 #include "Engine/Workspaces/UV/Operations/UVAuthoringOperations.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <imgui.h>
 
@@ -984,7 +985,7 @@ float UVInspectorPanel::RenderUnwrapTab(
         if (ConstructCapsuleButton(Surface, RotateBtn, "Rotate 90°", Theme, Cursor, Pressed, false, false, 9.0f,
             -1.0f, OptionalTooltip::FromText("Rotate the active UV selection by 90 degrees.")))
         {
-            TransformUVs({}, 1.57079632679f, "RotateUV90");
+            TransformUVs({}, Frontier::Constants::HalfPiFloat, "RotateUV90");
         }
         if (ConstructCapsuleButton(Surface, FrameBtn, "Frame UV", Theme, Cursor, Pressed, false, false, 9.0f,
             -1.0f, OptionalTooltip::FromText("Frame the active UV selection in the viewport.")))

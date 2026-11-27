@@ -9,6 +9,8 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
+#include "Engine/Constants/MathConstants.h"
+
 #include <cmath>
 
 namespace Frontier::Mathematics
@@ -42,9 +44,16 @@ struct LinearRGB
     return { Scale * Right.R, Scale * Right.G, Scale * Right.B };
 }
 
+[[nodiscard]] constexpr float EvaluateRec709Luminance(float Red, float Green, float Blue) noexcept
+{
+    return Constants::Rec709LuminanceRed * Red +
+           Constants::Rec709LuminanceGreen * Green +
+           Constants::Rec709LuminanceBlue * Blue;
+}
+
 [[nodiscard]] constexpr float EvaluateRec709Luminance(LinearRGB Color) noexcept
 {
-    return 0.2126f * Color.R + 0.7152f * Color.G + 0.0722f * Color.B;
+    return EvaluateRec709Luminance(Color.R, Color.G, Color.B);
 }
 
 } // namespace Frontier::Mathematics

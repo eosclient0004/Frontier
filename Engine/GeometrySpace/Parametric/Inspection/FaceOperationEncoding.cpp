@@ -7,6 +7,7 @@
 
 #include "Engine/GeometrySpace/Parametric/Inspection/InspectionEncoding.h"
 #include "Engine/GeometrySpace/Parametric/Inspection/JsonWriter.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cmath>
 #include <cstdio>
@@ -50,7 +51,7 @@ namespace
         switch (Step.Kind)
         {
         case FaceOperationCategory::Rotate:
-        case FaceOperationCategory::Draft:   std::snprintf(Text, sizeof(Text), "%s %.4g°", FaceOperationLabel(Step.Kind), Step.Angle * 180.0 / 3.14159265358979323846); break;
+        case FaceOperationCategory::Draft:   std::snprintf(Text, sizeof(Text), "%s %.4g°", FaceOperationLabel(Step.Kind), Step.Angle * 180.0 / Frontier::Constants::Pi); break;
         case FaceOperationCategory::Scale:   std::snprintf(Text, sizeof(Text), "%s ×%.4g", FaceOperationLabel(Step.Kind), Step.Factor); break;
         case FaceOperationCategory::Tweak:   std::snprintf(Text, sizeof(Text), "%s (%.4g, %.4g, %.4g)", FaceOperationLabel(Step.Kind), Step.Vector.X, Step.Vector.Y, Step.Vector.Z); break;
         case FaceOperationCategory::Delete:

@@ -15,6 +15,8 @@
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherStyleSheet.h"
 
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherUiKit.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <atomic>
@@ -193,7 +195,7 @@ void LockGlyph(SketcherSheet& Sheet, float CentreX, float CentreY, bool LockedCo
     constexpr int Steps = 8;
     for (int Index = 0; Index < Steps; ++Index)
     {
-        const float From = 3.14159265f * (1.0f + float(Index) / Steps), To = 3.14159265f * (1.0f + float(Index + 1) / Steps);
+        const float From = Frontier::Constants::PiFloat * (1.0f + float(Index) / Steps), To = Frontier::Constants::PiFloat * (1.0f + float(Index + 1) / Steps);
         Sheet.Line(CentreX + 3.0f * std::cos(From), Top + 3.0f * std::sin(From), CentreX + 3.0f * std::cos(To), Top + 3.0f * std::sin(To), Ink, 1.2f);
     }
     Sheet.Line(CentreX + 3.0f, Top, CentreX + 3.0f, CentreY - 0.5f, Ink, 1.2f);
@@ -311,11 +313,11 @@ std::atomic<uint64_t> GlobalOutlinerCanvasCaptures { 0ull };
 
 [[nodiscard]] uint64_t MixString(uint64_t Seed, const std::string& Text) noexcept
 {
-    uint64_t H = 14695981039346656037ull;
+    uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     for (unsigned char Ch : Text)
     {
         H ^= static_cast<uint64_t>(Ch);
-        H *= 1099511628211ull;
+        H *= Frontier::Constants::Fnv1a64Prime;
     }
     return RetainedCanvasCache::MixHash(Seed, H);
 }

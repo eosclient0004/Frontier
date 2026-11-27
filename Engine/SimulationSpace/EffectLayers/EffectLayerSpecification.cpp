@@ -11,6 +11,8 @@
 #include "Engine/SimulationSpace/EffectLayers/EffectLayerSpecification.h"
 
 #include "Engine/SimulationSpace/ForceFields/KeyTrackSampler.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -27,20 +29,6 @@ namespace Frontier::SimulationSpace::EffectLayers
 namespace
 {
 
-[[nodiscard]] std::string_view TrimAscii(const std::string_view s) noexcept
-{
-    size_t start = 0u;
-    while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n'))
-    {
-        ++start;
-    }
-    size_t end = s.size();
-    while (end > start && (s[end - 1u] == ' ' || s[end - 1u] == '\t' || s[end - 1u] == '\r' || s[end - 1u] == '\n'))
-    {
-        --end;
-    }
-    return s.substr(start, end - start);
-}
 
 [[nodiscard]] std::string_view StripTomlComment(const std::string_view line) noexcept
 {
@@ -162,7 +150,7 @@ void AppendUtf8CodePoint(std::string& out, const uint32_t cp)
         if (outError) *outError = "TOML line " + std::to_string(lineNumber) + ": expected key = value";
         return false;
     }
-    const std::string_view key = TrimAscii(parts[0u]);
+    const std::string_view key = Frontier::Serialization::TrimAsciiView(parts[0u]);
     if (key.empty())
     {
         if (outError) *outError = "TOML line " + std::to_string(lineNumber) + ": empty key";
@@ -189,7 +177,7 @@ void AppendUtf8CodePoint(std::string& out, const uint32_t cp)
 
 [[nodiscard]] bool ParseTomlValueRecursive(const std::string_view raw, const size_t lineNumber, TomlValue& outValue, std::string* outError)
 {
-    const std::string_view text = TrimAscii(raw);
+    const std::string_view text = Frontier::Serialization::TrimAsciiView(raw);
     if (text.empty())
     {
         if (outError) *outError = "TOML line " + std::to_string(lineNumber) + ": missing value";
@@ -277,7 +265,7 @@ void AppendUtf8CodePoint(std::string& out, const uint32_t cp)
             return false;
         }
         TomlArray arr {};
-        const std::string_view inner = TrimAscii(text.substr(1u, text.size() - 2u));
+        const std::string_view inner = Frontier::Serialization::TrimAsciiView(text.substr(1u, text.size() - 2u));
         if (!inner.empty())
         {
             std::vector<std::string_view> parts;
@@ -287,7 +275,7 @@ void AppendUtf8CodePoint(std::string& out, const uint32_t cp)
             }
             for (size_t i = 0u; i < parts.size(); ++i)
             {
-                const std::string_view item = TrimAscii(parts[i]);
+                const std::string_view item = Frontier::Serialization::TrimAsciiView(parts[i]);
                 if (item.empty() && i + 1u == parts.size())
                 {
                     continue;
@@ -311,7 +299,7 @@ void AppendUtf8CodePoint(std::string& out, const uint32_t cp)
             return false;
         }
         TomlTable tbl {};
-        const std::string_view inner = TrimAscii(text.substr(1u, text.size() - 2u));
+        const std::string_view inner = Frontier::Serialization::TrimAsciiView(text.substr(1u, text.size() - 2u));
         if (!inner.empty())
         {
             std::vector<std::string_view> pairs;
@@ -475,15 +463,6 @@ void AppendCanonicalJson(std::string& out, const TomlValue& value)
     out += "null";
 }
 
-[[nodiscard]] std::string ToLowerAscii(std::string_view s)
-{
-    std::string out(s);
-    for (char& c : out)
-    {
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    }
-    return out;
-}
 
 [[nodiscard]] std::optional<ParameterTypeOrdinal> ParseParameterType(const std::string_view s) noexcept
 {
@@ -613,7 +592,7 @@ std::optional<TomlTable> ParseTomlSubset(const std::string_view text, std::strin
         {
             rawLine.remove_suffix(1u);
         }
-        const std::string_view content = TrimAscii(StripTomlComment(rawLine));
+        const std::string_view content = Frontier::Serialization::TrimAsciiView(StripTomlComment(rawLine));
         pos = nl + 1u;
         if (content.empty())
         {
@@ -624,7 +603,7 @@ std::optional<TomlTable> ParseTomlSubset(const std::string_view text, std::strin
         const bool isTableHeader = !isArrayHeader && content.size() >= 2u && content.front() == '[' && content.back() == ']';
         if (isArrayHeader || isTableHeader)
         {
-            const std::string_view headerPath = TrimAscii(
+            const std::string_view headerPath = Frontier::Serialization::TrimAsciiView(
                 isArrayHeader ? content.substr(2u, content.size() - 4u) : content.substr(1u, content.size() - 2u));
             std::vector<std::string_view> names;
             size_t s = 0u;
@@ -704,8 +683,8 @@ std::string FormatCanonicalJson(const TomlValue& value)
 std::string ComputeFnv1a64Hex(const std::string_view utf8Text)
 {
     // Reference: Experimental/FluidEditor/Engine/LayerSpecificationValidation.js L101-L108
-    uint64_t hash = 0xcbf29ce484222325ULL;
-    constexpr uint64_t kPrime = 0x100000001b3ULL;
+    uint64_t hash = Frontier::Constants::Fnv1a64OffsetBasis;
+    constexpr uint64_t kPrime = Frontier::Constants::Fnv1a64Prime;
     for (const unsigned char b : utf8Text)
     {
         hash ^= static_cast<uint64_t>(b);
@@ -813,7 +792,7 @@ LayerParameterValue DecodeParameterValueFromToml(const ParameterSpecification& p
         case ParameterTypeOrdinal::ColourLinear:
             if (rawValue.IsString() && ForceFields::IsHexColourString(rawValue.AsString()))
             {
-                return ToLowerAscii(rawValue.AsString());
+                return Frontier::Serialization::LowercaseAscii(rawValue.AsString());
             }
             return parameter.DefaultVal;
         case ParameterTypeOrdinal::Choice:
@@ -897,7 +876,7 @@ LayerParameterValue CoerceParameterValue(const ParameterSpecification& parameter
         case ParameterTypeOrdinal::ColourLinear:
             if (const auto* s = std::get_if<std::string>(&value); s != nullptr && ForceFields::IsHexColourString(*s))
             {
-                return ToLowerAscii(*s);
+                return Frontier::Serialization::LowercaseAscii(*s);
             }
             return parameter.DefaultVal;
         case ParameterTypeOrdinal::Choice:

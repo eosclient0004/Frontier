@@ -18,6 +18,7 @@
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchProfile.h"
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchSpline.h"
 #include "Engine/GeometrySpace/Parametric/Tessellation/BodyTessellation.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <atomic>
@@ -116,11 +117,11 @@ struct BodyTessellationEntry
 [[nodiscard]] uint64_t FingerprintBody(const ModelPartition& Partition, BodyToken Body, const TessellationSettings& Settings,
                                        size_t& OutFaces, size_t& OutEdges)
 {
-    uint64_t Hash = 14695981039346656037ull;
+    uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
     const auto MixWord = [&](uint64_t Value) noexcept
     {
         Hash ^= Value;
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     };
     const auto MixReal = [&](double Value) noexcept
     {

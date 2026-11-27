@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #if !defined(__ANDROID__)
 #ifndef GLFW_INCLUDE_NONE
@@ -65,19 +66,19 @@ struct ImGuiPushConstants
     {
         return 0ull;
     }
-    uint64_t Hash = 14695981039346656037ull;
+    uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
     std::size_t Idx = 0u;
     for (; Idx + sizeof(uint64_t) <= TotalBytes; Idx += sizeof(uint64_t))
     {
         uint64_t Word = 0ull;
         std::memcpy(&Word, Bytes + Idx, sizeof(Word));
         Hash ^= Word;
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     }
     for (; Idx < TotalBytes; ++Idx)
     {
         Hash ^= static_cast<uint64_t>(Bytes[Idx]);
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     }
     Hash ^= static_cast<uint64_t>(TotalBytes);
     return (Hash == 0ull) ? 1ull : Hash;

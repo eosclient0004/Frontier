@@ -9,6 +9,7 @@
 
 #include "Engine/Interchange/GeometryInterchange.h"
 #include "Engine/Interchange/IndexedTriangleStreamInterchange.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -40,18 +41,6 @@ namespace
     return Ext;
 }
 
-[[nodiscard]] std::string_view TrimAscii(std::string_view View) noexcept
-{
-    while (!View.empty() && std::isspace(static_cast<unsigned char>(View.front())))
-    {
-        View.remove_prefix(1u);
-    }
-    while (!View.empty() && std::isspace(static_cast<unsigned char>(View.back())))
-    {
-        View.remove_suffix(1u);
-    }
-    return View;
-}
 
 [[nodiscard]] Mathematics::Scalar3D LayerSwatchTint(uint32_t Index) noexcept
 {
@@ -327,7 +316,7 @@ bool GeometryInterchange::ImportWavefrontObjText(
         {
             LineEnd = ObjText.size();
         }
-        const std::string_view RawLine = TrimAscii(ObjText.substr(LineStart, LineEnd - LineStart));
+        const std::string_view RawLine = Frontier::Serialization::TrimAsciiView(ObjText.substr(LineStart, LineEnd - LineStart));
         LineStart = LineEnd + 1u;
 
         if (RawLine.empty() || RawLine.front() == '#')
@@ -365,7 +354,7 @@ bool GeometryInterchange::ImportWavefrontObjText(
         else if (RawLine.starts_with("o ") || RawLine.starts_with("g ") || RawLine.starts_with("usemtl "))
         {
             const std::size_t SpacePos = RawLine.find(' ');
-            const std::string GroupName(TrimAscii(RawLine.substr(SpacePos + 1u)));
+            const std::string GroupName(Frontier::Serialization::TrimAsciiView(RawLine.substr(SpacePos + 1u)));
             if (!GroupName.empty())
             {
                 if (RawLine.starts_with("o ") && OutAsset.Network.Faces.empty())
@@ -402,7 +391,7 @@ bool GeometryInterchange::ImportWavefrontObjText(
             std::vector<uint32_t>            FaceVerts {};
             std::vector<Mathematics::UVAxes> FaceUVs   {};
 
-            std::string_view Rest = TrimAscii(RawLine.substr(2u));
+            std::string_view Rest = Frontier::Serialization::TrimAsciiView(RawLine.substr(2u));
             while (!Rest.empty())
             {
                 std::size_t NextWs = 0u;
@@ -411,7 +400,7 @@ bool GeometryInterchange::ImportWavefrontObjText(
                     ++NextWs;
                 }
                 const std::string Token(Rest.substr(0u, NextWs));
-                Rest = TrimAscii(Rest.substr(NextWs));
+                Rest = Frontier::Serialization::TrimAsciiView(Rest.substr(NextWs));
 
                 int VIdx  = 0;
                 int VtIdx = 0;
@@ -616,7 +605,7 @@ namespace
     {
         return DefaultVal;
     }
-    const std::string_view Tail = TrimAscii(ObjSlice.substr(Colon + 1u));
+    const std::string_view Tail = Frontier::Serialization::TrimAsciiView(ObjSlice.substr(Colon + 1u));
     int Value = DefaultVal;
     (void)std::from_chars(Tail.data(), Tail.data() + Tail.size(), Value);
     return Value;
@@ -1074,7 +1063,7 @@ bool GeometryInterchange::ImportStlBytes(
         {
             std::size_t End = Text.find('\n', Pos);
             if (End == std::string_view::npos) End = Text.size();
-            const std::string_view Line = TrimAscii(Text.substr(Pos, End - Pos));
+            const std::string_view Line = Frontier::Serialization::TrimAsciiView(Text.substr(Pos, End - Pos));
             Pos = End + 1u;
             if (Line.starts_with("vertex "))
             {
@@ -1143,7 +1132,7 @@ bool GeometryInterchange::ImportPlyBytes(
     {
         std::size_t LineEnd = Text.find('\n', Cursor);
         if (LineEnd == std::string_view::npos || LineEnd > HeaderEnd) LineEnd = HeaderEnd;
-        const std::string_view Line = TrimAscii(Text.substr(Cursor, LineEnd - Cursor));
+        const std::string_view Line = Frontier::Serialization::TrimAsciiView(Text.substr(Cursor, LineEnd - Cursor));
         Cursor = LineEnd + 1u;
         if (Line.starts_with("format binary_little_endian"))
         {
@@ -1190,7 +1179,7 @@ bool GeometryInterchange::ImportPlyBytes(
         std::string LineStr;
         for (uint32_t V = 0u; V < VertexCount && std::getline(Body, LineStr); )
         {
-            if (TrimAscii(LineStr).empty()) continue;
+            if (Frontier::Serialization::TrimAsciiView(LineStr).empty()) continue;
             std::istringstream Vs(LineStr);
             float X = 0.0f, Y = 0.0f, Z = 0.0f;
             Vs >> X >> Y >> Z;
@@ -1204,7 +1193,7 @@ bool GeometryInterchange::ImportPlyBytes(
         }
         for (uint32_t F = 0u; F < FaceCount && std::getline(Body, LineStr); )
         {
-            if (TrimAscii(LineStr).empty()) continue;
+            if (Frontier::Serialization::TrimAsciiView(LineStr).empty()) continue;
             std::istringstream Fs(LineStr);
             uint32_t N = 0u;
             Fs >> N;

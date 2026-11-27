@@ -11,6 +11,7 @@
 #include "Engine/SimulationSpace/Deformable/ConflictColorPartitioner.h"
 #include "Engine/SimulationSpace/Deformable/PneumaticTireSolver.h"
 #include "Engine/SimulationSpace/Deformable/TetrahedralSolidBuilder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,8 +22,6 @@ namespace Frontier::SimulationSpace::Deformable
 namespace
 {
 
-constexpr float kPi    = 3.14159265358979323846f;
-constexpr float kTwoPi = 6.28318530717958647692f;
 
 [[nodiscard]] float DeterministicHash3(float x, float y, float z) noexcept
 {
@@ -149,7 +148,7 @@ void DeformablePresetRegistry::AppendFemSoftBodyTire(
 
     for (uint32_t si = 0u; si < sectors; ++si)
     {
-        const float a = (static_cast<float>(si) / static_cast<float>(sectors)) * kTwoPi;
+        const float a = (static_cast<float>(si) / static_cast<float>(sectors)) * Frontier::Constants::TauFloat;
         const float ca = std::cos(a), sa = std::sin(a);
         for (uint32_t pi = 0u; pi < P; ++pi)
         {
@@ -226,7 +225,7 @@ void DeformablePresetRegistry::AppendPneumaticXpbdTire(
 
     for (uint32_t si = 0u; si < sectors; ++si)
     {
-        const float a = (static_cast<float>(si) / static_cast<float>(sectors)) * kTwoPi;
+        const float a = (static_cast<float>(si) / static_cast<float>(sectors)) * Frontier::Constants::TauFloat;
         const float ca = std::cos(a), sa = std::sin(a);
         for (uint32_t pi = 0u; pi < P; ++pi)
         {
@@ -290,7 +289,7 @@ void DeformablePresetRegistry::AppendFernCluster(DeformableBody& body, float ox,
     for (uint32_t f = 0u; f < frondCount; ++f)
     {
         const float ff   = static_cast<float>(f);
-        const float az   = (ff / static_cast<float>(frondCount)) * kTwoPi + DeterministicHash3(ff, ox, oz) * 0.4f;
+        const float az   = (ff / static_cast<float>(frondCount)) * Frontier::Constants::TauFloat + DeterministicHash3(ff, ox, oz) * 0.4f;
         const float len  = 1.35f + DeterministicHash3(ff, 2.0f, 3.0f) * 0.65f;
         const float elev = 0.72f + DeterministicHash3(ff, 5.0f, 7.0f) * 0.45f;
         constexpr uint32_t segs = 10u;
@@ -307,7 +306,7 @@ void DeformablePresetRegistry::AppendFernCluster(DeformableBody& body, float ox,
         {
             const float u     = static_cast<float>(i) / static_cast<float>(segs);
             const float rOut  = u * len * 0.85f;
-            const float archY = std::sin(u * kPi * 0.78f) * len * elev * 0.62f - u * u * 0.32f;
+            const float archY = std::sin(u * Frontier::Constants::PiFloat * 0.78f) * len * elev * 0.62f - u * u * 0.32f;
             const uint32_t pid = body.AppendMassPoint(
                 ox + std::cos(az) * rOut, oy + std::max(0.02f, archY), oz + std::sin(az) * rOut,
                 (i <= 1u) ? 0.0f : 1.0f, 0.028f, 1.15f);
@@ -319,7 +318,7 @@ void DeformablePresetRegistry::AppendFernCluster(DeformableBody& body, float ox,
         for (uint32_t i = 2u; i < segs; ++i)
         {
             const float u = static_cast<float>(i) / static_cast<float>(segs);
-            const float pinnaLen = std::sin(u * kPi) * 0.34f + 0.08f;
+            const float pinnaLen = std::sin(u * Frontier::Constants::PiFloat) * 0.34f + 0.08f;
             for (int32_t side : { -1, 1 })
             {
                 body.FoliageBlades.push_back({
@@ -342,7 +341,7 @@ void DeformablePresetRegistry::AppendOrbSpiderweb(
 
     for (uint32_t s = 0u; s < spokes; ++s)
     {
-        const float a  = (static_cast<float>(s) / static_cast<float>(spokes)) * kTwoPi + 0.12f;
+        const float a  = (static_cast<float>(s) / static_cast<float>(spokes)) * Frontier::Constants::TauFloat + 0.12f;
         const float ca = std::cos(a), sa = std::sin(a);
         grid[s].push_back(centerPt);
 
@@ -449,7 +448,7 @@ void DeformablePresetRegistry::AppendReedCluster(DeformableBody& body, float ox,
     for (uint32_t r = 0u; r < reedCount; ++r)
     {
         const float fr    = static_cast<float>(r);
-        const float a     = DeterministicHash3(fr, 11.0f, 2.0f) * kTwoPi;
+        const float a     = DeterministicHash3(fr, 11.0f, 2.0f) * Frontier::Constants::TauFloat;
         const float dist  = std::sqrt(DeterministicHash3(fr, 3.0f, 9.0f)) * 0.68f;
         const float rx    = ox + std::cos(a) * dist;
         const float rz    = oz + std::sin(a) * dist;
@@ -502,7 +501,7 @@ void DeformablePresetRegistry::AppendKelpForest(DeformableBody& body, float ox, 
     for (uint32_t k = 0u; k < kelpCount; ++k)
     {
         const float fk   = static_cast<float>(k);
-        const float a    = (fk / static_cast<float>(kelpCount)) * kTwoPi + DeterministicHash3(fk, 3.0f, 7.0f) * 0.5f;
+        const float a    = (fk / static_cast<float>(kelpCount)) * Frontier::Constants::TauFloat + DeterministicHash3(fk, 3.0f, 7.0f) * 0.5f;
         const float dist = 0.18f + DeterministicHash3(fk, 9.0f, 2.0f) * 0.85f;
         const float kx   = ox + std::cos(a) * dist;
         const float kz   = oz + std::sin(a) * dist;
@@ -553,7 +552,7 @@ void DeformablePresetRegistry::AppendWovenCloth(DeformableBody& body, uint32_t c
             const float u = static_cast<float>(c) / static_cast<float>(cols - 1u);
             const float v = static_cast<float>(r) / static_cast<float>(rows - 1u);
             const bool pin = (r == 0u && (c == 0u || c == 4u || c == 9u || c == 14u || c + 1u == cols));
-            body.AppendMassPoint(-width * 0.5f + u * width, 1.45f - v * height, std::sin(u * kPi) * 0.04f,
+            body.AppendMassPoint(-width * 0.5f + u * width, 1.45f - v * height, std::sin(u * Frontier::Constants::PiFloat) * 0.04f,
                                  pin ? 0.0f : 1.0f, 0.03f, 1.35f);
         }
     }
@@ -657,7 +656,7 @@ bool DeformablePresetRegistry::BuildPreset(
             for (uint32_t i = 0u; i <= segs; ++i)
             {
                 const float u = static_cast<float>(i) / static_cast<float>(segs);
-                const float sag = std::sin(u * kPi) * (0.45f + static_cast<float>(c) * 0.18f);
+                const float sag = std::sin(u * Frontier::Constants::PiFloat) * (0.45f + static_cast<float>(c) * 0.18f);
                 const uint32_t pid = outBody.AppendMassPoint(-2.2f + u * 4.4f, yA - sag, zA,
                                                              (i == 0u || i == segs) ? 0.0f : 1.0f, 0.035f, 0.55f);
                 cable.PointIndices.push_back(pid);
@@ -676,7 +675,7 @@ bool DeformablePresetRegistry::BuildPreset(
             for (uint32_t i = 0u; i <= segs; ++i)
             {
                 const float u = static_cast<float>(i) / static_cast<float>(segs);
-                const float sag = std::sin(u * kPi) * 0.62f;
+                const float sag = std::sin(u * Frontier::Constants::PiFloat) * 0.62f;
                 const uint32_t pid = outBody.AppendMassPoint(-2.2f + u * 4.4f, yA - sag, zA,
                                                              (i == 0u || i == segs) ? 0.0f : 0.65f, 0.055f, 0.35f);
                 chain.PointIndices.push_back(pid);

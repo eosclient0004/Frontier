@@ -11,6 +11,7 @@
 
 #include "Engine/ColourSpace/ChromaticitySpace.h"
 #include "Engine/ColourSpace/ColourRampSampler.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -85,16 +86,6 @@ namespace
     return Stops;
 }
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Text)
-{
-    std::string Out;
-    Out.reserve(Text.size());
-    for (char Ch : Text)
-    {
-        Out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(Ch))));
-    }
-    return Out;
-}
 
 [[nodiscard]] std::string_view QueryTransferToken(ColourSpace::TransferCurveCategory Curve) noexcept
 {
@@ -498,12 +489,12 @@ bool ColourEncoder::EncodeStandaloneRampToFile(
 
 bool ColourDecoder::MatchesRampExtension(const std::filesystem::path& FilePath) noexcept
 {
-    return LowercaseAscii(FilePath.extension().string()) == ".colourramp";
+    return Frontier::Serialization::LowercaseAscii(FilePath.extension().string()) == ".colourramp";
 }
 
 bool ColourDecoder::MatchesSwatchSuffix(const std::filesystem::path& FilePath) noexcept
 {
-    return LowercaseAscii(FilePath.extension().string()) == ".colourswatch";
+    return Frontier::Serialization::LowercaseAscii(FilePath.extension().string()) == ".colourswatch";
 }
 
 bool ColourDecoder::ExtractModel(

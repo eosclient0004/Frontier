@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/RainbowInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -62,7 +63,7 @@ void RainbowInspector::UpdateRainbowSurface(const RainbowInstanceData& Instance)
                 // Alexander's dark band outside primary bow
                 if (AlexanderBandEnabled && U > 0.8f && U < 3.5f)
                 {
-                    const float Dark = 0.08f * std::sin(std::clamp((U - 0.8f) / 2.7f, 0.0f, 1.0f) * 3.14159f);
+                    const float Dark = 0.08f * std::sin(std::clamp((U - 0.8f) / 2.7f, 0.0f, 1.0f) * Frontier::Constants::PiFloat);
                     R *= (1.0f - Dark); G *= (1.0f - Dark); B *= (1.0f - Dark);
                 }
                 // Primary 42-deg spectral rainbow arc (violet inner -> blue -> green -> yellow -> red outer)

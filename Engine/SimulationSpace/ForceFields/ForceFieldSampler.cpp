@@ -9,6 +9,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/ForceFields/ForceFieldSampler.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,7 +21,6 @@ namespace Frontier::SimulationSpace::ForceFields
 namespace
 {
 
-inline constexpr float kPi = 3.14159265f; // [rad] - Matches GLSL literal in FluidShaders.js L314 & L447
 
 [[nodiscard]] inline float Fract(const float x) noexcept
 {
@@ -31,30 +32,9 @@ inline constexpr float kPi = 3.14159265f; // [rad] - Matches GLSL literal in Flu
     return a + (b - a) * t;
 }
 
-[[nodiscard]] inline float SmoothStep(const float edge0, const float edge1, const float x) noexcept
-{
-    const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 
-[[nodiscard]] inline float Dot3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
 
-[[nodiscard]] inline float Length3(const std::array<float, 3>& a) noexcept
-{
-    return std::sqrt(Dot3(a, a));
-}
 
-[[nodiscard]] inline std::array<float, 3> Cross3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return {
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    };
-}
 
 [[nodiscard]] inline std::array<float, 3> Add3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
 {
@@ -93,9 +73,9 @@ float Hash31(const std::array<float, 3>& pIn) noexcept
 
 std::array<float, 3> Hash33(const std::array<float, 3>& p) noexcept
 {
-    const float qx = Dot3(p, { 127.1f, 311.7f,  74.7f });
-    const float qy = Dot3(p, { 269.5f, 183.3f, 246.1f });
-    const float qz = Dot3(p, { 113.5f, 271.9f, 124.6f });
+    const float qx = Frontier::Mathematics::EvaluateDot3(p, { 127.1f, 311.7f,  74.7f });
+    const float qy = Frontier::Mathematics::EvaluateDot3(p, { 269.5f, 183.3f, 246.1f });
+    const float qz = Frontier::Mathematics::EvaluateDot3(p, { 113.5f, 271.9f, 124.6f });
     const auto hashScalar = [](const float q) noexcept -> float
     {
         // Correctly-rounded float32 sin matches V8 Math.fround(Math.sin(q)) and SPIR-V OpExtInst Sin
@@ -117,7 +97,7 @@ float GradientNoise(const std::array<float, 3>& p) noexcept
 
     const auto corner = [&](const float dx, const float dy, const float dz) noexcept -> float
     {
-        return Dot3(Hash33({ i[0] + dx, i[1] + dy, i[2] + dz }), { f[0] - dx, f[1] - dy, f[2] - dz });
+        return Frontier::Mathematics::EvaluateDot3(Hash33({ i[0] + dx, i[1] + dy, i[2] + dz }), { f[0] - dx, f[1] - dy, f[2] - dz });
     };
 
     const float x00 = Lerp(corner(0.0f, 0.0f, 0.0f), corner(1.0f, 0.0f, 0.0f), u[0]);
@@ -178,7 +158,7 @@ float EvaluateForceFalloff(const ForceFalloffOrdinal falloff, const float d) noe
     }
     if (mode == 0u)
     {
-        return 1.0f - SmoothStep(0.0f, 1.0f, d);
+        return 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.0f, 1.0f, d);
     }
     if (mode == 1u)
     {
@@ -186,17 +166,17 @@ float EvaluateForceFalloff(const ForceFalloffOrdinal falloff, const float d) noe
     }
     if (mode == 4u)
     {
-        return std::exp(-d * d * 5.0f) * (1.0f - SmoothStep(0.9f, 1.0f, d));
+        return std::exp(-d * d * 5.0f) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.9f, 1.0f, d));
     }
     if (mode == 5u)
     {
-        return 1.0f - SmoothStep(0.55f, 1.0f, d);
+        return 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.55f, 1.0f, d);
     }
     if (mode == 6u)
     {
-        return 0.5f + 0.5f * std::cos(d * kPi);
+        return 0.5f + 0.5f * std::cos(d * Frontier::Constants::PiFloat);
     }
-    return (1.0f / (1.0f + 16.0f * d * d)) * (1.0f - SmoothStep(0.85f, 1.0f, d));
+    return (1.0f / (1.0f + 16.0f * d * d)) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.85f, 1.0f, d));
 }
 
 float EvaluatePulseEnvelope(const float simulationTimeSeconds, const float periodSeconds, const float width, const float delaySeconds) noexcept
@@ -207,12 +187,12 @@ float EvaluatePulseEnvelope(const float simulationTimeSeconds, const float perio
         return 0.0f;
     }
     const float phase = Fract(localTime / std::max(periodSeconds, 0.05f));
-    return std::exp(-phase / std::max(width, 0.01f)) * (1.0f - SmoothStep(0.8f, 1.0f, phase));
+    return std::exp(-phase / std::max(width, 0.01f)) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.8f, 1.0f, phase));
 }
 
 std::array<float, 3> SafeNormalizeVector(const std::array<float, 3>& v) noexcept
 {
-    const float len = Length3(v);
+    const float len = Frontier::Mathematics::EvaluateLength3(v);
     return (len > 1.0e-5f) ? Scale3(v, 1.0f / len) : std::array<float, 3> { 0.0f, 1.0f, 0.0f };
 }
 
@@ -238,9 +218,9 @@ std::array<float, 3> EvaluateSingleForceModel(
     const float strength              = record.DirectionStrength[3];
 
     const std::array<float, 3> r      = Sub3(worldPositionMeters, centre);
-    const float distance              = Length3(r);
-    const std::array<float, 3> radial = Sub3(r, Scale3(axis, Dot3(r, axis)));
-    const float radialDistance        = Length3(radial);
+    const float distance              = Frontier::Mathematics::EvaluateLength3(r);
+    const std::array<float, 3> radial = Sub3(r, Scale3(axis, Frontier::Mathematics::EvaluateDot3(r, axis)));
+    const float radialDistance        = Frontier::Mathematics::EvaluateLength3(radial);
 
     if (typeCode == 0)
     {
@@ -263,7 +243,7 @@ std::array<float, 3> EvaluateSingleForceModel(
     {
         const float w = EvaluateForceFalloff(falloff, radialDistance / radius);
         const std::array<float, 3> radialDirection = (radialDistance > 1.0e-4f) ? Scale3(radial, 1.0f / radialDistance) : std::array<float, 3> { 0.0f, 0.0f, 0.0f };
-        const std::array<float, 3> tangent = Cross3(axis, radialDirection);
+        const std::array<float, 3> tangent = Frontier::Mathematics::EvaluateCross3(axis, radialDirection);
         const float core = radialDistance / (radialDistance + 0.12f * radius);
         const auto sum = Add3(Sub3(Scale3(tangent, strength * core), Scale3(radialDirection, strength * 0.3f * frequency)), Scale3(axis, secondary));
         return Scale3(sum, w);
@@ -315,7 +295,7 @@ std::array<float, 3> EvaluateSingleForceModel(
     {
         const float w = EvaluateForceFalloff(falloff, distance / radius);
         const std::array<float, 3> radialDirection = (radialDistance > 1.0e-4f) ? Scale3(radial, 1.0f / radialDistance) : std::array<float, 3> { 0.0f, 0.0f, 0.0f };
-        const std::array<float, 3> tangent = Cross3(axis, radialDirection);
+        const std::array<float, 3> tangent = Frontier::Mathematics::EvaluateCross3(axis, radialDirection);
         const std::array<float, 3> toCentre = (distance > 1.0e-4f) ? Scale3(r, -1.0f / distance) : std::array<float, 3> { 0.0f, 0.0f, 0.0f };
         const float core = radialDistance / (radialDistance + 0.1f * radius);
         return Scale3(Add3(Scale3(tangent, core), Scale3(toCentre, secondary)), strength * w);
@@ -350,17 +330,17 @@ std::array<float, 3> EvaluateSingleForceModel(
     if (typeCode == 17)
     {
         const float w = EvaluateForceFalloff(falloff, distance / radius);
-        const float height = std::clamp(Dot3(r, axis) / radius, -1.0f, 1.0f);
+        const float height = std::clamp(Frontier::Mathematics::EvaluateDot3(r, axis) / radius, -1.0f, 1.0f);
         const std::array<float, 3> refUp = (std::fabs(axis[1]) < 0.9f) ? std::array<float, 3> { 0.0f, 1.0f, 0.0f } : std::array<float, 3> { 1.0f, 0.0f, 0.0f };
-        const std::array<float, 3> u = SafeNormalizeVector(Cross3(axis, refUp));
-        const std::array<float, 3> v = Cross3(axis, u);
-        const float angle = height * secondary * kPi;
+        const std::array<float, 3> u = SafeNormalizeVector(Frontier::Mathematics::EvaluateCross3(axis, refUp));
+        const std::array<float, 3> v = Frontier::Mathematics::EvaluateCross3(axis, u);
+        const float angle = height * secondary * Frontier::Constants::PiFloat;
         return Scale3(Add3(Scale3(u, std::cos(angle)), Scale3(v, std::sin(angle))), strength * w);
     }
     if (typeCode == 18)
     {
         const float w = EvaluateForceFalloff(falloff, radialDistance / radius);
-        return Scale3(Cross3(axis, radial), (strength * w) / radius);
+        return Scale3(Frontier::Mathematics::EvaluateCross3(axis, radial), (strength * w) / radius);
     }
     if (typeCode == 19)
     {
@@ -368,7 +348,7 @@ std::array<float, 3> EvaluateSingleForceModel(
         const float core = std::max(secondary, 0.05f) * radius;
         const float d = std::max(distance, core);
         const std::array<float, 3> n = Scale3(r, 1.0f / std::max(distance, 1.0e-4f));
-        const std::array<float, 3> field = Sub3(Scale3(n, 3.0f * Dot3(axis, n)), axis);
+        const std::array<float, 3> field = Sub3(Scale3(n, 3.0f * Frontier::Mathematics::EvaluateDot3(axis, n)), axis);
         const float scale = (core * core * core) / (d * d * d);
         return Scale3(SafeNormalizeVector(field), strength * w * Lerp(scale, 1.0f, 0.35f));
     }
@@ -389,10 +369,10 @@ std::array<float, 3> EvaluateSingleForceModel(
         const std::array<float, 3> radialDirection = (radialDistance > 1.0e-4f) ? Scale3(radial, 1.0f / radialDistance) : std::array<float, 3> { 1.0f, 0.0f, 0.0f };
         const std::array<float, 3> ringPoint = Add3(centre, Scale3(radialDirection, radius));
         const std::array<float, 3> d = Sub3(worldPositionMeters, ringPoint);
-        const float coreDistance = Length3(d);
+        const float coreDistance = Frontier::Mathematics::EvaluateLength3(d);
         const float w = EvaluateForceFalloff(falloff, coreDistance / tube);
-        const std::array<float, 3> ringTangent = Cross3(axis, radialDirection);
-        const std::array<float, 3> circulation = Cross3(ringTangent, Scale3(d, 1.0f / std::max(coreDistance, 1.0e-4f)));
+        const std::array<float, 3> ringTangent = Frontier::Mathematics::EvaluateCross3(axis, radialDirection);
+        const std::array<float, 3> circulation = Frontier::Mathematics::EvaluateCross3(ringTangent, Scale3(d, 1.0f / std::max(coreDistance, 1.0e-4f)));
         return Scale3(circulation, strength * w);
     }
     return { 0.0f, 0.0f, 0.0f };
@@ -445,10 +425,10 @@ std::array<float, 3> EvaluateSaturatedGasForceField(
         std::array<float, 3> force = EvaluateSingleForceModel(rec, worldPositionMeters, velocityMetersPerSec, simulationTimeSeconds);
         const int typeCode = static_cast<int>(rec.TypeFalloffParams[0] + 0.5f);
         const bool limited = !(typeCode == 5 || typeCode == 6 || typeCode == 11 || typeCode == 12 || typeCode == 13 || typeCode == 14 || typeCode == 16);
-        const float size = Length3(force);
+        const float size = Frontier::Mathematics::EvaluateLength3(force);
         if (limited && forceResponseSeconds > 0.0f && size > 1.0e-5f)
         {
-            const float along = Dot3(velocityMetersPerSec, Scale3(force, 1.0f / size));
+            const float along = Frontier::Mathematics::EvaluateDot3(velocityMetersPerSec, Scale3(force, 1.0f / size));
             force = Scale3(force, std::clamp(1.0f - along / (size * forceResponseSeconds), 0.0f, 1.0f));
         }
         total = Add3(total, force);

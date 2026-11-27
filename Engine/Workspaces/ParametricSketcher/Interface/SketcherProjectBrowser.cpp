@@ -16,6 +16,8 @@
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherScene.h"
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherInterface.h"
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherStyleSheet.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <imgui.h>
 
@@ -59,7 +61,6 @@ constexpr uint32_t ReaderViewWidthPx   = 520u;
 constexpr uint32_t ReaderViewHeightPx  = 324u;
 constexpr uint32_t FolderScanDepthCap  = 2u;
 constexpr uint32_t FolderScanEntryCap  = 256u;
-constexpr float    PiConstant          = 3.14159265358979323846f;
 
 struct Vec3f
 {
@@ -86,18 +87,10 @@ struct Vec3f
     return Len > 1.0e-7f ? Vec3f{ V.X / Len, V.Y / Len, V.Z / Len } : Vec3f{ 0.0f, 0.0f, 1.0f };
 }
 
-[[nodiscard]] std::string LowercaseAscii(std::string Text)
-{
-    for (char& Ch : Text)
-    {
-        Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
-    }
-    return Text;
-}
 
 [[nodiscard]] bool MatchesSolidArcSuffix(const std::filesystem::path& Path)
 {
-    return LowercaseAscii(Path.extension().string()) == ".solidarc";
+    return Frontier::Serialization::LowercaseAscii(Path.extension().string()) == ".solidarc";
 }
 
 [[nodiscard]] std::string FormatByteSize(uint64_t Bytes)
@@ -1068,7 +1061,7 @@ void RefreshPlacesDrives(SketcherProjectBrowserSession& Session, const SketcherW
     {
         const Fs::path Clean = NormalizeDirectoryPath(Dir);
         if (Clean.empty()) return;
-        const std::string Key = LowercaseAscii(Clean.generic_string());
+        const std::string Key = Frontier::Serialization::LowercaseAscii(Clean.generic_string());
         if (!Seen.insert(Key).second) return;
         Session.Places.push_back({ Caption, Clean, Glyph, DriveGroup });
     };
@@ -1222,7 +1215,7 @@ void RebuildVisibleEntries(SketcherProjectBrowserSession& Session)
         if (Ra != Rb) return Ra < Rb;
         if (Session.SortByModified && A.ModifiedEpoch != B.ModifiedEpoch)
             return A.ModifiedEpoch > B.ModifiedEpoch;
-        return LowercaseAscii(A.DisplayName) < LowercaseAscii(B.DisplayName);
+        return Frontier::Serialization::LowercaseAscii(A.DisplayName) < Frontier::Serialization::LowercaseAscii(B.DisplayName);
     });
 
     // Auto-select first .solidarc file (or first project folder) for immediate 3D preview
@@ -1238,10 +1231,10 @@ void RebuildVisibleEntries(SketcherProjectBrowserSession& Session)
 
 void RecordRecentSolidArc(SketcherProjectBrowserSession& Session, const std::filesystem::path& FilePath)
 {
-    const std::string Norm = LowercaseAscii(FilePath.generic_string());
+    const std::string Norm = Frontier::Serialization::LowercaseAscii(FilePath.generic_string());
     Session.RecentFiles.erase(
         std::remove_if(Session.RecentFiles.begin(), Session.RecentFiles.end(),
-                       [&](const std::filesystem::path& Existing) { return LowercaseAscii(Existing.generic_string()) == Norm; }),
+                       [&](const std::filesystem::path& Existing) { return Frontier::Serialization::LowercaseAscii(Existing.generic_string()) == Norm; }),
         Session.RecentFiles.end());
     Session.RecentFiles.insert(Session.RecentFiles.begin(), FilePath);
     if (Session.RecentFiles.size() > 24u) Session.RecentFiles.resize(24u);
@@ -1394,11 +1387,11 @@ bool SelectSketcherBrowserEntry(SketcherWorkspaceStatus& Workspace, const std::f
 {
     if (!Workspace.ProjectBrowser) return false;
     SketcherProjectBrowserSession& Session = *Workspace.ProjectBrowser;
-    const std::string TargetKey = LowercaseAscii(EntryPath.generic_string());
+    const std::string TargetKey = Frontier::Serialization::LowercaseAscii(EntryPath.generic_string());
     for (int I = 0; I < int(Session.Entries.size()); ++I)
     {
-        if (LowercaseAscii(Session.Entries[I].FullPath.generic_string()) == TargetKey ||
-            LowercaseAscii(Session.Entries[I].FullPath.filename().string()) == LowercaseAscii(EntryPath.filename().string()))
+        if (Frontier::Serialization::LowercaseAscii(Session.Entries[I].FullPath.generic_string()) == TargetKey ||
+            Frontier::Serialization::LowercaseAscii(Session.Entries[I].FullPath.filename().string()) == Frontier::Serialization::LowercaseAscii(EntryPath.filename().string()))
         {
             Session.SelectedIndex = I;
             Session.ReaderDirty   = true;
@@ -1717,7 +1710,7 @@ void DrawSketcherProjectBrowserOverlay(SketcherWorkspaceStatus& Workspace)
             {
                 if (Place.DriveGroup) continue;
                 const bool Active = (Session.ActiveCollection == BrowserCollectionView::Folder)
-                                 && (LowercaseAscii(Session.CurrentDirectory.generic_string()) == LowercaseAscii(Place.DirectoryPath.generic_string()));
+                                 && (Frontier::Serialization::LowercaseAscii(Session.CurrentDirectory.generic_string()) == Frontier::Serialization::LowercaseAscii(Place.DirectoryPath.generic_string()));
                 char Key[48]{};
                 std::snprintf(Key, sizeof(Key), "RailPlace%d", PlaceIdx++);
                 if (DrawRailRow(Key, Place.Caption.c_str(), Place.Glyph, Active))
@@ -1733,7 +1726,7 @@ void DrawSketcherProjectBrowserOverlay(SketcherWorkspaceStatus& Workspace)
             {
                 if (!Drive.DriveGroup) continue;
                 const bool Active = (Session.ActiveCollection == BrowserCollectionView::Folder)
-                                 && (LowercaseAscii(Session.CurrentDirectory.generic_string()) == LowercaseAscii(Drive.DirectoryPath.generic_string()));
+                                 && (Frontier::Serialization::LowercaseAscii(Session.CurrentDirectory.generic_string()) == Frontier::Serialization::LowercaseAscii(Drive.DirectoryPath.generic_string()));
                 char Key[48]{};
                 std::snprintf(Key, sizeof(Key), "RailDrive%d", DriveIdx++);
                 if (DrawRailRow(Key, Drive.Caption.c_str(), Drive.Glyph, Active))
@@ -1920,14 +1913,14 @@ void DrawSketcherProjectBrowserOverlay(SketcherWorkspaceStatus& Workspace)
                                         : Session.CurrentDirectory.filename().string();
 
     // Filter visible indices by search query
-    const std::string SearchLower = LowercaseAscii(Session.SearchBuffer.data());
+    const std::string SearchLower = Frontier::Serialization::LowercaseAscii(Session.SearchBuffer.data());
     std::vector<int> Filtered {};
     uint32_t CountSolidArcs = 0u;
     uint32_t CountFolders   = 0u;
     for (int I = 0; I < int(Session.Entries.size()); ++I)
     {
         const BrowserDiskEntry& E = Session.Entries[I];
-        if (!SearchLower.empty() && LowercaseAscii(E.DisplayName).find(SearchLower) == std::string::npos)
+        if (!SearchLower.empty() && Frontier::Serialization::LowercaseAscii(E.DisplayName).find(SearchLower) == std::string::npos)
             continue;
         Filtered.push_back(I);
         if (E.FolderCondition) ++CountFolders;

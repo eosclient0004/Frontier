@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Mathematics/AxisCoordinates.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <array>
 #include <cstdint>
@@ -50,7 +51,7 @@ struct ResampledPhotometricProfile
     std::array<float, PhotometricGridStride>    NormalizedCandela    {};      // [0-1]- [Horizontal * 128 + Vertical] normalized grid
     float                                        PeakCandela          = 0.0f;  // [cd] - Peak luminous intensity prior to normalization
     float                                        NormalizedFluxSr     = 0.0f;  // [sr] - Solid-angle integral of NormalizedCandela over sphere
-    float                                        CutoffHalfAngleRad = 3.14159265f; // [rad]- Conservative polar cutoff beyond which grid is zero
+    float                                        CutoffHalfAngleRad = Frontier::Constants::PiFloat; // [rad]- Conservative polar cutoff beyond which grid is zero
 };
 
 //------------------------------------------------------------------------------------------------------------------------

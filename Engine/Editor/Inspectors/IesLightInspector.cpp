@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/IesLightInspector.h"
 #include "Engine/Editor/Inspectors/LightInspectorShared.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -30,7 +31,7 @@ namespace
         if (Deg < 12.0f) return 1.0f - (Deg / 12.0f) * 0.36f;
         return std::max(0.0f, 0.64f * std::pow(1.0f - (Deg - 12.0f) / 78.0f, 1.6f));
     }
-    return std::pow(std::max(0.0f, std::cos(U * 1.570796f)), (Preset == 0u) ? 2.2f : 1.3f);
+    return std::pow(std::max(0.0f, std::cos(U * Frontier::Constants::HalfPiFloat)), (Preset == 0u) ? 2.2f : 1.3f);
 }
 } // namespace
 

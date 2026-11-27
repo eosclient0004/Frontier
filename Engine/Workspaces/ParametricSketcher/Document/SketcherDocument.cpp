@@ -29,6 +29,7 @@
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchSpline.h"
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchSection.h"
 #include "Engine/GeometrySpace/Parametric/Surfacing/CurveNetwork.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -56,7 +57,6 @@ namespace
 //------------------------------------------------------------------------------------------------------------------------
 
 using Kind = SketchConstraintCategory;
-constexpr double Pi = std::numbers::pi;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                    AUTHORING
@@ -276,7 +276,7 @@ std::string AuthorTile(SketcherDocument& Document, const SketcherConstructReques
         Sweep.Combination     = Combination;
         Sweep.Target          = Request.Target;
         Sweep.AxisIdentifier  = 1;
-        Sweep.Angle           = LiteralValue(2.0 * Pi);
+        Sweep.Angle           = LiteralValue(2.0 * Frontier::Constants::Pi);
         break;
     }
     case SketcherConstructCategory::Torus:
@@ -309,7 +309,7 @@ std::string AuthorTile(SketcherDocument& Document, const SketcherConstructReques
         Sweep.Combination     = Combination;
         Sweep.Target          = Request.Target;
         Sweep.AxisIdentifier  = 1;
-        Sweep.Angle           = LiteralValue(2.0 * Pi);
+        Sweep.Angle           = LiteralValue(2.0 * Frontier::Constants::Pi);
         break;
     }
     case SketcherConstructCategory::Cone:
@@ -344,7 +344,7 @@ std::string AuthorTile(SketcherDocument& Document, const SketcherConstructReques
         Sweep.Combination     = Combination;
         Sweep.Target          = Request.Target;
         Sweep.AxisIdentifier  = 1;
-        Sweep.Angle           = LiteralValue(2.0 * Pi);
+        Sweep.Angle           = LiteralValue(2.0 * Frontier::Constants::Pi);
         break;
     }
     case SketcherConstructCategory::Wedge:
@@ -405,7 +405,7 @@ std::string AuthorTile(SketcherDocument& Document, const SketcherConstructReques
         std::vector<int> Corners;
         for (int Index = 0; Index < Sides; ++Index)
         {
-            const double θ = Request.Angle + 2.0 * Pi * Index / Sides;
+            const double θ = Request.Angle + 2.0 * Frontier::Constants::Pi * Index / Sides;
             Corners.push_back(AppendSketchPoint(Sketch, { Spot.X + Request.Radius * std::cos(θ), Spot.Y + Request.Radius * std::sin(θ) }));
         }
         std::vector<int> Edges;
@@ -1782,7 +1782,7 @@ std::string ComposeSketcherSketch(const SketcherDrawingRequest& Request, SketchM
         std::vector<int> Corners;
         for (int Index = 0; Index < Request.Sides; ++Index)
         {
-            const double θ = Turn + 2.0 * Pi * Index / Request.Sides;
+            const double θ = Turn + 2.0 * Frontier::Constants::Pi * Index / Request.Sides;
             Corners.push_back(AppendSketchPoint(Sketch, { Centre.X + Radius * std::cos(θ), Centre.Y + Radius * std::sin(θ) }));
         }
         for (int Index = 0; Index < Request.Sides; ++Index) AppendSketchLine(Sketch, Corners[Index], Corners[(Index + 1) % Request.Sides], Index + 1);
@@ -7580,7 +7580,7 @@ SketcherCommandOutcome KnifeSketcherCompoundCutter(SketcherDocument& Document, c
         Sweep.Label          = "Revolve#" + std::to_string(NextStepOrdinal(Document.Tree));
         Sweep.Profile        = MeridianLabel;
         Sweep.AxisIdentifier = 1;
-        Sweep.Angle          = LiteralValue(2.0 * Pi);
+        Sweep.Angle          = LiteralValue(2.0 * Frontier::Constants::Pi);
         Sweep.Combination    = !Document.Summary.PresentCondition && Spec.Combination == FeatureCombination::Separate ? FeatureCombination::New : FeatureCombination::Separate;
         CutterKey            = Sweep.Label;
         Document.Captions[CutterKey] = CutterCaption;
@@ -7597,7 +7597,7 @@ SketcherCommandOutcome KnifeSketcherCompoundCutter(SketcherDocument& Document, c
                 std::vector<int> Pts;
                 for (int Corner = 0; Corner < 6; ++Corner)
                 {
-                    const double Angle = Corner * Pi / 3.0;
+                    const double Angle = Corner * Frontier::Constants::Pi / 3.0;
                     Pts.push_back(AppendSketchPoint(Sketch, { Rad * std::cos(Angle), Rad * std::sin(Angle) }));
                 }
                 for (int Corner = 0; Corner < 6; ++Corner)
@@ -8607,7 +8607,6 @@ void EvaluateSingleDimension(const SketcherDocument& Document, SketcherDimension
 
     if (Dim.Kind == SketcherDimensionCategory::Angular)
     {
-        constexpr double RadToDeg = 180.0 / std::numbers::pi;
         Vector3 RayA = First.LineDir.value_or(First.FaceNormal.value_or(Vector3{ 1.0, 0.0, 0.0 }));
         Vector3 RayB = Second.LineDir.value_or(Second.FaceNormal.value_or(Vector3{ 0.0, 1.0, 0.0 }));
         RayA = SafeUnitNormal(RayA, { 1.0, 0.0, 0.0 });
@@ -8632,7 +8631,7 @@ void EvaluateSingleDimension(const SketcherDocument& Document, SketcherDimension
             if (Dot(MidB - Corner, RayB) < -1.0e-6) RayB = RayB * -1.0;
         }
         const double Cosine = std::clamp(Dot(RayA, RayB), -1.0, 1.0);
-        Dim.Value       = std::acos(Cosine) * RadToDeg;
+        Dim.Value       = std::acos(Cosine) * Frontier::Constants::RadToDeg;
         Dim.FirstPoint  = Corner;
         Dim.SecondPoint = RayA;
         Dim.Direction   = RayB;

@@ -12,6 +12,7 @@
 #include "Engine/Serialization/Container/AtomicFileWriter.h"
 #include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
 #include "Engine/Threading/Sync/CompletionCounter.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <atomic>
@@ -31,11 +32,6 @@ constexpr std::string_view BinaryBoundaryMarker       = "\n# === FRONTIER_BINARY
 constexpr std::size_t      HeaderScanChunkBytes       = 64u * 1024u;     // [B] - 64 KiB incremental read chunk for header-only open
 constexpr std::size_t      MaxHeaderBytesBeforeBinary = 32u * 1024u * 1024u; // [B] - Safety ceiling for header-only scan
 
-[[nodiscard]] std::size_t AlignUp64(std::size_t ByteOffset) noexcept
-{
-    constexpr std::size_t AlignmentMask = DocumentBinaryAlignmentBytes - 1u;
-    return (ByteOffset + AlignmentMask) & ~AlignmentMask;
-}
 
 [[nodiscard]] std::string_view FormatResidencyModeLabel(EmbeddedResidencyMode Mode) noexcept
 {
@@ -215,7 +211,7 @@ bool DocumentContainerEncoder::EncodeToBytes(
                                                     ? std::string(QueryCanonicalSuffix(Document.SuffixCategory))
                                                     : Section.SubFormatTag);
             DirectoryArray.push_back(std::move(Row));
-            RunningRelativeOffset = AlignUp64(RunningRelativeOffset + Section.PayloadBytes.size());
+            RunningRelativeOffset = Frontier::Mathematics::AlignUpBytes(RunningRelativeOffset + Section.PayloadBytes.size());
         }
         RootToml.insert(".SectionDirectory", std::move(DirectoryArray));
     }
@@ -227,7 +223,7 @@ bool DocumentContainerEncoder::EncodeToBytes(
 
     // ⑤ Emit Tier 1 + Boundary + Zero Padding to 64B + Packed Tier 2 Binary Sections (parallel copy into disjoint aligned slots)
     const std::size_t UnalignedTier2Start = TomlText.size() + BinaryBoundaryMarker.size();
-    const std::size_t AlignedTier2Start   = AlignUp64(UnalignedTier2Start);
+    const std::size_t AlignedTier2Start   = Frontier::Mathematics::AlignUpBytes(UnalignedTier2Start);
     const std::size_t TotalContainerBytes = (SectionCount == 0u)
                                                 ? TomlText.size()
                                                 : (AlignedTier2Start + RunningRelativeOffset);
@@ -415,7 +411,7 @@ bool DocumentContainerDecoder::DecodeHeaderOnlyFromBytes(
 
     // ④ Validate SectionDirectory structural invariants (alignment, bounds, non-overlap, uniqueness) without reading payloads
     const std::size_t Tier2Start = HasBinaryBoundary
-                                       ? AlignUp64(BoundaryPosition + BinaryBoundaryMarker.size())
+                                       ? Frontier::Mathematics::AlignUpBytes(BoundaryPosition + BinaryBoundaryMarker.size())
                                        : TotalContainerBytes;
     OutHeader.Tier2StartOffset = Tier2Start;
 

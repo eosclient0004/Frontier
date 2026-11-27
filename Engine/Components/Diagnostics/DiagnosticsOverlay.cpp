@@ -24,10 +24,6 @@ namespace Frontier
 namespace
 {
 
-ColorRgba ScaleAlpha(ColorRgba Base, float Opacity) noexcept
-{
-    return Base.ScaledAlpha(Opacity);
-}
 
 } // namespace
 

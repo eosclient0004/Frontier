@@ -11,6 +11,7 @@
 #include "Engine/SimulationSpace/SimulationViewportOverlayPass.h"
 
 #include "Engine/SimulationSpace/Fluid/FluidRegionTypes.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -37,27 +38,8 @@ std::array<float, 3> Sub3(const std::array<float, 3>& a, const std::array<float,
     return { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
 }
 
-float Dot3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
 
-std::array<float, 3> Cross3(const std::array<float, 3>& a, const std::array<float, 3>& b) noexcept
-{
-    return {
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    };
-}
 
-std::array<float, 3> Norm3(const std::array<float, 3>& v, const std::array<float, 3>& fallback) noexcept
-{
-    const float len = std::sqrt(Dot3(v, v));
-    if (len < 1.0e-6f) return fallback;
-    const float inv = 1.0f / len;
-    return { v[0] * inv, v[1] * inv, v[2] * inv };
-}
 
 Mat4RowMajor MulMat4(const Mat4RowMajor& a, const Mat4RowMajor& b) noexcept
 {
@@ -116,16 +98,16 @@ void BuildVulkanViewProjection(
     float& outFocalPixels,
     float viewportHeightPx) noexcept
 {
-    const auto f = Norm3(Sub3(cam.TargetMeters, cam.EyeMeters), { 0.0f, 0.0f, -1.0f });
-    const auto r = Norm3(Cross3(f, cam.UpAxis), { 1.0f, 0.0f, 0.0f });
-    const auto u = Norm3(Cross3(r, f), { 0.0f, 1.0f, 0.0f });
+    const auto f = Frontier::Mathematics::NormalizeVector3(Sub3(cam.TargetMeters, cam.EyeMeters), { 0.0f, 0.0f, -1.0f });
+    const auto r = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(f, cam.UpAxis), { 1.0f, 0.0f, 0.0f });
+    const auto u = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(r, f), { 0.0f, 1.0f, 0.0f });
     outForward = f;
 
     // Right-handed view matrix (camera looks along -Z_view)
     Mat4RowMajor V {};
-    V.M[0][0] =  r[0]; V.M[0][1] =  r[1]; V.M[0][2] =  r[2]; V.M[0][3] = -Dot3(r, cam.EyeMeters);
-    V.M[1][0] =  u[0]; V.M[1][1] =  u[1]; V.M[1][2] =  u[2]; V.M[1][3] = -Dot3(u, cam.EyeMeters);
-    V.M[2][0] = -f[0]; V.M[2][1] = -f[1]; V.M[2][2] = -f[2]; V.M[2][3] =  Dot3(f, cam.EyeMeters);
+    V.M[0][0] =  r[0]; V.M[0][1] =  r[1]; V.M[0][2] =  r[2]; V.M[0][3] = -Frontier::Mathematics::EvaluateDot3(r, cam.EyeMeters);
+    V.M[1][0] =  u[0]; V.M[1][1] =  u[1]; V.M[1][2] =  u[2]; V.M[1][3] = -Frontier::Mathematics::EvaluateDot3(u, cam.EyeMeters);
+    V.M[2][0] = -f[0]; V.M[2][1] = -f[1]; V.M[2][2] = -f[2]; V.M[2][3] =  Frontier::Mathematics::EvaluateDot3(f, cam.EyeMeters);
     V.M[3][3] =  1.0f;
 
     // Vulkan clip-space perspective (Y flipped downward, Z in [0, 1])

@@ -7,6 +7,7 @@
 
 #include "Engine/Codecs/ImageCodec.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -19,11 +20,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-[[nodiscard]] float SmoothStep(float Edge0, float Edge1, float X) noexcept
-{
-    const float T = std::clamp((X - Edge0) / std::max(1.0e-5f, Edge1 - Edge0), 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
 [[nodiscard]] uint8_t EncodeLinearHdrToSrgbByte(float Lin) noexcept
 {
@@ -108,10 +104,10 @@ namespace
     const float RC = std::sqrt(CX * CX + CY * CY);
     const float R  = std::sqrt(KX * KX + KY * KY);
 
-    const float EdgeX = 1.0f - SmoothStep(0.84f, 0.99f, std::abs(KX));
-    const float EdgeY = 1.0f - SmoothStep(0.82f, 0.99f, std::abs(KY));
+    const float EdgeX = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.84f, 0.99f, std::abs(KX));
+    const float EdgeY = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.82f, 0.99f, std::abs(KY));
     const float RectFade = EdgeX * EdgeY;
-    const float CircFade = 1.0f - SmoothStep(0.78f, 0.98f, R);
+    const float CircFade = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.78f, 0.98f, R);
 
     Mathematics::LinearRGB Col { 0.0f, 0.0f, 0.0f };
 
@@ -449,8 +445,8 @@ ProjectedLensFlareSlice LensFlareSequence::ResolveSolarFlareProjection(
     Out.ScreenV = 0.5f - 0.5f * NdcY;
 
     // Offscreen falloff outside [-0.30, 1.30]
-    const float EdgeX = 1.0f - SmoothStep(0.95f, 1.35f, std::abs(NdcX));
-    const float EdgeY = 1.0f - SmoothStep(0.95f, 1.35f, std::abs(NdcY));
+    const float EdgeX = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.95f, 1.35f, std::abs(NdcX));
+    const float EdgeY = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.95f, 1.35f, std::abs(NdcY));
     const float ScreenFade = EdgeX * EdgeY;
     if (ScreenFade <= 0.001f)
     {
@@ -488,7 +484,7 @@ ProjectedLensFlareSlice LensFlareSequence::ResolveSolarFlareProjection(
     }
 
     const auto  SolarTrans = AtmosphericSkySequence::ComputeSolarTransmittance(SunDir, Atmosphere.Medium);
-    const float HorizonVis = SmoothStep(-0.02f, 0.14f, SunDir.Z);
+    const float HorizonVis = Frontier::Mathematics::EvaluateSmoothStep(-0.02f, 0.14f, SunDir.Z);
     const float CloudVis   = Atmosphere.Clouds.CloudsEnabled
         ? VolumetricCloudSequence::EvaluateAllSolarCloudTransmittance(CameraOrigin, SunDir, Atmosphere)
         : 1.0f;
@@ -506,7 +502,7 @@ ProjectedLensFlareSlice LensFlareSequence::ResolveSolarFlareProjection(
         if (Sep < AngR + SunR)
         {
             const float AreaRatio = std::min(1.0f, (AngR * AngR) / std::max(1.0e-8f, SunR * SunR));
-            const float Overlap   = 1.0f - SmoothStep(std::max(0.0f, AngR - SunR), AngR + SunR, Sep);
+            const float Overlap   = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(std::max(0.0f, AngR - SunR), AngR + SunR, Sep);
             EclipseVis *= std::clamp(1.0f - Overlap * AreaRatio, 0.0f, 1.0f);
         }
     }
@@ -601,8 +597,8 @@ Mathematics::LinearRGB LensFlareSequence::EvaluateBakedLensFlare(
             const float SD    = PolygonalApertureDistance(LX, LY, Config.GhostSides);
             if (SD <= 1.15f)
             {
-                const float Rim  = SmoothStep(0.58f, 0.95f, SD) * (1.0f - SmoothStep(0.96f, 1.12f, SD));
-                const float Fill = (1.0f - SmoothStep(0.0f, 1.02f, SD)) * 0.24f;
+                const float Rim  = Frontier::Mathematics::EvaluateSmoothStep(0.58f, 0.95f, SD) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.96f, 1.12f, SD));
+                const float Fill = (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.0f, 1.02f, SD)) * 0.24f;
                 const auto& Tint = CoatingTints[Idx & 3u];
                 const float GVal = (Fill + Rim * 0.85f) * Config.GhostIntensity * Gain * 0.26f;
                 Accum.R += Tint.R * GVal * Projection.SourceTint.R;

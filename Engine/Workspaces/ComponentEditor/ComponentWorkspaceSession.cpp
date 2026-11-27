@@ -6,6 +6,7 @@
 #include "Engine/Workspaces/ComponentEditor/ComponentWorkspaceSession.h"
 #include "Engine/GeometricRaster/ComponentEditor/ComponentSpecimenBaker.h"
 #include "Engine/Interchange/GeometryInterchange.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -582,11 +583,11 @@ void ComponentWorkspaceSession::Tick(double DeltaSeconds) noexcept
 
 uint64_t ComponentWorkspaceSession::ComputeRenderSignature() const noexcept
 {
-    uint64_t H = 14695981039346656037ull;
+    uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     auto Mix = [&](uint64_t V) noexcept
     {
         H ^= V;
-        H *= 1099511628211ull;
+        H *= Frontier::Constants::Fnv1a64Prime;
     };
 
     Mix(ActiveDocIndex);

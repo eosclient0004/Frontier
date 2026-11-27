@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherNavigation.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +48,6 @@ bool NavigateSketcherPointer(OrbitCamera& Camera, const OrbitCameraBasis& Frame,
 std::optional<OrbitViewPreset> NavigateSketcherKeypad(OrbitCamera& Camera, const SketcherNavigationKeypad& Keypad,
                                                       const OrbitCameraBasis* Frame, bool* MovedOut)
 {
-    constexpr double HalfPi    = 0.5 * std::numbers::pi;
     constexpr double OrbitStep = std::numbers::pi / 12.0;                                    // [rad] - 15° Blender numpad orbit step
     constexpr double PanPixels = 48.0;                                                       // [px]  - Ctrl + Numpad 2/4/6/8 pan step
     constexpr double SnapTol   = 1.0e-2;
@@ -80,7 +80,7 @@ std::optional<OrbitViewPreset> NavigateSketcherKeypad(OrbitCamera& Camera, const
         else
         {
             Camera.Azimuth   = std::remainder(Camera.Azimuth + Horiz * OrbitStep, 2.0 * std::numbers::pi);
-            Camera.Elevation = std::clamp(Camera.Elevation + Vert * OrbitStep, -HalfPi, HalfPi);
+            Camera.Elevation = std::clamp(Camera.Elevation + Vert * OrbitStep, -Frontier::Constants::HalfPi, Frontier::Constants::HalfPi);
         }
         Moved = true;
     }
@@ -92,12 +92,12 @@ std::optional<OrbitViewPreset> NavigateSketcherKeypad(OrbitCamera& Camera, const
     if (Keypad.IsometricPressed) return OrbitViewPreset::Isometric;
     if (Keypad.OppositePressed)
     {
-        if (Camera.Elevation >= HalfPi - SnapTol) return OrbitViewPreset::Bottom;
-        if (Camera.Elevation <= -HalfPi + SnapTol) return OrbitViewPreset::Top;
+        if (Camera.Elevation >= Frontier::Constants::HalfPi - SnapTol) return OrbitViewPreset::Bottom;
+        if (Camera.Elevation <= -Frontier::Constants::HalfPi + SnapTol) return OrbitViewPreset::Top;
         if (std::abs(Camera.Elevation) <= SnapTol)
         {
-            if (std::abs(std::remainder(Camera.Azimuth + HalfPi, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Back;
-            if (std::abs(std::remainder(Camera.Azimuth - HalfPi, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Front;
+            if (std::abs(std::remainder(Camera.Azimuth + Frontier::Constants::HalfPi, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Back;
+            if (std::abs(std::remainder(Camera.Azimuth - Frontier::Constants::HalfPi, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Front;
             if (std::abs(std::remainder(Camera.Azimuth, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Left;
             if (std::abs(std::remainder(Camera.Azimuth - std::numbers::pi, 2.0 * std::numbers::pi)) <= SnapTol) return OrbitViewPreset::Right;
         }

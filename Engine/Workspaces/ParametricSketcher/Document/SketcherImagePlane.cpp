@@ -9,6 +9,7 @@
 
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherImagePlane.h"
 #include "Engine/Codecs/ImageCodec.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #define STBI_WINDOWS_UTF8                                                                 // UTF-8 file names on Windows
 #define STB_IMAGE_IMPLEMENTATION
@@ -46,17 +47,12 @@ namespace
 
 [[nodiscard]] float SrgbByteToLinear(uint8_t Byte) noexcept
 {
-    const float C = static_cast<float>(Byte) / 255.0f;
-    return (C <= 0.04045f) ? (C / 12.92f) : std::pow((C + 0.055f) / 1.055f, 2.4f);
+    return Frontier::ColourSpace::DecodeSrgbByteToLinear(Byte);
 }
 
 [[nodiscard]] uint8_t LinearToSrgbByte(float Linear) noexcept
 {
-    const float Clamped = std::clamp(Linear, 0.0f, 1.0f);
-    const float Srgb    = (Clamped <= 0.0031308f)
-                            ? (Clamped * 12.92f)
-                            : (1.055f * std::pow(Clamped, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(Srgb * 255.0f), 0l, 255l));
+    return Frontier::ColourSpace::EncodeLinearToSrgbByte(Linear);
 }
 
 } // namespace

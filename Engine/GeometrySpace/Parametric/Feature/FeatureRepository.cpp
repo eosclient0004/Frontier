@@ -7,6 +7,7 @@
 
 #include "Engine/GeometrySpace/Parametric/Blend/BlendRepository.h"
 #include "Engine/GeometrySpace/Parametric/Sketch/SketchRepository.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <cmath>
 #include <numbers>
@@ -21,7 +22,6 @@ namespace Frontier::GeometrySpace::Parametric
 namespace
 {
     using Kind = SketchConstraintCategory;
-    constexpr double Pi = std::numbers::pi;
 
     struct TreeAuthoring
     {
@@ -106,13 +106,13 @@ namespace
     [[nodiscard]] std::vector<std::string> NoRefusals(const FeatureTree&) { return {}; }
 
     // Pappus: ring of a right-isosceles chamfer triangle (legs c) at radius R, convex (−) or concave (+) side.
-    [[nodiscard]] double ChamferRing(double Radius, double Leg, double Side) { return Pi * Leg * Leg * (Radius + Side * Leg / 3.0); }
+    [[nodiscard]] double ChamferRing(double Radius, double Leg, double Side) { return Frontier::Constants::Pi * Leg * Leg * (Radius + Side * Leg / 3.0); }
 
     // Pappus: concave fillet spandrel (area r²(1 − π/4), centroid x̄ from the corner) revolved at radius R.
     [[nodiscard]] double FilletSpandrelRing(double Radius, double Size)
     {
-        const double Centroid = Size * (10.0 - 3.0 * Pi) / (3.0 * (4.0 - Pi));
-        return 2.0 * Pi * (Radius + Centroid) * Size * Size * (1.0 - Pi / 4.0);
+        const double Centroid = Size * (10.0 - 3.0 * Frontier::Constants::Pi) / (3.0 * (4.0 - Frontier::Constants::Pi));
+        return 2.0 * Frontier::Constants::Pi * (Radius + Centroid) * Size * Size * (1.0 - Frontier::Constants::Pi / 4.0);
     }
 
     // ① Block with a filleted top-front edge: the bevel follows the sketch (plan gap G1).
@@ -136,7 +136,7 @@ namespace
         {
             const double W = FeatureParameterValue(Tree, "Width"), D = FeatureParameterValue(Tree, "Depth");
             const double H = FeatureParameterValue(Tree, "Height"), R = FeatureParameterValue(Tree, "Radius");
-            return W * D * H - (1.0 - Pi / 4.0) * R * R * W;
+            return W * D * H - (1.0 - Frontier::Constants::Pi / 4.0) * R * R * W;
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "W·D·H − (1 − π/4)·r²·W";
@@ -212,7 +212,7 @@ namespace
         {
             const double W = FeatureParameterValue(Tree, "Width"), D = FeatureParameterValue(Tree, "Depth"), T = FeatureParameterValue(Tree, "Thickness");
             const double R = FeatureParameterValue(Tree, "BossRadius"), H = FeatureParameterValue(Tree, "BossHeight"), r = FeatureParameterValue(Tree, "Radius");
-            return W * D * T + Pi * R * R * H + FilletSpandrelRing(R, r);
+            return W * D * T + Frontier::Constants::Pi * R * R * H + FilletSpandrelRing(R, r);
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "W·D·T + π·R²·H + 2π(R + x̄)·r²(1 − π/4), x̄ = r(10 − 3π)/(3(4 − π))";
@@ -263,7 +263,7 @@ namespace
         {
             const double R1 = FeatureParameterValue(Tree, "MainRadius"), L1 = FeatureParameterValue(Tree, "MainLength");
             const double R2 = FeatureParameterValue(Tree, "PinRadius"), L2 = FeatureParameterValue(Tree, "PinLength"), C = FeatureParameterValue(Tree, "Chamfer");
-            return Pi * R1 * R1 * L1 + Pi * R2 * R2 * L2 - ChamferRing(R2, C, -1.0);
+            return Frontier::Constants::Pi * R1 * R1 * L1 + Frontier::Constants::Pi * R2 * R2 * L2 - ChamferRing(R2, C, -1.0);
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "π·R₁²·L₁ + π·R₂²·L₂ − π·c²(R₂ − c/3)";
@@ -324,7 +324,7 @@ namespace
             const double W = FeatureParameterValue(Tree, "Width"), D = FeatureParameterValue(Tree, "Depth"), T = FeatureParameterValue(Tree, "Thickness");
             const double L = FeatureParameterValue(Tree, "SlotLength"), R = FeatureParameterValue(Tree, "SlotRadius");
             const double P = FeatureParameterValue(Tree, "PocketDepth"), Push = FeatureParameterValue(Tree, "Push");
-            return W * D * T - (2.0 * R * L + Pi * R * R) * (P - Push);
+            return W * D * T - (2.0 * R * L + Frontier::Constants::Pi * R * R) * (P - Push);
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "W·D·T − (2rL + πr²)(depth − push)";
@@ -341,7 +341,7 @@ namespace
         TreeAuthoring Author{ Tree };
         Author.Parameter("Major", 2.0, 0.8, 3.0, "axis to circle centre");
         Author.Parameter("Minor", 0.5, 0.2, 0.7, "tube radius");
-        Author.Parameter("Turn", 2.0 * Pi, 0.3, 2.0 * Pi, "revolve angle [rad] (< 2π: partial torus with end caps)");
+        Author.Parameter("Turn", 2.0 * Frontier::Constants::Pi, 0.3, 2.0 * Frontier::Constants::Pi, "revolve angle [rad] (< 2π: partial torus with end caps)");
         FeatureStep& Section = Author.Step(FeatureStepCategory::Sketch, "Sketch#1");
         SketchModel& Sketch  = Section.Sketch;
         const int AxisStart = AppendSketchPoint(Sketch, { 0.0, 0.0 });
@@ -357,11 +357,11 @@ namespace
         FeatureStep& Revolve = Author.Sweep(FeatureStepCategory::Revolve, "Revolve#2", "Sketch#1", LiteralValue(0.0), FeatureCombination::New);
         Revolve.AxisIdentifier = 1;
         Revolve.Angle          = ParameterValue("Turn");
-        Specimen.Sweep = { {}, { { "Major", 0.8 }, { "Minor", 0.7 } }, { { "Major", 3.0 }, { "Minor", 0.2 } }, { { "Turn", 0.5 * Pi } }, { { "Turn", 0.3 }, { "Major", 0.8 } } };
+        Specimen.Sweep = { {}, { { "Major", 0.8 }, { "Minor", 0.7 } }, { { "Major", 3.0 }, { "Minor", 0.2 } }, { { "Turn", 0.5 * Frontier::Constants::Pi } }, { { "Turn", 0.3 }, { "Major", 0.8 } } };
         Specimen.ExpectedVolume = [](const FeatureTree& Tree)
         {
             const double R = FeatureParameterValue(Tree, "Major"), r = FeatureParameterValue(Tree, "Minor");
-            return FeatureParameterValue(Tree, "Turn") * Pi * R * r * r;
+            return FeatureParameterValue(Tree, "Turn") * Frontier::Constants::Pi * R * r * r;
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "Φ·π·R·r² (Pappus; 2π²·R·r² at a full turn)";
@@ -400,7 +400,7 @@ namespace
             const double X = FeatureParameterValue(Tree, "HoleX"), R = FeatureParameterValue(Tree, "HoleRadius");
             const double C = FeatureParameterValue(Tree, "Chamfer"), G = FeatureParameterValue(Tree, "Grow");
             if (X - R >= W) return (W + G) * D * T;
-            return ((W + G) * D - Pi * R * R) * T - ChamferRing(R, C, 1.0);
+            return ((W + G) * D - Frontier::Constants::Pi * R * R) * T - ChamferRing(R, C, 1.0);
         };
         Specimen.ExpectedRefusals = [](const FeatureTree& Tree) -> std::vector<std::string>
         {
@@ -551,7 +551,7 @@ namespace
             const double Span = FeatureParameterValue(Tree, "Span"), Crown = FeatureParameterValue(Tree, "Crown");
             const double Shoulder = FeatureParameterValue(Tree, "Shoulder"), Height = FeatureParameterValue(Tree, "Height");
             const double Area = -NaturalSplineGreen({ { 0.0, 0.0 }, { 1.0, Shoulder }, { 2.0, Crown }, { 3.0, Shoulder }, { Span, 0.0 } });
-            return (Area - Pi * 0.4 * 0.4) * Height;
+            return (Area - Frontier::Constants::Pi * 0.4 * 0.4) * Height;
         };
         Specimen.ExpectedRefusals = NoRefusals;
         Specimen.Oracle           = "(A − π·0.4²)·H, A = −½∮ natural cubic through (0,0) (1,s) (2,c) (3,s) (S,0) (own dense solve)";

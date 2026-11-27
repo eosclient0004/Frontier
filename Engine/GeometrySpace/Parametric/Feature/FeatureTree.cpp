@@ -26,6 +26,7 @@
 #include "Engine/GeometrySpace/Parametric/Surfacing/CurveNetwork.h"
 #include "Engine/GeometrySpace/Parametric/Surfacing/PanelJoining.h"
 #include "Engine/GeometrySpace/Parametric/Surfacing/SectionLoft.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -182,8 +183,8 @@ namespace
 
     [[nodiscard]] StepImport ReadStepCached(ModelPartition& Partition, const std::string& Exchange, double ExchangeUnit)
     {
-        uint64_t Hash = 14695981039346656037ull;
-        for (unsigned char Byte : Exchange) { Hash ^= Byte; Hash *= 1099511628211ull; }
+        uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
+        for (unsigned char Byte : Exchange) { Hash ^= Byte; Hash *= Frontier::Constants::Fnv1a64Prime; }
         static std::mutex                    CacheMutex;
         static std::vector<CachedStepImport> CacheEntries;
         {

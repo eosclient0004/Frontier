@@ -11,6 +11,9 @@
 #include "Engine/ParticleSpace/ParticleGpuSimulation.h"
 #include "Engine/SimulationSpace/ForceFields/ForceFieldSampler.h"
 #include "Engine/SimulationSpace/ForceFields/KeyTrackSampler.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,37 +27,12 @@ namespace
 
 using Vec3f = std::array<float, 3>;
 
-constexpr float kPi    = 3.14159265f;
-constexpr float kTwoPi = 6.2831853f;
 
-[[nodiscard]] float FractF(const float x) noexcept { return x - std::floor(x); }
-[[nodiscard]] float ClampF(const float x, const float lo, const float hi) noexcept { return std::clamp(x, lo, hi); }
-[[nodiscard]] float LerpF(const float a, const float b, const float t) noexcept { return a + (b - a) * t; }
-[[nodiscard]] float SmoothStepF(const float edge0, const float edge1, const float x) noexcept
-{
-    const float denom = edge1 - edge0;
-    const float t = (std::fabs(denom) > 1.0e-9f) ? ClampF((x - edge0) / denom, 0.0f, 1.0f) : 0.0f;
-    return t * t * (3.0f - 2.0f * t);
-}
 
 [[nodiscard]] Vec3f Add3(const Vec3f& a, const Vec3f& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] Vec3f Sub3(const Vec3f& a, const Vec3f& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] Vec3f Mul3(const Vec3f& a, const float s) noexcept { return { a[0] * s, a[1] * s, a[2] * s }; }
-[[nodiscard]] Vec3f Lerp3(const Vec3f& a, const Vec3f& b, const float t) noexcept
-{
-    return { LerpF(a[0], b[0], t), LerpF(a[1], b[1], t), LerpF(a[2], b[2], t) };
-}
-[[nodiscard]] float Dot3(const Vec3f& a, const Vec3f& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-[[nodiscard]] Vec3f Cross3(const Vec3f& a, const Vec3f& b) noexcept
-{
-    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-}
 [[nodiscard]] float Len3(const Vec3f& a) noexcept { return std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); }
-[[nodiscard]] Vec3f Normalize3(const Vec3f& a) noexcept
-{
-    const float len = Len3(a);
-    return (len > 1.0e-12f) ? Vec3f { a[0] / len, a[1] / len, a[2] / len } : Vec3f { 0.0f, 0.0f, 0.0f };
-}
 [[nodiscard]] Vec3f SafeAxis3(const Vec3f& a) noexcept
 {
     const float len = Len3(a);
@@ -79,8 +57,8 @@ constexpr float kTwoPi = 6.2831853f;
 void ComputeShapeBasis(const Vec3f& axis, Vec3f& t, Vec3f& b) noexcept
 {
     const Vec3f helper = (std::fabs(axis[1]) < 0.95f) ? Vec3f { 0.0f, 1.0f, 0.0f } : Vec3f { 1.0f, 0.0f, 0.0f };
-    t = Normalize3(Cross3(helper, axis));
-    b = Cross3(axis, t);
+    t = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(helper, axis));
+    b = Frontier::Mathematics::EvaluateCross3(axis, t);
 }
 
 [[nodiscard]] Vec3f BoxShellLocal(const int32_t index, const float count) noexcept
@@ -249,18 +227,18 @@ void MocapBoneEndpoints(const int32_t bone, const float phase, const int32_t cli
     Vec3f a {}, b {};
     float rad = 0.054f;
     MocapBoneEndpoints(bone, phase, clip, a, b, rad);
-    const float along = lattice ? FractF(static_cast<float>(index) * 0.6180339f + static_cast<float>(bone) * 0.13f) : rnd[0];
-    const float ang = lattice ? (static_cast<float>(index) * 2.39996323f) : (rnd[1] * kTwoPi);
-    const float shell = LerpF(1.0f, std::sqrt(lattice ? FractF(static_cast<float>(index) * 0.381966f) : rnd[2]), shape.AxisFill[3]);
+    const float along = lattice ? Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(index) * 0.6180339f + static_cast<float>(bone) * 0.13f) : rnd[0];
+    const float ang = lattice ? (static_cast<float>(index) * 2.39996323f) : (rnd[1] * Frontier::Constants::TauFloat);
+    const float shell = Frontier::Mathematics::InterpolateScalar(1.0f, std::sqrt(lattice ? Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(index) * 0.381966f) : rnd[2]), shape.AxisFill[3]);
     const Vec3f seg = Sub3(b, a);
-    const Vec3f dir = (Len3(seg) > 1.0e-4f) ? Normalize3(seg) : Vec3f { 0.0f, 1.0f, 0.0f };
+    const Vec3f dir = (Len3(seg) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(seg) : Vec3f { 0.0f, 1.0f, 0.0f };
     const Vec3f helper = (std::fabs(dir[1]) < 0.92f) ? Vec3f { 0.0f, 1.0f, 0.0f } : Vec3f { 1.0f, 0.0f, 0.0f };
-    const Vec3f u = Normalize3(Cross3(helper, dir));
-    const Vec3f v = Cross3(dir, u);
-    Vec3f local = Add3(Lerp3(a, b, along), Mul3(Add3(Mul3(u, std::cos(ang)), Mul3(v, std::sin(ang))), rad * shell));
+    const Vec3f u = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(helper, dir));
+    const Vec3f v = Frontier::Mathematics::EvaluateCross3(dir, u);
+    Vec3f local = Add3(Frontier::Mathematics::InterpolateVector3(a, b, along), Mul3(Add3(Mul3(u, std::cos(ang)), Mul3(v, std::sin(ang))), rad * shell));
     if (bone == 0)
     {
-        const Vec3f hc = Lerp3(a, b, 0.58f);
+        const Vec3f hc = Frontier::Mathematics::InterpolateVector3(a, b, 0.58f);
         const float hz = along * 2.0f - 1.0f;
         const float hr = std::sqrt(std::max(0.0f, 1.0f - hz * hz));
         local = Add3(hc, Mul3({ std::cos(ang) * hr, hz, std::sin(ang) * hr }, rad * 1.08f * shell));
@@ -286,16 +264,16 @@ void MocapBoneEndpoints(const int32_t bone, const float phase, const int32_t cli
     if (clip <= 0 || mocapAmp <= 0.0001f) return rest;
     const Vec3f posed = MocapSamplePoint(shape, index, rnd, lattice, phase, clip);
     const Vec3f prev  = MocapSamplePoint(shape, index, rnd, lattice, phase - 0.12f * std::max(mocapSpeed, 0.1f), clip);
-    const float amp = ClampF(mocapAmp, 0.0f, 2.0f);
+    const float amp = Frontier::Mathematics::ClampScalar(mocapAmp, 0.0f, 2.0f);
     outLimbVelocity = Mul3(Sub3(posed, prev), 8.0f * amp * shape.MocapKickEffector[0]);
-    return Lerp3(rest, posed, amp);
+    return Frontier::Mathematics::InterpolateVector3(rest, posed, amp);
 }
 
 [[nodiscard]] Vec3f RandomDirection(const Vec3f& seed) noexcept
 {
     using SimulationSpace::ForceFields::Hash31;
     const float z = Hash31(seed) * 2.0f - 1.0f;
-    const float a = Hash31({ seed[2] + 5.1f, seed[0] + 5.1f, seed[1] + 5.1f }) * kTwoPi;
+    const float a = Hash31({ seed[2] + 5.1f, seed[0] + 5.1f, seed[1] + 5.1f }) * Frontier::Constants::TauFloat;
     const float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
     return { r * std::cos(a), z, r * std::sin(a) };
 }
@@ -411,12 +389,12 @@ std::array<float, 3> EvaluateShapePointAtTime(
             const float y = 1.0f - (fi + 0.5f) / count * 2.0f;
             const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
             const float a = golden * fi;
-            const float shell = LerpF(1.0f, std::pow(Hash31({ fi, 3.1f, 7.7f }), 1.0f / 3.0f), fill);
+            const float shell = Frontier::Mathematics::InterpolateScalar(1.0f, std::pow(Hash31({ fi, 3.1f, 7.7f }), 1.0f / 3.0f), fill);
             basePos = Add3(origin, Mul3({ std::cos(a) * r, y, std::sin(a) * r }, radius * shell));
         }
         else
         {
-            const Vec3f d = Normalize3({ rnd[0] * 2.0f - 1.0f + 1.0e-4f, rnd[1] * 2.0f - 1.0f + 1.0e-4f, rnd[2] * 2.0f - 1.0f + 1.0e-4f });
+            const Vec3f d = Frontier::Mathematics::NormalizeVector3({ rnd[0] * 2.0f - 1.0f + 1.0e-4f, rnd[1] * 2.0f - 1.0f + 1.0e-4f, rnd[2] * 2.0f - 1.0f + 1.0e-4f });
             const float s = std::pow(Hash31({ rnd[2] + 2.7f, rnd[0] + 2.7f, rnd[1] + 2.7f }), 1.0f / 3.0f);
             basePos = Add3(origin, Mul3(d, radius * s));
         }
@@ -441,13 +419,13 @@ std::array<float, 3> EvaluateShapePointAtTime(
     }
     else if (shapeCode == 3)
     {
-        const float a = lattice ? (2.39996323f * fi) : (rnd[0] * kTwoPi);
+        const float a = lattice ? (2.39996323f * fi) : (rnd[0] * Frontier::Constants::TauFloat);
         const float r = lattice ? std::sqrt((fi + 0.5f) / count) : std::sqrt(rnd[1]);
         basePos = Add3(origin, Mul3(Add3(Mul3(t, std::cos(a)), Mul3(b, std::sin(a))), r * radius));
     }
     else if (shapeCode == 4)
     {
-        const float a = lattice ? (fi / count * kTwoPi) : (rnd[0] * kTwoPi);
+        const float a = lattice ? (fi / count * Frontier::Constants::TauFloat) : (rnd[0] * Frontier::Constants::TauFloat);
         basePos = Add3(origin, Mul3(Add3(Mul3(t, std::cos(a)), Mul3(b, std::sin(a))), radius));
     }
     else if (shapeCode == 5)
@@ -457,10 +435,10 @@ std::array<float, 3> EvaluateShapePointAtTime(
     }
     else if (shapeCode == 7)
     {
-        const float u = lattice ? ((fi + 0.5f) / count * kTwoPi) : (rnd[0] * kTwoPi);
-        const float v = lattice ? (FractF(fi * 0.6180339887f) * kTwoPi) : (rnd[1] * kTwoPi);
-        const float tube = radius * LerpF(0.28f, 0.44f, ClampF(fill, 0.0f, 1.0f));
-        const float shell = lattice ? 1.0f : LerpF(1.0f, std::sqrt(rnd[2]), fill);
+        const float u = lattice ? ((fi + 0.5f) / count * Frontier::Constants::TauFloat) : (rnd[0] * Frontier::Constants::TauFloat);
+        const float v = lattice ? (Frontier::Mathematics::EvaluateFractionalPart(fi * 0.6180339887f) * Frontier::Constants::TauFloat) : (rnd[1] * Frontier::Constants::TauFloat);
+        const float tube = radius * Frontier::Mathematics::InterpolateScalar(0.28f, 0.44f, Frontier::Mathematics::ClampScalar(fill, 0.0f, 1.0f));
+        const float shell = lattice ? 1.0f : Frontier::Mathematics::InterpolateScalar(1.0f, std::sqrt(rnd[2]), fill);
         const Vec3f radial = Add3(Mul3(t, std::cos(u)), Mul3(b, std::sin(u)));
         basePos = Add3(Add3(origin, Mul3(radial, radius + std::cos(v) * tube * shell)), Mul3(axis, std::sin(v) * tube * shell));
     }
@@ -473,8 +451,8 @@ std::array<float, 3> EvaluateShapePointAtTime(
     {
         const float y = lattice ? (1.0f - (fi + 0.5f) / count) : rnd[0];
         const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
-        const float a = lattice ? (2.39996323f * fi) : (rnd[1] * kTwoPi);
-        const float shell = LerpF(1.0f, std::pow(lattice ? FractF(fi * 0.381966f) : rnd[2], 1.0f / 3.0f), fill);
+        const float a = lattice ? (2.39996323f * fi) : (rnd[1] * Frontier::Constants::TauFloat);
+        const float shell = Frontier::Mathematics::InterpolateScalar(1.0f, std::pow(lattice ? Frontier::Mathematics::EvaluateFractionalPart(fi * 0.381966f) : rnd[2], 1.0f / 3.0f), fill);
         basePos = Add3(origin, Mul3(Add3(Add3(Mul3(t, std::cos(a) * r), Mul3(axis, y)), Mul3(b, std::sin(a) * r)), radius * shell));
     }
     else if (shapeCode == 11)
@@ -488,25 +466,25 @@ std::array<float, 3> EvaluateShapePointAtTime(
     else if (shapeCode == 12)
     {
         const float detail = (shapeDetail > 0.5f) ? shapeDetail : 8.0f;
-        const int32_t spokes = static_cast<int32_t>(ClampF(detail, 4.0f, 24.0f));
-        const int32_t rings  = static_cast<int32_t>(ClampF(detail * 1.75f, 3.0f, 34.0f));
+        const int32_t spokes = static_cast<int32_t>(Frontier::Mathematics::ClampScalar(detail, 4.0f, 24.0f));
+        const int32_t rings  = static_cast<int32_t>(Frontier::Mathematics::ClampScalar(detail * 1.75f, 3.0f, 34.0f));
         const int32_t spokeCount = spokes * (rings + 1);
         const bool onSpoke = (index % 4) < 2;
         float angle = 0.0f, rVal = 0.0f;
         if (onSpoke)
         {
-            angle = static_cast<float>(index % spokes) / static_cast<float>(spokes) * kTwoPi;
-            const float stepFrac = lattice ? FractF(static_cast<float>(index / spokes) * 0.6180339887f) : rnd[1];
+            angle = static_cast<float>(index % spokes) / static_cast<float>(spokes) * Frontier::Constants::TauFloat;
+            const float stepFrac = lattice ? Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(index / spokes) * 0.6180339887f) : rnd[1];
             rVal = (static_cast<float>(index / std::max(spokeCount, 1)) + stepFrac) / static_cast<float>(rings + 1);
-            rVal = ClampF(rVal, 0.06f, 1.0f);
+            rVal = Frontier::Mathematics::ClampScalar(rVal, 0.06f, 1.0f);
         }
         else
         {
             const float ring = static_cast<float>((index / std::max(spokes, 1)) % std::max(rings, 1));
-            angle = static_cast<float>(index % std::max(spokes, 1)) / static_cast<float>(spokes) * kTwoPi + (lattice ? 0.0f : rnd[0] * 0.12f);
+            angle = static_cast<float>(index % std::max(spokes, 1)) / static_cast<float>(spokes) * Frontier::Constants::TauFloat + (lattice ? 0.0f : rnd[0] * 0.12f);
             rVal = (ring + 0.5f) / static_cast<float>(rings);
         }
-        const float sag = fill * 0.42f * std::sin(kPi * ClampF(rVal, 0.0f, 1.0f));
+        const float sag = fill * 0.42f * std::sin(Frontier::Constants::PiFloat * Frontier::Mathematics::ClampScalar(rVal, 0.0f, 1.0f));
         basePos = Sub3(Add3(origin, Mul3(Add3(Mul3(t, std::cos(angle) * rVal), Mul3(b, std::sin(angle) * rVal)), radius)), Mul3(axis, sag * radius));
     }
     else if (shapeCode == 13)
@@ -518,19 +496,19 @@ std::array<float, 3> EvaluateShapePointAtTime(
         const float fy = std::floor(fi / side);
         const float u = (fx + 0.5f) / side * 2.0f - 1.0f;
         const float v = std::min((fy + 0.5f) / side, 1.0f);
-        const float sway = std::sin(u * kPi * folds) * (0.10f + v * 0.22f) * (0.4f + fill);
-        const float scallop = std::sin(u * kPi * folds * 0.5f) * 0.06f * v;
+        const float sway = std::sin(u * Frontier::Constants::PiFloat * folds) * (0.10f + v * 0.22f) * (0.4f + fill);
+        const float scallop = std::sin(u * Frontier::Constants::PiFloat * folds * 0.5f) * 0.06f * v;
         basePos = Add3(Add3(Add3(origin, Mul3(t, u * radius)), Mul3(axis, (0.5f - v) * radius * 1.6f)), Mul3(b, (sway + scallop) * radius));
     }
     else if (shapeCode == 14)
     {
-        const float blades = ClampF(shapeDetail > 0.5f ? shapeDetail : 26.0f, 3.0f, 512.0f);
+        const float blades = Frontier::Mathematics::ClampScalar(shapeDetail > 0.5f ? shapeDetail : 26.0f, 3.0f, 512.0f);
         const int32_t perBlade = std::max(1, static_cast<int32_t>(std::ceil(count / blades)));
         const int32_t blade = index / perBlade;
         const float h = static_cast<float>(index - blade * perBlade) / static_cast<float>(perBlade);
-        const float rootAngle = Hash31({ static_cast<float>(blade), 1.7f, 9.3f }) * kTwoPi;
+        const float rootAngle = Hash31({ static_cast<float>(blade), 1.7f, 9.3f }) * Frontier::Constants::TauFloat;
         const float rootRadius = std::sqrt(Hash31({ static_cast<float>(blade), 4.1f, 2.7f })) * radius;
-        const float height = LerpF(0.55f, 1.65f, Hash31({ static_cast<float>(blade), 7.7f, 5.1f })) * radius;
+        const float height = Frontier::Mathematics::InterpolateScalar(0.55f, 1.65f, Hash31({ static_cast<float>(blade), 7.7f, 5.1f })) * radius;
         const float bend = (0.35f + fill) * std::pow(h, 1.6f) * radius;
         const float flutter = std::sin(h * 3.0f + rootAngle * 3.0f + timeSeconds * 1.4f) * 0.06f * h * radius;
         const Vec3f root = Add3(Mul3(t, std::cos(rootAngle) * rootRadius), Mul3(b, std::sin(rootAngle) * rootRadius));
@@ -550,9 +528,9 @@ std::array<float, 3> EvaluateShapePointAtTime(
             const float lobes = std::max(2.0f, std::floor(detail));
             const float y = lattice ? (1.0f - (fi + 0.5f) / count * 2.0f) : (rnd[0] * 2.0f - 1.0f);
             const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
-            const float a = lattice ? (2.39996323f * fi) : (rnd[1] * kTwoPi);
+            const float a = lattice ? (2.39996323f * fi) : (rnd[1] * Frontier::Constants::TauFloat);
             const float lobe = 0.78f + 0.22f * std::fabs(std::cos(a * lobes * 0.5f));
-            const float shell = LerpF(lobe, std::pow(std::max(rnd[2], 1.0e-4f), 1.0f / 3.0f), ClampF(fill, 0.0f, 1.0f));
+            const float shell = Frontier::Mathematics::InterpolateScalar(lobe, std::pow(std::max(rnd[2], 1.0e-4f), 1.0f / 3.0f), Frontier::Mathematics::ClampScalar(fill, 0.0f, 1.0f));
             basePos = Add3(origin, Mul3(Add3(Add3(Mul3(t, std::cos(a) * r), Mul3(axis, y)), Mul3(b, std::sin(a) * r)), radius * shell));
         }
     }
@@ -564,7 +542,7 @@ std::array<float, 3> EvaluateShapePointAtTime(
         Vec3f limbVel {};
         const Vec3f fig = EvaluateMocapPose(shape, index, rnd, lattice, timeSeconds, limbVel);
         shapeVel = limbVel;
-        basePos = Lerp3(basePos, fig, ClampF(mocapAmp, 0.0f, 1.0f));
+        basePos = Frontier::Mathematics::InterpolateVector3(basePos, fig, Frontier::Mathematics::ClampScalar(mocapAmp, 0.0f, 1.0f));
     }
 
     if (outShapeVelocity) *outShapeVelocity = shapeVel;
@@ -602,8 +580,8 @@ float EvaluateEffectorWeight(
         const Vec3f e0 = Add3(origin, { std::cos(ph0) * orbR, std::sin(ph0 * 1.3f) * orbR * 0.55f, std::sin(ph0) * orbR });
         const Vec3f e1 = Add3(origin, { std::cos(ph1) * orbR * 0.85f, std::cos(ph1 * 0.9f) * orbR * 0.5f, std::sin(ph1 * 1.2f) * orbR * 0.85f });
         const float radEff = std::max(0.45f, 1.15f / std::max(0.35f, freq));
-        const float g0 = 1.0f - SmoothStepF(radEff * 0.18f, radEff, Len3(Sub3(worldPosition, e0)));
-        const float g1 = 1.0f - SmoothStepF(radEff * 0.18f, radEff, Len3(Sub3(worldPosition, e1)));
+        const float g0 = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(radEff * 0.18f, radEff, Len3(Sub3(worldPosition, e0)));
+        const float g1 = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(radEff * 0.18f, radEff, Len3(Sub3(worldPosition, e1)));
         w = std::max(g0, g1);
     }
     else if (effMode == 3)
@@ -612,16 +590,16 @@ float EvaluateEffectorWeight(
         const float warp = ValueNoise(Add3(Mul3(dVec, 0.78f), { 0.0f, -tShift * 0.35f, tShift * 0.25f })) * 2.4f;
         const float waveA = 0.5f + 0.5f * std::sin(dVec[0] * 1.35f + dVec[1] * 1.55f - tShift * 1.55f + warp);
         const float blot = ValueNoise(Add3(Mul3(dVec, 1.18f), { tShift * 0.42f, -tShift * 0.28f, 2.3f }));
-        w = ClampF(waveA * 0.62f + blot * 0.58f - 0.14f, 0.0f, 1.0f);
+        w = Frontier::Mathematics::ClampScalar(waveA * 0.62f + blot * 0.58f - 0.14f, 0.0f, 1.0f);
     }
     else
     {
         const float tS = timeSeconds * effSpeed * 0.45f;
         const float n0 = ValueNoise(Add3(Mul3(dVec, 1.15f), { tS, -tS * 0.7f, tS * 0.5f }));
         const float n1 = ValueNoise(Sub3(Mul3(dVec, 2.25f), { tS * 1.3f, tS * 0.4f, -tS * 0.8f }));
-        w = ClampF((n0 * 0.68f + n1 * 0.32f - 0.26f) * 1.65f, 0.0f, 1.0f);
+        w = Frontier::Mathematics::ClampScalar((n0 * 0.68f + n1 * 0.32f - 0.26f) * 1.65f, 0.0f, 1.0f);
     }
-    return ClampF(w * effStrength, 0.0f, 2.0f);
+    return Frontier::Mathematics::ClampScalar(w * effStrength, 0.0f, 2.0f);
 }
 
 DerezEvaluationReading EvaluateDerezFront(
@@ -636,21 +614,21 @@ DerezEvaluationReading EvaluateDerezFront(
 
     const float span = std::max(shape.OriginRadius[3], 0.15f);
     const Vec3f u {
-        ClampF((restHome[0] - shape.OriginRadius[0]) / (2.0f * span) + 0.5f, 0.0f, 1.0f),
-        ClampF((restHome[1] - shape.OriginRadius[1]) / (2.0f * span) + 0.5f, 0.0f, 1.0f),
-        ClampF((restHome[2] - shape.OriginRadius[2]) / (2.0f * span) + 0.5f, 0.0f, 1.0f)
+        Frontier::Mathematics::ClampScalar((restHome[0] - shape.OriginRadius[0]) / (2.0f * span) + 0.5f, 0.0f, 1.0f),
+        Frontier::Mathematics::ClampScalar((restHome[1] - shape.OriginRadius[1]) / (2.0f * span) + 0.5f, 0.0f, 1.0f),
+        Frontier::Mathematics::ClampScalar((restHome[2] - shape.OriginRadius[2]) / (2.0f * span) + 0.5f, 0.0f, 1.0f)
     };
 
     if (derezMode == 5)
     {
         const Vec3f cell { std::floor(u[0] * 7.0f), std::floor(u[1] * 5.0f), std::floor(u[2] * 7.0f) };
-        const float d = Dot3(cell, { 12.9898f, 78.233f, 37.719f });
-        const float h = FractF(static_cast<float>(std::sin(static_cast<double>(d))) * 43758.5453f);
-        res.WaveU = ClampF(0.6f * h + 0.4f * u[1], 0.0f, 1.0f);
+        const float d = Frontier::Mathematics::EvaluateDot3(cell, { 12.9898f, 78.233f, 37.719f });
+        const float h = Frontier::Mathematics::EvaluateFractionalPart(static_cast<float>(std::sin(static_cast<double>(d))) * 43758.5453f);
+        res.WaveU = Frontier::Mathematics::ClampScalar(0.6f * h + 0.4f * u[1], 0.0f, 1.0f);
     }
     else if (derezMode == 3)
     {
-        res.WaveU = ClampF(0.5f + 0.3f * std::sin(u[0] * 5.0f + u[1] * 3.0f + 0.7f)
+        res.WaveU = Frontier::Mathematics::ClampScalar(0.5f + 0.3f * std::sin(u[0] * 5.0f + u[1] * 3.0f + 0.7f)
                                 + 0.2f * std::sin(u[1] * 7.0f - u[2] * 4.0f + 2.1f), 0.0f, 1.0f);
     }
     else
@@ -660,8 +638,8 @@ DerezEvaluationReading EvaluateDerezFront(
 
     const float autoSpeed = shape.DerezFrontParams[0];
     const float manualProg = shape.EffectorAxisDerez[3];
-    const float rawProg = (autoSpeed > 0.0001f) ? (FractF(timeSeconds * autoSpeed) * 1.32f - 0.12f) : (manualProg * 1.24f - 0.06f);
-    res.Progress = rawProg * ClampF(derezMix, 0.0f, 1.0f);
+    const float rawProg = (autoSpeed > 0.0001f) ? (Frontier::Mathematics::EvaluateFractionalPart(timeSeconds * autoSpeed) * 1.32f - 0.12f) : (manualProg * 1.24f - 0.06f);
+    res.Progress = rawProg * Frontier::Mathematics::ClampScalar(derezMix, 0.0f, 1.0f);
     const float width = std::max(0.02f, shape.DerezFrontParams[1]);
     const float dist = res.Progress - res.WaveU;
     res.EdgeBand = std::exp(-(dist * dist) / std::max(width * width * 0.55f, 1.0e-4f));
@@ -771,12 +749,12 @@ void StepParticleCloudCpu(
                 Vec3f tA {}, bA {};
                 ComputeShapeBasis(axis, tA, bA);
                 const Vec3f worldNorm = Add3(Add3(Mul3(tA, aNorm[0]), Mul3(axis, aNorm[1])), Mul3(bA, aNorm[2]));
-                outDir = (Len3(worldNorm) > 1.0e-4f) ? Normalize3(worldNorm) : axis;
+                outDir = (Len3(worldNorm) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(worldNorm) : axis;
             }
             else
             {
                 outDir = Sub3(restHome, origin);
-                outDir = (Len3(outDir) > 1.0e-4f) ? Normalize3(outDir) : axis;
+                outDir = (Len3(outDir) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(outDir) : axis;
             }
             home = Add3(home, Mul3(outDir, effW * effPush));
         }
@@ -839,11 +817,11 @@ void StepParticleCloudCpu(
                 position = EvaluateShapePointAtTime(uniforms.Shape, anchorData, index, rnd, false, simTime, &spawnLimbVel);
                 const Vec3f random = RandomDirection({ px, py, simTime + 8.8f });
                 Vec3f outward = Sub3(position, origin);
-                outward = (Len3(outward) > 1.0e-4f) ? Normalize3(outward) : random;
-                const Vec3f launchMix = Lerp3(axis, outward, uniforms.LaunchForces[1]);
-                const Vec3f launch = Normalize3({ launchMix[0] + 1.0e-4f, launchMix[1] + 1.0e-4f, launchMix[2] + 1.0e-4f });
-                const Vec3f spreadMix = Lerp3(launch, random, uniforms.LaunchForces[0]);
-                const Vec3f dir = Normalize3({ spreadMix[0] + 1.0e-4f, spreadMix[1] + 1.0e-4f, spreadMix[2] + 1.0e-4f });
+                outward = (Len3(outward) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(outward) : random;
+                const Vec3f launchMix = Frontier::Mathematics::InterpolateVector3(axis, outward, uniforms.LaunchForces[1]);
+                const Vec3f launch = Frontier::Mathematics::NormalizeVector3({ launchMix[0] + 1.0e-4f, launchMix[1] + 1.0e-4f, launchMix[2] + 1.0e-4f });
+                const Vec3f spreadMix = Frontier::Mathematics::InterpolateVector3(launch, random, uniforms.LaunchForces[0]);
+                const Vec3f dir = Frontier::Mathematics::NormalizeVector3({ spreadMix[0] + 1.0e-4f, spreadMix[1] + 1.0e-4f, spreadMix[2] + 1.0e-4f });
                 const float spd = uniforms.SpawnKinematics[3] * (0.75f + 0.5f * Hash31({ px, py, simTime + 6.6f }));
                 velocity = Add3(Mul3(dir, spd), spawnLimbVel);
                 age = 0.0f;
@@ -857,7 +835,7 @@ void StepParticleCloudCpu(
             {
                 if (!derez.Released)
                 {
-                    position = Lerp3(position, home, ClampF(dt * 18.0f, 0.0f, 1.0f));
+                    position = Frontier::Mathematics::InterpolateVector3(position, home, Frontier::Mathematics::ClampScalar(dt * 18.0f, 0.0f, 1.0f));
                     velocity = Mul3(velocity, std::exp(-8.0f * dt));
                     age = 0.0f;
                 }
@@ -866,10 +844,10 @@ void StepParticleCloudCpu(
                     if (age <= 0.0001f && derezMode != 2)
                     {
                         Vec3f outDir = Sub3(restHome, origin);
-                        outDir = (Len3(outDir) > 1.0e-4f) ? Normalize3(outDir) : RandomDirection({ px, py, 3.3f });
+                        outDir = (Len3(outDir) > 1.0e-4f) ? Frontier::Mathematics::NormalizeVector3(outDir) : RandomDirection({ px, py, 3.3f });
                         const Vec3f jitter = Mul3(RandomDirection({ px, py, 7.1f }), 0.55f);
                         const float upLift = (derezMode == 4) ? 1.35f : 0.45f;
-                        const Vec3f dir = Normalize3(Add3(Add3(outDir, jitter), { 0.0f, upLift, 0.0f }));
+                        const Vec3f dir = Frontier::Mathematics::NormalizeVector3(Add3(Add3(outDir, jitter), { 0.0f, upLift, 0.0f }));
                         velocity = Mul3(dir, derezShatter * (0.65f + 0.7f * seed));
                     }
                     age += dt;
@@ -904,7 +882,7 @@ void StepParticleCloudCpu(
                     {
                         position[1] = floorY;
                         const Vec3f burst = RandomDirection({ px, py, std::floor(simTime * 4.0f) + 1.7f });
-                        velocity[1] = std::fabs(velocity[1]) * std::max(bounce, 0.35f) + derezShatter * 0.22f * FractF(seed * 13.7f);
+                        velocity[1] = std::fabs(velocity[1]) * std::max(bounce, 0.35f) + derezShatter * 0.22f * Frontier::Mathematics::EvaluateFractionalPart(seed * 13.7f);
                         velocity[0] = velocity[0] * 0.65f + burst[0] * (derezShatter * 0.28f);
                         velocity[2] = velocity[2] * 0.65f + burst[2] * (derezShatter * 0.28f);
                     }
@@ -947,9 +925,9 @@ void StepParticleCloudCpu(
                 const float distLeader = Len3(toLeader);
                 const Vec3f cohesionDir = (distLeader > 1.0e-4f) ? Mul3(toLeader, 1.0f / distLeader) : Vec3f { 0.0f, 1.0f, 0.0f };
                 const Vec3f relPos = Add3(Sub3(position, origin), { 1.0e-4f, 0.0f, 1.0e-4f });
-                const Vec3f tangent = Normalize3(Cross3({ 0.0f, 1.0f, 0.0f }, relPos));
+                const Vec3f tangent = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3({ 0.0f, 1.0f, 0.0f }, relPos));
                 const Vec3f flutter = CurlNoise(Add3(Mul3(position, 1.25f), { simTime * 0.8f, seed * 5.3f, -simTime * 0.6f }));
-                const float wingBob = std::sin(simTime * std::max(uniforms.Shape.DerezEdgeColourWing[3], 1.0f) + seed * kTwoPi) * 0.35f;
+                const float wingBob = std::sin(simTime * std::max(uniforms.Shape.DerezEdgeColourWing[3], 1.0f) + seed * Frontier::Constants::TauFloat) * 0.35f;
                 const Vec3f steer = Add3(
                     Add3(Mul3(cohesionDir, uniforms.DissolveSwarm[3] * std::min(distLeader, 3.0f)),
                          Mul3(tangent, uniforms.SwarmControlFlags[0])),
@@ -1119,14 +1097,14 @@ void ParticleGpuSimulation::RefreshCloudAnchors(
         for (size_t i = 0u; i < len; ++i)
         {
             h ^= bytes[i];
-            h *= 1099511628211ull;
+            h *= Frontier::Constants::Fnv1a64Prime;
         }
     };
     uint64_t wantedHash = 0ull;
     const bool needsAnchors = (p.Shape == ParticleShapeOrdinal::SolidSurface) || isFireworkPattern;
     if (needsAnchors)
     {
-        wantedHash = 14695981039346656037ull;
+        wantedHash = Frontier::Constants::Fnv1a64OffsetBasis;
         if (p.Shape == ParticleShapeOrdinal::SolidSurface)
         {
             const uint32_t tag = 1u;

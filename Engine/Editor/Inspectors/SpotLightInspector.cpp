@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/SpotLightInspector.h"
 #include "Engine/Editor/Inspectors/LightInspectorShared.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -40,7 +41,7 @@ void SpotLightInspector::UpdateEnvelopeSurface(const SpotLightData& Instance)
     {
         const float Cx = static_cast<float>(W) * 0.5f;
         const float ApexY = 82.0f, BaseY = 304.0f;
-        const float HalfSpan = std::clamp(std::tan(Instance.FullConeDegrees * 0.5f * 0.01745329f) * 290.0f, 34.0f, 160.0f);
+        const float HalfSpan = std::clamp(std::tan(Instance.FullConeDegrees * 0.5f * Frontier::Constants::DegToRadFloat) * 290.0f, 34.0f, 160.0f);
         const float InnerFrac = std::clamp(1.0f - Instance.Penumbra, 0.15f, 0.92f);
 
         for (uint32_t Y = 0u; Y < H; ++Y)
@@ -147,7 +148,7 @@ float SpotLightInspector::Construct(
         const float OW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.6f, "OPTICS");
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX + BodyW - OW, Card.Y + 28.0f }, 9.6f, InspectorMetrics::DimInk, "OPTICS");
 
-        const float Diam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * 0.5f * 0.01745329f);
+        const float Diam5m = 2.0f * 5.0f * std::tan(Instance.FullConeDegrees * 0.5f * Frontier::Constants::DegToRadFloat);
         char DiamBuf[24]{};
         std::snprintf(DiamBuf, sizeof(DiamBuf), "%.2f m", Diam5m);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { BodyX, Card.Y + 58.0f }, 36.0f, ColorRgba{ 244u, 244u, 244u, 255u }, DiamBuf);
@@ -169,7 +170,7 @@ float SpotLightInspector::Construct(
             else if (Deg < HalfDeg)
             {
                 const float U = (Deg - InnerDeg) / std::max(0.1f, HalfDeg - InnerDeg);
-                Amp = 0.5f * (1.0f + std::cos(U * 3.14159265f));
+                Amp = 0.5f * (1.0f + std::cos(U * Frontier::Constants::PiFloat));
             }
             const Point2D P { Plot.X + T * Plot.Width, (Plot.Bottom() - 16.0f) - Amp * (Plot.Height - 20.0f) };
             if (I > 0) Surface.StrokeLine(Prev, P, ColorRgba{ 212u, 206u, 192u, 255u }, 1.5f);

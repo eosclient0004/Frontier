@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherBlendDecoder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
@@ -53,8 +54,6 @@ namespace
 //                                                    CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-constexpr double PiValue       = 3.14159265358979323846;
-constexpr double DegToRad      = PiValue / 180.0;
 constexpr double BlendEpsilon  = 1.0e-7;
 
 // Blender MirrorModifierData.flag bits
@@ -2153,7 +2152,7 @@ void EmitWorldSurfaceGeometry(
     }
 
     const double CosSmooth  = std::cos(AutoSmoothRadians);
-    const double CosFeature = std::cos(34.0 * DegToRad);
+    const double CosFeature = std::cos(34.0 * Frontier::Constants::DegToRad);
 
     // Emit crisp GPU feature/crease segments (sharp edges, strong creases, panel boundaries, sharp dihedrals)
     std::unordered_set<uint32_t> CreaseVerts;
@@ -2796,7 +2795,7 @@ SketcherBlendImportReport DecodeSketcherBlendFile(
         Report.RawPolygons += static_cast<uint32_t>(Poly.Faces.size());
 
         std::string ModSummary;
-        double SmoothRadians = Options.AutoSmoothDegrees * DegToRad;
+        double SmoothRadians = Options.AutoSmoothDegrees * Frontier::Constants::DegToRad;
 
         if (Options.EvaluateModifiersCondition)
         {
@@ -2816,7 +2815,7 @@ SketcherBlendImportReport DecodeSketcherBlendFile(
                 case BlendModifierKind::Shrinkwrap: ApplyShrinkwrapModifier(Poly, Mod, Obj.WorldMatrix, EvaluatedTargets); break;
                 case BlendModifierKind::Array:      ApplyArrayModifier(Poly, Mod); break;
                 case BlendModifierKind::Bevel:      ApplyBevelModifier(Poly, Mod); break;
-                case BlendModifierKind::AutoSmooth: SmoothRadians = 30.0 * DegToRad; break;
+                case BlendModifierKind::AutoSmooth: SmoothRadians = 30.0 * Frontier::Constants::DegToRad; break;
                 }
             }
         }

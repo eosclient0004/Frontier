@@ -9,6 +9,7 @@
 #include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Components/Panes/StudioPaneAppearance.h"
 #include "Engine/Workspaces/Fracture/FractureIcons.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -54,13 +55,12 @@ using namespace StudioAppearance;
 
 [[nodiscard]] ColorRgba MaterialLinearToSrgbSwatch(Mathematics::Scalar3D Lin) noexcept
 {
-    auto ToSrgb = [](float V) -> uint8_t
-    {
-        const float C = std::clamp(V, 0.0f, 1.0f);
-        const float S = (C <= 0.0031308f) ? (12.92f * C) : (1.055f * std::pow(C, 1.0f / 2.4f) - 0.055f);
-        return static_cast<uint8_t>(std::clamp(std::lround(S * 255.0f), 0l, 255l));
+    return {
+        Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.X),
+        Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.Y),
+        Frontier::ColourSpace::EncodeLinearToSrgbByte(Lin.Z),
+        255u,
     };
-    return { ToSrgb(Lin.X), ToSrgb(Lin.Y), ToSrgb(Lin.Z), 255u };
 }
 
 } // namespace

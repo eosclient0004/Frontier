@@ -8,6 +8,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/DirectLighting/CubeGridPodAtlas.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,12 +23,7 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-inline constexpr float PiF = 3.14159265358979323846f;
 
-[[nodiscard]] float Dot3(const std::array<float, 3>& A, const std::array<float, 3>& B) noexcept
-{
-    return A[0] * B[0] + A[1] * B[1] + A[2] * B[2];
-}
 
 [[nodiscard]] std::array<float, 3> Normalize3(const std::array<float, 3>& V, const std::array<float, 3>& Fallback = { 0.0f, -1.0f, 0.0f }) noexcept
 {
@@ -39,14 +36,6 @@ inline constexpr float PiF = 3.14159265358979323846f;
     return { V[0] * Inv, V[1] * Inv, V[2] * Inv };
 }
 
-[[nodiscard]] std::array<float, 3> Cross3(const std::array<float, 3>& A, const std::array<float, 3>& B) noexcept
-{
-    return {
-        A[1] * B[2] - A[2] * B[1],
-        A[2] * B[0] - A[0] * B[2],
-        A[0] * B[1] - A[1] * B[0]
-    };
-}
 
 [[nodiscard]] float SmoothHermite(float X) noexcept
 {
@@ -72,7 +61,7 @@ inline constexpr float PiF = 3.14159265358979323846f;
     const float InvDist = 1.0f / Dist;
     const std::array<float, 3> L { Dx * InvDist, Dy * InvDist, Dz * InvDist };
 
-    const float NdotL = std::max(Dot3(Normal, L), 0.0f);
+    const float NdotL = std::max(Frontier::Mathematics::EvaluateDot3(Normal, L), 0.0f);
     if (NdotL <= 0.0f)
     {
         return { 0.0f, 0.0f, 0.0f };
@@ -83,18 +72,18 @@ inline constexpr float PiF = 3.14159265358979323846f;
 
     // Diffuse Lambertian + Karis finite-aperture GGX specular
     const std::array<float, 3> H = Normalize3({ L[0] + ViewDir[0], L[1] + ViewDir[1], L[2] + ViewDir[2] }, Normal);
-    const float NdotH = std::max(Dot3(Normal, H), 0.0f);
-    const float NdotV = std::max(Dot3(Normal, ViewDir), 0.05f);
-    const float VdotH = std::max(Dot3(ViewDir, H), 0.0f);
+    const float NdotH = std::max(Frontier::Mathematics::EvaluateDot3(Normal, H), 0.0f);
+    const float NdotV = std::max(Frontier::Mathematics::EvaluateDot3(Normal, ViewDir), 0.05f);
+    const float VdotH = std::max(Frontier::Mathematics::EvaluateDot3(ViewDir, H), 0.0f);
 
     const float Alpha = std::clamp(Roughness * Roughness + EffRad / std::max(2.0f * Dist, 0.5f), 0.04f, 1.0f);
     const float A2    = Alpha * Alpha;
     const float Denom = NdotH * NdotH * (A2 - 1.0f) + 1.0f;
-    const float D     = A2 / (PiF * Denom * Denom + 1.0e-5f);
+    const float D     = A2 / (Frontier::Constants::PiFloat * Denom * Denom + 1.0e-5f);
     const float F     = 0.04f + 0.96f * std::pow(1.0f - VdotH, 5.0f);
     const float Spec  = (D * F) / (4.0f * NdotV * NdotL + 0.15f);
 
-    const float DiffScale = NdotL * Atten / PiF;
+    const float DiffScale = NdotL * Atten / Frontier::Constants::PiFloat;
     const float SpecScale = Spec * NdotL * Atten * 0.85f;
 
     return {
@@ -335,7 +324,7 @@ std::array<float, 3> EvaluateRawSourceCandela(
     float AngularFactor = 1.0f;
     if (Source.CosOuterCone > -0.95f)
     {
-        const float CosAngle = Dot3(UnitRayFromLight, Source.DirectionWorld);
+        const float CosAngle = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, Source.DirectionWorld);
         const float Edge0 = Source.CosOuterCone;
         const float Edge1 = std::min(0.992f, Source.CosOuterCone + 0.28f);
         AngularFactor = SmoothHermite((CosAngle - Edge0) / std::max(1.0e-4f, Edge1 - Edge0));
@@ -348,10 +337,10 @@ std::array<float, 3> EvaluateRawSourceCandela(
     if (Source.EceLowBeamCutoff)
     {
         const std::array<float, 3> WorldUp { 0.0f, 1.0f, 0.0f };
-        const std::array<float, 3> RightAxis = Normalize3(Cross3(Source.DirectionWorld, WorldUp), { 1.0f, 0.0f, 0.0f });
-        const std::array<float, 3> UpAxis    = Normalize3(Cross3(RightAxis, Source.DirectionWorld), WorldUp);
-        const float Lat = Dot3(UnitRayFromLight, RightAxis);
-        const float Elev = Dot3(UnitRayFromLight, UpAxis);
+        const std::array<float, 3> RightAxis = Normalize3(Frontier::Mathematics::EvaluateCross3(Source.DirectionWorld, WorldUp), { 1.0f, 0.0f, 0.0f });
+        const std::array<float, 3> UpAxis    = Normalize3(Frontier::Mathematics::EvaluateCross3(RightAxis, Source.DirectionWorld), WorldUp);
+        const float Lat = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, RightAxis);
+        const float Elev = Frontier::Mathematics::EvaluateDot3(UnitRayFromLight, UpAxis);
         const float CutoffLine = (Lat <= 0.0f) ? -0.018f : (-0.018f + Lat * 0.268f);
         AngularFactor *= 1.0f - SmoothHermite((Elev - CutoffLine) / 0.06f);
     }

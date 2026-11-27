@@ -12,6 +12,8 @@
 #include "Engine/Components/Controls/ControlTooltip.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -370,13 +372,12 @@ uint64_t MixRevisionFloat(uint64_t Seed, float Reading) noexcept
 
 ColorRgba EncodeLinearRgbToSrgb8(const Mathematics::LinearRGB& Linear) noexcept
 {
-    auto Encode = [](float Channel) noexcept -> uint8_t
-    {
-        const float Clamped = std::clamp(Channel, 0.0f, 1.0f);
-        const float Srgb    = (Clamped <= 0.0031308f) ? (Clamped * 12.92f) : (1.055f * std::pow(Clamped, 1.0f / 2.4f) - 0.055f);
-        return static_cast<uint8_t>(std::clamp(std::lround(Srgb * 255.0f), 0l, 255l));
+    return ColorRgba{
+        ColourSpace::EncodeLinearToSrgbByte(Linear.R),
+        ColourSpace::EncodeLinearToSrgbByte(Linear.G),
+        ColourSpace::EncodeLinearToSrgbByte(Linear.B),
+        255u,
     };
-    return ColorRgba{ Encode(Linear.R), Encode(Linear.G), Encode(Linear.B), 255u };
 }
 
 void ConstructSwitchSymbol(
@@ -450,7 +451,7 @@ void ConstructSwitchSymbol(
             Surface.FillRectangle({ Center.X - R * 0.50f, Center.Y + R * 0.32f, R * 1.0f, R * 0.45f }, WellFill);
             for (int32_t Ray = -2; Ray <= 2; ++Ray)
             {
-                const float A = -1.5707963f + static_cast<float>(Ray) * 0.48f;
+                const float A = -Frontier::Constants::HalfPiFloat + static_cast<float>(Ray) * 0.48f;
                 Surface.StrokeLine(
                     { Center.X + std::cos(A) * R * 0.48f, Center.Y + R * 0.16f + std::sin(A) * R * 0.48f },
                     { Center.X + std::cos(A) * R * 0.74f, Center.Y + R * 0.16f + std::sin(A) * R * 0.74f },

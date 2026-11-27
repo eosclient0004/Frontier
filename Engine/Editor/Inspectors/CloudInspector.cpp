@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/CloudInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -196,7 +197,7 @@ void UpdateDeckSectionPreview(
                 if (Yf <= BaseY && Yf >= TopY)
                 {
                     const float Frac = (BaseY - Yf) / std::max(1.0f, BaseY - TopY);
-                    const float Dens = std::sin(std::clamp(Frac, 0.0f, 1.0f) * 3.14159265f) * (0.38f + 0.50f * Tower);
+                    const float Dens = std::sin(std::clamp(Frac, 0.0f, 1.0f) * Frontier::Constants::PiFloat) * (0.38f + 0.50f * Tower);
                     const float Lit  = 0.30f + 0.55f * Frac;
                     const float A    = std::clamp(Dens * 0.56f, 0.0f, 0.72f);
                     R = R * (1.0f - A) + (116.0f + 48.0f * Lit) * A;
@@ -477,7 +478,7 @@ float CloudInspector::Construct(
                 {
                     if (AltM < FloorM || AltM > FloorM + ThickM) return 0.0f;
                     const float U = (AltM - FloorM) / ThickM;
-                    return Ext * std::sin(U * 3.14159265f);
+                    return Ext * std::sin(U * Frontier::Constants::PiFloat);
                 },
             },
         }};

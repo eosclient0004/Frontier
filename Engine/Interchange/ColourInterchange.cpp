@@ -13,6 +13,7 @@
 #include "Engine/ColourSpace/ColourPresetRepository.h"
 #include "Engine/ColourSpace/ColourRampSampler.h"
 #include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -29,25 +30,7 @@ namespace Frontier::Interchange
 namespace
 {
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Text)
-{
-    std::string Out;
-    Out.reserve(Text.size());
-    for (char Ch : Text)
-    {
-        Out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(Ch))));
-    }
-    return Out;
-}
 
-[[nodiscard]] std::string TrimAscii(std::string_view Text)
-{
-    std::size_t Begin = 0u;
-    std::size_t End   = Text.size();
-    while (Begin < End && std::isspace(static_cast<unsigned char>(Text[Begin]))) ++Begin;
-    while (End > Begin && std::isspace(static_cast<unsigned char>(Text[End - 1u]))) --End;
-    return std::string(Text.substr(Begin, End - Begin));
-}
 
 [[nodiscard]] bool TryFindJsonKeyColon(std::string_view Json, std::string_view Key, std::size_t& OutPayloadPos) noexcept
 {
@@ -124,7 +107,7 @@ namespace
 
 [[nodiscard]] bool TryParseCssColourToken(std::string_view Token, ColourSpace::LinearRgba& OutLinear) noexcept
 {
-    const std::string Trimmed = TrimAscii(Token);
+    const std::string Trimmed = Frontier::Serialization::TrimAsciiWhitespace(Token);
     if (Trimmed.empty()) return false;
 
     if (Trimmed[0] == '#')
@@ -135,7 +118,7 @@ namespace
         return true;
     }
 
-    const std::string Lower = LowercaseAscii(Trimmed);
+    const std::string Lower = Frontier::Serialization::LowercaseAscii(Trimmed);
     if (Lower.rfind("rgb(", 0u) == 0u || Lower.rfind("rgba(", 0u) == 0u)
     {
         const std::size_t Open  = Trimmed.find('(');
@@ -222,7 +205,7 @@ void AppendBigEndianFloat(std::vector<std::byte>& Buffer, float Scalar)
 
 ExternalColourFormat ColourInterchange::DetectFormatFromPath(const std::filesystem::path& FilePath) noexcept
 {
-    const std::string Ext = LowercaseAscii(FilePath.extension().string());
+    const std::string Ext = Frontier::Serialization::LowercaseAscii(FilePath.extension().string());
     if (Ext == ".json") return ExternalColourFormat::HtmlStudioJson;
     if (Ext == ".css")  return ExternalColourFormat::CssGradient;
     if (Ext == ".svg")  return ExternalColourFormat::SvgGradient;
@@ -399,7 +382,7 @@ bool ColourInterchange::ImportCssGradientText(
         else if (Ch == ')') --ParenDepth;
         else if (Ch == ',' && ParenDepth == 0)
         {
-            Tokens.push_back(TrimAscii(CssText.substr(SegStart, I - SegStart)));
+            Tokens.push_back(Frontier::Serialization::TrimAsciiWhitespace(CssText.substr(SegStart, I - SegStart)));
             SegStart = I + 1u;
         }
     }
@@ -411,7 +394,7 @@ bool ColourInterchange::ImportCssGradientText(
     {
         if (RawArg.empty()) continue;
         // Skip direction prefix ("90deg", "to right", etc.)
-        const std::string Lower = LowercaseAscii(RawArg);
+        const std::string Lower = Frontier::Serialization::LowercaseAscii(RawArg);
         if (Lower.rfind("to ", 0u) == 0u || Lower.find("deg") != std::string::npos || Lower.find("turn") != std::string::npos)
         {
             continue;
@@ -423,11 +406,11 @@ bool ColourInterchange::ImportCssGradientText(
         const std::size_t LastSpace = RawArg.find_last_of(" \t");
         if (LastSpace != std::string::npos)
         {
-            const std::string Tail = TrimAscii(RawArg.substr(LastSpace + 1u));
+            const std::string Tail = Frontier::Serialization::TrimAsciiWhitespace(RawArg.substr(LastSpace + 1u));
             if (!Tail.empty() && Tail.back() == '%')
             {
                 StopPos    = std::clamp(std::strtof(Tail.c_str(), nullptr) * 0.01f, 0.0f, 1.0f);
-                ColourPart = TrimAscii(RawArg.substr(0u, LastSpace));
+                ColourPart = Frontier::Serialization::TrimAsciiWhitespace(RawArg.substr(0u, LastSpace));
             }
         }
 
@@ -588,7 +571,7 @@ bool ColourInterchange::ImportGimpGplText(
 
     while (std::getline(Stream, Line))
     {
-        const std::string Trimmed = TrimAscii(Line);
+        const std::string Trimmed = Frontier::Serialization::TrimAsciiWhitespace(Line);
         if (Trimmed.empty() || Trimmed[0] == '#') continue;
         if (!SawHeader)
         {
@@ -602,7 +585,7 @@ bool ColourInterchange::ImportGimpGplText(
         }
         if (Trimmed.rfind("Name:", 0u) == 0u)
         {
-            OutDocument.DocumentTitle = TrimAscii(Trimmed.substr(5u));
+            OutDocument.DocumentTitle = Frontier::Serialization::TrimAsciiWhitespace(Trimmed.substr(5u));
             continue;
         }
         if (Trimmed.rfind("Columns:", 0u) == 0u)
@@ -616,7 +599,7 @@ bool ColourInterchange::ImportGimpGplText(
         {
             std::string Rest;
             std::getline(Row, Rest);
-            const std::string Name = TrimAscii(Rest);
+            const std::string Name = Frontier::Serialization::TrimAsciiWhitespace(Rest);
             const ColourSpace::SrgbRgba8 Display {
                 static_cast<uint8_t>(std::clamp(R, 0, 255)),
                 static_cast<uint8_t>(std::clamp(G, 0, 255)),
@@ -676,8 +659,8 @@ bool ColourInterchange::ImportGimpGgrText(
 
     OutRamp = ColourSpace::AuthoredColourRamp {};
     const std::size_t Colon = NameLine.find(':');
-    OutRamp.DisplayTitle    = (Colon != std::string::npos) ? TrimAscii(NameLine.substr(Colon + 1u)) : "ImportedGradient";
-    OutRamp.RampIdentifier  = LowercaseAscii(OutRamp.DisplayTitle);
+    OutRamp.DisplayTitle    = (Colon != std::string::npos) ? Frontier::Serialization::TrimAsciiWhitespace(NameLine.substr(Colon + 1u)) : "ImportedGradient";
+    OutRamp.RampIdentifier  = Frontier::Serialization::LowercaseAscii(OutRamp.DisplayTitle);
     OutRamp.SeriesTitle     = "ImportedGGR";
 
     const int SegmentCount = std::max(0, std::atoi(CountLine.c_str()));
@@ -1012,7 +995,7 @@ bool ColourInterchange::ImportCubeLut1DText(
     std::vector<ColourSpace::LinearRgba> Samples {};
     while (std::getline(Stream, Line))
     {
-        const std::string Trimmed = TrimAscii(Line);
+        const std::string Trimmed = Frontier::Serialization::TrimAsciiWhitespace(Line);
         if (Trimmed.empty() || Trimmed[0] == '#') continue;
         if (Trimmed.rfind("TITLE", 0u) == 0u)
         {
@@ -1021,7 +1004,7 @@ bool ColourInterchange::ImportCubeLut1DText(
             if (FirstQ != std::string::npos && LastQ != std::string::npos && LastQ > FirstQ + 1u)
             {
                 OutRamp.DisplayTitle   = Trimmed.substr(FirstQ + 1u, LastQ - FirstQ - 1u);
-                OutRamp.RampIdentifier = LowercaseAscii(OutRamp.DisplayTitle);
+                OutRamp.RampIdentifier = Frontier::Serialization::LowercaseAscii(OutRamp.DisplayTitle);
             }
             continue;
         }
@@ -1136,7 +1119,7 @@ bool ColourInterchange::ImportFromFile(
     }
 
     ColourSpace::AuthoredColourRamp Ramp {};
-    Ramp.RampIdentifier = LowercaseAscii(SourcePath.stem().string());
+    Ramp.RampIdentifier = Frontier::Serialization::LowercaseAscii(SourcePath.stem().string());
     Ramp.DisplayTitle   = SourcePath.stem().string();
     Ramp.SeriesTitle    = "Imported";
 

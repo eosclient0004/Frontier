@@ -37,7 +37,6 @@ namespace Frontier::GeometricRaster::ComponentEditor
 namespace
 {
 
-constexpr float DegToRad = static_cast<float>(Constants::Pi) / 180.0f;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                  SHADER STRUCT LAYOUTS
@@ -110,9 +109,9 @@ struct Mat4
 
 [[nodiscard]] Mat4 Mat4FromTransform(const ComponentClass::ComponentTransform& T) noexcept
 {
-    const float RX = T.RotationDegrees.X * DegToRad;
-    const float RY = T.RotationDegrees.Y * DegToRad;
-    const float RZ = T.RotationDegrees.Z * DegToRad;
+    const float RX = T.RotationDegrees.X * Frontier::Constants::DegToRadFloat;
+    const float RY = T.RotationDegrees.Y * Frontier::Constants::DegToRadFloat;
+    const float RZ = T.RotationDegrees.Z * Frontier::Constants::DegToRadFloat;
     const float CX = std::cos(RX), SX = std::sin(RX);
     const float CY = std::cos(RY), SY = std::sin(RY);
     const float CZ = std::cos(RZ), SZ = std::sin(RZ);
@@ -169,7 +168,7 @@ struct Mat4
 
 [[nodiscard]] Mat4 Mat4PerspectiveVulkan(float VerticalFovDeg, float Aspect, float NearZ, float FarZ) noexcept
 {
-    const float F = 1.0f / std::tan((VerticalFovDeg * DegToRad) * 0.5f);
+    const float F = 1.0f / std::tan((VerticalFovDeg * Frontier::Constants::DegToRadFloat) * 0.5f);
     Mat4 R {};
     R.M[0]  = F / std::max(Aspect, 0.1f);
     R.M[5]  = -F; // Vulkan clip Y points down
@@ -872,7 +871,7 @@ ComponentViewportCamera ComponentViewportRenderer::ComputeFramedCameraForClass(
         const float DY = MaxB.Y - MinB.Y;
         const float DZ = MaxB.Z - MinB.Z;
         const float Radius = std::max(0.5f * std::sqrt(DX * DX + DY * DY + DZ * DZ), 0.5f);
-        Cam.DistanceMeters = (Radius / std::sin((Cam.VerticalFovDeg * DegToRad) * 0.5f)) * 0.88f;
+        Cam.DistanceMeters = (Radius / std::sin((Cam.VerticalFovDeg * Frontier::Constants::DegToRadFloat) * 0.5f)) * 0.88f;
     }
     return Cam;
 }
@@ -1033,7 +1032,7 @@ ComponentViewportOutput ComponentViewportRenderer::RenderClassViewport(
         GpuL.DirectionCosine[1] = WDir.Y;
         GpuL.DirectionCosine[2] = WDir.Z;
         GpuL.DirectionCosine[3] = (Lgt->Form == ComponentClass::LightSourceCategory::SpotBeam)
-            ? std::cos(Lgt->ConeAngleDegrees * DegToRad)
+            ? std::cos(Lgt->ConeAngleDegrees * Frontier::Constants::DegToRadFloat)
             : -2.0f;
         GpuL.ColorIntensity[0]  = Lgt->LinearColourRGB.X;
         GpuL.ColorIntensity[1]  = Lgt->LinearColourRGB.Y;
@@ -1309,7 +1308,7 @@ ComponentViewportOutput ComponentViewportRenderer::RenderClassViewport(
                     const auto* Lgt = ClassDef.Storage.InspectLight(H.Token);
                     if (Lgt == nullptr || Lgt->Form != ComponentClass::LightSourceCategory::SpotBeam) continue;
                     const float BeamLen = std::min(Lgt->AttenuationRangeMeters * 0.35f, 3.4f);
-                    const float BeamRad = std::tan(Lgt->ConeAngleDegrees * DegToRad) * BeamLen;
+                    const float BeamRad = std::tan(Lgt->ConeAngleDegrees * Frontier::Constants::DegToRadFloat) * BeamLen;
                     auto ConeVerts = ComponentGizmoGeometry::BuildSpotBeamCone(BeamLen, BeamRad, 28u);
                     const VkBuffer ConeVb = Impl->UploadTransientVertices(ConeVerts);
                     ComponentSurfacePushConstantsGpu Push {};

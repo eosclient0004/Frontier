@@ -9,6 +9,7 @@
 
 #include "Engine/SimulationSpace/Deformable/VehicleDeformableCoupling.h"
 #include "Engine/Codecs/Simulation/VertexAtlasCodec.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,7 +20,6 @@ namespace Frontier::SimulationSpace::Deformable
 namespace
 {
 
-constexpr float kPi = 3.14159265358979323846f;
 
 void AppendTransformedWheelGeometry(
     const GeometrySpace::Deformation::HighPolySurfaceRest& restSurface,
@@ -332,7 +332,7 @@ VehicleChassisCouplingInput VehicleDeformableCoupling::BuildCanonicalSportCarInp
         in.CornerInputs[w].CarcassTempKelvin   = 312.0f;
     }
 
-    (void)kPi;
+    (void)Frontier::Constants::PiFloat;
     return in;
 }
 

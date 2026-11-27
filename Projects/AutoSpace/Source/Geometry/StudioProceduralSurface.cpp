@@ -2433,19 +2433,18 @@ StudioBuiltMesh BuildDynamicEmissiveOrbSurface(
     const float R = std::max(0.06f, RadiusMeters);
     constexpr uint32_t LatSegs = 16u;
     constexpr uint32_t LonSegs = 28u;
-    constexpr float    Pi      = 3.14159265359f;
     const uint16_t     MatSlot = Palette.Resolve(StudioMaterialCode::DynamicEmissiveOrb);
 
     std::vector<uint32_t> RingVerts;
     RingVerts.reserve((LatSegs + 1u) * (LonSegs + 1u));
     for (uint32_t Lat = 0u; Lat <= LatSegs; ++Lat)
     {
-        const float Phi    = (static_cast<float>(Lat) / static_cast<float>(LatSegs)) * Pi;
+        const float Phi    = (static_cast<float>(Lat) / static_cast<float>(LatSegs)) * Frontier::Constants::PiFloat;
         const float SinPhi = std::sin(Phi);
         const float CosPhi = std::cos(Phi);
         for (uint32_t Lon = 0u; Lon <= LonSegs; ++Lon)
         {
-            const float Theta    = (static_cast<float>(Lon) / static_cast<float>(LonSegs)) * (2.0f * Pi);
+            const float Theta    = (static_cast<float>(Lon) / static_cast<float>(LonSegs)) * (2.0f * Frontier::Constants::PiFloat);
             const Axis3D UnitN { SinPhi * std::cos(Theta), SinPhi * std::sin(Theta), CosPhi };
             const uint32_t VId = Out.Network.AppendVertex({ UnitN.X * R, UnitN.Y * R, UnitN.Z * R });
             Out.Network.Vertices[VId].Normal = UnitN;
@@ -2508,7 +2507,6 @@ void EvaluateDynamicEmissiveOrbState(
     Frontier::Mathematics::LinearRGB& OutLinearRgb,
     float&                            OutLuminanceNits) noexcept
 {
-    constexpr double TwoPi = 6.283185307179586;
     const double     Phase = ElapsedSeconds * 0.62; // ~10.1 s full orbit around the hero vehicle
 
     // Smooth figure-8 / elliptical foreground-to-side sweep tailored to each lobby's camera framing
@@ -2571,7 +2569,7 @@ void EvaluateDynamicEmissiveOrbState(
         std::pow(std::clamp(SrgbG, 0.0f, 1.0f), 2.2f),
         std::pow(std::clamp(SrgbB, 0.0f, 1.0f), 2.2f),
     };
-    (void)TwoPi;
+    (void)Frontier::Constants::Tau;
 }
 
 } // namespace AutoSpace

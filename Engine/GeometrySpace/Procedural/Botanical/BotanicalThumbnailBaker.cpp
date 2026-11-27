@@ -8,6 +8,9 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalThumbnailBaker.h"
+#include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Mathematics/ScalarMath.h"
+#include "Engine/Codecs/LosslessPngEncoder.h"
 
 #include <algorithm>
 #include <array>
@@ -26,54 +29,13 @@ using V3 = std::array<float, 3>;
 [[nodiscard]] inline V3 Add3(const V3& a, const V3& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] inline V3 Sub3(const V3& a, const V3& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] inline V3 Mul3(const V3& a, float s) noexcept     { return { a[0] * s, a[1] * s, a[2] * s }; }
-[[nodiscard]] inline float Dot3(const V3& a, const V3& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-[[nodiscard]] inline V3 Cross3(const V3& a, const V3& b) noexcept
-{
-    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-}
-[[nodiscard]] inline V3 Norm3(const V3& a) noexcept
-{
-    const float l = std::sqrt(Dot3(a, a));
-    return (l > 1.0e-7f) ? Mul3(a, 1.0f / l) : V3{ 0.0f, 0.0f, 1.0f };
-}
 [[nodiscard]] inline uint8_t LinearToSrgbU8(float v) noexcept
 {
-    const float c = std::clamp(v, 0.0f, 1.0f);
-    const float s = (c <= 0.0031308f) ? (12.92f * c) : (1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(s * 255.0f), 0L, 255L));
+    return Frontier::ColourSpace::EncodeLinearToSrgbByte(v);
 }
 
-void AppendBe32(std::vector<uint8_t>& buf, uint32_t v)
-{
-    buf.push_back(static_cast<uint8_t>((v >> 24u) & 0xFFu));
-    buf.push_back(static_cast<uint8_t>((v >> 16u) & 0xFFu));
-    buf.push_back(static_cast<uint8_t>((v >>  8u) & 0xFFu));
-    buf.push_back(static_cast<uint8_t>( v         & 0xFFu));
-}
 
-[[nodiscard]] uint32_t ComputeCrc32(const uint8_t* data, std::size_t len) noexcept
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    for (std::size_t i = 0u; i < len; ++i)
-    {
-        crc ^= static_cast<uint32_t>(data[i]);
-        for (int b = 0; b < 8; ++b)
-        {
-            crc = (crc & 1u) ? ((crc >> 1u) ^ 0xEDB88320u) : (crc >> 1u);
-        }
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
 
-void AppendPngChunk(std::vector<uint8_t>& out, const char tag[4], const std::vector<uint8_t>& payload)
-{
-    AppendBe32(out, static_cast<uint32_t>(payload.size()));
-    const std::size_t tagStart = out.size();
-    out.insert(out.end(), tag, tag + 4);
-    out.insert(out.end(), payload.begin(), payload.end());
-    const uint32_t crc = ComputeCrc32(out.data() + tagStart, out.size() - tagStart);
-    AppendBe32(out, crc);
-}
 
 } // namespace
 
@@ -139,22 +101,22 @@ BakedPlantThumbnail BakePlant3dThumbnail(
         center[1] + dist * std::cos(elev) * std::sin(az),
         center[2] + dist * std::sin(elev)
     };
-    const V3 camFwd = Norm3(Sub3(center, camPos));
-    const V3 camRgt = Norm3(Cross3(camFwd, { 0.0f, 0.0f, 1.0f }));
-    const V3 camUp  = Norm3(Cross3(camRgt, camFwd));
+    const V3 camFwd = Frontier::Mathematics::NormalizeVector3(Sub3(center, camPos));
+    const V3 camRgt = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(camFwd, { 0.0f, 0.0f, 1.0f }));
+    const V3 camUp  = Frontier::Mathematics::NormalizeVector3(Frontier::Mathematics::EvaluateCross3(camRgt, camFwd));
     const float focal = static_cast<float>(ssW) * 1.18f;
 
     // Three-point studio key + sky hemisphere + warm foliage rim/translucency
-    const V3 keyDir = Norm3({ 0.58f, 0.36f, 0.73f });
-    const V3 rimDir = Norm3({ -0.68f, -0.45f, 0.58f });
+    const V3 keyDir = Frontier::Mathematics::NormalizeVector3({ 0.58f, 0.36f, 0.73f });
+    const V3 rimDir = Frontier::Mathematics::NormalizeVector3({ -0.68f, -0.45f, 0.58f });
 
     auto project = [&](const V3& p, float& sx, float& sy, float& cz) -> bool
     {
         const V3 rel = Sub3(p, camPos);
-        cz = Dot3(rel, camFwd);
+        cz = Frontier::Mathematics::EvaluateDot3(rel, camFwd);
         if (cz <= 0.05f) return false;
-        const float cx = Dot3(rel, camRgt);
-        const float cy = Dot3(rel, camUp);
+        const float cx = Frontier::Mathematics::EvaluateDot3(rel, camRgt);
+        const float cy = Frontier::Mathematics::EvaluateDot3(rel, camUp);
         sx = 0.5f * static_cast<float>(ssW) + (cx / cz) * focal;
         sy = 0.52f * static_cast<float>(ssH) - (cy / cz) * focal;
         return true;
@@ -195,15 +157,15 @@ BakedPlantThumbnail BakePlant3dThumbnail(
                 if (depth < depthBuf[idx])
                 {
                     depthBuf[idx] = depth;
-                    V3 n = Norm3({
+                    V3 n = Frontier::Mathematics::NormalizeVector3({
                         w0 * tri.N0[0] + w1 * tri.N1[0] + w2 * tri.N2[0],
                         w0 * tri.N0[1] + w1 * tri.N1[1] + w2 * tri.N2[1],
                         w0 * tri.N0[2] + w1 * tri.N1[2] + w2 * tri.N2[2]
                     });
-                    if (Dot3(n, camFwd) > 0.0f) n = Mul3(n, -1.0f);
-                    const float ndl  = std::max(0.0f, Dot3(n, keyDir));
-                    const float sss  = (tri.Part == BotanicalPartTag::Leaf) ? std::max(0.0f, Dot3(Mul3(n, -1.0f), keyDir)) * 0.42f : 0.0f;
-                    const float rim  = std::pow(1.0f - std::clamp(std::fabs(Dot3(n, camFwd)), 0.0f, 1.0f), 2.2f) * std::max(0.25f, Dot3(n, rimDir) * 0.5f + 0.5f);
+                    if (Frontier::Mathematics::EvaluateDot3(n, camFwd) > 0.0f) n = Mul3(n, -1.0f);
+                    const float ndl  = std::max(0.0f, Frontier::Mathematics::EvaluateDot3(n, keyDir));
+                    const float sss  = (tri.Part == BotanicalPartTag::Leaf) ? std::max(0.0f, Frontier::Mathematics::EvaluateDot3(Mul3(n, -1.0f), keyDir)) * 0.42f : 0.0f;
+                    const float rim  = std::pow(1.0f - std::clamp(std::fabs(Frontier::Mathematics::EvaluateDot3(n, camFwd)), 0.0f, 1.0f), 2.2f) * std::max(0.25f, Frontier::Mathematics::EvaluateDot3(n, rimDir) * 0.5f + 0.5f);
                     const float hemi = 0.5f + 0.5f * n[2];
                     const float litR = tri.ColorLin[0] * (1.35f * ndl + 0.34f * hemi + sss * 1.15f) * heightAo + rim * 0.09f;
                     const float litG = tri.ColorLin[1] * (1.35f * ndl + 0.38f * hemi + sss * 1.35f) * heightAo + rim * 0.12f;
@@ -251,73 +213,7 @@ bool WriteRgba8PngFile(
     const uint32_t               height,
     const std::vector<uint8_t>&  rgba8)
 {
-    if (width == 0u || height == 0u || rgba8.size() < static_cast<std::size_t>(width) * height * 4u) return false;
-
-    std::error_code ec;
-    if (filePath.has_parent_path()) std::filesystem::create_directories(filePath.parent_path(), ec);
-
-    // Build raw filtered scanlines (filter type 0 = None)
-    const std::size_t rowBytes = static_cast<std::size_t>(width) * 4u;
-    std::vector<uint8_t> raw;
-    raw.reserve(static_cast<std::size_t>(height) * (1u + rowBytes));
-    for (uint32_t y = 0u; y < height; ++y)
-    {
-        raw.push_back(0u);
-        const std::size_t rowOff = static_cast<std::size_t>(y) * rowBytes;
-        raw.insert(raw.end(), rgba8.begin() + static_cast<std::ptrdiff_t>(rowOff),
-                              rgba8.begin() + static_cast<std::ptrdiff_t>(rowOff + rowBytes));
-    }
-
-    // Wrap raw scanlines in valid stored-block zlib stream (RFC 1950 + RFC 1951)
-    std::vector<uint8_t> zlib;
-    zlib.push_back(0x78u);
-    zlib.push_back(0x01u);
-    std::size_t pos = 0u;
-    while (pos < raw.size())
-    {
-        const std::size_t chunk = std::min<std::size_t>(65535u, raw.size() - pos);
-        const bool isFinal = (pos + chunk >= raw.size());
-        zlib.push_back(isFinal ? 0x01u : 0x00u);
-        const uint16_t len = static_cast<uint16_t>(chunk);
-        const uint16_t nlen = static_cast<uint16_t>(~len);
-        zlib.push_back(static_cast<uint8_t>(len & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>((len >> 8u) & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>(nlen & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>((nlen >> 8u) & 0xFFu));
-        zlib.insert(zlib.end(), raw.begin() + static_cast<std::ptrdiff_t>(pos),
-                                raw.begin() + static_cast<std::ptrdiff_t>(pos + chunk));
-        pos += chunk;
-    }
-
-    // Adler-32 checksum
-    uint32_t s1 = 1u, s2 = 0u;
-    for (const uint8_t byte : raw)
-    {
-        s1 = (s1 + byte) % 65521u;
-        s2 = (s2 + s1) % 65521u;
-    }
-    AppendBe32(zlib, (s2 << 16u) | s1);
-
-    std::vector<uint8_t> png;
-    static constexpr uint8_t kSig[8] = { 137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u };
-    png.insert(png.end(), kSig, kSig + 8);
-
-    std::vector<uint8_t> ihdr;
-    AppendBe32(ihdr, width);
-    AppendBe32(ihdr, height);
-    ihdr.push_back(8u); // 8-bit depth
-    ihdr.push_back(6u); // RGBA
-    ihdr.push_back(0u); // Deflate
-    ihdr.push_back(0u); // Adaptive filter
-    ihdr.push_back(0u); // No interlace
-    AppendPngChunk(png, "IHDR", ihdr);
-    AppendPngChunk(png, "IDAT", zlib);
-    AppendPngChunk(png, "IEND", {});
-
-    std::ofstream out(filePath, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) return false;
-    out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
-    return out.good();
+    return Frontier::Codecs::WriteLosslessRgba8PngFile(filePath, width, height, rgba8);
 }
 
 } // namespace Frontier::GeometrySpace::Botanical

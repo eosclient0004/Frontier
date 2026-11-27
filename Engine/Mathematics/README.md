@@ -1,6 +1,6 @@
 # 🧩 `Engine/Mathematics/`
 
-> **TL;DR**: Axis3D, Axis2D, zero-overhead Scalar3D/Scalar2D aliases, dedicated UVAxes, SpatialTransform, and 16B-aligned .slang GPU layout structs (3 source/header/shader files under `Engine/Mathematics/`).
+> **TL;DR**: Axis3D, Axis2D, zero-overhead Scalar3D/Scalar2D aliases, dedicated UVAxes, SpatialTransform, canonical scalar/3-array math, and 16B-aligned .slang GPU layout structs (4 source/header/shader files under `Engine/Mathematics/`).
 
 ---
 
@@ -11,6 +11,7 @@
 | `AxisCoordinates.h` | Axis3D, Axis2D, zero-overhead Scalar3D/Scalar2D aliases, dedicated UVAxes, SpatialTransform, and 16B-aligned .slang GPU layout structs |
 | `CoordinateSpace.h` | Configurable Right-Handed World Basis (RightHandedZUp default / RightHandedYUp), det=+1 boundary conversion & isolated Vulkan NDC clip |
 | `LinearColors.h` | Dedicated scene-referred Linear Rec.709 / sRGB tristimulus struct preserving explicit .R, .G, .B radiometric channels |
+| `ScalarMath.h` | Canonical scalar clamping, smoothstep, linear interpolation, fractional part, degree wrapping, byte alignment, and 3-lane array vector math |
 
 ## Namespaces & Primary Types
 

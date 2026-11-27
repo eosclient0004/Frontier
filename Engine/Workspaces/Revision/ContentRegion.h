@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -32,8 +33,7 @@ public:
 
     [[nodiscard]] static constexpr std::size_t AlignUp64(std::size_t ByteCount) noexcept
     {
-        const std::size_t Alignment = Constants::ContainerBinaryAlignmentBytes;
-        return (ByteCount + (Alignment - 1u)) & ~(Alignment - 1u);
+        return Mathematics::AlignUpBytes(ByteCount);
     }
 
     void Reset() noexcept;

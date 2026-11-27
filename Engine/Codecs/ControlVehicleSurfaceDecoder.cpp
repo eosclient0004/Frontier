@@ -9,6 +9,7 @@
 
 #include "Engine/Codecs/ControlVehicleSurfaceDecoder.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -51,12 +52,6 @@ constexpr std::array<WheelAxleMount, 4u> CanonicalAxleMounts {{
     return Word;
 }
 
-[[nodiscard]] float ReadLeFloat32(const uint8_t* Ptr) noexcept
-{
-    float Scalar = 0.0f;
-    std::memcpy(&Scalar, Ptr, sizeof(Scalar));
-    return Scalar;
-}
 
 [[nodiscard]] VehicleSurfaceSlot ResolveBodyPartSlot(uint32_t PartGroupCode) noexcept
 {
@@ -259,7 +254,7 @@ bool ControlVehicleSurfaceDecoder::DecodeFaceBytes(
     OutStream.Positions.resize(static_cast<std::size_t>(OutStream.VertexCount) * 3u);
     for (std::size_t I = 0u; I < OutStream.Positions.size(); ++I)
     {
-        OutStream.Positions[I] = ReadLeFloat32(PayloadBytes.data() + Offset + I * 4u);
+        OutStream.Positions[I] = Frontier::Serialization::ReadLittleEndianFloat32(PayloadBytes.data() + Offset + I * 4u);
     }
     Offset += PosBytes;
 
@@ -282,7 +277,7 @@ bool ControlVehicleSurfaceDecoder::DecodeFaceBytes(
         OutStream.CornerNormals.resize(static_cast<std::size_t>(OutStream.FaceCount) * 9u);
         for (std::size_t I = 0u; I < OutStream.CornerNormals.size(); ++I)
         {
-            OutStream.CornerNormals[I] = ReadLeFloat32(PayloadBytes.data() + Offset + I * 4u);
+            OutStream.CornerNormals[I] = Frontier::Serialization::ReadLittleEndianFloat32(PayloadBytes.data() + Offset + I * 4u);
         }
     }
     else

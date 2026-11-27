@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Deformation/VertexMotionAtlasExporter.h"
+#include "Engine/Codecs/LosslessPngEncoder.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,47 +22,8 @@ namespace Frontier::GeometrySpace::Deformation
 namespace
 {
 
-void AppendBe32(std::vector<std::byte>& dst, uint32_t v)
-{
-    dst.push_back(static_cast<std::byte>((v >> 24u) & 0xFFu));
-    dst.push_back(static_cast<std::byte>((v >> 16u) & 0xFFu));
-    dst.push_back(static_cast<std::byte>((v >> 8u) & 0xFFu));
-    dst.push_back(static_cast<std::byte>(v & 0xFFu));
-}
 
-uint32_t ComputeCrc32(const uint8_t* ptr, size_t len) noexcept
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    for (size_t i = 0u; i < len; ++i)
-    {
-        crc ^= ptr[i];
-        for (int b = 0; b < 8; ++b)
-        {
-            const uint32_t mask = static_cast<uint32_t>(-static_cast<int32_t>(crc & 1u));
-            crc = (crc >> 1u) ^ (0xEDB88320u & mask);
-        }
-    }
-    return ~crc;
-}
 
-void AppendPngChunk(std::vector<std::byte>& dst, const char type[4], const std::vector<uint8_t>& payload)
-{
-    AppendBe32(dst, static_cast<uint32_t>(payload.size()));
-    std::vector<uint8_t> crcBuf(4u + payload.size());
-    crcBuf[0] = static_cast<uint8_t>(type[0]);
-    crcBuf[1] = static_cast<uint8_t>(type[1]);
-    crcBuf[2] = static_cast<uint8_t>(type[2]);
-    crcBuf[3] = static_cast<uint8_t>(type[3]);
-    if (!payload.empty())
-    {
-        std::copy(payload.begin(), payload.end(), crcBuf.begin() + 4u);
-    }
-    for (uint8_t byte : crcBuf)
-    {
-        dst.push_back(static_cast<std::byte>(byte));
-    }
-    AppendBe32(dst, ComputeCrc32(crcBuf.data(), crcBuf.size()));
-}
 
 } // namespace
 
@@ -112,77 +74,7 @@ std::vector<std::byte> VertexMotionAtlasExporter::EncodeRgba8Png(
     const std::vector<uint8_t>& rgbaPixels)
 {
     std::vector<std::byte> out;
-    if (width == 0u || height == 0u || rgbaPixels.size() < static_cast<size_t>(width) * height * 4u)
-    {
-        return out;
-    }
-
-    // PNG 8-byte signature
-    static constexpr uint8_t kSig[8] = { 137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u };
-    for (uint8_t b : kSig) out.push_back(static_cast<std::byte>(b));
-
-    // IHDR chunk (8-bit RGBA)
-    std::vector<uint8_t> ihdr(13u, 0u);
-    ihdr[0] = static_cast<uint8_t>((width >> 24u) & 0xFFu);
-    ihdr[1] = static_cast<uint8_t>((width >> 16u) & 0xFFu);
-    ihdr[2] = static_cast<uint8_t>((width >> 8u) & 0xFFu);
-    ihdr[3] = static_cast<uint8_t>(width & 0xFFu);
-    ihdr[4] = static_cast<uint8_t>((height >> 24u) & 0xFFu);
-    ihdr[5] = static_cast<uint8_t>((height >> 16u) & 0xFFu);
-    ihdr[6] = static_cast<uint8_t>((height >> 8u) & 0xFFu);
-    ihdr[7] = static_cast<uint8_t>(height & 0xFFu);
-    ihdr[8] = 8u; // bit depth
-    ihdr[9] = 6u; // color type RGBA
-    AppendPngChunk(out, "IHDR", ihdr);
-
-    // Filtered scanlines (filter type 0 per row) wrapped in RFC 1950 zlib stored blocks
-    const size_t rowBytes = static_cast<size_t>(width) * 4u;
-    std::vector<uint8_t> raw;
-    raw.reserve(static_cast<size_t>(height) * (rowBytes + 1u));
-    uint32_t adlerA = 1u, adlerB = 0u;
-    for (uint32_t y = 0u; y < height; ++y)
-    {
-        raw.push_back(0u);
-        adlerA = (adlerA + 0u) % 65521u;
-        adlerB = (adlerB + adlerA) % 65521u;
-        const uint8_t* src = rgbaPixels.data() + static_cast<size_t>(y) * rowBytes;
-        for (size_t x = 0u; x < rowBytes; ++x)
-        {
-            const uint8_t b = src[x];
-            raw.push_back(b);
-            adlerA = (adlerA + b) % 65521u;
-            adlerB = (adlerB + adlerA) % 65521u;
-        }
-    }
-
-    std::vector<uint8_t> zlib;
-    zlib.reserve(raw.size() + 64u);
-    zlib.push_back(0x78u);
-    zlib.push_back(0x01u);
-    size_t offset = 0u;
-    while (offset < raw.size())
-    {
-        const size_t chunkLen = std::min<size_t>(65535u, raw.size() - offset);
-        const bool isFinal = (offset + chunkLen) >= raw.size();
-        zlib.push_back(isFinal ? 0x01u : 0x00u);
-        const uint16_t len16  = static_cast<uint16_t>(chunkLen);
-        const uint16_t nlen16 = static_cast<uint16_t>(~len16);
-        zlib.push_back(static_cast<uint8_t>(len16 & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>((len16 >> 8u) & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>(nlen16 & 0xFFu));
-        zlib.push_back(static_cast<uint8_t>((nlen16 >> 8u) & 0xFFu));
-        zlib.insert(zlib.end(), raw.begin() + static_cast<ptrdiff_t>(offset),
-                    raw.begin() + static_cast<ptrdiff_t>(offset + chunkLen));
-        offset += chunkLen;
-    }
-    const uint32_t adler = (adlerB << 16u) | adlerA;
-    zlib.push_back(static_cast<uint8_t>((adler >> 24u) & 0xFFu));
-    zlib.push_back(static_cast<uint8_t>((adler >> 16u) & 0xFFu));
-    zlib.push_back(static_cast<uint8_t>((adler >> 8u) & 0xFFu));
-    zlib.push_back(static_cast<uint8_t>(adler & 0xFFu));
-
-    AppendPngChunk(out, "IDAT", zlib);
-    AppendPngChunk(out, "IEND", {});
+    (void)Frontier::Codecs::EncodeLosslessRgba8Png(width, height, rgbaPixels, out);
     return out;
 }
 

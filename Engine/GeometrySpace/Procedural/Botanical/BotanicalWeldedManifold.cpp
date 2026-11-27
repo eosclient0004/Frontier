@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalWeldedManifold.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,8 +22,6 @@ namespace Frontier::GeometrySpace::Botanical
 namespace
 {
 
-constexpr float kPi  = 3.14159265358979323846f;
-constexpr float kTau = 6.28318530717958647692f;
 
 [[nodiscard]] inline Vec3f Add(const Vec3f& a, const Vec3f& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] inline Vec3f Sub(const Vec3f& a, const Vec3f& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
@@ -403,7 +402,7 @@ void WeldedMesher::MeshStem(WeldedStem& stem, const BaseInfo& base, const uint32
             {
                 p = AddScaled(p, Normalize(out), first.Radius * 0.10f);
             }
-            mid[static_cast<std::size_t>(k)] = EmitVertex(p, stem, sStart * 0.5f, (kTau * static_cast<float>(k)) / static_cast<float>(M), first.Dir, true);
+            mid[static_cast<std::size_t>(k)] = EmitVertex(p, stem, sStart * 0.5f, (Frontier::Constants::TauFloat * static_cast<float>(k)) / static_cast<float>(M), first.Dir, true);
         }
         BridgeLoops(base.Loop, mid, true);
         BridgeLoops(mid, first.Idx, true);
@@ -468,7 +467,7 @@ WeldedMesher::Ring WeldedMesher::BuildRing(
     for (int32_t j = 0; j < nCols; ++j)
     {
         if (skipFn && skipFn(j)) continue;
-        const float th = phase + (kTau * static_cast<float>(j)) / static_cast<float>(nCols);
+        const float th = phase + (Frontier::Constants::TauFloat * static_cast<float>(j)) / static_cast<float>(nCols);
         const float rr = stem.ProfileFactor ? (r * stem.ProfileFactor(s, th)) : r;
         const float c = std::cos(th), sn = std::sin(th);
         Vec3f off {
@@ -506,7 +505,7 @@ float WeldedMesher::FitPhase(const std::vector<int32_t>& loop, const Vec3f& cent
     for (int32_t k = 0; k < M; ++k)
     {
         const float a = std::atan2(ys[static_cast<std::size_t>(k)] - cy, xs[static_cast<std::size_t>(k)] - cx)
-                      - (kTau * static_cast<float>(k)) / static_cast<float>(M);
+                      - (Frontier::Constants::TauFloat * static_cast<float>(k)) / static_cast<float>(M);
         sx += std::cos(a);
         sy += std::sin(a);
     }
@@ -542,7 +541,7 @@ void WeldedMesher::BuildCollar(const WeldedStem& stem, const std::vector<int32_t
                 a[2] * w0 + c[2] * w1 + b[2] * w2
             };
             const Vec3f p = Lerp(chord, bez, fillet);
-            mid[static_cast<std::size_t>(i)] = EmitVertex(p, stem, first.S * k, (kTau * static_cast<float>(i)) / static_cast<float>(M), first.Dir, true);
+            mid[static_cast<std::size_t>(i)] = EmitVertex(p, stem, first.S * k, (Frontier::Constants::TauFloat * static_cast<float>(i)) / static_cast<float>(M), first.Dir, true);
         }
         BridgeLoops(prev, mid, true);
         prev = std::move(mid);
@@ -593,7 +592,7 @@ std::vector<WeldedMesher::HolePlan> WeldedMesher::PlanHoles(WeldedStem& stem, co
         return WeldedRadiusAt(*b, 0.0f, Cfg_) < WeldedRadiusAt(*a, 0.0f, Cfg_);
     });
 
-    const float colStep = kTau / static_cast<float>(nCols);
+    const float colStep = Frontier::Constants::TauFloat / static_cast<float>(nCols);
     const int32_t wMax  = std::max<int32_t>(1, nCols / 2 - 1);
     std::vector<HolePlan> cands {};
 
@@ -605,7 +604,7 @@ std::vector<WeldedMesher::HolePlan> WeldedMesher::PlanHoles(WeldedStem& stem, co
         const float rp = WeldedRadiusAt(stem, sAttach, Cfg_);
         const float rc = WeldedRadiusAt(*child, 0.0f, Cfg_);
         const float rho = rc * Cfg_.CollarScale;
-        const float chord = (kTau * rp) / static_cast<float>(nCols);
+        const float chord = (Frontier::Constants::TauFloat * rp) / static_cast<float>(nCols);
 
         const Vec3f a0 = child->Nodes.front().Dir;
         const float d0 = CollarStart(*child, Cfg_);
@@ -640,7 +639,7 @@ std::vector<WeldedMesher::HolePlan> WeldedMesher::PlanHoles(WeldedStem& stem, co
     std::vector<HolePlan> accepted {};
     const float r0   = WeldedRadiusAt(stem, 0.0f, Cfg_);
     const float sMin = sStart + (stem.Attach == WeldedAttachKind::Side ? 0.45f * r0 : 1.0e-4f);
-    constexpr float maxTurn = kPi * 0.25f;
+    constexpr float maxTurn = Frontier::Constants::PiFloat * 0.25f;
 
     for (auto& c : cands)
     {
@@ -724,8 +723,8 @@ std::vector<WeldedMesher::HolePlan> WeldedMesher::PlanHoles(WeldedStem& stem, co
         const float oldAz = std::atan2(Dot(oldRadial, oldUp), Dot(oldRadial, oldSmp.Right));
         const float newAz = phase + newCenterCol * colStep;
         float dAz = newAz - oldAz;
-        while (dAz > kPi)  dAz -= kTau;
-        while (dAz < -kPi) dAz += kTau;
+        while (dAz > Frontier::Constants::PiFloat)  dAz -= Frontier::Constants::TauFloat;
+        while (dAz < -Frontier::Constants::PiFloat) dAz += Frontier::Constants::TauFloat;
 
         const auto newSmp = SampleWeldedStem(stem, newAttach);
         const Vec3f newUp = Cross(newSmp.Dir, newSmp.Right);
@@ -869,7 +868,7 @@ void WeldedMesher::MeshFork(WeldedStem& stem, const Ring& endRing, const uint32_
         ? Normalize(ProjectOnPlane(Sub(PosAt(endRing.Idx.front()), F), dirP))
         : AnyPerpendicular(dirP);
     const Vec3f up = Cross(dirP, right);
-    const float colStep = kTau / static_cast<float>(nCols);
+    const float colStep = Frontier::Constants::TauFloat / static_cast<float>(nCols);
 
     Vec3f meanDir { 0.0f, 0.0f, 0.0f };
     for (const auto& k : kids) meanDir = Add(meanDir, k->Nodes.front().Dir);
@@ -883,7 +882,7 @@ void WeldedMesher::MeshFork(WeldedStem& stem, const Ring& endRing, const uint32_
         Vec3f proj = ProjectOnPlane(d, dirP);
         const float r = WeldedRadiusAt(*k, 0.0f, Cfg_);
         const float theta = std::max(0.05f, std::acos(std::clamp(Dot(d, meanDir), -1.0f, 1.0f)));
-        const float sep = std::sin(std::min(kPi * 0.5f, 2.0f * theta));
+        const float sep = std::sin(std::min(Frontier::Constants::PiFloat * 0.5f, 2.0f * theta));
         const float t1 = std::clamp((2.0f * r) / std::max(0.05f, sep), 1.5f * r, 6.0f * r);
         const bool okProj = LenSq(proj) > 1.0e-10f;
         float col = 0.0f;
@@ -970,9 +969,9 @@ void WeldedMesher::MeshFork(WeldedStem& stem, const Ring& endRing, const uint32_
         for (int32_t q = 0; q < m; ++q)
         {
             const float u = static_cast<float>(q + 1) / static_cast<float>(m + 1);
-            Vec3f p = AddScaled(Lerp(S, H, u), outward, std::sin(kPi * u) * endRing.Radius * 0.12f);
+            Vec3f p = AddScaled(Lerp(S, H, u), outward, std::sin(Frontier::Constants::PiFloat * u) * endRing.Radius * 0.12f);
             half[static_cast<std::size_t>(i)].push_back(
-                EmitVertex(p, stem, stem.Length, (static_cast<float>(splits[static_cast<std::size_t>(i)]) / static_cast<float>(nCols)) * kTau, meanDir, true));
+                EmitVertex(p, stem, stem.Length, (static_cast<float>(splits[static_cast<std::size_t>(i)]) / static_cast<float>(nCols)) * Frontier::Constants::TauFloat, meanDir, true));
         }
     }
     for (const int32_t v : endRing.Idx) MarkJunction(v);

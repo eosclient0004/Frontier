@@ -10,6 +10,8 @@
 #include "Engine/SimulationSpace/Policies/GameplayRulePolicy.h"
 
 #include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
+#include "Engine/Constants/EngineConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,21 +27,7 @@ namespace
 
 constexpr uint8_t WireMagic[4] = { 'F', 'G', 'R', 'P' };
 
-void WriteLe32(std::byte* Dest, uint32_t Value) noexcept
-{
-    Dest[0] = static_cast<std::byte>(Value & 0xFFu);
-    Dest[1] = static_cast<std::byte>((Value >> 8u) & 0xFFu);
-    Dest[2] = static_cast<std::byte>((Value >> 16u) & 0xFFu);
-    Dest[3] = static_cast<std::byte>((Value >> 24u) & 0xFFu);
-}
 
-[[nodiscard]] uint32_t ReadLe32(const std::byte* Src) noexcept
-{
-    return static_cast<uint32_t>(Src[0]) |
-           (static_cast<uint32_t>(Src[1]) << 8u) |
-           (static_cast<uint32_t>(Src[2]) << 16u) |
-           (static_cast<uint32_t>(Src[3]) << 24u);
-}
 
 void WriteLe64(std::byte* Dest, uint64_t Value) noexcept
 {
@@ -123,14 +111,14 @@ uint64_t GameplayRulePolicyEngine::ComputeWorldAlignmentHash(
     std::span<const WorldKinematicsDigestEntry> Entries) noexcept
 {
     // Deterministic FNV-1a 64 over tick ordinal + millimeter-quantized kinematics
-    uint64_t Digest = 14695981039346656037ull;
+    uint64_t Digest = Frontier::Constants::Fnv1a64OffsetBasis;
     auto MixBytes = [&Digest](const void* Ptr, std::size_t ByteCount) noexcept
     {
         const auto* Bytes = static_cast<const uint8_t*>(Ptr);
         for (std::size_t Idx = 0u; Idx < ByteCount; ++Idx)
         {
             Digest ^= static_cast<uint64_t>(Bytes[Idx]);
-            Digest *= 1099511628211ull;
+            Digest *= Frontier::Constants::Fnv1a64Prime;
         }
     };
 
@@ -141,14 +129,14 @@ uint64_t GameplayRulePolicyEngine::ComputeWorldAlignmentHash(
     for (const WorldKinematicsDigestEntry& Entry : Entries)
     {
         std::byte ActorBuf[44]{};
-        WriteLe32(ActorBuf + 0u,  Entry.ActorIdentifier);
+        Frontier::Serialization::WriteLittleEndian32(ActorBuf + 0u,  Entry.ActorIdentifier);
         WriteLe64(ActorBuf + 4u,  static_cast<uint64_t>(QuantizeMillimeters(Entry.PositionMetersX)));
         WriteLe64(ActorBuf + 12u, static_cast<uint64_t>(QuantizeMillimeters(Entry.PositionMetersY)));
         WriteLe64(ActorBuf + 20u, static_cast<uint64_t>(QuantizeMillimeters(Entry.PositionMetersZ)));
-        WriteLe32(ActorBuf + 28u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecX)));
-        WriteLe32(ActorBuf + 32u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecY)));
-        WriteLe32(ActorBuf + 36u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecZ)));
-        WriteLe32(ActorBuf + 40u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.YawRadians)));
+        Frontier::Serialization::WriteLittleEndian32(ActorBuf + 28u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecX)));
+        Frontier::Serialization::WriteLittleEndian32(ActorBuf + 32u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecY)));
+        Frontier::Serialization::WriteLittleEndian32(ActorBuf + 36u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.VelocityMetersSecZ)));
+        Frontier::Serialization::WriteLittleEndian32(ActorBuf + 40u, static_cast<uint32_t>(QuantizeMilliUnits(Entry.YawRadians)));
         MixBytes(ActorBuf, sizeof(ActorBuf));
     }
 
@@ -217,19 +205,19 @@ bool GameplayRulePolicyEngine::EncodePolicyWireBytes(
         OutWireBytes[Idx] = static_cast<std::byte>(WireMagic[Idx]);
     }
 
-    WriteLe32(OutWireBytes.data() + 4u,  Clamped.SchemaVersion);
-    WriteLe32(OutWireBytes.data() + 8u,  Clamped.FixedSimulationHz);
-    WriteLe32(OutWireBytes.data() + 12u, Clamped.AlignmentHashIntervalTicks);
-    WriteLe32(OutWireBytes.data() + 16u, FloatToBits(Clamped.SpeedLimitKmh));
-    WriteLe32(OutWireBytes.data() + 20u, FloatToBits(Clamped.RedSignalPenaltyScore));
-    WriteLe32(OutWireBytes.data() + 24u, FloatToBits(Clamped.CollisionImpulseThresholdNs));
-    WriteLe32(OutWireBytes.data() + 28u, Clamped.PursuitEscalationStages);
-    WriteLe32(OutWireBytes.data() + 32u, FloatToBits(Clamped.MaximumSteerMagnitude));
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 4u,  Clamped.SchemaVersion);
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 8u,  Clamped.FixedSimulationHz);
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 12u, Clamped.AlignmentHashIntervalTicks);
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 16u, FloatToBits(Clamped.SpeedLimitKmh));
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 20u, FloatToBits(Clamped.RedSignalPenaltyScore));
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 24u, FloatToBits(Clamped.CollisionImpulseThresholdNs));
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 28u, Clamped.PursuitEscalationStages);
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 32u, FloatToBits(Clamped.MaximumSteerMagnitude));
 
     const uint32_t PackedTail = (Clamped.MaximumDirectiveRateHz & 0xFFFFu) |
                                 (Clamped.JoinInProgressAllowed ? (1u << 16u) : 0u) |
                                 (Clamped.HostMigrationEnabled ? (1u << 17u) : 0u);
-    WriteLe32(OutWireBytes.data() + 36u, PackedTail);
+    Frontier::Serialization::WriteLittleEndian32(OutWireBytes.data() + 36u, PackedTail);
 
     const uint64_t Checksum = Serialization::ComputeFnv1a64(
         std::span<const std::byte>(OutWireBytes.data(), 40u));
@@ -267,16 +255,16 @@ bool GameplayRulePolicyEngine::DecodePolicyWireBytes(
     }
 
     OutPolicy                             = {};
-    OutPolicy.SchemaVersion               = ReadLe32(WireBytes.data() + 4u);
-    OutPolicy.FixedSimulationHz           = ReadLe32(WireBytes.data() + 8u);
-    OutPolicy.AlignmentHashIntervalTicks  = ReadLe32(WireBytes.data() + 12u);
-    OutPolicy.SpeedLimitKmh               = BitsToFloat(ReadLe32(WireBytes.data() + 16u));
-    OutPolicy.RedSignalPenaltyScore       = BitsToFloat(ReadLe32(WireBytes.data() + 20u));
-    OutPolicy.CollisionImpulseThresholdNs = BitsToFloat(ReadLe32(WireBytes.data() + 24u));
-    OutPolicy.PursuitEscalationStages     = ReadLe32(WireBytes.data() + 28u);
-    OutPolicy.MaximumSteerMagnitude       = BitsToFloat(ReadLe32(WireBytes.data() + 32u));
+    OutPolicy.SchemaVersion               = Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 4u);
+    OutPolicy.FixedSimulationHz           = Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 8u);
+    OutPolicy.AlignmentHashIntervalTicks  = Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 12u);
+    OutPolicy.SpeedLimitKmh               = BitsToFloat(Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 16u));
+    OutPolicy.RedSignalPenaltyScore       = BitsToFloat(Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 20u));
+    OutPolicy.CollisionImpulseThresholdNs = BitsToFloat(Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 24u));
+    OutPolicy.PursuitEscalationStages     = Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 28u);
+    OutPolicy.MaximumSteerMagnitude       = BitsToFloat(Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 32u));
 
-    const uint32_t PackedTail        = ReadLe32(WireBytes.data() + 36u);
+    const uint32_t PackedTail        = Frontier::Serialization::ReadLittleEndian32(WireBytes.data() + 36u);
     OutPolicy.MaximumDirectiveRateHz = PackedTail & 0xFFFFu;
     OutPolicy.JoinInProgressAllowed  = (PackedTail & (1u << 16u)) != 0u;
     OutPolicy.HostMigrationEnabled   = (PackedTail & (1u << 17u)) != 0u;

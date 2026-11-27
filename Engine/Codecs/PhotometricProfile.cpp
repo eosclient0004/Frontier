@@ -9,6 +9,7 @@
 
 #include "Engine/Codecs/PhotometricProfile.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -25,20 +26,6 @@ namespace
 
 constexpr int32_t Lm63PhotometricTypeC = 1;
 
-[[nodiscard]] std::string TrimAsciiWhitespace(std::string_view Input)
-{
-    std::size_t First = 0u;
-    while (First < Input.size() && std::isspace(static_cast<unsigned char>(Input[First])) != 0)
-    {
-        ++First;
-    }
-    std::size_t Last = Input.size();
-    while (Last > First && std::isspace(static_cast<unsigned char>(Input[Last - 1u])) != 0)
-    {
-        --Last;
-    }
-    return std::string(Input.substr(First, Last - First));
-}
 
 [[nodiscard]] std::string ToUpperAscii(std::string_view Input)
 {
@@ -155,7 +142,7 @@ bool PhotometricProfileCodec::ParseLm63Text(
     std::string TiltDirective {};
     for (std::size_t Index = 0u; Index < Lines.size(); ++Index)
     {
-        const std::string Trimmed = TrimAsciiWhitespace(Lines[Index]);
+        const std::string Trimmed = Frontier::Serialization::TrimAsciiWhitespace(Lines[Index]);
         const std::string Upper   = ToUpperAscii(Trimmed);
         if (Upper.rfind("TILT", 0u) == 0u)
         {
@@ -163,7 +150,7 @@ bool PhotometricProfileCodec::ParseLm63Text(
             if (EqPos != std::string::npos)
             {
                 TiltLineIndex = Index;
-                TiltDirective = ToUpperAscii(TrimAsciiWhitespace(std::string_view(Trimmed).substr(EqPos + 1u)));
+                TiltDirective = ToUpperAscii(Frontier::Serialization::TrimAsciiWhitespace(std::string_view(Trimmed).substr(EqPos + 1u)));
                 break;
             }
         }
@@ -177,14 +164,14 @@ bool PhotometricProfileCodec::ParseLm63Text(
 
     for (std::size_t Index = 0u; Index < TiltLineIndex; ++Index)
     {
-        const std::string Trimmed = TrimAsciiWhitespace(Lines[Index]);
+        const std::string Trimmed = Frontier::Serialization::TrimAsciiWhitespace(Lines[Index]);
         if (!Trimmed.empty() && Trimmed.front() == '[')
         {
             const std::size_t ClosePos = Trimmed.find(']');
             if (ClosePos != std::string::npos && ClosePos > 1u)
             {
-                std::string Key = ToUpperAscii(TrimAsciiWhitespace(std::string_view(Trimmed).substr(1u, ClosePos - 1u)));
-                std::string Txt = TrimAsciiWhitespace(std::string_view(Trimmed).substr(ClosePos + 1u));
+                std::string Key = ToUpperAscii(Frontier::Serialization::TrimAsciiWhitespace(std::string_view(Trimmed).substr(1u, ClosePos - 1u)));
+                std::string Txt = Frontier::Serialization::TrimAsciiWhitespace(std::string_view(Trimmed).substr(ClosePos + 1u));
                 OutDistribution.KeywordEntries.emplace_back(std::move(Key), std::move(Txt));
             }
         }

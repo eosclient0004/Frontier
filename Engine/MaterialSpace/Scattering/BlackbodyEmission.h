@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/MaterialSpace/SurfaceMaterial.h"
+#include "Engine/Mathematics/LinearColors.h"
 
 #include <algorithm>
 #include <cmath>
@@ -46,7 +47,7 @@ namespace Frontier::MaterialSpace::Scattering
         const float B535 = EvalBand(535.0);
         const float B460 = EvalBand(460.0);
 
-        const float PhotopicLum = std::max(1.0e-7f, 0.2126f * B630 + 0.7152f * B535 + 0.0722f * B460);
+        const float PhotopicLum = std::max(1.0e-7f, Frontier::Mathematics::EvaluateRec709Luminance(B630, B535, B460));
         const float LumScale    = (Params.EmissionLuminanceNits > 0.0f) ? (Params.EmissionLuminanceNits * 0.00028f) : 0.26f;
 
         TotalRadiance.R = (B630 / PhotopicLum) * LumScale * Params.EmissionTint.R;

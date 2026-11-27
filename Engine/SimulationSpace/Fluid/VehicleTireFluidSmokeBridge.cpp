@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/Fluid/VehicleTireFluidSmokeBridge.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,12 +25,7 @@ using Vec3 = std::array<float, 3>;
 [[nodiscard]] inline Vec3 Add3(const Vec3& a, const Vec3& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] inline Vec3 Sub3(const Vec3& a, const Vec3& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] inline Vec3 Scale3(const Vec3& a, float s) noexcept { return { a[0] * s, a[1] * s, a[2] * s }; }
-[[nodiscard]] inline float Dot3(const Vec3& a, const Vec3& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-[[nodiscard]] inline Vec3 Cross3(const Vec3& a, const Vec3& b) noexcept
-{
-    return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-}
-[[nodiscard]] inline float Len3(const Vec3& a) noexcept { return std::sqrt(Dot3(a, a)); }
+[[nodiscard]] inline float Len3(const Vec3& a) noexcept { return std::sqrt(Frontier::Mathematics::EvaluateDot3(a, a)); }
 [[nodiscard]] inline Vec3 Norm3(const Vec3& a, const Vec3& fallback = { 0.0f, 1.0f, 0.0f }) noexcept
 {
     const float l = Len3(a);
@@ -39,8 +35,8 @@ using Vec3 = std::array<float, 3>;
 [[nodiscard]] inline Vec3 RotateQuat(const std::array<float, 4>& q, const Vec3& v) noexcept
 {
     const Vec3 u { q[0], q[1], q[2] };
-    const Vec3 t = Scale3(Cross3(u, v), 2.0f);
-    return Add3(v, Add3(Scale3(t, q[3]), Cross3(u, t)));
+    const Vec3 t = Scale3(Frontier::Mathematics::EvaluateCross3(u, v), 2.0f);
+    return Add3(v, Add3(Scale3(t, q[3]), Frontier::Mathematics::EvaluateCross3(u, t)));
 }
 
 [[nodiscard]] inline Vec3 RotateInvQuat(const std::array<float, 4>& q, const Vec3& v) noexcept
@@ -48,11 +44,6 @@ using Vec3 = std::array<float, 3>;
     return RotateQuat({ -q[0], -q[1], -q[2], q[3] }, v);
 }
 
-[[nodiscard]] inline float SmoothStep(float edge0, float edge1, float x) noexcept
-{
-    const float t = std::clamp((x - edge0) / std::max(edge1 - edge0, 1.0e-5f), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 
 [[nodiscard]] inline float SignedDistRoundedBox(const Vec3& p, const Vec3& centre, const Vec3& halfExt, float r) noexcept
 {
@@ -139,7 +130,7 @@ std::array<float, 3> FluidVehicleSdfCollider::EvaluateOutwardNormal(const std::a
 std::array<float, 3> FluidVehicleSdfCollider::EvaluateSurfaceVelocity(const std::array<float, 3>& worldPosMeters) const noexcept
 {
     const Vec3 r = Sub3(worldPosMeters, PositionMeters);
-    return Add3(LinearVelocityMps, Cross3(AngularVelocityRadS, r));
+    return Add3(LinearVelocityMps, Frontier::Mathematics::EvaluateCross3(AngularVelocityRadS, r));
 }
 
 void FluidVehicleSdfCollider::ExportGpuApproxSpheres(
@@ -368,14 +359,14 @@ void VehicleTireFluidSmokeBridge::EvaluateVehicleTireEmitters(
         const float cs = std::cos(w.SteerAngleRad);
         const float sn = std::sin(w.SteerAngleRad);
         const Vec3 rawFwd = Add3(Scale3(bodyFwd, cs), Scale3(bodyRight, sn));
-        const Vec3 wFwd   = Norm3(Sub3(rawFwd, Scale3(contactN, Dot3(rawFwd, contactN))), bodyFwd);
-        const Vec3 wRight = Norm3(Cross3(wFwd, contactN), bodyRight);
+        const Vec3 wFwd   = Norm3(Sub3(rawFwd, Scale3(contactN, Frontier::Mathematics::EvaluateDot3(rawFwd, contactN))), bodyFwd);
+        const Vec3 wRight = Norm3(Frontier::Mathematics::EvaluateCross3(wFwd, contactN), bodyRight);
 
         // Contact-patch ground velocity in world space (v_body + omega x r)
         const Vec3 rArm       = Sub3(contactPt, chassisPos);
-        const Vec3 patchVel   = Add3(chassisVel, Cross3(chassisAng, rArm));
-        const float vxGround  = Dot3(patchVel, wFwd);
-        const float vyGround  = Dot3(patchVel, wRight);
+        const Vec3 patchVel   = Add3(chassisVel, Frontier::Mathematics::EvaluateCross3(chassisAng, rArm));
+        const float vxGround  = Frontier::Mathematics::EvaluateDot3(patchVel, wFwd);
+        const float vyGround  = Frontier::Mathematics::EvaluateDot3(patchVel, wRight);
         const float wheelSpd  = w.AngularVelocityRadS * cSpec.Tire.OuterRadiusMeters;
 
         // True slip velocities & frictional rubber dissipation power (Watts)
@@ -419,10 +410,10 @@ void VehicleTireFluidSmokeBridge::EvaluateVehicleTireEmitters(
         }
 
         // Smooth physical intensity combining slip speed, friction power, load, and rubber pyrolysis temperature
-        const float slipFactor  = SmoothStep(Config_.MinSlipSpeedMps * 0.7f, Config_.MinSlipSpeedMps * 4.5f, vSlipMag);
-        const float powerFactor = SmoothStep(Config_.MinSlipPowerWatts, Config_.FullSmokePowerWatts, slipPower);
-        const float loadFactor  = SmoothStep(200.0f, 2200.0f, w.VerticalLoadNewtons);
-        const float thermalRamp = SmoothStep(Config_.PyrolysisBaseKelvin, Config_.PyrolysisFullKelvin, w.TreadTempKelvin);
+        const float slipFactor  = Frontier::Mathematics::EvaluateSmoothStep(Config_.MinSlipSpeedMps * 0.7f, Config_.MinSlipSpeedMps * 4.5f, vSlipMag);
+        const float powerFactor = Frontier::Mathematics::EvaluateSmoothStep(Config_.MinSlipPowerWatts, Config_.FullSmokePowerWatts, slipPower);
+        const float loadFactor  = Frontier::Mathematics::EvaluateSmoothStep(200.0f, 2200.0f, w.VerticalLoadNewtons);
+        const float thermalRamp = Frontier::Mathematics::EvaluateSmoothStep(Config_.PyrolysisBaseKelvin, Config_.PyrolysisFullKelvin, w.TreadTempKelvin);
         // High slip power produces immediate pyrolysis smoke even on cooler tires, thickening dramatically as rubber heats
         const float thermalFactor = std::clamp(0.42f + 0.58f * thermalRamp, 0.35f, 1.0f);
         const float intensity = std::clamp(
@@ -579,7 +570,7 @@ void VehicleTireFluidSmokeBridge::EnforceMovingVehicleSdfsAndGround(
                                     FluidState_.State.Cells[oIdx][0] = std::min(FluidState_.State.Cells[oIdx][0] + rho * 0.92f, 8.0f);
                                     FluidState_.State.Cells[oIdx][1] = std::max(FluidState_.State.Cells[oIdx][1], temp);
                                     auto& oVel = FluidState_.Velocity.Cells[oIdx];
-                                    const float pushSpd = std::max(1.2f, Dot3(vSol, n));
+                                    const float pushSpd = std::max(1.2f, Frontier::Mathematics::EvaluateDot3(vSol, n));
                                     oVel[0] += n[0] * pushSpd * 0.55f + vSol[0] * 0.25f;
                                     oVel[1] += n[1] * pushSpd * 0.55f + vSol[1] * 0.25f + 0.35f;
                                     oVel[2] += n[2] * pushSpd * 0.55f + vSol[2] * 0.25f;
@@ -598,7 +589,7 @@ void VehicleTireFluidSmokeBridge::EnforceMovingVehicleSdfsAndGround(
                         auto& vel = FluidState_.Velocity.Cells[idx];
                         const Vec3 vFlu { vel[0], vel[1], vel[2] };
                         const Vec3 vRel = Sub3(vFlu, vSol);
-                        const float vn  = Dot3(vRel, n);
+                        const float vn  = Frontier::Mathematics::EvaluateDot3(vRel, n);
 
                         Vec3 vNew = vFlu;
                         if (vn < 0.0f)
@@ -623,7 +614,7 @@ void VehicleTireFluidSmokeBridge::EnforceMovingVehicleSdfsAndGround(
                                 && std::fabs(local[2]) < sdf.ChassisHalfExtents[2] * 1.35f
                                 && local[1] > -0.15f && local[1] < 1.55f)
                             {
-                                const float wakeFalloff = SmoothStep(-sdf.ChassisHalfExtents[0] - 2.6f, -sdf.ChassisHalfExtents[0], local[0]);
+                                const float wakeFalloff = Frontier::Mathematics::EvaluateSmoothStep(-sdf.ChassisHalfExtents[0] - 2.6f, -sdf.ChassisHalfExtents[0], local[0]);
                                 const float swirlMag = std::min(carSpeed * 0.16f, 3.2f) * wakeFalloff * Config_.WakeEntrainmentGain;
                                 const float sideSign = (local[2] >= 0.0f) ? 1.0f : -1.0f;
                                 const Vec3 localWakeVel {

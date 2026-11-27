@@ -9,6 +9,8 @@
 
 #include "Engine/ColourSpace/ChromaticitySpace.h"
 #include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -24,7 +26,6 @@ namespace
 
 using Transform3x3 = std::array<float, 9u>;
 
-constexpr float TwoPi = 6.28318530717958647692f;
 
 // 📝 Standard ITU / SMPTE / ACES primaries <-> CIE 1931 XYZ (native white point)
 constexpr Transform3x3 SrgbToXyzD65 = {
@@ -94,13 +95,6 @@ constexpr Transform3x3 XyzD65ToDisplayP3 = {
     };
 }
 
-[[nodiscard]] int ParseHexNibble(char Character) noexcept
-{
-    if (Character >= '0' && Character <= '9') return Character - '0';
-    if (Character >= 'a' && Character <= 'f') return 10 + (Character - 'a');
-    if (Character >= 'A' && Character <= 'F') return 10 + (Character - 'A');
-    return -1;
-}
 
 } // namespace
 
@@ -230,7 +224,7 @@ OklchTriplet ConvertOklabToOklch(OklabTriplet Lab) noexcept
 {
     const float Chroma = std::sqrt(Lab.AxisA * Lab.AxisA + Lab.AxisB * Lab.AxisB);
     float Hue          = std::atan2(Lab.AxisB, Lab.AxisA);
-    if (Hue < 0.0f) Hue += TwoPi;
+    if (Hue < 0.0f) Hue += Frontier::Constants::TauFloat;
     return { Lab.Lightness, Chroma, Hue };
 }
 
@@ -340,10 +334,10 @@ bool TryParseHexSrgb(std::string_view RawHex, SrgbRgba8& OutColour) noexcept
 
     if (RawHex.size() == 3u || RawHex.size() == 4u)
     {
-        const int R = ParseHexNibble(RawHex[0]);
-        const int G = ParseHexNibble(RawHex[1]);
-        const int B = ParseHexNibble(RawHex[2]);
-        const int A = (RawHex.size() == 4u) ? ParseHexNibble(RawHex[3]) : 15;
+        const int R = Frontier::Serialization::ParseHexNibble(RawHex[0]);
+        const int G = Frontier::Serialization::ParseHexNibble(RawHex[1]);
+        const int B = Frontier::Serialization::ParseHexNibble(RawHex[2]);
+        const int A = (RawHex.size() == 4u) ? Frontier::Serialization::ParseHexNibble(RawHex[3]) : 15;
         if (R >= 0 && G >= 0 && B >= 0 && A >= 0)
         {
             OutColour = {
@@ -359,11 +353,11 @@ bool TryParseHexSrgb(std::string_view RawHex, SrgbRgba8& OutColour) noexcept
 
     if (RawHex.size() == 6u || RawHex.size() == 8u)
     {
-        const int RHi = ParseHexNibble(RawHex[0]), RLo = ParseHexNibble(RawHex[1]);
-        const int GHi = ParseHexNibble(RawHex[2]), GLo = ParseHexNibble(RawHex[3]);
-        const int BHi = ParseHexNibble(RawHex[4]), BLo = ParseHexNibble(RawHex[5]);
-        const int AHi = (RawHex.size() == 8u) ? ParseHexNibble(RawHex[6]) : 15;
-        const int ALo = (RawHex.size() == 8u) ? ParseHexNibble(RawHex[7]) : 15;
+        const int RHi = Frontier::Serialization::ParseHexNibble(RawHex[0]), RLo = Frontier::Serialization::ParseHexNibble(RawHex[1]);
+        const int GHi = Frontier::Serialization::ParseHexNibble(RawHex[2]), GLo = Frontier::Serialization::ParseHexNibble(RawHex[3]);
+        const int BHi = Frontier::Serialization::ParseHexNibble(RawHex[4]), BLo = Frontier::Serialization::ParseHexNibble(RawHex[5]);
+        const int AHi = (RawHex.size() == 8u) ? Frontier::Serialization::ParseHexNibble(RawHex[6]) : 15;
+        const int ALo = (RawHex.size() == 8u) ? Frontier::Serialization::ParseHexNibble(RawHex[7]) : 15;
         if (RHi >= 0 && RLo >= 0 && GHi >= 0 && GLo >= 0 && BHi >= 0 && BLo >= 0 && AHi >= 0 && ALo >= 0)
         {
             OutColour = {

@@ -9,6 +9,8 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
+#include "Engine/Constants/MathConstants.h"
+
 #include <cstdint>
 #include <span>
 
@@ -184,6 +186,11 @@ constexpr ColorRgba ColorRgba::ScaledAlpha(float Opacity) const noexcept
     return { Red, Green, Blue, static_cast<uint8_t>(static_cast<float>(Alpha) * Clamped + 0.5f) };
 }
 
+[[nodiscard]] constexpr ColorRgba ScaleAlpha(ColorRgba Tint, float Opacity) noexcept
+{
+    return Tint.ScaledAlpha(Opacity);
+}
+
 constexpr ColorRgba ColorRgba::Blend(ColorRgba First, ColorRgba Second, float Factor) noexcept
 {
     const float T  = Factor < 0.0f ? 0.0f : (Factor > 1.0f ? 1.0f : Factor);
@@ -202,7 +209,9 @@ constexpr ColorRgba ColorRgba::Blend(ColorRgba First, ColorRgba Second, float Fa
 
 constexpr float ColorRgba::Luminance() const noexcept
 {
-    return (0.2126f * static_cast<float>(Red) + 0.7152f * static_cast<float>(Green) + 0.0722f * static_cast<float>(Blue)) / 255.0f;
+    return (Constants::Rec709LuminanceRed * static_cast<float>(Red) +
+            Constants::Rec709LuminanceGreen * static_cast<float>(Green) +
+            Constants::Rec709LuminanceBlue * static_cast<float>(Blue)) / 255.0f;
 }
 
 constexpr float Rectangle2D::Right() const noexcept

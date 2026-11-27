@@ -6,6 +6,7 @@
 #include "Engine/Editor/Inspectors/CameraSettingsInspector.h"
 
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -18,14 +19,13 @@ namespace Frontier
 namespace
 {
 
-constexpr float kPiLocal = 3.14159265359f;
 
 void StrokeOval(PixelSpace& Surface, Point2D Center, float Rx, float Ry, ColorRgba Stroke, float Thickness) noexcept
 {
     std::array<Point2D, 24u> Pts {};
     for (uint32_t I = 0u; I < 24u; ++I)
     {
-        const float A = (2.0f * kPiLocal * static_cast<float>(I)) / 24.0f;
+        const float A = (2.0f * Frontier::Constants::PiFloat * static_cast<float>(I)) / 24.0f;
         Pts[I] = { Center.X + std::cos(A) * Rx, Center.Y + std::sin(A) * Ry };
     }
     Surface.StrokePolyline(Pts, Stroke, Thickness, true);
@@ -118,7 +118,7 @@ void PaintShadowStudyWell(PixelSpace& Surface, Rectangle2D Box, uint32_t Penumbr
     // Subtle cone fan on left surface origin
     for (int K = -2; K <= 2; ++K)
     {
-        const float Ang = -kPiLocal * 0.5f + static_cast<float>(K) * 0.34f;
+        const float Ang = -Frontier::Constants::PiFloat * 0.5f + static_cast<float>(K) * 0.34f;
         Surface.StrokeLine(Origin, { Origin.X + std::cos(Ang) * 28.0f, Origin.Y + std::sin(Ang) * 28.0f }, ColorRgba{ 98u, 186u, 146u, 140u }, 1.0f);
     }
 
@@ -165,8 +165,8 @@ void PaintConeGiStudyWell(PixelSpace& Surface, Rectangle2D Box, uint32_t ConeCou
     const uint32_t ArcSegs = 28u;
     for (uint32_t I = 0u; I < ArcSegs; ++I)
     {
-        const float A0 = -kPiLocal + (kPiLocal * static_cast<float>(I)) / static_cast<float>(ArcSegs);
-        const float A1 = -kPiLocal + (kPiLocal * static_cast<float>(I + 1u)) / static_cast<float>(ArcSegs);
+        const float A0 = -Frontier::Constants::PiFloat + (Frontier::Constants::PiFloat * static_cast<float>(I)) / static_cast<float>(ArcSegs);
+        const float A1 = -Frontier::Constants::PiFloat + (Frontier::Constants::PiFloat * static_cast<float>(I + 1u)) / static_cast<float>(ArcSegs);
         Surface.StrokeLine(
             { Origin.X + std::cos(A0) * (Radius + 4.0f), Origin.Y + std::sin(A0) * (Radius + 4.0f) },
             { Origin.X + std::cos(A1) * (Radius + 4.0f), Origin.Y + std::sin(A1) * (Radius + 4.0f) },
@@ -175,10 +175,10 @@ void PaintConeGiStudyWell(PixelSpace& Surface, Rectangle2D Box, uint32_t ConeCou
 
     // Radial translucent green cone wedges fanning across hemisphere
     const uint32_t ClampedCones = std::clamp(ConeCount, 3u, 12u);
-    const float StepAng = kPiLocal / static_cast<float>(ClampedCones);
+    const float StepAng = Frontier::Constants::PiFloat / static_cast<float>(ClampedCones);
     for (uint32_t C = 0u; C < ClampedCones; ++C)
     {
-        const float MidAng = -kPiLocal + (static_cast<float>(C) + 0.5f) * StepAng;
+        const float MidAng = -Frontier::Constants::PiFloat + (static_cast<float>(C) + 0.5f) * StepAng;
         const float HalfW  = StepAng * 0.38f;
         const Point2D LeftTip  { Origin.X + std::cos(MidAng - HalfW) * Radius, Origin.Y + std::sin(MidAng - HalfW) * Radius };
         const Point2D RightTip { Origin.X + std::cos(MidAng + HalfW) * Radius, Origin.Y + std::sin(MidAng + HalfW) * Radius };
@@ -223,8 +223,8 @@ void PaintAoStudyWell(PixelSpace& Surface, Rectangle2D Box, uint32_t Slices) noe
 
     // Warm amber fan cones darkening as they meet the wall
     const uint32_t ConeN = std::clamp(Slices, 2u, 8u);
-    const float StepA = (kPiLocal * 0.85f) / static_cast<float>(ConeN);
-    const float StartA = -kPiLocal * 0.92f;
+    const float StepA = (Frontier::Constants::PiFloat * 0.85f) / static_cast<float>(ConeN);
+    const float StartA = -Frontier::Constants::PiFloat * 0.92f;
     for (uint32_t C = 0u; C < ConeN; ++C)
     {
         const float A0 = StartA + static_cast<float>(C) * StepA + 0.04f;

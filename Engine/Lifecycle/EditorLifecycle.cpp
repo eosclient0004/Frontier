@@ -14,6 +14,8 @@
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Editor/Inspectors/InspectorGpuBaker.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsDebugLog.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <imgui.h>
 
@@ -2874,7 +2876,7 @@ void EditorLifecycle::RefreshOutlinerFooterTelemetry() noexcept
 
     if (ShowcaseBundle != nullptr)
     {
-        const float SunElevDeg = std::asin(std::clamp(ShowcaseBundle->Scene.Sun.DirectionToSun.Z, -1.0f, 1.0f)) * 57.2957795f;
+        const float SunElevDeg = std::asin(std::clamp(ShowcaseBundle->Scene.Sun.DirectionToSun.Z, -1.0f, 1.0f)) * Frontier::Constants::RadToDegFloat;
         uint32_t    ActiveLtc  = 0u;
         for (const auto& Quad : ShowcaseBundle->Scene.AreaLights)
         {
@@ -3052,15 +3054,15 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             }
 
             // Detect Outliner visibility/structure changes (eye toggle, add/remove of fog/flare/motion-blur/exposure)
-            uint64_t OutlinerVisSig = 14695981039346656037ull;
+            uint64_t OutlinerVisSig = Frontier::Constants::Fnv1a64OffsetBasis;
             for (const auto& Entry : Panes->Outliner.QueryEntries())
             {
                 OutlinerVisSig ^= Entry.Token.Identifier;
-                OutlinerVisSig *= 1099511628211ull;
+                OutlinerVisSig *= Frontier::Constants::Fnv1a64Prime;
                 OutlinerVisSig ^= (Panes->Outliner.QueryEffectiveVisibility(Entry.Token) ? 0xA5u : 0x5Au);
-                OutlinerVisSig *= 1099511628211ull;
+                OutlinerVisSig *= Frontier::Constants::Fnv1a64Prime;
                 OutlinerVisSig ^= Entry.EnclosingToken.Identifier;
-                OutlinerVisSig *= 1099511628211ull;
+                OutlinerVisSig *= Frontier::Constants::Fnv1a64Prime;
             }
             const bool OutlinerVisChanged = (LastOutlinerVisibilitySig != 0ull) && (OutlinerVisSig != LastOutlinerVisibilitySig);
             LastOutlinerVisibilitySig     = OutlinerVisSig;
@@ -3105,7 +3107,7 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 const float SunVis = IsOrbital ? 1.0f : std::clamp((Solved.ElevationDegrees + 4.0f) / 10.0f, 0.0f, 1.0f);
                 ShowcaseBundle->Scene.Sun.DirectionToSun = Solved.WorldDirectionToSun;
                 ShowcaseBundle->Scene.Sun.SunAngularRadiusRadians =
-                    std::clamp(Atmo.Solar.AngularDiameterDegrees * 0.5f * 0.0174532925f, 0.002f, 0.25f);
+                    std::clamp(Atmo.Solar.AngularDiameterDegrees * 0.5f * Frontier::Constants::DegToRadFloat, 0.002f, 0.25f);
                 if (Atmo.Solar.SolarEnabled)
                 {
                     const float IrradScale = Atmo.Solar.SolarIntensityMultiplier * Atmo.Solar.DirectGainMultiplier * 0.044f * SunVis;

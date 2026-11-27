@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Viewport/SketcherPortableImage.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #define STBIW_WINDOWS_UTF8                                                                // UTF-8 file names on Windows
 #define STB_IMAGE_WRITE_STATIC
@@ -72,7 +73,7 @@ std::string DigestSketcherPixels(const uint32_t* Pixels, size_t Count)
     for (size_t Index = 0; Index < Count * 4; ++Index)
     {
         Hash ^= Bytes[Index];
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     }
     char Text[17];
     std::snprintf(Text, sizeof(Text), "%016llx", static_cast<unsigned long long>(Hash));

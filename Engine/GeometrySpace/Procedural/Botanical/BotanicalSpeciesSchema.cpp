@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalSpeciesSchema.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <toml++/toml.hpp>
 
@@ -24,8 +25,7 @@ namespace
 
 [[nodiscard]] float SrgbChannelToLinear(float c) noexcept
 {
-    c = std::clamp(c, 0.0f, 1.0f);
-    return (c <= 0.04045f) ? (c / 12.92f) : std::pow((c + 0.055f) / 1.055f, 2.4f);
+    return Frontier::ColourSpace::DecodePiecewiseSrgbChannel(c);
 }
 
 [[nodiscard]] int HexDigit(char ch) noexcept

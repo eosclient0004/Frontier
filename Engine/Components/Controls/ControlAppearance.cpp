@@ -4,6 +4,7 @@
 // 🧩 Shared control color set, smoothstep cross-fade, rounded outlines, and section layout primitives
 
 #include "Engine/Components/Controls/ControlAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,7 +17,6 @@ namespace Frontier
 namespace
 {
 
-constexpr float PiConstant = 3.14159265358979f;
 ControlColorSet ActiveColorSet{};
 
 } // namespace
@@ -136,14 +136,14 @@ void ConstructRoundedOutline(PixelSpace &Surface, Rectangle2D Bounds, ColorQuad 
     auto          AppendQuarter = [&](float Cx, float Cy, float StartRadians) {
         for (int Step = 0; Step <= Segments; ++Step)
         {
-            const float Angle = StartRadians + (PiConstant * 0.5f) * (static_cast<float>(Step) / Segments);
+            const float Angle = StartRadians + (Frontier::Constants::PiFloat * 0.5f) * (static_cast<float>(Step) / Segments);
             Ring[Count++]     = {Cx + std::cos(Angle) * R, Cy + std::sin(Angle) * R};
         }
     };
-    AppendQuarter(Bounds.Right() - R, Bounds.Y + R, -PiConstant * 0.5f);
+    AppendQuarter(Bounds.Right() - R, Bounds.Y + R, -Frontier::Constants::PiFloat * 0.5f);
     AppendQuarter(Bounds.Right() - R, Bounds.Bottom() - R, 0.0f);
-    AppendQuarter(Bounds.X + R, Bounds.Bottom() - R, PiConstant * 0.5f);
-    AppendQuarter(Bounds.X + R, Bounds.Y + R, PiConstant);
+    AppendQuarter(Bounds.X + R, Bounds.Bottom() - R, Frontier::Constants::PiFloat * 0.5f);
+    AppendQuarter(Bounds.X + R, Bounds.Y + R, Frontier::Constants::PiFloat);
     Surface.StrokePolyline({Ring, Count}, Stroke.ToRgba8(), Thickness, true);
 }
 
@@ -154,7 +154,7 @@ void ConstructCircleOutline(PixelSpace &Surface, float CenterX, float CenterY, f
     constexpr int Segments = 40;
     for (int Step = 0; Step < Segments; ++Step)
     {
-        const float Angle = (2.0f * PiConstant) * (static_cast<float>(Step) / Segments);
+        const float Angle = (2.0f * Frontier::Constants::PiFloat) * (static_cast<float>(Step) / Segments);
         Ring[Step]        = {CenterX + std::cos(Angle) * Radius, CenterY + std::sin(Angle) * Radius};
     }
     Surface.StrokePolyline(Ring, Stroke.ToRgba8(), Thickness, true);

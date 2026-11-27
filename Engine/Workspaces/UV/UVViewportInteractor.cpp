@@ -921,7 +921,7 @@ void UVViewportInteractor::ProcessModalTransformStep(
         {
             Deg = std::round(Deg / 15.0f) * 15.0f;
         }
-        RotRad = Deg * 0.0174532925f;
+        RotRad = Deg * Frontier::Constants::DegToRadFloat;
     }
     else if (ModalMode == ModalUVTransformMode::ScaleUniform)
     {
@@ -962,7 +962,7 @@ void UVViewportInteractor::ProcessModalTransformStep(
             : (ModalMode == ModalUVTransformMode::RotateAngle) ? "Rotate [R]" : "Scale [S]",
         DeltaUV.U,
         DeltaUV.V,
-        RotRad * 57.2957795f,
+        RotRad * Frontier::Constants::RadToDegFloat,
         ScaleUV.X,
         ScaleUV.Y,
         ModalNumericEntry.empty() ? "LMB/Enter Confirm, Esc Cancel" : ModalNumericEntry.c_str());

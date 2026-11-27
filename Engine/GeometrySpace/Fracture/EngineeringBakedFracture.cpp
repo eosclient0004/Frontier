@@ -5,6 +5,7 @@
 
 #include "Engine/GeometrySpace/Fracture/EngineeringBakedFracture.h"
 #include "Engine/GeometrySpace/Fracture/FastRuntimeFracture.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -20,7 +21,6 @@ namespace Frontier::GeometrySpace::Fracture
 namespace
 {
 
-constexpr double PiConst = 3.14159265358979323846;
 
 double Hash3D(int32_t Ix, int32_t Iy, int32_t Iz, uint32_t Seed) noexcept
 {
@@ -196,7 +196,7 @@ ElastostaticLattice SolveVolumetricStressLattice(
         RootCell.RadiusM * 0.42);
     const double PeakHertzMPa = std::min(
         static_cast<double>(EngSpec.CompressiveStrengthMPa) * 6.5,
-        (1.5 * FMaxN) / (PiConst * ContactRadiusM * ContactRadiusM * 1.0e6));
+        (1.5 * FMaxN) / (Frontier::Constants::Pi * ContactRadiusM * ContactRadiusM * 1.0e6));
 
     Lattice.ContactRadiusM       = ContactRadiusM;
     Lattice.PeakHertzPressureMPa = PeakHertzMPa;
@@ -735,7 +735,7 @@ EngineeringSurfaceBatch BuildInterlockingEngineeringSurfaces(
                     double Relief = ComputeFractographyDisplacement(Qx, Qy, Qz, *CutInfo, Material, EngSpec, GrainRad, Seed);
                     if (Material.Category == FractureMaterialCategory::Ductile)
                     {
-                        const double Lip = std::sin(PiConst * std::min(1.0, (1.0 - Rho) * 1.8)) * 0.55;
+                        const double Lip = std::sin(Frontier::Constants::Pi * std::min(1.0, (1.0 - Rho) * 1.8)) * 0.55;
                         Relief += CutInfo->CupSign * Lip;
                     }
                     const double Delta = std::clamp(WSeam * AmpMax * Relief, -AmpMax, AmpMax);
@@ -836,7 +836,7 @@ void EngineeringBakedFracture::SolveSymmetricEigen3x3(
         const double Phi  = std::acos(R) / 3.0;
 
         S1 = Q + 2.0 * P * std::cos(Phi);
-        S3 = Q + 2.0 * P * std::cos(Phi + (2.0 * PiConst / 3.0));
+        S3 = Q + 2.0 * P * std::cos(Phi + (2.0 * Frontier::Constants::Pi / 3.0));
         S2 = 3.0 * Q - S1 - S3;
     }
 
@@ -886,7 +886,7 @@ FracturePartitionResult EngineeringBakedFracture::Execute(
     const uint32_t Ceiling      = std::clamp(Specification.Ceiling, 2u, 160u);
     const double   ImpactEnergy = std::max(15.0, Specification.EnergyJoules);
     const double   MinSpan      = std::max(0.018, Specification.MinimumSizeM);
-    const double   GrainRad     = Specification.GrainAngleDeg * (PiConst / 180.0);
+    const double   GrainRad     = Specification.GrainAngleDeg * (Frontier::Constants::Pi / 180.0);
     const double   BondScale    = Specification.BondStrengthScale > 0.0 ? Specification.BondStrengthScale : 1.0;
 
     FlatConvexCell RootCell    = FastRuntimeFracture::PackFlatConvexCell(SourcePolyhedron);
@@ -923,11 +923,11 @@ FracturePartitionResult EngineeringBakedFracture::Execute(
     const double EPa               = static_cast<double>(Material.YoungModulusGPa) * 1.0e9;
     const double FtMPa             = static_cast<double>(Material.TensileStrengthMPa);
     const double HillerborgLengthM = (EPa * static_cast<double>(Material.FractureToughnessGc)) / std::pow(FtMPa * 1.0e6, 2.0);
-    const double PhiRad            = static_cast<double>(EngSpec.InternalFrictionDeg) * (PiConst / 180.0);
+    const double PhiRad            = static_cast<double>(EngSpec.InternalFrictionDeg) * (Frontier::Constants::Pi / 180.0);
     const double SinPhi            = std::sin(PhiRad);
     const double CosPhi            = std::cos(PhiRad);
     const double CohesionMPa       = (static_cast<double>(EngSpec.CompressiveStrengthMPa) * (1.0 - SinPhi)) / (2.0 * std::max(0.2, CosPhi));
-    const double ThetaMohrCoulomb  = 0.25 * PiConst - 0.5 * PhiRad;
+    const double ThetaMohrCoulomb  = 0.25 * Frontier::Constants::Pi - 0.5 * PhiRad;
     const double ReliefLengthM     = std::clamp(HillerborgLengthM * 0.25, Lattice.CellSize * 1.45, SolidRadius * 0.38);
 
     std::vector<double> VoxelWeibullFt(Lattice.Total, FtMPa);
@@ -960,7 +960,7 @@ FracturePartitionResult EngineeringBakedFracture::Execute(
         PeakVonMisesMPa = std::max(PeakVonMisesMPa, EigenScratch.VonMisesMPa);
 
         const double FlawA = std::max(0.0015, Lattice.CellSize * 0.35);
-        const double KI    = 1.12 * std::max(0.0, EigenScratch.Sigma1) * std::sqrt(PiConst * FlawA);
+        const double KI    = 1.12 * std::max(0.0, EigenScratch.Sigma1) * std::sqrt(Frontier::Constants::Pi * FlawA);
         PeakKI = std::max(PeakKI, KI);
 
         const double TauMax  = 0.5 * (EigenScratch.Sigma1 - EigenScratch.Sigma3);

@@ -14,6 +14,7 @@
 #include "Engine/GeometricRaster/Atmosphere/LensFlareSequence.h"
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 #include "Engine/MaterialSpace/Scattering/BlackbodyEmission.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -2583,10 +2584,10 @@ void VulkanWorldRenderSequence::PropagateTopBranchGateBits(
 uint64_t VulkanWorldRenderSequence::ComputeResidentClusterTransformSignature(
     const WorldSceneSpecification& Scene) const noexcept
 {
-    uint64_t Sig = 14695981039346656037ull;
+    uint64_t Sig = Frontier::Constants::Fnv1a64OffsetBasis;
     auto Mix = [&Sig](uint64_t Value) noexcept
     {
-        Sig = (Sig ^ Value) * 1099511628211ull;
+        Sig = (Sig ^ Value) * Frontier::Constants::Fnv1a64Prime;
     };
     Mix(static_cast<uint64_t>(Scene.ClusterInstances.size()));
     for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
@@ -2619,11 +2620,11 @@ uint64_t VulkanWorldRenderSequence::ComputeResidentClusterTransformSignature(
 uint64_t VulkanWorldRenderSequence::ComputeResidentClusterTopologySignature(
     const WorldSceneSpecification& Scene) const noexcept
 {
-    uint64_t Sig = 14695981039346656037ull;
+    uint64_t Sig = Frontier::Constants::Fnv1a64OffsetBasis;
     auto Mix = [&](uint64_t V) noexcept
     {
         Sig ^= V;
-        Sig *= 1099511628211ull;
+        Sig *= Frontier::Constants::Fnv1a64Prime;
     };
     Mix(static_cast<uint64_t>(Scene.ClusterInstances.size()));
     for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
@@ -3811,10 +3812,10 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
     // 1. Collect unique baked LocalSignedDistanceVolume assets across active opaque instances (uploaded once per asset set)
     std::vector<const DistanceFieldSpace::LocalSignedDistanceVolume*> UniqueVolumes;
     UniqueVolumes.reserve(Scene.ClusterInstances.size());
-    uint64_t AssetSig = 14695981039346656037ull;
+    uint64_t AssetSig = Frontier::Constants::Fnv1a64OffsetBasis;
     const auto MixAssetSig = [&AssetSig](uint64_t Val) noexcept
     {
-        AssetSig = (AssetSig ^ Val) * 1099511628211ull;
+        AssetSig = (AssetSig ^ Val) * Frontier::Constants::Fnv1a64Prime;
     };
 
     auto ResolveInstanceVolume = [&](const RigidClusterInstance& Instance) -> const DistanceFieldSpace::LocalSignedDistanceVolume*
@@ -4076,14 +4077,14 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
         ResourcesChanged                 = true;
     }
 
-    uint64_t DynSig = 14695981039346656037ull;
+    uint64_t DynSig = Frontier::Constants::Fnv1a64OffsetBasis;
     {
         const auto* RawBytes = reinterpret_cast<const uint8_t*>(GpuInstances.data());
         const std::size_t TotalBytes = GpuInstances.size() * sizeof(GpuDynamicLocalSdfInstance144);
         for (std::size_t ByteIdx = 0u; ByteIdx < TotalBytes; ++ByteIdx)
         {
             DynSig ^= static_cast<uint64_t>(RawBytes[ByteIdx]);
-            DynSig *= 1099511628211ull;
+            DynSig *= Frontier::Constants::Fnv1a64Prime;
         }
     }
 
@@ -5227,11 +5228,11 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                 for (std::size_t I = 0u; I < ByteLen; ++I)
                 {
                     SeedVal ^= static_cast<uint64_t>(Raw[I]);
-                    SeedVal *= 1099511628211ull;
+                    SeedVal *= Frontier::Constants::Fnv1a64Prime;
                 }
                 return SeedVal;
             };
-            uint64_t LightingSig = 14695981039346656037ull;
+            uint64_t LightingSig = Frontier::Constants::Fnv1a64OffsetBasis;
             LightingSig = HashMixBytes(LightingSig, Uniforms.SolarIrradiancePad, sizeof(Uniforms.SolarIrradiancePad));
             LightingSig = HashMixBytes(LightingSig, Uniforms.SkyRadianceBvhCount, sizeof(float) * 3u);
             LightingSig = HashMixBytes(LightingSig, Uniforms.AreaLights, sizeof(Uniforms.AreaLights));
@@ -5305,10 +5306,10 @@ bool VulkanWorldRenderSequence::SynchronizeMaterialEntriesIfChanged(const WorldS
 
     const uint32_t MatCount = std::max(1u, Scene.MaterialRegister.QuerySlotCount());
     std::vector<GpuWorldMaterial80> GpuMats(MatCount);
-    uint64_t MatSig = 14695981039346656037ull;
+    uint64_t MatSig = Frontier::Constants::Fnv1a64OffsetBasis;
     const auto MixWord = [&MatSig](uint32_t Bits) noexcept
     {
-        MatSig = (MatSig ^ static_cast<uint64_t>(Bits)) * 1099511628211ull;
+        MatSig = (MatSig ^ static_cast<uint64_t>(Bits)) * Frontier::Constants::Fnv1a64Prime;
     };
     const auto MixFloat = [&MixWord](float V) noexcept
     {
@@ -5740,7 +5741,7 @@ void VulkanWorldRenderSequence::RefreshNaniteLodGeometry(
     uint64_t Signature = 1469598103934665603ull;
     const auto MixSignature = [&Signature](uint64_t Value) noexcept
     {
-        Signature = (Signature ^ Value) * 1099511628211ull;
+        Signature = (Signature ^ Value) * Frontier::Constants::Fnv1a64Prime;
     };
     MixSignature(TransformSig);
     MixSignature(static_cast<uint64_t>(std::lround(PixelError * 100.0f)));
@@ -6974,11 +6975,11 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             for (std::size_t I = 0u; I < ByteLen; ++I)
             {
                 SeedVal ^= static_cast<uint64_t>(Raw[I]);
-                SeedVal *= 1099511628211ull;
+                SeedVal *= Frontier::Constants::Fnv1a64Prime;
             }
             return SeedVal;
         };
-        uint64_t LightingSig = 14695981039346656037ull;
+        uint64_t LightingSig = Frontier::Constants::Fnv1a64OffsetBasis;
         LightingSig = HashMixBytes(LightingSig, Uniforms.SolarIrradiancePad, sizeof(Uniforms.SolarIrradiancePad));
         LightingSig = HashMixBytes(LightingSig, Uniforms.SkyRadianceBvhCount, sizeof(float) * 3u);
         LightingSig = HashMixBytes(LightingSig, Uniforms.AreaLights, sizeof(Uniforms.AreaLights));

@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Viewport/SketcherGizmoSpace.h"
+#include "Engine/Constants/EngineConstants.h"
 #include <numbers>
 
 #include <algorithm>
@@ -278,7 +279,7 @@ namespace
         auto Mix = [](uint64_t H, uint64_t V) noexcept -> uint64_t
         {
             H ^= V;
-            H *= 1099511628211ull;
+            H *= Frontier::Constants::Fnv1a64Prime;
             return H;
         };
         auto Bits = [](double V) noexcept -> uint64_t
@@ -288,7 +289,7 @@ namespace
             std::memcpy(&Raw, &V, sizeof(Raw));
             return Raw;
         };
-        uint64_t H = 14695981039346656037ull;
+        uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
         H = Mix(H, Bits(Pose.Origin.X));
         H = Mix(H, Bits(Pose.Origin.Y));
         H = Mix(H, Bits(Pose.Origin.Z));

@@ -11,6 +11,7 @@
 
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Mathematics/CoordinateSpace.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -1159,7 +1160,7 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
         auto MixBits = [](uint64_t H, uint64_t V) noexcept -> uint64_t
         {
             H ^= V;
-            H *= 1099511628211ull;
+            H *= Frontier::Constants::Fnv1a64Prime;
             return H;
         };
         auto FloatBits = [](float F) noexcept -> uint64_t
@@ -1171,7 +1172,7 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
         const auto  Origin = Request.Gizmo3D->QueryPivotOrigin();
         const float Radius = Request.Gizmo3D->QueryWorldRadius();
         const float YawDeg = Request.Gizmo3D->QueryAnchorYawDegrees();
-        uint64_t Key = 14695981039346656037ull;
+        uint64_t Key = Frontier::Constants::Fnv1a64OffsetBasis;
         Key = MixBits(Key, FloatBits(Origin.X));
         Key = MixBits(Key, FloatBits(Origin.Y));
         Key = MixBits(Key, FloatBits(Origin.Z));

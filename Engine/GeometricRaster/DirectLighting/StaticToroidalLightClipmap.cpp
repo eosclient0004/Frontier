@@ -9,6 +9,9 @@
 
 #include "Engine/GeometricRaster/DirectLighting/StaticToroidalLightClipmap.h"
 #include "Engine/GeometricRaster/DirectLighting/CubeGridPodAtlas.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/LinearColors.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <chrono>
@@ -21,7 +24,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-inline constexpr float PiF = 3.14159265358979323846f;
 
 [[nodiscard]] uint32_t WrapToroidalIndex(int32_t Coord, uint32_t Resolution) noexcept
 {
@@ -34,11 +36,6 @@ inline constexpr float PiF = 3.14159265358979323846f;
     return static_cast<uint32_t>(Mod);
 }
 
-[[nodiscard]] float SmoothStep(float Edge0, float Edge1, float X) noexcept
-{
-    const float T = std::clamp((X - Edge0) / std::max(1.0e-5f, Edge1 - Edge0), 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
 struct FloorEvalAccumulator
 {
@@ -92,11 +89,11 @@ struct FloorEvalAccumulator
             continue;
         }
 
-        const float Atten = (Wy * Vis * Window) / (DistSq * PiF);
+        const float Atten = (Wy * Vis * Window) / (DistSq * Frontier::Constants::PiFloat);
         const float R = Candela[0] * Atten;
         const float G = Candela[1] * Atten;
         const float B = Candela[2] * Atten;
-        const float Lum = 0.2126f * R + 0.7152f * G + 0.0722f * B;
+        const float Lum = Frontier::Mathematics::EvaluateRec709Luminance(R, G, B);
 
         Acc.Irr[0] += R;
         Acc.Irr[1] += G;
@@ -351,7 +348,7 @@ ToroidalClipmapSample StaticToroidalLightClipmap::SampleAtWorldXZ(float WorldX, 
     const float Fu = (WorldX - (FineCascade.CenterWorldX - FineCascade.HalfSpanMeters)) / (2.0f * FineCascade.HalfSpanMeters);
     const float Fv = (WorldZ - (FineCascade.CenterWorldZ - FineCascade.HalfSpanMeters)) / (2.0f * FineCascade.HalfSpanMeters);
     const float EdgeDist = std::min({ Fu, 1.0f - Fu, Fv, 1.0f - Fv });
-    const float FineW = SmoothStep(0.0f, 0.14f, EdgeDist);
+    const float FineW = Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.14f, EdgeDist);
     Out.FineWeight = FineW;
 
     const ToroidalClipmapCell CoarseCell = SampleCascadeNearestWrapped(CoarseCascade, WorldX, WorldZ);

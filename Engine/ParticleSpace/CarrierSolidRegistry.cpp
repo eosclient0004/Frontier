@@ -9,6 +9,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/ParticleSpace/CarrierSolidRegistry.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <array>
@@ -27,8 +29,6 @@ namespace Frontier::ParticleSpace
 namespace
 {
 
-constexpr double kPi    = 3.14159265358979323846;
-constexpr double kTwoPi = 6.28318530717958647692;
 
 using Vec3d = std::array<double, 3>;
 
@@ -112,13 +112,13 @@ public:
         for (int r = 0; r <= rings; ++r)
         {
             const double v = static_cast<double>(r) / static_cast<double>(rings);
-            const double y = std::cos(v * kPi);
-            const double ringRadius = std::sin(v * kPi);
+            const double y = std::cos(v * Frontier::Constants::Pi);
+            const double ringRadius = std::sin(v * Frontier::Constants::Pi);
             std::vector<Vec3d> row;
             row.reserve(static_cast<size_t>(sides));
             for (int s = 0; s < sides; ++s)
             {
-                const double a = (static_cast<double>(s) / static_cast<double>(sides)) * kTwoPi;
+                const double a = (static_cast<double>(s) / static_cast<double>(sides)) * Frontier::Constants::Tau;
                 row.push_back({ centre[0] + std::cos(a) * ringRadius * radius, centre[1] + y * radius, centre[2] + std::sin(a) * ringRadius * radius });
             }
             grid.push_back(std::move(row));
@@ -137,8 +137,8 @@ public:
     {
         for (int s = 0; s < segments; ++s)
         {
-            const double a0 = (static_cast<double>(s) / static_cast<double>(segments)) * kTwoPi;
-            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(segments)) * kTwoPi;
+            const double a0 = (static_cast<double>(s) / static_cast<double>(segments)) * Frontier::Constants::Tau;
+            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(segments)) * Frontier::Constants::Tau;
             for (size_t p = 0u; p + 1u < profile.size(); ++p)
             {
                 const double r0 = profile[p][0], y0 = profile[p][1];
@@ -182,7 +182,7 @@ public:
             rings[i].reserve(static_cast<size_t>(sides));
             for (int s = 0; s < sides; ++s)
             {
-                const double a = (static_cast<double>(s) / static_cast<double>(sides)) * kTwoPi;
+                const double a = (static_cast<double>(s) / static_cast<double>(sides)) * Frontier::Constants::Tau;
                 rings[i].push_back(Add3(centres[i], Add3(Scale3(normal, std::cos(a) * r), Scale3(binormal, std::sin(a) * r))));
             }
         }
@@ -251,7 +251,7 @@ CarrierSolidBuilder BuildCoin()
     rim.reserve(kSegments);
     for (int s = 0; s < kSegments; ++s)
     {
-        const double a = (static_cast<double>(s) / static_cast<double>(kSegments)) * kTwoPi;
+        const double a = (static_cast<double>(s) / static_cast<double>(kSegments)) * Frontier::Constants::Tau;
         rim.push_back({ std::cos(a), std::sin(a) });
     }
     for (int s = 0; s < kSegments; ++s)
@@ -273,8 +273,8 @@ CarrierSolidBuilder BuildCoin()
         const double y = side * (kThickness + 0.03);
         for (int s = 0; s < kBossSegments; ++s)
         {
-            const double a0 = (static_cast<double>(s) / static_cast<double>(kBossSegments)) * kTwoPi;
-            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(kBossSegments)) * kTwoPi;
+            const double a0 = (static_cast<double>(s) / static_cast<double>(kBossSegments)) * Frontier::Constants::Tau;
+            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(kBossSegments)) * Frontier::Constants::Tau;
             constexpr double r = 0.34;
             b.Quad({ 0.0, y, 0.0 }, { std::cos(a0) * r, y, std::sin(a0) * r }, { std::cos(a1) * r, y, std::sin(a1) * r }, { 0.0, y, 0.0 });
             b.Quad({ std::cos(a0) * r, y, std::sin(a0) * r }, { std::cos(a0) * r, side * kThickness, std::sin(a0) * r },
@@ -292,7 +292,7 @@ CarrierSolidBuilder BuildCrystalShard()
     std::array<Vec3d, kSides> hip {};
     for (int s = 0; s < kSides; ++s)
     {
-        const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * kTwoPi;
+        const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * Frontier::Constants::Tau;
         hip[s] = { std::cos(a) * kWaist, kHipY, std::sin(a) * kWaist };
     }
     const Vec3d tip { 0.0, 1.0, 0.0 };
@@ -312,7 +312,7 @@ CarrierSolidBuilder BuildHexPrism()
     std::array<std::array<double, 2>, 6u> poly {};
     for (int s = 0; s < 6; ++s)
     {
-        const double a = (static_cast<double>(s) / 6.0) * kTwoPi + kPi / 6.0;
+        const double a = (static_cast<double>(s) / 6.0) * Frontier::Constants::Tau + Frontier::Constants::Pi / 6.0;
         poly[s] = { std::cos(a) * 0.78, std::sin(a) * 0.78 };
     }
     b.Extrude(poly, 0.62);
@@ -354,13 +354,13 @@ CarrierSolidBuilder BuildUtahTeapot()
     b.Lathe(body, 26);
     b.Tube(
         [](const double u) -> Vec3d {
-            return { 0.64 + u * 0.58 + std::sin(u * kPi) * 0.08, -0.22 + u * 0.78 - std::sin(u * kPi * 1.15) * 0.14, 0.0 };
+            return { 0.64 + u * 0.58 + std::sin(u * Frontier::Constants::Pi) * 0.08, -0.22 + u * 0.78 - std::sin(u * Frontier::Constants::Pi * 1.15) * 0.14, 0.0 };
         },
         14, 10,
         [](const double u) -> double { return 0.16 * (1.0 - u * 0.56); });
     b.Tube(
         [](const double u) -> Vec3d {
-            const double a = -kPi * 0.52 + u * kPi * 1.18;
+            const double a = -Frontier::Constants::Pi * 0.52 + u * Frontier::Constants::Pi * 1.18;
             return { -0.64 - std::cos(a) * 0.44, 0.06 + std::sin(a) * 0.42, 0.0 };
         },
         16, 10,
@@ -421,8 +421,8 @@ CarrierSolidBuilder BuildSportsCar()
         constexpr double kWr = 0.20, kHw = 0.08;
         for (int s = 0; s < kSegs; ++s)
         {
-            const double a0 = (static_cast<double>(s) / static_cast<double>(kSegs)) * kTwoPi;
-            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(kSegs)) * kTwoPi;
+            const double a0 = (static_cast<double>(s) / static_cast<double>(kSegs)) * Frontier::Constants::Tau;
+            const double a1 = (static_cast<double>(s + 1) / static_cast<double>(kSegs)) * Frontier::Constants::Tau;
             const Vec3d p0i { wx + std::cos(a0) * kWr, -0.18 + std::sin(a0) * kWr, wz - kHw };
             const Vec3d p1i { wx + std::cos(a1) * kWr, -0.18 + std::sin(a1) * kWr, wz - kHw };
             const Vec3d p0o { wx + std::cos(a0) * kWr, -0.18 + std::sin(a0) * kWr, wz + kHw };
@@ -483,7 +483,7 @@ CarrierSolidBuilder BuildSculptedBust()
         row.reserve(kSegments);
         for (int s = 0; s < kSegments; ++s)
         {
-            const double phi = (static_cast<double>(s) / static_cast<double>(kSegments)) * kTwoPi;
+            const double phi = (static_cast<double>(s) / static_cast<double>(kSegments)) * Frontier::Constants::Tau;
             const double cosPhi = std::cos(phi), sinPhi = std::sin(phi);
             double rx = 0.42, rz = 0.42;
             if (v < 0.24)
@@ -501,16 +501,16 @@ CarrierSolidBuilder BuildSculptedBust()
             else
             {
                 const double h = (v - 0.38) / 0.62;
-                const double profile = std::sin(std::pow(h, 0.85) * kPi);
+                const double profile = std::sin(std::pow(h, 0.85) * Frontier::Constants::Pi);
                 rx = 0.46 * profile * (h < 0.32 ? (0.78 + h * 0.7) : 1.0);
                 rz = 0.54 * profile;
                 if (sinPhi > 0.65 && h > 0.26 && h < 0.56)
                 {
-                    rz += 0.12 * std::pow(std::max(0.0, (sinPhi - 0.65) / 0.35), 2.2) * std::sin(((h - 0.26) / 0.30) * kPi);
+                    rz += 0.12 * std::pow(std::max(0.0, (sinPhi - 0.65) / 0.35), 2.2) * std::sin(((h - 0.26) / 0.30) * Frontier::Constants::Pi);
                 }
                 if (sinPhi > 0.35 && h > 0.46 && h < 0.62)
                 {
-                    rz += 0.045 * std::sin(((h - 0.46) / 0.16) * kPi) * std::max(0.0, sinPhi - 0.35);
+                    rz += 0.045 * std::sin(((h - 0.46) / 0.16) * Frontier::Constants::Pi) * std::max(0.0, sinPhi - 0.35);
                 }
                 if (sinPhi > 0.4 && h < 0.18)
                 {
@@ -539,7 +539,7 @@ CarrierSolidBuilder BuildTorusKnot()
     CarrierSolidBuilder b("TorusKnot");
     b.Tube(
         [](const double u) -> Vec3d {
-            const double theta = u * kTwoPi;
+            const double theta = u * Frontier::Constants::Tau;
             const double radius = 0.62 + 0.26 * std::cos(3.0 * theta);
             return { radius * std::cos(2.0 * theta), 0.32 * std::sin(3.0 * theta), radius * std::sin(2.0 * theta) };
         },
@@ -556,8 +556,8 @@ CarrierSolidBuilder BuildPrecisionGear()
     polygon.reserve(kTeeth * 4);
     for (int i = 0; i < kTeeth; ++i)
     {
-        const double base = (static_cast<double>(i) / static_cast<double>(kTeeth)) * kTwoPi;
-        const double step = kTwoPi / static_cast<double>(kTeeth);
+        const double base = (static_cast<double>(i) / static_cast<double>(kTeeth)) * Frontier::Constants::Tau;
+        const double step = Frontier::Constants::Tau / static_cast<double>(kTeeth);
         const std::array<std::array<double, 2>, 4u> pts {{
             { 0.68, base + step * 0.06 }, { 0.96, base + step * 0.18 },
             { 0.96, base + step * 0.42 }, { 0.68, base + step * 0.54 }
@@ -568,7 +568,7 @@ CarrierSolidBuilder BuildPrecisionGear()
     std::array<std::array<double, 2>, 16u> hub {};
     for (int i = 0; i < 16; ++i)
     {
-        const double a = (static_cast<double>(i) / 16.0) * kTwoPi;
+        const double a = (static_cast<double>(i) / 16.0) * Frontier::Constants::Tau;
         hub[i] = { std::cos(a) * 0.34, std::sin(a) * 0.34 };
     }
     b.Extrude(hub, 0.32);
@@ -595,7 +595,7 @@ CarrierSolidBuilder BuildCrystalCluster()
         std::array<Vec3d, kSides> bottom {}, top {};
         for (int s = 0; s < kSides; ++s)
         {
-            const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * kTwoPi;
+            const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * Frontier::Constants::Tau;
             const double lx = std::cos(a) * shard.r, lz = std::sin(a) * shard.r;
             bottom[s] = { shard.ox + lx, kBaseY, shard.oz + lz };
             top[s] = { shard.ox + lx * 0.84 + shard.tiltX * shard.h * 0.72, topY, shard.oz + lz * 0.84 + shard.tiltZ * shard.h * 0.72 };
@@ -624,8 +624,8 @@ CarrierSolidBuilder BuildArchway()
     constexpr double kInner = 0.40, kOuter = 0.84, kHalfZ = 0.28;
     for (int i = 0; i < kSegs; ++i)
     {
-        const double a0 = (static_cast<double>(i) / static_cast<double>(kSegs)) * kPi;
-        const double a1 = (static_cast<double>(i + 1) / static_cast<double>(kSegs)) * kPi;
+        const double a0 = (static_cast<double>(i) / static_cast<double>(kSegs)) * Frontier::Constants::Pi;
+        const double a1 = (static_cast<double>(i + 1) / static_cast<double>(kSegs)) * Frontier::Constants::Pi;
         const Vec3d pi0f { std::cos(a0) * kInner, 0.30 + std::sin(a0) * kInner, kHalfZ };
         const Vec3d pi1f { std::cos(a1) * kInner, 0.30 + std::sin(a1) * kInner, kHalfZ };
         const Vec3d po0f { std::cos(a0) * kOuter, 0.30 + std::sin(a0) * kOuter, kHalfZ };
@@ -655,7 +655,7 @@ CarrierSolidBuilder BuildFacetedSpire()
         row.reserve(kSegs);
         for (int s = 0; s < kSegs; ++s)
         {
-            const double a = (static_cast<double>(s) / static_cast<double>(kSegs)) * kTwoPi;
+            const double a = (static_cast<double>(s) / static_cast<double>(kSegs)) * Frontier::Constants::Tau;
             row.push_back({ std::cos(a) * radius, y, std::sin(a) * radius });
         }
         grid.push_back(std::move(row));
@@ -742,12 +742,12 @@ CarrierSolidBuilder BuildFishBody()
     {
         const double v = static_cast<double>(r) / static_cast<double>(kRings);
         const double x = -0.72 + v * 1.44;
-        const double profile = std::sin(std::pow(v, 0.82) * kPi);
+        const double profile = std::sin(std::pow(v, 0.82) * Frontier::Constants::Pi);
         std::vector<Vec3d> row;
         row.reserve(kSides);
         for (int s = 0; s < kSides; ++s)
         {
-            const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * kTwoPi;
+            const double a = (static_cast<double>(s) / static_cast<double>(kSides)) * Frontier::Constants::Tau;
             row.push_back({ x, std::cos(a) * profile * 0.30, std::sin(a) * profile * 0.13 });
         }
         grid.push_back(std::move(row));
@@ -1026,13 +1026,6 @@ CarrierSolidBuilder BuildFishBody()
          | (static_cast<uint32_t>(p[3]) << 24u);
 }
 
-[[nodiscard]] float ReadLeFloat32(const uint8_t* p) noexcept
-{
-    const uint32_t bits = ReadLeUInt32(p);
-    float val = 0.0f;
-    std::memcpy(&val, &bits, sizeof(float));
-    return val;
-}
 
 } // namespace
 
@@ -1154,11 +1147,11 @@ std::optional<CarrierSolidRecord> ParseStlSolid(const std::span<const uint8_t> r
             for (uint32_t i = 0u; i < count; ++i)
             {
                 offset += 12u; // skip facet normal
-                const Vec3d a { ReadLeFloat32(&rawBytes[offset]), ReadLeFloat32(&rawBytes[offset + 4u]), ReadLeFloat32(&rawBytes[offset + 8u]) };
+                const Vec3d a { Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 4u]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 8u]) };
                 offset += 12u;
-                const Vec3d b { ReadLeFloat32(&rawBytes[offset]), ReadLeFloat32(&rawBytes[offset + 4u]), ReadLeFloat32(&rawBytes[offset + 8u]) };
+                const Vec3d b { Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 4u]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 8u]) };
                 offset += 12u;
-                const Vec3d c { ReadLeFloat32(&rawBytes[offset]), ReadLeFloat32(&rawBytes[offset + 4u]), ReadLeFloat32(&rawBytes[offset + 8u]) };
+                const Vec3d c { Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 4u]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[offset + 8u]) };
                 offset += 14u; // 12 + 2 attribute bytes
                 builder.Triangle(a, b, c);
             }
@@ -1216,7 +1209,7 @@ std::optional<CarrierSolidRecord> ParseBinaryFct1Solid(const std::span<const uin
         {
             auto readPos = [&](const uint32_t vi) noexcept -> Vec3d {
                 const size_t pOff = 48u + static_cast<size_t>(vi) * 12u;
-                return { ReadLeFloat32(&rawBytes[pOff]), ReadLeFloat32(&rawBytes[pOff + 4u]), ReadLeFloat32(&rawBytes[pOff + 8u]) };
+                return { Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[pOff]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[pOff + 4u]), Frontier::Serialization::ReadLittleEndianFloat32(&rawBytes[pOff + 8u]) };
             };
             builder.Triangle(readPos(i0), readPos(i1), readPos(i2));
         }
@@ -1297,7 +1290,7 @@ SolidAnchorSet SampleSolidAnchors(
     }
     const auto creaseCdf = BuildCumulativeDistribution(creaseLengths);
 
-    const double yaw = yawDegrees * kPi / 180.0;
+    const double yaw = yawDegrees * Frontier::Constants::Pi / 180.0;
     const uint32_t modeIndex = static_cast<uint32_t>(mode);
     const double ridgeFraction = (modeIndex == 2u && !solid.Creases.empty() && totalCreaseLength > 1.0e-6) ? 0.72 : 0.0;
 

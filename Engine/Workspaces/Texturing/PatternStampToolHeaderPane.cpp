@@ -9,6 +9,7 @@
 #include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <imgui.h>
 
@@ -135,7 +136,7 @@ void DrawMotifPreviewInWell(PixelSpace& Surface, Rectangle2D WellR, std::size_t 
         case 7u:
             for (int K = 0; K < 5; ++K)
             {
-                const float A = -1.570796f + static_cast<float>(K) * 1.256637f;
+                const float A = -Frontier::Constants::HalfPiFloat + static_cast<float>(K) * 1.256637f;
                 Surface.StrokeLine(C, { C.X + std::cos(A) * R, C.Y + std::sin(A) * R }, Ink, 2.5f);
             }
             Surface.FillCircle(C, R * 0.36f, Ink);
@@ -639,7 +640,7 @@ void PatternStampToolHeaderPane::Render(
             Surface.PushClip(CanvasRegion);
             if (SelLayer->FillSource == PatternStampFillSourceMode::LinearGradient)
             {
-                const float AngRad = SelLayer->GradientAngleDeg * 0.0174532925f;
+                const float AngRad = SelLayer->GradientAngleDeg * Frontier::Constants::DegToRadFloat;
                 const float Cx     = TileX0 + TileS * 0.50f;
                 const float Cy     = TileY0 + TileS * 0.50f;
                 const float HalfL  = TileS * 0.35f;

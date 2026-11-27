@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Viewport/SketcherRasterization.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1253,8 +1254,8 @@ void SketcherRasterization::UploadMatcaps(const std::vector<SketcherPicture>& La
 
 void SketcherRasterization::AssignStates(const std::vector<uint32_t>& FaceStates, const std::vector<uint32_t>& EdgeStates)
 {
-    uint64_t StatesHash = 14695981039346656037ull;
-    auto Mix = [](uint64_t H, uint64_t V) noexcept -> uint64_t { H ^= V; H *= 1099511628211ull; return H; };
+    uint64_t StatesHash = Frontier::Constants::Fnv1a64OffsetBasis;
+    auto Mix = [](uint64_t H, uint64_t V) noexcept -> uint64_t { H ^= V; H *= Frontier::Constants::Fnv1a64Prime; return H; };
     StatesHash = Mix(StatesHash, static_cast<uint64_t>(FaceStates.size()));
     StatesHash = Mix(StatesHash, static_cast<uint64_t>(EdgeStates.size()));
     for (uint32_t V : FaceStates) StatesHash = Mix(StatesHash, V);

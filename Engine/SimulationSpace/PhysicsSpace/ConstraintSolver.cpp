@@ -10,6 +10,8 @@
 #include "Engine/SimulationSpace/PhysicsSpace/ConstraintSolver.h"
 #include "Engine/ComponentClass/ComponentInstanceCategories.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cctype>
@@ -21,18 +23,6 @@ namespace Frontier::SimulationSpace::PhysicsSpace
 namespace
 {
 
-[[nodiscard]] std::string_view TrimAsciiWhitespace(std::string_view InputText) noexcept
-{
-    while (!InputText.empty() && std::isspace(static_cast<unsigned char>(InputText.front())) != 0)
-    {
-        InputText.remove_prefix(1u);
-    }
-    while (!InputText.empty() && std::isspace(static_cast<unsigned char>(InputText.back())) != 0)
-    {
-        InputText.remove_suffix(1u);
-    }
-    return InputText;
-}
 
 [[nodiscard]] Mathematics::Axis3D ResolveAxisUnit(ComponentClass::ConstraintAxis Axis) noexcept
 {
@@ -142,19 +132,19 @@ float ConstraintSolver::EvaluateBondStrainRatio(
 
 uint64_t ConstraintSolver::ComputeDockKeyHash(std::string_view KeyText) noexcept
 {
-    const std::string_view Normalized = TrimAsciiWhitespace(KeyText);
+    const std::string_view Normalized = Frontier::Serialization::TrimAsciiView(KeyText);
     if (Normalized.empty())
     {
         return 0ull;
     }
 
     // 📝 Case-insensitive 64-bit FNV-1a fingerprint matching ProjectZeroEditor Dock key normalization
-    uint64_t Hash = 14695981039346656037ull;
+    uint64_t Hash = Frontier::Constants::Fnv1a64OffsetBasis;
     for (const char Ch : Normalized)
     {
         const unsigned char Lowered = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(Ch)));
         Hash ^= static_cast<uint64_t>(Lowered);
-        Hash *= 1099511628211ull;
+        Hash *= Frontier::Constants::Fnv1a64Prime;
     }
     return Hash == 0ull ? 1ull : Hash;
 }
@@ -227,7 +217,6 @@ ConstraintDescriptor ConstraintSolver::ConstructDescriptorFromComponent(
     std::string_view                                   AttachedTagCsv,
     uint64_t                                           ComponentInstanceTag) noexcept
 {
-    constexpr float DegToRad = static_cast<float>(Constants::Pi / 180.0);
 
     ConstraintDescriptor Descriptor {};
     Descriptor.FirstBody             = FirstBody;
@@ -265,8 +254,8 @@ ConstraintDescriptor ConstraintSolver::ConstructDescriptorFromComponent(
         case ComponentClass::PhysicsConstraintCategory::Hinge:
         {
             Descriptor.Category          = ConstraintCategory::Hinge;
-            Descriptor.MinLimit          = Settings.MinAngleDegrees * DegToRad;
-            Descriptor.MaxLimit          = Settings.MaxAngleDegrees * DegToRad;
+            Descriptor.MinLimit          = Settings.MinAngleDegrees * Frontier::Constants::DegToRadFloat;
+            Descriptor.MaxLimit          = Settings.MaxAngleDegrees * Frontier::Constants::DegToRadFloat;
             Descriptor.MotorDriveEnabled = (Descriptor.DriveCategory != ConstraintDriveCategory::Freewheel);
             Descriptor.MotorVelocityMode = false;
             Descriptor.TargetMotorCoordinate = Descriptor.MinLimit
@@ -287,8 +276,8 @@ ConstraintDescriptor ConstraintSolver::ConstructDescriptorFromComponent(
         case ComponentClass::PhysicsConstraintCategory::Ball:
         {
             Descriptor.Category          = ConstraintCategory::SwingTwist;
-            Descriptor.ConeHalfAngleRad  = std::clamp(Settings.ConeAngleDegrees * DegToRad, 0.01f, 3.10f);
-            Descriptor.TwistHalfAngleRad = std::clamp(Settings.TwistLimitDegrees * DegToRad, 0.01f, 3.14f);
+            Descriptor.ConeHalfAngleRad  = std::clamp(Settings.ConeAngleDegrees * Frontier::Constants::DegToRadFloat, 0.01f, 3.10f);
+            Descriptor.TwistHalfAngleRad = std::clamp(Settings.TwistLimitDegrees * Frontier::Constants::DegToRadFloat, 0.01f, 3.14f);
             Descriptor.MotorDriveEnabled = (Descriptor.DriveCategory == ConstraintDriveCategory::Sweep
                 || Descriptor.DriveCategory == ConstraintDriveCategory::MotorPosition);
             break;

@@ -7,6 +7,7 @@
 
 #include "Engine/Codecs/ControlVehicleSurfaceDecoder.h"
 #include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -22,7 +23,6 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-constexpr float    PiConstant                = 3.14159265358979323846f;
 constexpr uint32_t TracingUniformByteSize    = 304u; // 19 x float4
 constexpr uint32_t TracingSlotStrideBytes    = 512u; // >= max minUniformBufferOffsetAlignment (256 B)
 constexpr uint32_t TracingSlotTotal          = 3u;   // 0 = Integrate, 1 = Reproject, 2 = Features
@@ -643,7 +643,7 @@ DeterministicCameraBasis DeterministicPathTraceSequence::ResolveCameraBasis(
     const std::array<float, 3> Forward     = Normalize3({ Camera.Target[0] - Origin[0], Camera.Target[1] - Origin[1], Camera.Target[2] - Origin[2] });
     const std::array<float, 3> UnitRight   = Normalize3(Cross3(Forward, { 0.0f, 1.0f, 0.0f }));
     const std::array<float, 3> UnitUp      = Cross3(UnitRight, Forward);
-    const float                TangentHalf = std::tan(Camera.FieldOfViewDegrees * PiConstant / 360.0f);
+    const float                TangentHalf = std::tan(Camera.FieldOfViewDegrees * Frontier::Constants::PiFloat / 360.0f);
 
     DeterministicCameraBasis Basis {};
     Basis.Origin  = Origin;
@@ -1310,7 +1310,7 @@ bool DeterministicPathTraceSequence::ConfigureStudioScene(const DeterministicTra
             float C = std::cos(Bays[I].YawRadians);
             float S = std::sin(Bays[I].YawRadians);
             if (std::abs(Bays[I].YawRadians) < 1.0e-6f) { C = 1.0f; S = 0.0f; }
-            else if (std::abs(Bays[I].YawRadians - PiConstant) < 1.0e-5f) { C = -1.0f; S = 0.0f; }
+            else if (std::abs(Bays[I].YawRadians - Frontier::Constants::PiFloat) < 1.0e-5f) { C = -1.0f; S = 0.0f; }
             BayTransforms[I] = { C, S, Bays[I].BayX, Bays[I].BayZ };
 
             std::array<float, 3> Lower { 1.0e30f, 1.0e30f, 1.0e30f };
@@ -2110,7 +2110,7 @@ void DeterministicPathTraceSequence::EncodeDisplayReconstruction(const VkCommand
 
     const float Strength      = Configuration.DenoiseActive ? ResolveDenoiseStrength(QueryEffectivePixelSamples()) : 0.0f;
     const bool  RunAtrous     = (Strength > 0.0f);
-    const float Footprint     = 2.0f * std::tan(Configuration.Camera.FieldOfViewDegrees * PiConstant / 360.0f) / static_cast<float>(std::max(AccumulationHeight, 1u));
+    const float Footprint     = 2.0f * std::tan(Configuration.Camera.FieldOfViewDegrees * Frontier::Constants::PiFloat / 360.0f) / static_cast<float>(std::max(AccumulationHeight, 1u));
     const uint32_t HistoryOff = HistoryRegionIndex * PixelCount;
 
     const auto WriteReconSlot = [&](

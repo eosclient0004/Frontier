@@ -6,6 +6,7 @@
 #include "Engine/GeometricRaster/Atmosphere/VolumetricCloudSequence.h"
 
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <array>
@@ -30,27 +31,18 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-[[nodiscard]] inline float FractScalar(float X) noexcept
-{
-    return X - std::floor(X);
-}
 
-[[nodiscard]] inline float SmoothstepScalar(float Edge0, float Edge1, float X) noexcept
-{
-    const float T = std::clamp((X - Edge0) / std::max(1.0e-6f, Edge1 - Edge0), 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
 [[nodiscard]] inline float CelestialHash13Cpu(float Px, float Py, float Pz) noexcept
 {
-    float X = FractScalar(Px * 0.1031f);
-    float Y = FractScalar(Py * 0.1031f);
-    float Z = FractScalar(Pz * 0.1031f);
+    float X = Frontier::Mathematics::EvaluateFractionalPart(Px * 0.1031f);
+    float Y = Frontier::Mathematics::EvaluateFractionalPart(Py * 0.1031f);
+    float Z = Frontier::Mathematics::EvaluateFractionalPart(Pz * 0.1031f);
     const float D = X * (Z + 31.32f) + Y * (Y + 31.32f) + Z * (X + 31.32f);
     X += D;
     Y += D;
     Z += D;
-    return FractScalar((X + Y) * Z);
+    return Frontier::Mathematics::EvaluateFractionalPart((X + Y) * Z);
 }
 
 [[nodiscard]] float CelestialScalarNoiseCpu(float Px, float Py, float Pz) noexcept
@@ -100,7 +92,7 @@ namespace
 {
     const float J = (PixelJitter01 >= 0.0f)
         ? std::clamp(PixelJitter01, 0.0f, 0.9999f)
-        : FractScalar(52.9829189f * FractScalar(Rd.X * 193.713f + Rd.Y * 371.419f + Rd.Z * 547.823f));
+        : Frontier::Mathematics::EvaluateFractionalPart(52.9829189f * Frontier::Mathematics::EvaluateFractionalPart(Rd.X * 193.713f + Rd.Y * 371.419f + Rd.Z * 547.823f));
     // Direct scalar handoff to CloudBlueJitter (Pixel.x < 0 passes Pixel.y verbatim)
     return Vector<float, 2>{ -1.0f, J };
 }
@@ -274,7 +266,7 @@ void ResolveDeckWindVelocity(
     else // HalfSphere
     {
         if (Uz < -0.14f) return 0.0f;
-        const float BottomF = SmoothstepScalar(-0.14f, 0.06f, Uz);
+        const float BottomF = Frontier::Mathematics::EvaluateSmoothStep(-0.14f, 0.06f, Uz);
         const float Pz      = std::max(0.0f, Uz);
         const float RadialD = std::sqrt(Ux * Ux + Uy * Uy + Pz * Pz);
         OutHeightNorm       = std::clamp(Pz, 0.0f, 1.0f);
@@ -283,9 +275,9 @@ void ResolveDeckWindVelocity(
         if (DensityFalloff)
         {
             const float ExpP = 0.35f + (3.0f - 0.35f) * Soft;
-            return std::pow(SmoothstepScalar(0.0f, 1.0f, Margin), ExpP) * BottomF;
+            return std::pow(Frontier::Mathematics::EvaluateSmoothStep(0.0f, 1.0f, Margin), ExpP) * BottomF;
         }
-        return SmoothstepScalar(0.0f, std::max(Soft, 0.01f), Margin) * BottomF;
+        return Frontier::Mathematics::EvaluateSmoothStep(0.0f, std::max(Soft, 0.01f), Margin) * BottomF;
     }
 
     const float Margin = std::clamp(1.0f - DistNorm, 0.0f, 1.0f);
@@ -293,9 +285,9 @@ void ResolveDeckWindVelocity(
     if (DensityFalloff)
     {
         const float ExpP = 0.35f + (3.0f - 0.35f) * Soft;
-        return std::pow(SmoothstepScalar(0.0f, 1.0f, Margin), ExpP);
+        return std::pow(Frontier::Mathematics::EvaluateSmoothStep(0.0f, 1.0f, Margin), ExpP);
     }
-    return SmoothstepScalar(0.0f, std::max(Soft, 0.01f), Margin);
+    return Frontier::Mathematics::EvaluateSmoothStep(0.0f, std::max(Soft, 0.01f), Margin);
 }
 
 [[nodiscard]] float EvaluateSingleLocalCloudDensityCpu(
@@ -316,15 +308,15 @@ void ResolveDeckWindVelocity(
     float Prof = 1.0f;
     if (Vol.Form == LocalCloudForm::Stratiform)
     {
-        Prof = SmoothstepScalar(0.0f, 0.15f, OutHeightNorm) * (1.0f - SmoothstepScalar(0.75f, 1.0f, OutHeightNorm));
+        Prof = Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.15f, OutHeightNorm) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.75f, 1.0f, OutHeightNorm));
     }
     else if (Vol.Form == LocalCloudForm::Cumuliform)
     {
-        Prof = SmoothstepScalar(0.0f, 0.08f, OutHeightNorm) * (1.0f - SmoothstepScalar(0.35f, 1.0f, OutHeightNorm)) * 1.25f;
+        Prof = Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.08f, OutHeightNorm) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.35f, 1.0f, OutHeightNorm)) * 1.25f;
     }
     else
     {
-        Prof = SmoothstepScalar(0.0f, 0.30f, OutHeightNorm) * (1.0f - SmoothstepScalar(0.55f, 1.0f, OutHeightNorm)) * 0.55f;
+        Prof = Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.30f, OutHeightNorm) * (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.55f, 1.0f, OutHeightNorm)) * 0.55f;
     }
     if (Prof <= 1.0e-4f) return 0.0f;
 
@@ -434,7 +426,7 @@ void ResolveDeckWindVelocity(
                        + CelestialScalarNoiseCpu(Px * 4.4f + 6.1f, Py * 4.4f + 0.9f, Pz * 4.4f + 3.8f) * 0.15f;
 
     const float Hetero = std::clamp(Vol.Coverage, 0.0f, 1.0f);
-    const float Mod    = (1.0f - Hetero) + Hetero * (SmoothstepScalar(0.18f, 0.86f, N) * 1.45f);
+    const float Mod    = (1.0f - Hetero) + Hetero * (Frontier::Mathematics::EvaluateSmoothStep(0.18f, 0.86f, N) * 1.45f);
     const float Grav   = 1.0f - 0.35f * OutHeightNorm;
     return Vol.Density * 0.16f * Mask * Mod * Grav;
 }

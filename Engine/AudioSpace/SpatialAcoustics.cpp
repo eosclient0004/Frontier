@@ -12,6 +12,7 @@
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
+#include "Engine/Mathematics/AxisCoordinates.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,24 +23,12 @@ namespace Frontier::AudioSpace
 namespace
 {
 
-[[nodiscard]] float Dot3(Mathematics::Axis3D A, Mathematics::Axis3D B) noexcept
-{
-    return A.X * B.X + A.Y * B.Y + A.Z * B.Z;
-}
 
 [[nodiscard]] float LengthSquared3(Mathematics::Axis3D V) noexcept
 {
     return V.X * V.X + V.Y * V.Y + V.Z * V.Z;
 }
 
-[[nodiscard]] Mathematics::Axis3D Cross3(Mathematics::Axis3D A, Mathematics::Axis3D B) noexcept
-{
-    return {
-        A.Y * B.Z - A.Z * B.Y,
-        A.Z * B.X - A.X * B.Z,
-        A.X * B.Y - A.Y * B.X,
-    };
-}
 
 [[nodiscard]] Mathematics::Axis3D NormalizeOrFallback(Mathematics::Axis3D V, Mathematics::Axis3D Fallback) noexcept
 {
@@ -271,8 +260,8 @@ float SpatialAcoustics::EvaluateDopplerPitchRatio(
                                     : Constants::DryAirSoundSpeedMps;
 
     const float Scale           = std::clamp(DopplerFactor, 0.0f, 2.0f);
-    const float ReceiverRadial  = Dot3(Receiver.VelocityMps, RadialToOrigin) * Scale;
-    const float OriginRadial    = Dot3(OriginVelocityMps, RadialToOrigin) * Scale;
+    const float ReceiverRadial  = Frontier::Mathematics::EvaluateDot(Receiver.VelocityMps, RadialToOrigin) * Scale;
+    const float OriginRadial    = Frontier::Mathematics::EvaluateDot(OriginVelocityMps, RadialToOrigin) * Scale;
 
     const float FloorSpeed  = SoundSpeedMps * Constants::AcousticSpeedClampFloorRatio;
     const float Numerator   = std::max(FloorSpeed * 0.5f, SoundSpeedMps + ReceiverRadial);
@@ -494,7 +483,7 @@ float SpatialAcoustics::EvaluateZoneMembership(
             const float               LengthM = std::sqrt(LenSq);
             const Mathematics::Axis3D UnitDir = AxisVec * (1.0f / LengthM);
             const Mathematics::Axis3D ToPt    = PointMeters - Zone.TunnelStartMeters;
-            const float               AxialM  = Dot3(ToPt, UnitDir);
+            const float               AxialM  = Frontier::Mathematics::EvaluateDot(ToPt, UnitDir);
 
             const float               ClampedAxial = std::clamp(AxialM, 0.0f, LengthM);
             const Mathematics::Axis3D ClosestAxis  = Zone.TunnelStartMeters + UnitDir * ClampedAxial;
@@ -527,8 +516,8 @@ AcousticSpatialSolution SpatialAcoustics::SolveSpatialAcoustics(
     // Orthonormalize receiver basis safely
     const Mathematics::Axis3D Forward = NormalizeOrFallback(Receiver.ForwardAxis, { 1.0f, 0.0f, 0.0f });
     const Mathematics::Axis3D UpRaw   = NormalizeOrFallback(Receiver.UpAxis, { 0.0f, 0.0f, 1.0f });
-    const Mathematics::Axis3D Left    = NormalizeOrFallback(Cross3(UpRaw, Forward), NormalizeOrFallback(Receiver.LeftAxis, { 0.0f, 1.0f, 0.0f }));
-    const Mathematics::Axis3D Up      = NormalizeOrFallback(Cross3(Forward, Left), UpRaw);
+    const Mathematics::Axis3D Left    = NormalizeOrFallback(Frontier::Mathematics::EvaluateCross(UpRaw, Forward), NormalizeOrFallback(Receiver.LeftAxis, { 0.0f, 1.0f, 0.0f }));
+    const Mathematics::Axis3D Up      = NormalizeOrFallback(Frontier::Mathematics::EvaluateCross(Forward, Left), UpRaw);
 
     // Resolve strongest active acoustic zone coupling (supports interior resonance + portal escape radiation)
     float                      BestPriorityWeight = -1.0f;
@@ -617,9 +606,9 @@ AcousticSpatialSolution SpatialAcoustics::SolveSpatialAcoustics(
     const float               DistanceM  = std::sqrt(LengthSquared3(Delta));
     const Mathematics::Axis3D UnitToOrig = NormalizeOrFallback(Delta, Forward);
 
-    const float LocalFront = Dot3(UnitToOrig, Forward);
-    const float LocalLeft  = Dot3(UnitToOrig, Left);
-    const float LocalUp    = std::clamp(Dot3(UnitToOrig, Up), -1.0f, 1.0f);
+    const float LocalFront = Frontier::Mathematics::EvaluateDot(UnitToOrig, Forward);
+    const float LocalLeft  = Frontier::Mathematics::EvaluateDot(UnitToOrig, Left);
+    const float LocalUp    = std::clamp(Frontier::Mathematics::EvaluateDot(UnitToOrig, Up), -1.0f, 1.0f);
 
     Solution.BinauralAzimuthRadians   = (DistanceM > 1.0e-4f) ? std::atan2(LocalLeft, LocalFront) : 0.0f;
     Solution.BinauralElevationRadians = (DistanceM > 1.0e-4f) ? std::asin(LocalUp) : 0.0f;
@@ -682,7 +671,7 @@ AcousticReceiverPose SpatialAcoustics::BuildReceiverPoseFromCamera(const Compone
 
     Pose.ForwardAxis = NormalizeOrFallback(Posture.ForwardAxis, { 0.0f, 1.0f, 0.0f });
     Pose.UpAxis      = NormalizeOrFallback(Posture.UpAxis, { 0.0f, 0.0f, 1.0f });
-    Pose.LeftAxis    = NormalizeOrFallback(Cross3(Pose.UpAxis, Pose.ForwardAxis), { -Posture.RightAxis.X, -Posture.RightAxis.Y, -Posture.RightAxis.Z });
+    Pose.LeftAxis    = NormalizeOrFallback(Frontier::Mathematics::EvaluateCross(Pose.UpAxis, Pose.ForwardAxis), { -Posture.RightAxis.X, -Posture.RightAxis.Y, -Posture.RightAxis.Z });
     return Pose;
 }
 

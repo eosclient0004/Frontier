@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Parametric/Drawing/DrawingSheet.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <chrono>
@@ -24,7 +25,6 @@ namespace Frontier::GeometrySpace::Parametric
 
 namespace
 {
-    constexpr double Pi             = std::numbers::pi;
     constexpr double ArrowLength    = 3.0;                                                   // [mm] - ISO 129: filled, 1 : 3
     constexpr double ArrowHalfWidth = 0.5;                                                   // [mm]
     constexpr double FirstTier      = 10.0;                                                  // [mm] - Outline → first dimension line
@@ -110,8 +110,8 @@ namespace
         for (size_t Index = 1; Index < Points.size(); ++Index)
         {
             double Turn = std::atan2(Points[Index].Y - Fit.Centre.Y, Points[Index].X - Fit.Centre.X) - std::atan2(Points[Index - 1].Y - Fit.Centre.Y, Points[Index - 1].X - Fit.Centre.X);
-            while (Turn > Pi) Turn -= 2.0 * Pi;
-            while (Turn < -Pi) Turn += 2.0 * Pi;
+            while (Turn > Frontier::Constants::Pi) Turn -= 2.0 * Frontier::Constants::Pi;
+            while (Turn < -Frontier::Constants::Pi) Turn += 2.0 * Frontier::Constants::Pi;
             Fit.Cover += std::fabs(Turn);
         }
         const Vector2 Half = Points[Points.size() / 2];
@@ -145,7 +145,7 @@ namespace
     }
 
     // Coaxial strokes (two rims of one hole) each add 2π; a full circle is any group with cover ≥ 2π.
-    [[nodiscard]] bool FullCondition(const CircleFit& Circle) { return Circle.Cover >= 2.0 * Pi - 1.0e-6; }
+    [[nodiscard]] bool FullCondition(const CircleFit& Circle) { return Circle.Cover >= 2.0 * Frontier::Constants::Pi - 1.0e-6; }
 
     // Extreme outline point along an axis (0 = 𝑥, 1 = 𝑦); ties broken toward the dimension side on the other axis.
     [[nodiscard]] Vector2 ExtremePoint(const DrawingView& View, int Axis, bool Least, int TieSide)
@@ -301,7 +301,7 @@ namespace
                         Line(SheetLayer::Dimension, Inside ? std::vector<Vector2>{ Dimension.LineStart, Dimension.LineEnd } : std::vector<Vector2>{ { Level, A.Y - 2.0 * ArrowLength }, { Level, B.Y + 2.0 * ArrowLength } });
                         Solid(Arrowhead(Dimension.LineStart, { 0.0, Inside ? -1.0 : 1.0 }));
                         Solid(Arrowhead(Dimension.LineEnd, { 0.0, Inside ? 1.0 : -1.0 }));
-                        Text({ SheetLayer::Dimension, { Level - 1.0, 0.5 * (A.Y + B.Y) }, Height, 0.5 * Pi, SheetTextAnchor::Middle, Dimension.Text }, &Dimension.TextLow, &Dimension.TextHigh);
+                        Text({ SheetLayer::Dimension, { Level - 1.0, 0.5 * (A.Y + B.Y) }, Height, 0.5 * Frontier::Constants::Pi, SheetTextAnchor::Middle, Dimension.Text }, &Dimension.TextLow, &Dimension.TextHigh);
                     }
                     Note.Dimensions.push_back(std::move(Dimension));
                 }
@@ -382,7 +382,7 @@ namespace
         std::vector<Vector2> Points;
         for (int Index = 0; Index <= 72; ++Index)
         {
-            const double Angle = 2.0 * Pi * Index / 72.0;
+            const double Angle = 2.0 * Frontier::Constants::Pi * Index / 72.0;
             Points.push_back({ Centre.X + Radius * std::cos(Angle), Centre.Y + Radius * std::sin(Angle) });
         }
         return Points;

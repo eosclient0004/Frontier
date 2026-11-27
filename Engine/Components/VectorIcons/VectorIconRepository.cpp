@@ -4,6 +4,7 @@
 // 🧩 SVG 1.1 path flattening, round-cap polyline stroking, and built-in vector icon lookup entries.
 
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -18,7 +19,6 @@ namespace Frontier
 namespace
 {
 
-constexpr float PiConstant = 3.14159265358979f;
 
 struct SvgPathScanner
 {
@@ -157,7 +157,7 @@ void AppendEllipticalArc(std::vector<Point2D> &Out, Point2D P0, float Rx, float 
     Rx = std::fabs(Rx);
     Ry = std::fabs(Ry);
 
-    const float Phi    = RotationDegrees * PiConstant / 180.0f;
+    const float Phi    = RotationDegrees * Frontier::Constants::PiFloat / 180.0f;
     const float CosPhi = std::cos(Phi);
     const float SinPhi = std::sin(Phi);
     const float Dx     = (P0.X - P1.X) * 0.5f;
@@ -199,9 +199,9 @@ void AppendEllipticalArc(std::vector<Point2D> &Out, Point2D P0, float Rx, float 
     const float Theta1     = ComputeAngle(1.0f, 0.0f, (X1p - Cxp) / Rx, (Y1p - Cyp) / Ry);
     float       DeltaTheta = ComputeAngle((X1p - Cxp) / Rx, (Y1p - Cyp) / Ry, (-X1p - Cxp) / Rx, (-Y1p - Cyp) / Ry);
     if (!Sweep && DeltaTheta > 0.0f)
-        DeltaTheta -= 2.0f * PiConstant;
+        DeltaTheta -= 2.0f * Frontier::Constants::PiFloat;
     if (Sweep && DeltaTheta < 0.0f)
-        DeltaTheta += 2.0f * PiConstant;
+        DeltaTheta += 2.0f * Frontier::Constants::PiFloat;
 
     const int Segments = std::max(1, static_cast<int>(std::ceil(std::fabs(DeltaTheta) / StepRadians)));
     for (int Step = 1; Step <= Segments; ++Step)
@@ -523,7 +523,7 @@ void VectorIconRepository::StrokeSvgPath(PixelSpace &Surface, std::string_view S
             Point2D Dot[12]{};
             for (int Step = 0; Step < 12; ++Step)
             {
-                const float Angle = 2.0f * PiConstant * static_cast<float>(Step) / 12.0f;
+                const float Angle = 2.0f * Frontier::Constants::PiFloat * static_cast<float>(Step) / 12.0f;
                 Dot[Step]         = {Scaled[0].X + 0.5f * Thickness * std::cos(Angle),
                                      Scaled[0].Y + 0.5f * Thickness * std::sin(Angle)};
             }
@@ -540,7 +540,7 @@ void VectorIconRepository::StrokeSvgPath(PixelSpace &Surface, std::string_view S
                 Point2D Cap[10]{};
                 for (int Step = 0; Step < 10; ++Step)
                 {
-                    const float Angle = 2.0f * PiConstant * static_cast<float>(Step) / 10.0f;
+                    const float Angle = 2.0f * Frontier::Constants::PiFloat * static_cast<float>(Step) / 10.0f;
                     Cap[Step]         = {EndPt.X + 0.5f * Thickness * std::cos(Angle),
                                          EndPt.Y + 0.5f * Thickness * std::sin(Angle)};
                 }

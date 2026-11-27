@@ -9,6 +9,7 @@
 #include "Engine/ColourSpace/ChromaticitySpace.h"
 #include "Engine/ColourSpace/ColourRampSampler.h"
 #include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <toml++/toml.hpp>
 
@@ -25,22 +26,6 @@ namespace Frontier
 namespace
 {
 
-[[nodiscard]] int ParseHexNibble(char Character) noexcept
-{
-    if (Character >= '0' && Character <= '9')
-    {
-        return Character - '0';
-    }
-    if (Character >= 'a' && Character <= 'f')
-    {
-        return 10 + (Character - 'a');
-    }
-    if (Character >= 'A' && Character <= 'F')
-    {
-        return 10 + (Character - 'A');
-    }
-    return -1;
-}
 
 [[nodiscard]] ColorRgba ParseHexToRgba(std::string_view RawHex, ColorRgba Fallback = { 59u, 31u, 58u, 255u }) noexcept
 {
@@ -58,9 +43,9 @@ namespace
     }
     if (RawHex.size() == 3u)
     {
-        const int R = ParseHexNibble(RawHex[0]);
-        const int G = ParseHexNibble(RawHex[1]);
-        const int B = ParseHexNibble(RawHex[2]);
+        const int R = Frontier::Serialization::ParseHexNibble(RawHex[0]);
+        const int G = Frontier::Serialization::ParseHexNibble(RawHex[1]);
+        const int B = Frontier::Serialization::ParseHexNibble(RawHex[2]);
         if (R >= 0 && G >= 0 && B >= 0)
         {
             return {
@@ -74,12 +59,12 @@ namespace
     }
     if (RawHex.size() == 6u)
     {
-        const int RHi = ParseHexNibble(RawHex[0]);
-        const int RLo = ParseHexNibble(RawHex[1]);
-        const int GHi = ParseHexNibble(RawHex[2]);
-        const int GLo = ParseHexNibble(RawHex[3]);
-        const int BHi = ParseHexNibble(RawHex[4]);
-        const int BLo = ParseHexNibble(RawHex[5]);
+        const int RHi = Frontier::Serialization::ParseHexNibble(RawHex[0]);
+        const int RLo = Frontier::Serialization::ParseHexNibble(RawHex[1]);
+        const int GHi = Frontier::Serialization::ParseHexNibble(RawHex[2]);
+        const int GLo = Frontier::Serialization::ParseHexNibble(RawHex[3]);
+        const int BHi = Frontier::Serialization::ParseHexNibble(RawHex[4]);
+        const int BLo = Frontier::Serialization::ParseHexNibble(RawHex[5]);
         if (RHi >= 0 && RLo >= 0 && GHi >= 0 && GLo >= 0 && BHi >= 0 && BLo >= 0)
         {
             return {
@@ -152,16 +137,6 @@ void ComputeHslMetrics(ColorRgba Fill, float& OutHueDegrees, float& OutSaturatio
     };
 }
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Text)
-{
-    std::string Lowered;
-    Lowered.reserve(Text.size());
-    for (const char Character : Text)
-    {
-        Lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(Character))));
-    }
-    return Lowered;
-}
 
 [[nodiscard]] std::string SanitizePascalIdentifier(std::string_view Name)
 {
@@ -187,7 +162,7 @@ void ComputeHslMetrics(ColorRgba Fill, float& OutHueDegrees, float& OutSaturatio
 
 [[nodiscard]] ColourFilterGroup ParseFilterGroupByName(std::string_view Title) noexcept
 {
-    const std::string Lowered = LowercaseAscii(Title);
+    const std::string Lowered = Frontier::Serialization::LowercaseAscii(Title);
     if (Lowered.find("august") != std::string::npos || Lowered.find("beige") != std::string::npos)
     {
         return ColourFilterGroup::WarmAmberNeutrals;
@@ -543,10 +518,10 @@ const ColourSwatchEntry* ColourSwatchBrowserView::QueryEntryAt(std::size_t Entry
 
 std::size_t ColourSwatchBrowserView::FindEntryByName(std::string_view AliasName) const noexcept
 {
-    const std::string Target = LowercaseAscii(AliasName);
+    const std::string Target = Frontier::Serialization::LowercaseAscii(AliasName);
     for (std::size_t Index = 0u; Index < RepositoryEntries.size(); ++Index)
     {
-        if (LowercaseAscii(RepositoryEntries[Index].AliasName) == Target)
+        if (Frontier::Serialization::LowercaseAscii(RepositoryEntries[Index].AliasName) == Target)
         {
             return Index;
         }
@@ -556,7 +531,7 @@ std::size_t ColourSwatchBrowserView::FindEntryByName(std::string_view AliasName)
 
 uint32_t ColourSwatchBrowserView::CountFilterMatches(ColourFilterGroup Group, std::string_view SearchText) const
 {
-    const std::string Needle = LowercaseAscii(SearchText);
+    const std::string Needle = Frontier::Serialization::LowercaseAscii(SearchText);
     uint32_t          Count  = 0u;
     for (const ColourSwatchEntry& Entry : RepositoryEntries)
     {
@@ -567,7 +542,7 @@ uint32_t ColourSwatchBrowserView::CountFilterMatches(ColourFilterGroup Group, st
         if (!Needle.empty())
         {
             const std::string Haystack =
-                LowercaseAscii(Entry.AliasName) + " " + LowercaseAscii(Entry.HexUpper) + " " + LowercaseAscii(Entry.SeriesTitle);
+                Frontier::Serialization::LowercaseAscii(Entry.AliasName) + " " + Frontier::Serialization::LowercaseAscii(Entry.HexUpper) + " " + Frontier::Serialization::LowercaseAscii(Entry.SeriesTitle);
             if (Haystack.find(Needle) == std::string::npos)
             {
                 continue;
@@ -583,7 +558,7 @@ std::vector<std::size_t> ColourSwatchBrowserView::QueryFilteredIndices(
     ColourSortOrder   Order,
     std::string_view  SearchText) const
 {
-    const std::string        Needle = LowercaseAscii(SearchText);
+    const std::string        Needle = Frontier::Serialization::LowercaseAscii(SearchText);
     std::vector<std::size_t> Indices;
     Indices.reserve(RepositoryEntries.size());
 
@@ -597,7 +572,7 @@ std::vector<std::size_t> ColourSwatchBrowserView::QueryFilteredIndices(
         if (!Needle.empty())
         {
             const std::string Haystack =
-                LowercaseAscii(Entry.AliasName) + " " + LowercaseAscii(Entry.HexUpper) + " " + LowercaseAscii(Entry.SeriesTitle);
+                Frontier::Serialization::LowercaseAscii(Entry.AliasName) + " " + Frontier::Serialization::LowercaseAscii(Entry.HexUpper) + " " + Frontier::Serialization::LowercaseAscii(Entry.SeriesTitle);
             if (Haystack.find(Needle) == std::string::npos)
             {
                 continue;

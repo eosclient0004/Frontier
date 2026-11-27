@@ -15,6 +15,7 @@
 
 #include "Engine/Lifecycle/ProjectEditorSceneRegistry.h"
 #include "Engine/Mathematics/AxisCoordinates.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 #include "Source/Gameplay/LobbyLifecycle.h"
 
 #include <algorithm>
@@ -32,14 +33,6 @@ namespace AutoSpace
 namespace
 {
 
-[[nodiscard]] std::string LowercaseAscii(std::string Text)
-{
-    for (char& Ch : Text)
-    {
-        Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
-    }
-    return Text;
-}
 
 [[nodiscard]] bool MatchesAutoSpaceProjectFile(const std::filesystem::path& ProjectSpacePath)
 {
@@ -47,8 +40,8 @@ namespace
     {
         return false;
     }
-    const std::string SuffixLower = LowercaseAscii(ProjectSpacePath.extension().string());
-    const std::string StemLower   = LowercaseAscii(ProjectSpacePath.stem().string());
+    const std::string SuffixLower = Frontier::Serialization::LowercaseAscii(ProjectSpacePath.extension().string());
+    const std::string StemLower   = Frontier::Serialization::LowercaseAscii(ProjectSpacePath.stem().string());
     return SuffixLower == ".projectspace" && StemLower == "autospace";
 }
 

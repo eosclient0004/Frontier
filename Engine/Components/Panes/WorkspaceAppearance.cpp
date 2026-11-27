@@ -11,6 +11,7 @@
 #include "Engine/Components/VectorIcons/EditorIconAtlas.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Input/InputExtension.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include "imgui.h"
 
@@ -29,16 +30,6 @@ namespace
 //                                                    INTERNAL CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] ColorRgba ScaleAlpha(ColorRgba BaseColor, float Opacity) noexcept
-{
-    const float Clamped = std::clamp(Opacity, 0.0f, 1.0f);
-    return {
-        BaseColor.Red,
-        BaseColor.Green,
-        BaseColor.Blue,
-        static_cast<uint8_t>(std::round(static_cast<float>(BaseColor.Alpha) * Clamped)),
-    };
-}
 
 void EncodeUtf8Codepoint(uint32_t Codepoint, std::string& Destination)
 {
@@ -1283,7 +1274,7 @@ void ConstructEnvironmentSymbolIcon(
                 std::array<Point2D, 15u> Pts{};
                 for (std::size_t I = 0u; I < Pts.size(); ++I)
                 {
-                    const float Ang = 3.14159265f * (1.0f - static_cast<float>(I) / static_cast<float>(Pts.size() - 1u));
+                    const float Ang = Frontier::Constants::PiFloat * (1.0f - static_cast<float>(I) / static_cast<float>(Pts.size() - 1u));
                     Pts[I] = { ArchC.X + std::cos(Ang) * ArcR, ArchC.Y - std::sin(Ang) * ArcR };
                 }
                 Surface.StrokePolyline(Pts, ScaleAlpha(Spectral[Band], Opacity), StrokeW, false);
@@ -1359,7 +1350,7 @@ void ConstructEnvironmentSymbolIcon(
             std::array<Point2D, 15u> Semi{};
             for (std::size_t I = 0u; I < Semi.size(); ++I)
             {
-                const float Ang = 3.14159265f * (1.0f - static_cast<float>(I) / static_cast<float>(Semi.size() - 1u));
+                const float Ang = Frontier::Constants::PiFloat * (1.0f - static_cast<float>(I) / static_cast<float>(Semi.size() - 1u));
                 Semi[I] = { DomeC.X + std::cos(Ang) * DomeR, DomeC.Y - std::sin(Ang) * DomeR };
             }
             Surface.FillPolygon(Semi, ScaleAlpha({ 78, 168, 224, 225 }, Opacity));
@@ -1378,7 +1369,7 @@ void ConstructEnvironmentSymbolIcon(
             std::array<Point2D, 13u> RightHalf{};
             for (std::size_t I = 0u; I < RightHalf.size(); ++I)
             {
-                const float Ang = -1.5707963f + 3.14159265f * (static_cast<float>(I) / static_cast<float>(RightHalf.size() - 1u));
+                const float Ang = -Frontier::Constants::HalfPiFloat + Frontier::Constants::PiFloat * (static_cast<float>(I) / static_cast<float>(RightHalf.size() - 1u));
                 RightHalf[I] = { Center.X + std::cos(Ang) * DiscR, Center.Y + std::sin(Ang) * DiscR };
             }
             Surface.FillPolygon(RightHalf, ScaleAlpha({ 240, 236, 224, 250 }, Opacity));
@@ -2065,9 +2056,8 @@ void ConstructResetSymbol(
     float       Thickness) noexcept
 {
     const float R          = Extent * 0.42f;
-    constexpr float PiVal  = 3.14159265f;
-    constexpr float StartA = -0.78f * PiVal;
-    constexpr float EndA   =  0.88f * PiVal;
+    constexpr float StartA = -0.78f * Frontier::Constants::PiFloat;
+    constexpr float EndA   =  0.88f * Frontier::Constants::PiFloat;
     std::array<Point2D, 15> Arc{};
     for (std::size_t Step = 0u; Step < Arc.size(); ++Step)
     {

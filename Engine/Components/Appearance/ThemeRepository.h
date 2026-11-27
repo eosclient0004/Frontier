@@ -209,7 +209,9 @@ constexpr ColorQuad ColorQuad::Blend(ColorQuad From, ColorQuad To, float Factor)
 
 constexpr float ColorQuad::Luminance() const noexcept
 {
-    return 0.2126f * Red + 0.7152f * Green + 0.0722f * Blue;
+    return Constants::Rec709LuminanceRed * Red +
+           Constants::Rec709LuminanceGreen * Green +
+           Constants::Rec709LuminanceBlue * Blue;
 }
 
 inline ThemePreset ThemeRepository::QueryActiveTheme() const noexcept

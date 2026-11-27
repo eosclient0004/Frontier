@@ -45,4 +45,8 @@ inline constexpr float       ClipSpaceReverseDepthNear          = 1.0f;         
 inline constexpr float       ClipSpaceReverseDepthFar           = 0.0f;                          // [0-1]   - Vulkan [0, 1] reverse-Z far-plane clip depth
 inline constexpr float       MaximumOptimizationPixelDelta      = 0.05f;                         // [0-1]   - Hard 5% pixel-delta ceiling for non-degrading speedups
 
+// Deterministic 64-bit FNV-1a Hashing Parameters
+inline constexpr uint64_t    Fnv1a64OffsetBasis                 = 14695981039346656037ull;       // [-]     - Standard 64-bit FNV-1a offset basis (0xcbf29ce484222325)
+inline constexpr uint64_t    Fnv1a64Prime                       = 1099511628211ull;              // [-]     - Standard 64-bit FNV-1a prime (0x100000001b3)
+
 } // namespace Frontier::Constants

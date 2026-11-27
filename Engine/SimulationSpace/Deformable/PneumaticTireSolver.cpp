@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/Deformable/PneumaticTireSolver.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,7 +18,6 @@ namespace Frontier::SimulationSpace::Deformable
 
 namespace
 {
-constexpr float kTwoPi = 6.28318530717958647692f;
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -170,7 +170,7 @@ void PneumaticTireSolver::ApplySubstepTireForces(
 
         for (uint32_t si = 0u; si < S; ++si)
         {
-            const float a  = (static_cast<float>(si) / static_cast<float>(S)) * kTwoPi + ty.SpinAngleRad;
+            const float a  = (static_cast<float>(si) / static_cast<float>(S)) * Frontier::Constants::TauFloat + ty.SpinAngleRad;
             const float ca = std::cos(a);
             const float sa = std::sin(a);
             const float bottomMask = std::pow(std::max(0.0f, -sa), 1.6f);
@@ -286,7 +286,7 @@ void PneumaticTireSolver::ApplySubstepTireForces(
 
         for (uint32_t si = 0u; si < S; ++si)
         {
-            const float a  = (static_cast<float>(si) / static_cast<float>(S)) * kTwoPi + ft.SpinAngleRad;
+            const float a  = (static_cast<float>(si) / static_cast<float>(S)) * Frontier::Constants::TauFloat + ft.SpinAngleRad;
             const float ca = std::cos(a);
             const float sa = std::sin(a);
 

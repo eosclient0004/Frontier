@@ -5,6 +5,7 @@
 
 #include "Engine/Editor/Inspectors/AtmosphereInspector.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -155,7 +156,7 @@ void AtmosphereInspector::UpdateSpaceGlobeSurface(const GeometricRaster::Atmosph
         const float Cy = static_cast<float>(H) * 0.50f;
         const float Rad = static_cast<float>(H) * 0.32f;
         const float LimbW = Rad * (0.04f + SpaceLimbThickness * 0.012f);
-        const float SunRad = SpaceSunAngleDeg * 0.01745329f;
+        const float SunRad = SpaceSunAngleDeg * Frontier::Constants::DegToRadFloat;
         const float Lx = -std::cos(SunRad), Ly = -0.35f, Lz = std::sin(SunRad) + 0.55f;
         const float LLen = std::sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
         const float Sx = Lx / LLen, Sy = Ly / LLen, Sz = Lz / LLen;

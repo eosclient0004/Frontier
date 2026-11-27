@@ -10,6 +10,7 @@
 #include "Engine/GeometricRaster/DirectLighting/SdfEmissivePenumbraSequence.h"
 
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <cmath>
@@ -353,9 +354,7 @@ void BuildDuffOrthonormalBasis(
 
 [[nodiscard]] uint8_t EncodeSrgbByte(float LinearC) noexcept
 {
-    const float C = std::clamp(LinearC, 0.0f, 1.0f);
-    const float S = (C <= 0.0031308f) ? (12.92f * C) : (1.055f * std::pow(C, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::round(S * 255.0f), 0.0f, 255.0f));
+    return Frontier::ColourSpace::EncodeLinearToSrgbByte(LinearC);
 }
 
 // 16 world-locked Fibonacci directions on the unit sphere (zero tangent-basis rotation discontinuity on curved SDFs)

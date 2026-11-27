@@ -12,6 +12,7 @@
 #include "Engine/GeometricRaster/Atmosphere/LensFlareSequence.h"
 #include "Engine/GeometricRaster/GlobalIllumination/DeterministicPathTraceSequence.h"
 #include "Engine/MaterialSpace/Scattering/BlackbodyEmission.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -25,8 +26,7 @@ namespace
 
 [[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
 {
-    const float C = std::clamp(LinearVal, 0.0f, 1.0f);
-    return (C <= 0.0031308f) ? (12.92f * C) : (1.055f * std::pow(C, 1.0f / 2.4f) - 0.055f);
+    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
 }
 
 [[nodiscard]] float EvaluateTriangularSrgbDither(uint32_t PX, uint32_t PY) noexcept
@@ -45,12 +45,7 @@ namespace
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmic(Mathematics::LinearRGB Hdr) noexcept
 {
-    const auto Curve = [](float X) noexcept -> float
-    {
-        const float V = std::max(0.0f, X * 0.85f);
-        return std::clamp((V * (2.51f * V + 0.03f)) / (V * (2.43f * V + 0.59f) + 0.14f), 0.0f, 1.0f);
-    };
-    return { Curve(Hdr.R), Curve(Hdr.G), Curve(Hdr.B) };
+    return Frontier::ColourSpace::ApplyAcesFilmicRgb(Hdr, 0.85f);
 }
 
 [[nodiscard]] bool QueryAnyEnvironmentBodyActive(const WorldAtmosphereConfiguration& Atmo) noexcept
@@ -640,7 +635,7 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
             NextCam.DistanceMeters     = Dist;
             NextCam.PitchRadians       = std::asin(std::clamp(Delta.Y / Dist, -0.9999f, 0.9999f));
             NextCam.YawRadians         = std::atan2(Delta.X, Delta.Z);
-            NextCam.FieldOfViewDegrees = std::clamp(CurrentCamera.VerticalFovRadians * 57.2957795f, 10.0f, 120.0f);
+            NextCam.FieldOfViewDegrees = std::clamp(CurrentCamera.VerticalFovRadians * Frontier::Constants::RadToDegFloat, 10.0f, 120.0f);
 
             const auto& PrevCam = AttachedPathTracer->AccessConfiguration().Camera;
             const bool CamChanged =

@@ -9,6 +9,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Procedural/Botanical/BotanicalThinLeafSdf.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,13 +23,11 @@ namespace
 {
 
 using V3 = std::array<float, 3>;
-constexpr float kPi = 3.14159265358979323846f;
 
 [[nodiscard]] inline V3 Add3(const V3& a, const V3& b) noexcept { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
 [[nodiscard]] inline V3 Sub3(const V3& a, const V3& b) noexcept { return { a[0] - b[0], a[1] - b[1], a[2] - b[2] }; }
 [[nodiscard]] inline V3 Mul3(const V3& a, float s) noexcept     { return { a[0] * s, a[1] * s, a[2] * s }; }
-[[nodiscard]] inline float Dot3(const V3& a, const V3& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-[[nodiscard]] inline float Len3(const V3& a) noexcept { return std::sqrt(Dot3(a, a)); }
+[[nodiscard]] inline float Len3(const V3& a) noexcept { return std::sqrt(Frontier::Mathematics::EvaluateDot3(a, a)); }
 
 [[nodiscard]] inline float Fract(float x) noexcept { return x - std::floor(x); }
 
@@ -82,8 +82,8 @@ constexpr float kPi = 3.14159265358979323846f;
             if (z >= -0.96f && z <= -0.56f && ax <= 0.034f) return true;
             const float t = (z + 0.64f) / 1.56f;
             if (t < 0.0f || t > 1.0f) return false;
-            const float env   = 0.62f * std::sin(kPi * std::pow(t, 0.78f)) * (1.0f - 0.18f * t);
-            const float teeth = 0.042f * std::sin(t * kPi * 13.0f) * std::sin(kPi * t);
+            const float env   = 0.62f * std::sin(Frontier::Constants::PiFloat * std::pow(t, 0.78f)) * (1.0f - 0.18f * t);
+            const float teeth = 0.042f * std::sin(t * Frontier::Constants::PiFloat * 13.0f) * std::sin(Frontier::Constants::PiFloat * t);
             return ax <= std::max(0.0f, env + teeth);
         }
         case LeafSdfArchetype::HeartLinden:
@@ -103,8 +103,8 @@ constexpr float kPi = 3.14159265358979323846f;
             if (z >= -0.96f && z <= -0.56f && ax <= 0.036f) return true;
             const float t = (z + 0.66f) / 1.58f;
             if (t < 0.0f || t > 1.0f) return false;
-            const float taper = std::sin(kPi * std::pow(t, 0.72f));
-            const float lobes = 0.56f + 0.44f * std::cos((t - 0.14f) * kPi * 7.2f);
+            const float taper = std::sin(Frontier::Constants::PiFloat * std::pow(t, 0.72f));
+            const float lobes = 0.56f + 0.44f * std::cos((t - 0.14f) * Frontier::Constants::PiFloat * 7.2f);
             return ax <= std::max(0.03f * (1.0f - t), 0.68f * taper * lobes);
         }
         case LeafSdfArchetype::PalmateMaple:
@@ -131,8 +131,8 @@ constexpr float kPi = 3.14159265358979323846f;
             if (z >= -0.96f && z <= -0.74f && std::fabs(x + 0.02f) <= 0.025f) return true;
             const float t = (z + 0.78f) / 1.72f;
             if (t < 0.0f || t > 1.0f) return false;
-            const float curve = 0.07f * std::sin(t * kPi * 1.15f);
-            return std::fabs(x - curve) <= 0.22f * std::sin(kPi * std::pow(t, 0.80f));
+            const float curve = 0.07f * std::sin(t * Frontier::Constants::PiFloat * 1.15f);
+            return std::fabs(x - curve) <= 0.22f * std::sin(Frontier::Constants::PiFloat * std::pow(t, 0.80f));
         }
         case LeafSdfArchetype::FernPinna:
         {
@@ -141,7 +141,7 @@ constexpr float kPi = 3.14159265358979323846f;
             if (t < 0.0f || t > 1.0f) return false;
             const float baseW   = 0.34f * std::pow(1.0f - std::pow(t, 1.35f), 0.72f) * (0.35f + 0.65f * std::min(1.0f, t * 7.0f));
             const float auricle = (x > 0.0f) ? (0.20f * std::exp(-std::pow((t - 0.14f) / 0.11f, 2.0f))) : 0.0f;
-            const float teeth   = 0.032f * std::sin(t * kPi * 16.0f) * std::sin(kPi * t);
+            const float teeth   = 0.032f * std::sin(t * Frontier::Constants::PiFloat * 16.0f) * std::sin(Frontier::Constants::PiFloat * t);
             return ax <= std::max(0.015f, baseW + auricle + teeth);
         }
         case LeafSdfArchetype::PalmLeaflet:
@@ -149,7 +149,7 @@ constexpr float kPi = 3.14159265358979323846f;
             // Crisp linear-ensiform V-folded palm leaflet tapering smoothly to an acute tip!
             const float t = (z + 0.94f) / 1.88f;
             if (t < 0.0f || t > 1.0f) return false;
-            const float w = 0.16f * std::sin(kPi * std::pow(t, 0.70f)) * (1.0f - 0.25f * t);
+            const float w = 0.16f * std::sin(Frontier::Constants::PiFloat * std::pow(t, 0.70f)) * (1.0f - 0.25f * t);
             return ax <= std::max(0.012f, w);
         }
         case LeafSdfArchetype::PineFascicle:
@@ -370,8 +370,8 @@ float EvaluateNoisyWoodCapsuleSdf(
 {
     const V3 u = Sub3(cap.P1, cap.P0);
     const V3 w = Sub3(queryPos, cap.P0);
-    const float uu = std::max(Dot3(u, u), 1.0e-8f);
-    const float s = std::clamp(Dot3(w, u) / uu, 0.0f, 1.0f);
+    const float uu = std::max(Frontier::Mathematics::EvaluateDot3(u, u), 1.0e-8f);
+    const float s = std::clamp(Frontier::Mathematics::EvaluateDot3(w, u) / uu, 0.0f, 1.0f);
     const V3 axisPt = Add3(cap.P0, Mul3(u, s));
     const V3 diff   = Sub3(queryPos, axisPt);
     const float distAxis = Len3(diff);
@@ -399,9 +399,9 @@ float EvaluateCurvedThinLeafSdf(
 {
     const float invS = 1.0f / std::max(leaf.HalfSpanMeters, 1.0e-4f);
     const V3 rel = Sub3(queryPos, leaf.CenterMeters);
-    const float u = Dot3(rel, leaf.AxisX) * invS;
-    const float y = Dot3(rel, leaf.AxisY) * invS;
-    const float w = Dot3(rel, leaf.AxisZ) * invS;
+    const float u = Frontier::Mathematics::EvaluateDot3(rel, leaf.AxisX) * invS;
+    const float y = Frontier::Mathematics::EvaluateDot3(rel, leaf.AxisY) * invS;
+    const float w = Frontier::Mathematics::EvaluateDot3(rel, leaf.AxisZ) * invS;
 
     const float d2d = leaf.HalfSpanMeters * atlas.SampleBilinear(u, w, leaf.Archetype);
     const float camber = leaf.CamberX * u * u + leaf.CamberZ * w * w;
@@ -511,7 +511,7 @@ void BotanicalSdfVolume::ApplyWindBend(
     auto bendPoint = [&](const V3& rest, float flex, float phase) -> V3
     {
         const float h = std::max(0.0f, rest[2]);
-        const float rustle = rustleAmp * flex * std::sin(gustTimeSec * 6.5f + phase * 6.283185f) * 0.04f;
+        const float rustle = rustleAmp * flex * std::sin(gustTimeSec * 6.5f + phase * Frontier::Constants::TauFloat) * 0.04f;
         const float dx = (bendAngleXRad * h + rustle) * flex;
         const float dy = (bendAngleYRad * h + rustle * 0.7f) * flex;
         const float dz = -0.35f * (dx * dx + dy * dy) / std::max(h, 0.35f);
@@ -586,10 +586,10 @@ float BotanicalSdfVolume::TraceShadowTransmittance(
     {
         const V3 u = Sub3(cap.P1, cap.P0);
         const V3 w = Sub3(rayOrigin, cap.P0);
-        const float B = Dot3(sunDirNorm, u);
-        const float C = Dot3(u, u);
-        const float D = Dot3(sunDirNorm, w);
-        const float E = Dot3(u, w);
+        const float B = Frontier::Mathematics::EvaluateDot3(sunDirNorm, u);
+        const float C = Frontier::Mathematics::EvaluateDot3(u, u);
+        const float D = Frontier::Mathematics::EvaluateDot3(sunDirNorm, w);
+        const float E = Frontier::Mathematics::EvaluateDot3(u, w);
         const float denom = std::max(0.0f, C - B * B);
 
         float s = (denom > 1.0e-7f) ? std::clamp((E - B * D) / denom, 0.0f, 1.0f) : 0.0f;
@@ -667,9 +667,9 @@ float BotanicalSdfVolume::TraceShadowTransmittance(
                 auto evalPhi = [&](float tt, float& outU, float& outW) -> float
                 {
                     const V3 rp = Sub3(Add3(rayOrigin, Mul3(sunDirNorm, tt)), lf.CenterMeters);
-                    outU = Dot3(rp, lf.AxisX) * invS;
-                    outW = Dot3(rp, lf.AxisZ) * invS;
-                    const float y = Dot3(rp, lf.AxisY) * invS;
+                    outU = Frontier::Mathematics::EvaluateDot3(rp, lf.AxisX) * invS;
+                    outW = Frontier::Mathematics::EvaluateDot3(rp, lf.AxisZ) * invS;
+                    const float y = Frontier::Mathematics::EvaluateDot3(rp, lf.AxisY) * invS;
                     return y - (lf.CamberX * outU * outU + lf.CamberZ * outW * outW);
                 };
 

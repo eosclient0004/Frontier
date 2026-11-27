@@ -13,6 +13,7 @@ namespace Frontier::Constants
 //------------------------------------------------------------------------------------------------------------------------
 
 inline constexpr double StandardGravity         = 9.80665;  // [m/s^2]  - Standard terrestrial gravitational acceleration
+inline constexpr float  StandardGravityFloat    = 9.80665f; // [m/s^2]  - Single-precision terrestrial gravitational acceleration
 inline constexpr double DryAirDensity           = 1.225;    // [kg/m^3] - Sea-level ISA dry air reference density
 inline constexpr double FreshWaterDensity       = 998.2;    // [kg/m^3] - Liquid water density at 293.15 K
 inline constexpr double StandardAtmospherePa    = 101325.0; // [Pa]     - Standard sea-level barometric pressure

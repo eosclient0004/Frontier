@@ -4,6 +4,9 @@
 // 🧩 Astronomical solar ephemeris solver, Kelvin Planckian tint conversion, and Right-Handed (+Z Up) sky direction mapping
 
 #include "Engine/GeometricRaster/Atmosphere/CelestialEphemerisSolver.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,16 +17,10 @@ namespace Frontier::GeometricRaster
 namespace
 {
 
-[[nodiscard]] double WrapDegrees360(double AngleDegrees) noexcept
-{
-    const double Mod = std::fmod(AngleDegrees, 360.0);
-    return (Mod < 0.0) ? (Mod + 360.0) : Mod;
-}
 
 [[nodiscard]] float SrgbChannelToLinear(float Channel) noexcept
 {
-    const float C = std::clamp(Channel, 0.0f, 1.0f);
-    return (C <= 0.04045f) ? (C / 12.92f) : std::pow((C + 0.055f) / 1.055f, 2.4f);
+    return Frontier::ColourSpace::DecodePiecewiseSrgbChannel(Channel);
 }
 
 } // namespace
@@ -80,8 +77,6 @@ SolarEphemerisOutcome CelestialEphemerisSolver::SolveSolarEphemeris(
         ? EvaluateKelvinToLinearRgb(Config.ColorTemperatureKelvin)
         : Config.ManualRgbTint;
 
-    constexpr double DegToRad = 0.01745329251994329577;
-    constexpr double RadToDeg = 57.2957795130823208768;
 
     int32_t Y = Config.Year;
     int32_t M = static_cast<int32_t>(std::clamp(Config.Month, 1u, 12u));
@@ -102,24 +97,24 @@ SolarEphemerisOutcome CelestialEphemerisSolver::SolveSolarEphemeris(
         static_cast<double>(B) - 1524.5 + (UtcHours / 24.0);
     const double T = (Jd - 2451545.0) / 36525.0;
 
-    const double MeanLon = WrapDegrees360(280.46646 + T * (36000.76983 + T * 0.0003032));
+    const double MeanLon = Frontier::Mathematics::WrapDegrees360(280.46646 + T * (36000.76983 + T * 0.0003032));
     const double MeanAnom = 357.52911 + T * (35999.05029 - 0.0001537 * T);
     const double Ecc = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
-    const double Mr = MeanAnom * DegToRad;
+    const double Mr = MeanAnom * Frontier::Constants::DegToRad;
     const double Centre =
         std::sin(Mr) * (1.914602 - T * (0.004817 + 0.000014 * T)) +
         std::sin(2.0 * Mr) * (0.019993 - 0.000101 * T) +
         std::sin(3.0 * Mr) * 0.000289;
     const double Omega = 125.04 - 1934.136 * T;
-    const double ApparentLon = MeanLon + Centre - 0.00569 - 0.00478 * std::sin(Omega * DegToRad);
+    const double ApparentLon = MeanLon + Centre - 0.00569 - 0.00478 * std::sin(Omega * Frontier::Constants::DegToRad);
     const double MeanObliq = 23.0 + (26.0 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60.0) / 60.0;
-    const double Obliq = MeanObliq + 0.00256 * std::cos(Omega * DegToRad);
+    const double Obliq = MeanObliq + 0.00256 * std::cos(Omega * Frontier::Constants::DegToRad);
 
-    const double Declination = std::asin(std::sin(Obliq * DegToRad) * std::sin(ApparentLon * DegToRad)) * RadToDeg;
-    const double TanHalf = std::tan((Obliq * 0.5) * DegToRad);
+    const double Declination = std::asin(std::sin(Obliq * Frontier::Constants::DegToRad) * std::sin(ApparentLon * Frontier::Constants::DegToRad)) * Frontier::Constants::RadToDeg;
+    const double TanHalf = std::tan((Obliq * 0.5) * Frontier::Constants::DegToRad);
     const double Y2 = TanHalf * TanHalf;
-    const double L0r = MeanLon * DegToRad;
-    const double EqTime = 4.0 * RadToDeg * (
+    const double L0r = MeanLon * Frontier::Constants::DegToRad;
+    const double EqTime = 4.0 * Frontier::Constants::RadToDeg * (
         Y2 * std::sin(2.0 * L0r) -
         2.0 * Ecc * std::sin(Mr) +
         4.0 * Ecc * Y2 * std::sin(Mr) * std::cos(2.0 * L0r) -
@@ -130,14 +125,14 @@ SolarEphemerisOutcome CelestialEphemerisSolver::SolveSolarEphemeris(
     const double TrueSolarMin = (TrueSolarRaw < 0.0) ? (TrueSolarRaw + 1440.0) : TrueSolarRaw;
     const double HourAngle = TrueSolarMin * 0.25 - 180.0;
 
-    const double LatR = static_cast<double>(Config.SiteLatitudeDegrees) * DegToRad;
-    const double DecR = Declination * DegToRad;
-    const double HaR  = HourAngle * DegToRad;
+    const double LatR = static_cast<double>(Config.SiteLatitudeDegrees) * Frontier::Constants::DegToRad;
+    const double DecR = Declination * Frontier::Constants::DegToRad;
+    const double HaR  = HourAngle * Frontier::Constants::DegToRad;
     const double CosAngle = std::clamp(
         std::sin(LatR) * std::sin(DecR) + std::cos(LatR) * std::cos(DecR) * std::cos(HaR),
         -1.0, 1.0);
     const double PoleAngle = std::acos(CosAngle);
-    const double Elevation = 90.0 - PoleAngle * RadToDeg;
+    const double Elevation = 90.0 - PoleAngle * Frontier::Constants::RadToDeg;
     const double SinPole = std::sin(PoleAngle);
 
     double Azimuth = 0.0;
@@ -146,18 +141,18 @@ SolarEphemerisOutcome CelestialEphemerisSolver::SolveSolarEphemeris(
         const double CosAz = std::clamp(
             (std::sin(LatR) * std::cos(PoleAngle) - std::sin(DecR)) / (std::cos(LatR) * SinPole),
             -1.0, 1.0);
-        Azimuth = std::acos(CosAz) * RadToDeg;
-        Azimuth = (HourAngle > 0.0) ? WrapDegrees360(Azimuth + 180.0) : WrapDegrees360(540.0 - Azimuth);
+        Azimuth = std::acos(CosAz) * Frontier::Constants::RadToDeg;
+        Azimuth = (HourAngle > 0.0) ? Frontier::Mathematics::WrapDegrees360(Azimuth + 180.0) : Frontier::Mathematics::WrapDegrees360(540.0 - Azimuth);
     }
 
-    const double GmstDeg = WrapDegrees360(280.46061837 + 360.98564736629 * (Jd - 2451545.0) + static_cast<double>(Config.SiteLongitudeDegrees));
+    const double GmstDeg = Frontier::Mathematics::WrapDegrees360(280.46061837 + 360.98564736629 * (Jd - 2451545.0) + static_cast<double>(Config.SiteLongitudeDegrees));
     Outcome.SiderealHours         = static_cast<float>(GmstDeg / 15.0);
     Outcome.DeclinationDegrees    = static_cast<float>(Declination);
     Outcome.EquationOfTimeMinutes = static_cast<float>(EqTime);
 
     if (Config.ManualDirectionOverride)
     {
-        Outcome.AzimuthDegrees   = static_cast<float>(WrapDegrees360(Config.ManualAzimuthDegrees));
+        Outcome.AzimuthDegrees   = static_cast<float>(Frontier::Mathematics::WrapDegrees360(Config.ManualAzimuthDegrees));
         Outcome.ElevationDegrees = std::clamp(Config.ManualElevationDegrees, -90.0f, 90.0f);
     }
     else

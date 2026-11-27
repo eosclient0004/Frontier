@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Codecs/SpaceContainerCodec.h"
+#include "Engine/Serialization/DependencyOrder/ContentHashCalculator.h"
 
 #include <algorithm>
 #include <array>
@@ -258,15 +259,7 @@ constexpr std::array<SubFormatMappingEntry, 53u> SubFormatRegistry = {{
 
 uint64_t SpaceContainerEncoder::ComputeFnv1aChecksum64(std::span<const std::byte> Bytes) noexcept
 {
-    constexpr uint64_t OffsetBasis = 14695981039346656037ull;
-    constexpr uint64_t Prime       = 1099511628211ull;
-    uint64_t           Digest      = OffsetBasis;
-    for (const std::byte SingleByte : Bytes)
-    {
-        Digest ^= static_cast<uint64_t>(std::to_integer<uint8_t>(SingleByte));
-        Digest *= Prime;
-    }
-    return Digest;
+    return Serialization::ComputeFnv1a64(Bytes);
 }
 
 std::string_view SpaceContainerEncoder::QueryCanonicalSuffix(SpaceSuffixCategory Category) noexcept

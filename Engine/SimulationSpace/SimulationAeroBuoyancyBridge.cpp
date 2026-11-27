@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 
 #include "Engine/SimulationSpace/SimulationAeroBuoyancyBridge.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,7 +13,6 @@ namespace Frontier::SimulationSpace
 
 namespace
 {
-constexpr float kPi = 3.14159265358979323846f;
 }
 
 AeroBuoyancyStepReport SimulationAeroBuoyancyBridge::StepPool(
@@ -59,7 +59,7 @@ AeroBuoyancyStepReport SimulationAeroBuoyancyBridge::StepPool(
 
             // Quadratic aerodynamic drag force: F = 0.5 * rho_eff * Cd * A * |v_rel| * v_rel
             const float radius = std::max(0.05f, physicsPool.RadiiMeters[i]);
-            const float area   = kPi * radius * radius;
+            const float area   = Frontier::Constants::PiFloat * radius * radius;
             const float rhoEff = params.AirDensityKgPerM3 * (1.0f + std::max(0.0f, probe.FluidDensity));
             const float dragFactor = 0.5f * rhoEff * params.DragCoefficient * area * relSpeed * invMass;
 

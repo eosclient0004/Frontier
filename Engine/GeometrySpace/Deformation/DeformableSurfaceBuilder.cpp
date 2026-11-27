@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Deformation/DeformableSurfaceBuilder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -19,8 +20,6 @@ namespace Frontier::GeometrySpace::Deformation
 namespace
 {
 
-constexpr float kPi    = 3.14159265358979323846f;
-constexpr float kTwoPi = 6.28318530717958647692f;
 
 struct Vec3
 {
@@ -85,12 +84,12 @@ void AppendEllipsoid(
     const uint32_t firstVertex = dst.VertexCount();
     for (uint32_t iv = 0u; iv <= segV; ++iv)
     {
-        const float phi = kPi * static_cast<float>(iv) / static_cast<float>(segV);
+        const float phi = Frontier::Constants::PiFloat * static_cast<float>(iv) / static_cast<float>(segV);
         const float sp  = std::sin(phi);
         const float cp  = std::cos(phi);
         for (uint32_t iu = 0u; iu <= segU; ++iu)
         {
-            const float th = kTwoPi * static_cast<float>(iu) / static_cast<float>(segU);
+            const float th = Frontier::Constants::TauFloat * static_cast<float>(iu) / static_cast<float>(segU);
             const float ct = std::cos(th);
             const float st = std::sin(th);
             const Vec3 dir { sp * ct, cp, sp * st };
@@ -168,7 +167,7 @@ void AppendCylinderBetween(
     const uint32_t firstVertex = dst.VertexCount();
     for (uint32_t k = 0u; k <= sides; ++k)
     {
-        const float a = kTwoPi * static_cast<float>(k) / static_cast<float>(sides);
+        const float a = Frontier::Constants::TauFloat * static_cast<float>(k) / static_cast<float>(sides);
         const Vec3 radial = Add(Mul(U, std::cos(a)), Mul(V, std::sin(a)));
         (void)PushVertex(dst, Add(p0, Mul(radial, r0)), radial, rgb0, pbr, s0);
         (void)PushVertex(dst, Add(p1, Mul(radial, r1)), radial, rgb1, pbr, s1);
@@ -250,7 +249,7 @@ void DeformableSurfaceBuilder::AppendForgedAlloyRim(
     const uint32_t barrelStart = outSurface.VertexCount();
     for (uint32_t s = 0u; s <= kSegs; ++s)
     {
-        const float a = spinAngleRad + kTwoPi * static_cast<float>(s) / static_cast<float>(kSegs);
+        const float a = spinAngleRad + Frontier::Constants::TauFloat * static_cast<float>(s) / static_cast<float>(kSegs);
         const float ca = std::cos(a), sa = std::sin(a);
         const Vec3 nOut { ca, sa, 0.0f };
         const Vec3 nIn  { -ca, -sa, 0.0f };
@@ -276,7 +275,7 @@ void DeformableSurfaceBuilder::AppendForgedAlloyRim(
     // 5 twin-split forged alloy spokes on both faces
     for (uint32_t sp = 0u; sp < 5u; ++sp)
     {
-        const float spokeAngle = spinAngleRad + kTwoPi * static_cast<float>(sp) / 5.0f;
+        const float spokeAngle = spinAngleRad + Frontier::Constants::TauFloat * static_cast<float>(sp) / 5.0f;
         for (int sub = -1; sub <= 1; sub += 2)
         {
             const float a0 = spokeAngle + static_cast<float>(sub) * 0.085f;
@@ -378,7 +377,7 @@ void DeformableSurfaceBuilder::AppendBodyAttachments(
             Vec3 prevPt {};
             for (uint32_t m = 0u; m <= kLoopSegs; ++m)
             {
-                const float th = kTwoPi * static_cast<float>(m) / static_cast<float>(kLoopSegs);
+                const float th = Frontier::Constants::TauFloat * static_cast<float>(m) / static_cast<float>(kLoopSegs);
                 const Vec3 pt = Add(mid, Add(Mul(T, std::cos(th) * majorA), Mul(U, std::sin(th) * majorB)));
                 if (m > 0u)
                 {
@@ -414,7 +413,7 @@ void DeformableSurfaceBuilder::AppendBodyAttachments(
         for (uint32_t s = 0u; s <= kSegs; ++s)
         {
             const float u = static_cast<float>(s) / static_cast<float>(kSegs);
-            const float width = blade.Width * std::sin(u * kPi) * (1.0f - 0.15f * u);
+            const float width = blade.Width * std::sin(u * Frontier::Constants::PiFloat) * (1.0f - 0.15f * u);
             const float droop = -blade.ArchFactor * blade.Length * u * u;
             const Vec3 spine = Add(Add(rootPos, Mul(dirOut, blade.Length * u)), Mul(Vec3 { 0.0f, 1.0f, 0.0f }, droop));
             const std::array<float, 3> col {

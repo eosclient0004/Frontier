@@ -9,6 +9,7 @@
 
 #include "Engine/MaterialSpace/Dynamic/DynamicSurfaceResolver.h"
 #include "Engine/Constants/MathConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,41 +20,24 @@ namespace Frontier::MaterialSpace::Dynamic
 namespace
 {
 
-[[nodiscard]] float FractScalar(float X) noexcept
-{
-    return X - std::floor(X);
-}
 
-[[nodiscard]] float SmoothstepScalar(float Edge0, float Edge1, float X) noexcept
-{
-    if (std::fabs(Edge1 - Edge0) < 1.0e-6f)
-    {
-        return (X < Edge0) ? 0.0f : 1.0f;
-    }
-    const float T = std::clamp((X - Edge0) / (Edge1 - Edge0), 0.0f, 1.0f);
-    return T * T * (3.0f - 2.0f * T);
-}
 
-[[nodiscard]] float LerpScalar(float A, float B, float T) noexcept
-{
-    return A + (B - A) * T;
-}
 
 [[nodiscard]] Mathematics::LinearRGB LerpRgb(Mathematics::LinearRGB A, Mathematics::LinearRGB B, float T) noexcept
 {
-    return { LerpScalar(A.R, B.R, T), LerpScalar(A.G, B.G, T), LerpScalar(A.B, B.B, T) };
+    return { Frontier::Mathematics::InterpolateScalar(A.R, B.R, T), Frontier::Mathematics::InterpolateScalar(A.G, B.G, T), Frontier::Mathematics::InterpolateScalar(A.B, B.B, T) };
 }
 
 [[nodiscard]] float Hash21(float X, float Y) noexcept
 {
     const float H = std::sin(X * 127.1f + Y * 311.7f) * 43758.5453123f;
-    return FractScalar(H);
+    return Frontier::Mathematics::EvaluateFractionalPart(H);
 }
 
 [[nodiscard]] float Hash31(float X, float Y, float Z) noexcept
 {
     const float H = std::sin(X * 127.1f + Y * 311.7f + Z * 74.7f) * 43758.5453123f;
-    return FractScalar(H);
+    return Frontier::Mathematics::EvaluateFractionalPart(H);
 }
 
 [[nodiscard]] float LatticeNoise2D(float X, float Y) noexcept
@@ -69,7 +53,7 @@ namespace
     const float B = Hash21(IX + 1.0f, IY);
     const float C = Hash21(IX,        IY + 1.0f);
     const float D = Hash21(IX + 1.0f, IY + 1.0f);
-    return LerpScalar(LerpScalar(A, B, UX), LerpScalar(C, D, UX), UY);
+    return Frontier::Mathematics::InterpolateScalar(Frontier::Mathematics::InterpolateScalar(A, B, UX), Frontier::Mathematics::InterpolateScalar(C, D, UX), UY);
 }
 
 [[nodiscard]] float Fbm2D(float X, float Y, int Octaves = 4) noexcept
@@ -202,7 +186,7 @@ struct HexCellSample
             const float WarpX = (Fbm2D(U * Scale * 2.2f + 1.7f, V * Scale * 2.2f - 2.3f, 3) - 0.5f) * 1.35f;
             const float WarpY = (Fbm2D(U * Scale * 2.2f - 4.1f, V * Scale * 2.2f + 3.2f, 3) - 0.5f) * 1.35f;
             const auto VorA   = EvaluateVoronoiEdge(U * Scale * 3.0f + WarpX, V * Scale * 1.85f + WarpY);
-            const float Slab  = SmoothstepScalar(0.015f, 0.14f, VorA.EdgeDistance);
+            const float Slab  = Frontier::Mathematics::EvaluateSmoothStep(0.015f, 0.14f, VorA.EdgeDistance);
             const float Rope  = Fbm2D(U * Scale * 7.5f + WarpX * 1.6f, V * Scale * 7.5f + WarpY * 1.6f, 4);
             return Slab * 0.075f + (Rope - 0.5f) * 0.036f * Slab;
         }
@@ -224,31 +208,31 @@ struct HexCellSample
             const float JitterX = (Hash21(CX + 3.1f, CY + 7.7f) - 0.5f) * 0.62f;
             const float Speed = 0.35f + 0.65f * Hash21(CX, 13.7f);
             const float YSlide = GY - T * Speed + Hash21(CX, 29.1f) * 11.0f;
-            const float DX = (FractScalar(GX) - 0.5f - JitterX * 0.55f) * 1.65f;
-            const float DY = (FractScalar(YSlide) - 0.5f) * 1.25f;
-            const float Drop1 = SmoothstepScalar(0.24f, 0.0f, std::sqrt(DX * DX + DY * DY));
+            const float DX = (Frontier::Mathematics::EvaluateFractionalPart(GX) - 0.5f - JitterX * 0.55f) * 1.65f;
+            const float DY = (Frontier::Mathematics::EvaluateFractionalPart(YSlide) - 0.5f) * 1.25f;
+            const float Drop1 = Frontier::Mathematics::EvaluateSmoothStep(0.24f, 0.0f, std::sqrt(DX * DX + DY * DY));
 
             const float G2X = U * Scale * 11.5f;
             const float G2Y = V * Scale * 11.5f;
             const float C2X = std::floor(G2X);
             const float C2Y = std::floor(G2Y);
-            const float L2X = FractScalar(G2X) - 0.5f - (Hash21(C2X, C2Y) - 0.5f) * 0.58f;
-            const float L2Y = FractScalar(G2Y) - 0.5f - (Hash21(C2X + 17.3f, C2Y + 41.9f) - 0.5f) * 0.58f;
+            const float L2X = Frontier::Mathematics::EvaluateFractionalPart(G2X) - 0.5f - (Hash21(C2X, C2Y) - 0.5f) * 0.58f;
+            const float L2Y = Frontier::Mathematics::EvaluateFractionalPart(G2Y) - 0.5f - (Hash21(C2X + 17.3f, C2Y + 41.9f) - 0.5f) * 0.58f;
             const float Present = (Hash21(C2X + 5.1f, C2Y + 2.7f) > 0.42f) ? 1.0f : 0.0f;
-            const float Micro = SmoothstepScalar(0.22f, 0.0f, std::sqrt(L2X * L2X + L2Y * L2Y)) * Present;
+            const float Micro = Frontier::Mathematics::EvaluateSmoothStep(0.22f, 0.0f, std::sqrt(L2X * L2X + L2Y * L2Y)) * Present;
             return (Drop1 * 0.055f + Micro * 0.024f) * P.WeatherRainIntensity;
         }
         case DynamicPresetIdentity::WetAsphaltRainPuddles:
         {
-            const float Puddle = SmoothstepScalar(0.58f - 0.25f * P.WeatherRainIntensity, 0.72f - 0.20f * P.WeatherRainIntensity,
+            const float Puddle = Frontier::Mathematics::EvaluateSmoothStep(0.58f - 0.25f * P.WeatherRainIntensity, 0.72f - 0.20f * P.WeatherRainIntensity,
                 Fbm2D(U * Scale * 0.65f, V * Scale * 0.65f, 3));
             const float Grit   = (Fbm2D(U * Scale * 12.0f, V * Scale * 12.0f, 3) - 0.5f) * 0.025f * (1.0f - Puddle);
             const float RipCellX = std::floor(U * Scale * 2.5f);
             const float RipCellY = std::floor(V * Scale * 2.5f);
-            const float FX = FractScalar(U * Scale * 2.5f) - 0.5f;
-            const float FY = FractScalar(V * Scale * 2.5f) - 0.5f;
+            const float FX = Frontier::Mathematics::EvaluateFractionalPart(U * Scale * 2.5f) - 0.5f;
+            const float FY = Frontier::Mathematics::EvaluateFractionalPart(V * Scale * 2.5f) - 0.5f;
             const float Rad = std::sqrt(FX * FX + FY * FY);
-            const float Ph  = FractScalar(T * 0.85f + Hash21(RipCellX, RipCellY));
+            const float Ph  = Frontier::Mathematics::EvaluateFractionalPart(T * 0.85f + Hash21(RipCellX, RipCellY));
             const float Rip = std::sin((Rad - Ph * 0.55f) * 34.0f) * std::exp(-std::pow((Rad - Ph * 0.55f) * 12.0f, 2.0f)) * (1.0f - Ph);
             return Grit + Puddle * Rip * 0.022f;
         }
@@ -343,7 +327,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
             const float CZ   = std::floor(NormPos.Z * Grid);
             const float CellHash = Hash31(CX, CY, CZ);
 
-            const float SweepFront = LerpScalar(-1.10f, 1.10f, Parameters.TransitionProgress);
+            const float SweepFront = Frontier::Mathematics::InterpolateScalar(-1.10f, 1.10f, Parameters.TransitionProgress);
             const float SignedDist = (NormPos.X * Parameters.SweepAxisWidth[0] +
                                       NormPos.Y * Parameters.SweepAxisWidth[1] +
                                       (CellHash - 0.5f) * 0.42f) - SweepFront;
@@ -356,10 +340,10 @@ ResolvedDynamicSurface ResolveDynamicSurface(
             }
 
             const float EdgeBand   = std::exp(-std::pow((SignedDist + 0.04f) * 7.5f, 2.0f));
-            const float HotCell    = SmoothstepScalar(0.32f, 0.0f, std::fabs(SignedDist + 0.02f)) * (0.45f + 0.55f * CellHash);
-            const float Fx = std::fabs(FractScalar(NormPos.X * Grid) - 0.5f);
-            const float Fy = std::fabs(FractScalar(NormPos.Y * Grid) - 0.5f);
-            const float Wire = SmoothstepScalar(0.38f, 0.49f, std::max(Fx, Fy)) * SmoothstepScalar(0.55f, 0.0f, std::fabs(SignedDist));
+            const float HotCell    = Frontier::Mathematics::EvaluateSmoothStep(0.32f, 0.0f, std::fabs(SignedDist + 0.02f)) * (0.45f + 0.55f * CellHash);
+            const float Fx = std::fabs(Frontier::Mathematics::EvaluateFractionalPart(NormPos.X * Grid) - 0.5f);
+            const float Fy = std::fabs(Frontier::Mathematics::EvaluateFractionalPart(NormPos.Y * Grid) - 0.5f);
+            const float Wire = Frontier::Mathematics::EvaluateSmoothStep(0.38f, 0.49f, std::max(Fx, Fy)) * Frontier::Mathematics::EvaluateSmoothStep(0.55f, 0.0f, std::fabs(SignedDist));
 
             Out.Material.Diffuse.BaseColor = LerpRgb(PrimaryCol, SecondaryCol, HotCell * 0.45f);
             Out.Material.Specular.Roughness = std::clamp(0.055f + Parameters.RoughnessBias, 0.02f, 0.95f);
@@ -379,17 +363,17 @@ ResolvedDynamicSurface ResolveDynamicSurface(
             const auto VorSub  = EvaluateVoronoiEdge(SphU * Scale * 6.5f - WarpY * 0.7f, SphV * Scale * 4.0f + WarpX * 0.7f);
 
             const float BasaltTex = Fbm2D(SphU * Scale * 9.5f + WarpX * 1.2f, SphV * Scale * 9.5f + WarpY * 1.2f, 4);
-            const float AshDust   = SmoothstepScalar(0.42f, 0.80f, Fbm2D(SphU * Scale * 4.2f, SphV * Scale * 4.2f, 3));
+            const float AshDust   = Frontier::Mathematics::EvaluateSmoothStep(0.42f, 0.80f, Fbm2D(SphU * Scale * 4.2f, SphV * Scale * 4.2f, 3));
 
-            const float MainCrack = 1.0f - SmoothstepScalar(0.008f, 0.052f, VorMain.EdgeDistance);
-            const float FineCrack = (1.0f - SmoothstepScalar(0.005f, 0.028f, VorSub.EdgeDistance)) * SmoothstepScalar(0.04f, 0.28f, VorMain.EdgeDistance) * 0.42f;
+            const float MainCrack = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.008f, 0.052f, VorMain.EdgeDistance);
+            const float FineCrack = (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.005f, 0.028f, VorSub.EdgeDistance)) * Frontier::Mathematics::EvaluateSmoothStep(0.04f, 0.28f, VorMain.EdgeDistance) * 0.42f;
             const float Pulse     = 0.78f + 0.22f * std::sin(T * 1.85f + VorMain.CellId * 6.283f);
             const float Heat      = std::clamp((MainCrack * 1.15f + FineCrack * 0.55f) * Pulse, 0.0f, 1.0f);
 
             const Mathematics::LinearRGB RockCol = LerpRgb(PrimaryCol * 0.85f, SecondaryCol * 0.92f, BasaltTex * 0.65f + AshDust * 0.35f);
             Out.Material.Diffuse.BaseColor        = RockCol * (1.0f - Heat * 0.90f);
             Out.Material.Diffuse.DiffuseRoughness = 0.90f;
-            Out.Material.Specular.Roughness       = std::clamp(LerpScalar(0.92f, 0.32f, Heat) + Parameters.RoughnessBias, 0.06f, 0.98f);
+            Out.Material.Specular.Roughness       = std::clamp(Frontier::Mathematics::InterpolateScalar(0.92f, 0.32f, Heat) + Parameters.RoughnessBias, 0.06f, 0.98f);
             Out.Material.Specular.Metalness       = 0.02f;
             Out.Material.Clearcoat.CoatWeight     = 0.0f;
 
@@ -406,7 +390,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
             // 1:1 parity with Particle Studio / HTML Energy Shield Hex Barrier
             const float SpinU = SphU + T * 0.032f;
             const auto Hex = EvaluateHexLattice(SpinU * Scale * 9.4f, SphV * Scale * 5.2f);
-            const float HexWire = 1.0f - SmoothstepScalar(0.015f, 0.062f, Hex.EdgeDistance);
+            const float HexWire = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.015f, 0.062f, Hex.EdgeDistance);
             const float Shimmer = 0.5f + 0.5f * std::sin(T * 2.6f + Hex.CellHash * 6.283f);
             const float RimShell = std::pow(1.0f - NdotV, 2.55f);
 
@@ -420,7 +404,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
                 const Mathematics::Axis3D OriginDir = Mathematics::NormalizeAxis({ Impact[0], Impact[1], Impact[2] }, { 0.0f, 0.0f, 1.0f });
                 const float CosAngle = std::clamp(Mathematics::EvaluateDot(UnitN, OriginDir), -1.0f, 1.0f);
                 const float GeodesicDist = std::acos(CosAngle);
-                const float Cycle = FractScalar(Age * 0.46f);
+                const float Cycle = Frontier::Mathematics::EvaluateFractionalPart(Age * 0.46f);
                 const float Ring  = std::exp(-std::pow((GeodesicDist - Cycle * 2.15f) * 9.0f, 2.0f)) * (1.0f - Cycle);
                 const float Flash = std::exp(-GeodesicDist * GeodesicDist * 14.0f) * std::exp(-Cycle * 4.2f);
                 RippleSum += Ring;
@@ -451,27 +435,27 @@ ResolvedDynamicSurface ResolveDynamicSurface(
         case DynamicPresetIdentity::SurfaceMaterialTransition:
         {
             // Modular Material A (Brushed Titanium) <-> Material B (Liquid Obsidian Clearcoat) across crisp ionized hex sweep
-            const float SweepCenter = LerpScalar(-0.85f, 0.85f, Parameters.TransitionProgress);
+            const float SweepCenter = Frontier::Mathematics::InterpolateScalar(-0.85f, 0.85f, Parameters.TransitionProgress);
             const float Organic     = (Fbm2D(SphU * Scale * 1.45f, SphV * Scale * 1.45f, 3) - 0.5f) * 0.14f;
             const auto  Hex         = EvaluateHexLattice(SphU * Scale * 6.8f, SphV * Scale * 3.8f);
             const float HexJitter   = (Hex.CellHash - 0.5f) * 0.08f;
             const float FrontDist   = (NormPos.X * Parameters.SweepAxisWidth[0] +
                                        NormPos.Y * Parameters.SweepAxisWidth[1] + Organic + HexJitter) - SweepCenter;
-            const float BlendB      = SmoothstepScalar(-0.032f, 0.032f, FrontDist);
+            const float BlendB      = Frontier::Mathematics::EvaluateSmoothStep(-0.032f, 0.032f, FrontDist);
 
             const float SeamLine = std::exp(-std::pow(FrontDist * 28.0f, 2.0f));
-            const float HexEdge  = (1.0f - SmoothstepScalar(0.015f, 0.085f, Hex.EdgeDistance)) * std::exp(-std::pow(FrontDist * 9.5f, 2.0f));
+            const float HexEdge  = (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.015f, 0.085f, Hex.EdgeDistance)) * std::exp(-std::pow(FrontDist * 9.5f, 2.0f));
 
             const float Brush = LatticeNoise2D(SphU * 110.0f, SphV * 16.0f);
             const Mathematics::LinearRGB ColA = LerpRgb(PrimaryCol * 0.84f, PrimaryCol * 1.12f, Brush);
-            const float Flake = SmoothstepScalar(0.82f, 0.995f, Hash31(
+            const float Flake = Frontier::Mathematics::EvaluateSmoothStep(0.82f, 0.995f, Hash31(
                 std::floor(NormPos.X * 195.0f), std::floor(NormPos.Y * 195.0f), std::floor(NormPos.Z * 195.0f)));
             const Mathematics::LinearRGB ColB = SecondaryCol + Mathematics::LinearRGB { 0.025f, 0.055f, 0.105f } * (Flake + Fresnel * 0.35f);
 
             Out.Material.Diffuse.BaseColor       = LerpRgb(ColA, ColB, BlendB);
-            Out.Material.Specular.Roughness      = std::clamp(LerpScalar(0.24f, 0.05f, BlendB) + Parameters.RoughnessBias, 0.02f, 0.95f);
-            Out.Material.Specular.Metalness      = std::clamp(LerpScalar(0.92f, 0.22f, BlendB) + Parameters.MetalnessBias, 0.0f, 1.0f);
-            Out.Material.Clearcoat.CoatWeight    = LerpScalar(0.04f, 0.96f, BlendB);
+            Out.Material.Specular.Roughness      = std::clamp(Frontier::Mathematics::InterpolateScalar(0.24f, 0.05f, BlendB) + Parameters.RoughnessBias, 0.02f, 0.95f);
+            Out.Material.Specular.Metalness      = std::clamp(Frontier::Mathematics::InterpolateScalar(0.92f, 0.22f, BlendB) + Parameters.MetalnessBias, 0.0f, 1.0f);
+            Out.Material.Clearcoat.CoatWeight    = Frontier::Mathematics::InterpolateScalar(0.04f, 0.96f, BlendB);
             Out.Material.Clearcoat.CoatRoughness = 0.035f;
 
             const Mathematics::LinearRGB SeamCol = LerpRgb(TertiaryCol, { 1.0f, 1.0f, 1.0f }, SeamLine * 0.78f);
@@ -481,14 +465,14 @@ ResolvedDynamicSurface ResolveDynamicSurface(
 
         case DynamicPresetIdentity::HolographicTelemetryScan:
         {
-            const float ScanY = LerpScalar(-0.78f, 0.78f, Parameters.TransitionProgress);
+            const float ScanY = Frontier::Mathematics::InterpolateScalar(-0.78f, 0.78f, Parameters.TransitionProgress);
             const float BeamDistance = NormPos.Y - ScanY;
 
             const float LaserBeamPeak = std::exp(-std::pow(BeamDistance * 26.0f, 2.0f));
-            const float WakeMask  = SmoothstepScalar(-0.85f, 0.0f, BeamDistance) * SmoothstepScalar(0.05f, -0.01f, BeamDistance);
+            const float WakeMask  = Frontier::Mathematics::EvaluateSmoothStep(-0.85f, 0.0f, BeamDistance) * Frontier::Mathematics::EvaluateSmoothStep(0.05f, -0.01f, BeamDistance);
 
-            const float LatLines  = 1.0f - SmoothstepScalar(0.03f, 0.11f, std::fabs(FractScalar(NormPos.Y * Scale * 2.2f) - 0.5f) * 2.0f);
-            const float LonLines  = 1.0f - SmoothstepScalar(0.03f, 0.11f, std::fabs(FractScalar(SphU * Scale * 3.6f) - 0.5f) * 2.0f);
+            const float LatLines  = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.03f, 0.11f, std::fabs(Frontier::Mathematics::EvaluateFractionalPart(NormPos.Y * Scale * 2.2f) - 0.5f) * 2.0f);
+            const float LonLines  = 1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.03f, 0.11f, std::fabs(Frontier::Mathematics::EvaluateFractionalPart(SphU * Scale * 3.6f) - 0.5f) * 2.0f);
             const float GridWire  = std::max(LatLines, LonLines) * WakeMask;
             const float ScanFill  = WakeMask * 0.22f;
             const float HoloRim   = std::pow(1.0f - NdotV, 2.6f);
@@ -509,15 +493,15 @@ ResolvedDynamicSurface ResolveDynamicSurface(
         {
             const float WaterFresnel = 0.02f + 0.98f * std::pow(1.0f - NdotV, 5.0f);
             const float CrestH = EvaluateScalarReliefField(DynamicPresetIdentity::PhysicalOceanWater, Parameters, SphU, SphV, NormPos);
-            const float CrestMask = SmoothstepScalar(0.012f, 0.048f, CrestH);
-            const float FoamNoise = SmoothstepScalar(0.58f, 0.86f, Fbm2D(SphU * Scale * 7.0f + T * 0.35f, SphV * Scale * 7.0f - T * 0.25f, 3));
+            const float CrestMask = Frontier::Mathematics::EvaluateSmoothStep(0.012f, 0.048f, CrestH);
+            const float FoamNoise = Frontier::Mathematics::EvaluateSmoothStep(0.58f, 0.86f, Fbm2D(SphU * Scale * 7.0f + T * 0.35f, SphV * Scale * 7.0f - T * 0.25f, 3));
             const float FoamMask  = CrestMask * FoamNoise * 0.65f;
 
             Mathematics::LinearRGB WaterCol = LerpRgb(PrimaryCol, SecondaryCol, CrestMask * 0.72f + (1.0f - WaterFresnel) * 0.22f);
             WaterCol = LerpRgb(WaterCol, TertiaryCol, FoamMask);
 
             Out.Material.Diffuse.BaseColor              = WaterCol;
-            Out.Material.Specular.Roughness             = std::clamp(LerpScalar(0.045f, 0.42f, FoamMask) + Parameters.RoughnessBias, 0.02f, 0.90f);
+            Out.Material.Specular.Roughness             = std::clamp(Frontier::Mathematics::InterpolateScalar(0.045f, 0.42f, FoamMask) + Parameters.RoughnessBias, 0.02f, 0.90f);
             Out.Material.Specular.Metalness             = 0.0f;
             Out.Material.Specular.DielectricIOR         = Parameters.OpticalIor;
             Out.Material.Clearcoat.CoatWeight           = 0.55f * (1.0f - FoamMask);
@@ -531,7 +515,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
 
         case DynamicPresetIdentity::LiquidObsidianClearcoat:
         {
-            const float Flake = SmoothstepScalar(0.72f, 0.99f, Hash31(
+            const float Flake = Frontier::Mathematics::EvaluateSmoothStep(0.72f, 0.99f, Hash31(
                 std::floor(NormPos.X * 85.0f), std::floor(NormPos.Y * 85.0f), std::floor(NormPos.Z * 85.0f)));
             Out.Material.Diffuse.BaseColor = PrimaryCol + SecondaryCol * (Fresnel * 0.35f) + TertiaryCol * (Flake * 0.14f);
             Out.Material.Specular.Roughness = std::clamp(0.055f + Parameters.RoughnessBias, 0.02f, 0.85f);
@@ -544,16 +528,16 @@ ResolvedDynamicSurface ResolveDynamicSurface(
         case DynamicPresetIdentity::RainStreakedSmokedGlass:
         {
             const float DropH = EvaluateScalarReliefField(DynamicPresetIdentity::RainStreakedSmokedGlass, Parameters, SphU, SphV, NormPos);
-            const float Wet   = SmoothstepScalar(0.004f, 0.028f, DropH);
+            const float Wet   = Frontier::Mathematics::EvaluateSmoothStep(0.004f, 0.028f, DropH);
             const float ColX  = SphU * Scale * 3.6f;
-            const float Track = (1.0f - SmoothstepScalar(0.06f, 0.22f, std::fabs(FractScalar(ColX) - 0.5f))) * Parameters.WeatherRainIntensity;
+            const float Track = (1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.06f, 0.22f, std::fabs(Frontier::Mathematics::EvaluateFractionalPart(ColX) - 0.5f))) * Parameters.WeatherRainIntensity;
             const float Gloss = std::clamp(Wet + Track * 0.65f, 0.0f, 1.0f);
 
             Out.Material.Diffuse.BaseColor   = LerpRgb(PrimaryCol, SecondaryCol, 0.25f * (1.0f - Gloss));
-            Out.Material.Specular.Roughness  = std::clamp(LerpScalar(0.28f, 0.025f, Gloss) + Parameters.RoughnessBias, 0.015f, 0.90f);
+            Out.Material.Specular.Roughness  = std::clamp(Frontier::Mathematics::InterpolateScalar(0.28f, 0.025f, Gloss) + Parameters.RoughnessBias, 0.015f, 0.90f);
             Out.Material.Specular.Metalness  = 0.05f;
             Out.Material.Clearcoat.CoatWeight = 0.45f + 0.55f * Gloss;
-            Out.Material.Clearcoat.CoatRoughness = LerpScalar(0.18f, 0.02f, Gloss);
+            Out.Material.Clearcoat.CoatRoughness = Frontier::Mathematics::InterpolateScalar(0.18f, 0.02f, Gloss);
             break;
         }
 
@@ -561,14 +545,14 @@ ResolvedDynamicSurface ResolveDynamicSurface(
         {
             const float PuddleNoise = Fbm2D(SphU * Scale * 0.65f, SphV * Scale * 0.65f, 3);
             const float Threshold   = 0.64f - 0.26f * Parameters.WeatherRainIntensity;
-            const float DampMask    = SmoothstepScalar(Threshold - 0.14f, Threshold + 0.02f, PuddleNoise);
-            const float PuddleMask  = SmoothstepScalar(Threshold, Threshold + 0.11f, PuddleNoise);
+            const float DampMask    = Frontier::Mathematics::EvaluateSmoothStep(Threshold - 0.14f, Threshold + 0.02f, PuddleNoise);
+            const float PuddleMask  = Frontier::Mathematics::EvaluateSmoothStep(Threshold, Threshold + 0.11f, PuddleNoise);
             const float Aggregate   = Fbm2D(SphU * Scale * 11.0f, SphV * Scale * 11.0f, 3);
 
             const Mathematics::LinearRGB DryCol  = PrimaryCol * (0.72f + 0.55f * Aggregate);
             const Mathematics::LinearRGB DampCol = SecondaryCol * (0.65f + 0.40f * Aggregate);
             Out.Material.Diffuse.BaseColor       = LerpRgb(DryCol, DampCol, DampMask);
-            Out.Material.Specular.Roughness      = std::clamp(LerpScalar(0.86f, 0.025f, PuddleMask) + Parameters.RoughnessBias, 0.02f, 0.98f);
+            Out.Material.Specular.Roughness      = std::clamp(Frontier::Mathematics::InterpolateScalar(0.86f, 0.025f, PuddleMask) + Parameters.RoughnessBias, 0.02f, 0.98f);
             Out.Material.Clearcoat.CoatWeight    = PuddleMask * 0.95f;
             Out.Material.Clearcoat.CoatRoughness = 0.02f;
             break;
@@ -577,7 +561,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
         case DynamicPresetIdentity::HoarfrostSparkleSnow:
         {
             const float Drift  = Fbm2D(SphU * Scale * 1.4f, SphV * Scale * 0.75f, 4);
-            const float Sparkle = SmoothstepScalar(0.93f, 0.995f, Hash31(
+            const float Sparkle = Frontier::Mathematics::EvaluateSmoothStep(0.93f, 0.995f, Hash31(
                 std::floor(NormPos.X * 110.0f), std::floor(NormPos.Y * 110.0f), std::floor(NormPos.Z * 110.0f))) *
                 std::pow(std::max(0.0f, NdotV), 0.7f);
             Out.Material.Diffuse.BaseColor       = LerpRgb(SecondaryCol, PrimaryCol, 0.58f + 0.42f * Drift);
@@ -592,7 +576,7 @@ ResolvedDynamicSurface ResolveDynamicSurface(
             const auto Pebble = EvaluateVoronoiEdge(SphU * Scale * 1.8f, SphV * Scale * 1.8f);
             const auto CausA  = EvaluateVoronoiEdge(SphU * Scale * 2.1f + T * 0.25f, SphV * Scale * 2.1f - T * 0.18f);
             const auto CausB  = EvaluateVoronoiEdge(SphU * Scale * 2.4f - T * 0.21f, SphV * Scale * 2.4f + T * 0.24f);
-            const float CausticWeb = std::pow(1.0f - SmoothstepScalar(0.0f, 0.18f, std::min(CausA.EdgeDistance, CausB.EdgeDistance)), 2.2f);
+            const float CausticWeb = std::pow(1.0f - Frontier::Mathematics::EvaluateSmoothStep(0.0f, 0.18f, std::min(CausA.EdgeDistance, CausB.EdgeDistance)), 2.2f);
             const float Stone = 0.65f + 0.35f * Pebble.CellId;
 
             Out.Material.Diffuse.BaseColor       = LerpRgb(SecondaryCol, PrimaryCol, Stone);

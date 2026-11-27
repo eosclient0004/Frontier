@@ -10,6 +10,7 @@
 #include "Engine/MaterialSpace/Baking/MaterialSpecimenRasterizer.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/MaterialSpace/Scattering/OpenPbrSurfaceScattering.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -74,11 +75,7 @@ namespace
 
 [[nodiscard]] uint8_t EncodeAcesSrgbByte(float LinearVal) noexcept
 {
-    const float X = std::max(0.0f, LinearVal * 0.85f);
-    // Narkowicz ACES filmic curve
-    const float Mapped = std::clamp((X * (2.51f * X + 0.03f)) / (X * (2.43f * X + 0.59f) + 0.14f), 0.0f, 1.0f);
-    const float Srgb   = (Mapped <= 0.0031308f) ? (12.92f * Mapped) : (1.055f * std::pow(Mapped, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::lround(std::clamp(Srgb, 0.0f, 1.0f) * 255.0f));
+    return Frontier::ColourSpace::EncodeAcesSrgbByte(LinearVal, 0.85f);
 }
 
 } // namespace

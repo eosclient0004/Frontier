@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/World/CategoryInstances.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <cmath>
 #include <utility>
@@ -18,15 +19,6 @@ namespace Frontier::World
 namespace
 {
 
-[[nodiscard]] float WrapDegrees360(float AngleDegrees) noexcept
-{
-    float Wrapped = std::fmod(AngleDegrees, 360.0f);
-    if (Wrapped < 0.0f)
-    {
-        Wrapped += 360.0f;
-    }
-    return Wrapped;
-}
 
 [[nodiscard]] uint32_t BuildBaseDirectiveMask(bool VisibilityEnabled, bool SimulationEnabled, bool EditorRegistered) noexcept
 {
@@ -748,7 +740,7 @@ uint32_t ExecuteSolarLoop(SolarInstanceRegister& SolarRegister, float Δt) noexc
 
         if ((Δt > 0.0f) && (SolarRegister.CycleAnimationEnabled[i] != 0u))
         {
-            SolarRegister.AzimuthDegrees[i] = WrapDegrees360(
+            SolarRegister.AzimuthDegrees[i] = Frontier::Mathematics::WrapDegrees360(
                 SolarRegister.AzimuthDegrees[i] + SolarRegister.DayCycleSpeedDegreesS[i] * Δt);
         }
         ++EvaluatedCount;
@@ -795,7 +787,7 @@ uint32_t ExecuteLunarLoop(LunarInstanceRegister& LunarRegister, float Δt) noexc
 
         if ((Δt > 0.0f) && (LunarRegister.OrbitalRateDegreesPerS[i] != 0.0f))
         {
-            LunarRegister.RightAscensionDegrees[i] = WrapDegrees360(
+            LunarRegister.RightAscensionDegrees[i] = Frontier::Mathematics::WrapDegrees360(
                 LunarRegister.RightAscensionDegrees[i] + LunarRegister.OrbitalRateDegreesPerS[i] * Δt);
         }
         ++EvaluatedCount;

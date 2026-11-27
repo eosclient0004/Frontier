@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/WorkspaceCapabilityRegister.h"
+#include "Engine/Serialization/Container/TextFormatPrimitives.h"
 
 #include <algorithm>
 #include <cctype>
@@ -18,15 +19,6 @@ namespace Frontier::Workspaces
 namespace
 {
 
-[[nodiscard]] std::string LowercaseAscii(std::string_view Text)
-{
-    std::string Out(Text);
-    for (char& Ch : Out)
-    {
-        Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
-    }
-    return Out;
-}
 
 } // namespace
 
@@ -108,7 +100,7 @@ std::span<const WorkspaceCapabilityEntry> WorkspaceCapabilityRegister::QueryAllC
 
 std::vector<WorkspaceCapabilityEntry> WorkspaceCapabilityRegister::QueryPermittedForPath(const std::filesystem::path& FilePath) const
 {
-    const std::string Ext = LowercaseAscii(FilePath.extension().string());
+    const std::string Ext = Frontier::Serialization::LowercaseAscii(FilePath.extension().string());
     std::vector<WorkspaceCapabilityEntry> Permitted {};
 
     if (Ext == ".solidarc" || Ext == ".sketch" || Ext == ".sketcher")

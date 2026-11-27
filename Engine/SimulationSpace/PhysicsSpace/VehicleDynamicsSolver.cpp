@@ -10,6 +10,7 @@
 #include "Engine/SimulationSpace/PhysicsSpace/VehicleDynamicsSolver.h"
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Constants/PhysicsConstants.h"
+#include "Engine/Mathematics/ScalarMath.h"
 
 #include <algorithm>
 #include <chrono>
@@ -101,10 +102,6 @@ namespace
     return { V.X * S, V.Y * S, V.Z * S };
 }
 
-[[nodiscard]] inline float LerpScalar(float A, float B, float T) noexcept
-{
-    return A + (B - A) * std::clamp(T, 0.0f, 1.0f);
-}
 
 [[nodiscard]] inline float MoveToward(float Current, float Target, float MaxStep) noexcept
 {
@@ -1470,7 +1467,7 @@ void VehiclePhysicsRig::SolveSuspensionKinematics(
         {
             // Native Jolt 3D wheel cylinder sweep: Jolt CylinderShape axis is local +Y; rotate +90 deg around
             // local +X so cylinder axis aligns with axle (+Z), then apply steering yaw around +Y, then chassis quat.
-            const RigidOrientationQuaternion AlignAxleQ = FromAxisAngleQuat({ 1.0f, 0.0f, 0.0f }, 1.57079632679f);
+            const RigidOrientationQuaternion AlignAxleQ = FromAxisAngleQuat({ 1.0f, 0.0f, 0.0f }, Frontier::Constants::HalfPiFloat);
             const RigidOrientationQuaternion SteerQ     = FromAxisAngleQuat({ 0.0f, 1.0f, 0.0f }, W.SteerAngleRad);
             const RigidOrientationQuaternion WheelWorldQ = MultiplyQuat(Body.Orientation, MultiplyQuat(SteerQ, AlignAxleQ));
 
@@ -1736,7 +1733,7 @@ void VehiclePhysicsRig::ComputeSteeringRack(
     {
         const float Span = std::max(Rack.VariableRatioMaxMps - Rack.VariableRatioStartMps, 1.0f);
         const float T    = VehicleFastMath::SmoothUnitStep((SpeedAbs - Rack.VariableRatioStartMps) / Span);
-        SpeedAuthority   = LerpScalar(1.0f, Rack.VariableRatioMinScale, T);
+        SpeedAuthority   = Frontier::Mathematics::InterpolateScalar(1.0f, Rack.VariableRatioMinScale, T);
     }
 
     // Layer 2: Body slip-angle stability limiter (only attenuates over-steer-inducing turn-in, preserves counter-steer)
@@ -1748,7 +1745,7 @@ void VehiclePhysicsRig::ComputeSteeringRack(
         if (SlipAbs > 0.04f)
         {
             const float T = VehicleFastMath::SmoothUnitStep(SlipAbs / std::max(Rack.CriticalBodySlipRad, 0.05f));
-            StabilityAuthority = LerpScalar(1.0f, Rack.StabilityMinAuthority, T);
+            StabilityAuthority = Frontier::Mathematics::InterpolateScalar(1.0f, Rack.StabilityMinAuthority, T);
         }
     }
 
@@ -1769,8 +1766,8 @@ void VehiclePhysicsRig::ComputeSteeringRack(
         const float InnerRad = std::atan2(L, std::max(TurnRadiusM - 0.5f * T, 0.35f));
         const float OuterRad = std::atan2(L, TurnRadiusM + 0.5f * T);
 
-        const float BlendedInner = LerpScalar(AbsSteer, InnerRad, Rack.AckermannBlend);
-        const float BlendedOuter = LerpScalar(AbsSteer, OuterRad, Rack.AckermannBlend);
+        const float BlendedInner = Frontier::Mathematics::InterpolateScalar(AbsSteer, InnerRad, Rack.AckermannBlend);
+        const float BlendedOuter = Frontier::Mathematics::InterpolateScalar(AbsSteer, OuterRad, Rack.AckermannBlend);
         if (Sign > 0.0f)
         {
             // Turning right: Right wheel is inner, Left wheel is outer
@@ -1830,7 +1827,7 @@ void VehiclePhysicsRig::ComputeBodyAxisAerodynamics(
     {
         const float T = (FloorClearanceM - Aero.RideHeightCriticalMeters)
                       / std::max(Aero.RideHeightOptimumMeters - Aero.RideHeightCriticalMeters, 0.005f);
-        GroundMult = LerpScalar(0.60f, 1.0f, T);
+        GroundMult = Frontier::Mathematics::InterpolateScalar(0.60f, 1.0f, T);
     }
     else
     {
@@ -1920,7 +1917,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
             (FuelOctane - TSpec.BaseTuneOctane) / std::max(TSpec.RaceTuneOctane - TSpec.BaseTuneOctane, 1.0f),
             0.0f,
             1.0f);
-        const float WastegateCeilingBar = LerpScalar(TSpec.WastegateMaxBoostBaseBar, TSpec.WastegateMaxBoostRaceBar, OctaneAlpha);
+        const float WastegateCeilingBar = Frontier::Mathematics::InterpolateScalar(TSpec.WastegateMaxBoostBaseBar, TSpec.WastegateMaxBoostRaceBar, OctaneAlpha);
 
         // Active proportional wastegate controller
         const float BoostError = TurboBoostBar - (WastegateCeilingBar - 0.12f);
@@ -1932,7 +1929,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
         const float EffectiveThrot  = FuelStarved ? 0.0f : Throttle;
         const float RawExhaustFlow  = MaxFlowKgS * (0.16f + 0.84f * EffectiveThrot);
         const float TurbineFlowKgS  = RawExhaustFlow * (1.0f - 0.82f * WastegatePos);
-        const float ExhaustTempK    = LerpScalar(573.15f, MaxExhTempK, EffectiveThrot);
+        const float ExhaustTempK    = Frontier::Mathematics::InterpolateScalar(573.15f, MaxExhTempK, EffectiveThrot);
 
         float TurboOmega = TurboShaftRpm * VehicleRpmToRadPerSec;
 
@@ -1985,7 +1982,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
             BovPos = MoveToward(BovPos, 0.0f, 10.0f * DeltaSeconds);
             const float CappedPotential = std::min(TSpec.BoostPressureCurveBar.EvaluateLinear(TurboShaftRpm), WastegateCeilingBar);
             const float LagRate         = 4.5f + 6.0f * SpeedFrac;
-            TurboBoostBar = LerpScalar(TurboBoostBar, CappedPotential * (0.20f + 0.80f * EffectiveThrot), std::min(1.0f, LagRate * DeltaSeconds));
+            TurboBoostBar = Frontier::Mathematics::InterpolateScalar(TurboBoostBar, CappedPotential * (0.20f + 0.80f * EffectiveThrot), std::min(1.0f, LagRate * DeltaSeconds));
         }
 
         TurboBoostBar           = std::clamp(TurboBoostBar, 0.0f, WastegateCeilingBar);
@@ -2009,7 +2006,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
             (FuelOctane - SSpec.BaseTuneOctane) / std::max(SSpec.RaceTuneOctane - SSpec.BaseTuneOctane, 1.0f),
             0.0f,
             1.0f);
-        const float MaxBoostBar = LerpScalar(SSpec.MaxBoostBaseBar, SSpec.MaxBoostRaceBar, OctaneAlpha);
+        const float MaxBoostBar = Frontier::Mathematics::InterpolateScalar(SSpec.MaxBoostBaseBar, SSpec.MaxBoostRaceBar, OctaneAlpha);
 
         SuperchargerRpm = std::min(EngineRpmIn * SSpec.DriveRatio, SSpec.MaxChargerRpm);
         const float NormSpeed = std::clamp(SuperchargerRpm / std::max(SSpec.MaxChargerRpm, 1000.0f), 0.0f, 1.0f);
@@ -2056,7 +2053,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
         const float DriveScale = (SSpec.DriveCategory == SuperchargerDriveCategory::Centrifugal)
                                ? (0.45f + 0.55f * NormSpeed)
                                : ((SSpec.DriveCategory == SuperchargerDriveCategory::Roots) ? 1.12f : 1.0f);
-        SuperchargerDragNm     = FullDragNm * DriveScale * LerpScalar(SSpec.BypassDragFraction, 1.0f, 1.0f - SuperchargerBypass);
+        SuperchargerDragNm     = FullDragNm * DriveScale * Frontier::Mathematics::InterpolateScalar(SSpec.BypassDragFraction, 1.0f, 1.0f - SuperchargerBypass);
         SuperTargetMult        = SSpec.TorqueMultiplierCurve.EvaluateLinear(SuperchargerBoostBar);
 
         if (!RunTurbo)
@@ -2107,7 +2104,7 @@ void VehiclePhysicsRig::ComputeForcedInduction(
     else
     {
         // Intake manifold vacuum under part/closed throttle (32 kPa idle vacuum -> 101.325 kPa WOT)
-        ManifoldPressureKPa = LerpScalar(32.0f, StandardAtmosphereKPa, Throttle);
+        ManifoldPressureKPa = Frontier::Mathematics::InterpolateScalar(32.0f, StandardAtmosphereKPa, Throttle);
         BoostTorqueMult     = 1.0f;
     }
 }
@@ -2182,7 +2179,7 @@ void VehiclePhysicsRig::SolveBrakeHydraulics(
             {
                 const float T = (W.LongSlipKappa - Assists.AbsTargetSlipRatio)
                               / std::min(Assists.AbsReleaseSlipRatio - Assists.AbsTargetSlipRatio, -0.01f);
-                TargetPa *= LerpScalar(1.0f, 0.25f, std::clamp(T, 0.0f, 1.0f));
+                TargetPa *= Frontier::Mathematics::InterpolateScalar(1.0f, 0.25f, std::clamp(T, 0.0f, 1.0f));
                 AbsIntervening = true;
             }
         }
@@ -2200,7 +2197,7 @@ void VehiclePhysicsRig::SolveBrakeHydraulics(
         else if (W.BrakeTempK > BSpec.FadeStartTempK)
         {
             const float T = (W.BrakeTempK - BSpec.FadeStartTempK) / std::max(BSpec.FadeEndTempK - BSpec.FadeStartTempK, 1.0f);
-            PadMu = LerpScalar(BSpec.FrictionCoeffCold, BSpec.FrictionCoeffHot, T);
+            PadMu = Frontier::Mathematics::InterpolateScalar(BSpec.FrictionCoeffCold, BSpec.FrictionCoeffHot, T);
         }
 
         // Brake torque on both faces of ventilated disk + ESC selective braking
@@ -2362,7 +2359,7 @@ void VehiclePhysicsRig::SolveDrivetrainTorque(
 
     // Cold oil increases viscous friction slightly until warm
     const float OilWarmAlpha   = std::clamp((OilTempK - StandardAmbientKelvin) / std::max(Specification.EngineOil.OptimalTempK - StandardAmbientKelvin, 1.0f), 0.0f, 1.0f);
-    const float OilViscFactor  = LerpScalar(Specification.EngineOil.ColdViscosityMult, 1.0f, OilWarmAlpha);
+    const float OilViscFactor  = Frontier::Mathematics::InterpolateScalar(Specification.EngineOil.ColdViscosityMult, 1.0f, OilWarmAlpha);
     EngineBrakingNm            = (ESpec.EngineBrakingLinearNmS * EngineOmega + ESpec.EngineBrakingQuadNmS2 * EngineOmega * EngineOmega) * OilViscFactor;
 
     // Soft-cut rev limiter & thermal overheat derating
@@ -2409,7 +2406,7 @@ void VehiclePhysicsRig::SolveDrivetrainTorque(
     {
         const float RpmAlpha   = VehicleFastMath::SmoothUnitStep((EngineRpm - ESpec.IdleRpm) / std::max(CSpec.LaunchLockRpmDelta, 100.0f));
         const float ThrotAlpha = VehicleFastMath::SmoothUnitStep((InputThrottle - 0.02f) / 0.28f);
-        TargetEngagement       = std::clamp(LerpScalar(CSpec.LaunchBiteEngagement, 1.0f, RpmAlpha) * ThrotAlpha, 0.0f, 1.0f);
+        TargetEngagement       = std::clamp(Frontier::Mathematics::InterpolateScalar(CSpec.LaunchBiteEngagement, 1.0f, RpmAlpha) * ThrotAlpha, 0.0f, 1.0f);
     }
     else if ((InputBrake > 0.10f && std::fabs(ForwardSpeedMpsIn) < CSpec.LaunchSpeedThresholdMps && InputThrottle < 0.05f)
           || (EngineRpm < ESpec.IdleRpm + 180.0f && InputThrottle < 0.05f))
@@ -2457,7 +2454,7 @@ void VehiclePhysicsRig::SolveDrivetrainTorque(
     if (ClutchLocked && TotalRatioAbs > 0.01f)
     {
         // Softly track reflected drivetrain speed to avoid numerical drift
-        NextEngineOmega = LerpScalar(NextEngineOmega, std::max(TransInputOmega, ESpec.IdleRpm * VehicleRpmToRadPerSec), std::min(1.0f, 18.0f * DeltaSeconds));
+        NextEngineOmega = Frontier::Mathematics::InterpolateScalar(NextEngineOmega, std::max(TransInputOmega, ESpec.IdleRpm * VehicleRpmToRadPerSec), std::min(1.0f, 18.0f * DeltaSeconds));
     }
     const float MinRpm = FuelStarved ? 0.0f : (ESpec.IdleRpm * 0.85f);
     EngineRpm = std::clamp(NextEngineOmega * VehicleRadPerSecToRpm, MinRpm, ESpec.RedlineRpm * 1.02f);
@@ -2711,7 +2708,7 @@ void VehiclePhysicsRig::SolveTireTraction(
                 (W.TreadTempK - StandardAmbientKelvin) / std::max(TireSpec.OptimalTempK - StandardAmbientKelvin, 1.0f),
                 0.0f,
                 1.0f);
-            ThermalGripScale = LerpScalar(TireSpec.ColdGripFloor, 1.0f, WarmFrac);
+            ThermalGripScale = Frontier::Mathematics::InterpolateScalar(TireSpec.ColdGripFloor, 1.0f, WarmFrac);
         }
         else if (W.TreadTempK > TireSpec.OverheatTempK)
         {
@@ -2896,8 +2893,8 @@ void VehiclePhysicsRig::SolveTireTraction(
 
         const float BlendLong = std::clamp(DeltaSeconds / std::max(TauLong, DeltaSeconds), 0.0f, 1.0f);
         const float BlendLat  = std::clamp(DeltaSeconds / std::max(TauLat,  DeltaSeconds), 0.0f, 1.0f);
-        W.FxTransientN = LerpScalar(W.FxTransientN, FxSteady, BlendLong);
-        W.FyTransientN = LerpScalar(W.FyTransientN, FySteady, BlendLat);
+        W.FxTransientN = Frontier::Mathematics::InterpolateScalar(W.FxTransientN, FxSteady, BlendLong);
+        W.FyTransientN = Frontier::Mathematics::InterpolateScalar(W.FyTransientN, FySteady, BlendLat);
 
         // Rolling resistance opposing wheel ground travel (scaled by PhysicsMaterial)
         const float RollingResistN = W.VerticalLoadN
@@ -2977,8 +2974,8 @@ void VehiclePhysicsRig::SolveFuelThermalBalance(
 
     // 1. Boost-dependent AFR & thermal efficiency
     const float BoostFrac  = std::clamp(CombinedBoostBar / 1.2f, 0.0f, 1.0f);
-    ActiveAfr              = LerpScalar(FSpec.StoichiometricAfr, FSpec.FullBoostTargetAfr, BoostFrac);
-    const float ThermalEff = std::max(0.18f, LerpScalar(ESpec.BaseThermalEfficiency, ESpec.BoostedThermalEfficiency, BoostFrac));
+    ActiveAfr              = Frontier::Mathematics::InterpolateScalar(FSpec.StoichiometricAfr, FSpec.FullBoostTargetAfr, BoostFrac);
+    const float ThermalEff = std::max(0.18f, Frontier::Mathematics::InterpolateScalar(ESpec.BaseThermalEfficiency, ESpec.BoostedThermalEfficiency, BoostFrac));
 
     // 2. Fuel mass flow (with DFCO overrun cut & idle combustion floor)
     const bool DecelCut = FDel.EnableDecelFuelCut && (InputThrottle < 0.01f) && (EngineRpm > ESpec.IdleRpm + 350.0f);
@@ -3291,8 +3288,8 @@ void VehiclePhysicsRig::StepOnPhysicsThread(PhysicsExtension& Physics, double Fi
     const float RawLongG  = ((ForwardSpeedMps - PrevForwardSpeedMps) / Dt) * InvG;
     const float RawLatG   = ((LateralSpeedMps - PrevLateralSpeedMps) / Dt + ForwardSpeedMps * YawRateRadPerSec) * InvG;
     const float SmoothAlp = std::min(1.0f, 14.0f * Dt);
-    SmoothedLongG         = LerpScalar(SmoothedLongG, ClampFinite(RawLongG, -5.0f, 5.0f), SmoothAlp);
-    SmoothedLatG          = LerpScalar(SmoothedLatG,  ClampFinite(RawLatG,  -5.0f, 5.0f), SmoothAlp);
+    SmoothedLongG         = Frontier::Mathematics::InterpolateScalar(SmoothedLongG, ClampFinite(RawLongG, -5.0f, 5.0f), SmoothAlp);
+    SmoothedLatG          = Frontier::Mathematics::InterpolateScalar(SmoothedLatG,  ClampFinite(RawLatG,  -5.0f, 5.0f), SmoothAlp);
     PrevForwardSpeedMps   = ForwardSpeedMps;
     PrevLateralSpeedMps   = LateralSpeedMps;
     DistanceTraveledM    += GroundSpeedMps * Dt;

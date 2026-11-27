@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/MaterialSpace/Dynamic/DynamicMaterialRecipe.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -19,8 +20,8 @@ namespace Frontier::MaterialSpace::Dynamic
 namespace
 {
 
-constexpr uint64_t FnvOffsetBasis = 14695981039346656037ULL;
-constexpr uint64_t FnvPrime       = 1099511628211ULL;
+constexpr uint64_t FnvOffsetBasis = Frontier::Constants::Fnv1a64OffsetBasis;
+constexpr uint64_t FnvPrime       = Frontier::Constants::Fnv1a64Prime;
 
 void HashByte(uint64_t& HashAccum, uint8_t Byte) noexcept
 {

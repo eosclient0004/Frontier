@@ -6,6 +6,8 @@
 
 #include "Engine/GeometrySpace/Procedural/ProceduralGeometry.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <algorithm>
 #include <array>
@@ -20,13 +22,11 @@ namespace Frontier::GeometrySpace
 namespace
 {
 
-constexpr float PiF    = 3.14159265358979323846f;
-constexpr float TwoPiF = 6.28318530717958647692f;
 
 [[nodiscard]] uint64_t HashMix64(uint64_t H, uint64_t V) noexcept
 {
     H ^= V;
-    H *= 0x100000001B3ull;
+    H *= Frontier::Constants::Fnv1a64Prime;
     return H;
 }
 
@@ -235,12 +235,12 @@ public:
         {
             const float T0 = static_cast<float>(R) / static_cast<float>(Rings);
             const float T1 = static_cast<float>(R + 1u) / static_cast<float>(Rings);
-            const float A0 = T0 * TwoPiF * 0.75f;
-            const float A1 = T1 * TwoPiF * 0.75f;
+            const float A0 = T0 * Frontier::Constants::TauFloat * 0.75f;
+            const float A1 = T1 * Frontier::Constants::TauFloat * 0.75f;
             const Mathematics::Axis3D C0 { std::cos(A0) * MajorR, std::sin(A0) * MajorR, (T0 - 0.5f) * Height };
             const Mathematics::Axis3D C1 { std::cos(A1) * MajorR, std::sin(A1) * MajorR, (T1 - 0.5f) * Height };
-            const float R0 = MinorR * (0.70f + 0.30f * std::sin(T0 * PiF));
-            const float R1 = MinorR * (0.70f + 0.30f * std::sin(T1 * PiF));
+            const float R0 = MinorR * (0.70f + 0.30f * std::sin(T0 * Frontier::Constants::PiFloat));
+            const float R1 = MinorR * (0.70f + 0.30f * std::sin(T1 * Frontier::Constants::PiFloat));
             AppendCylinderFrustumPrimitive(OutResult.Network, C0, C1, R0, R1, Sides, {}, Shading, 0u, 0u);
         }
 
@@ -403,7 +403,7 @@ public:
         const float    Scale  = std::clamp(Params.GetFloat("scale_m", 2.40f), 0.4f, 16.0f);
         const float    Amp    = std::clamp(Params.GetFloat("amplitude_m", 0.85f), 0.1f, 6.0f);
         const uint32_t GridN  = 4u + Subdiv * 3u;
-        const float    Phase  = static_cast<float>(Seed % 360u) * (PiF / 180.0f);
+        const float    Phase  = static_cast<float>(Seed % 360u) * (Frontier::Constants::PiFloat / 180.0f);
 
         FaceShadingAssignment Shading {};
         Shading.AlbedoLinearRGB = { 0.78f, 0.76f, 0.72f };
@@ -412,8 +412,8 @@ public:
         AppendSurfaceGrid(OutResult.Network, GridN, GridN, [&](float U, float V) -> Mathematics::Axis3D {
             const float X = (U - 0.5f) * Scale;
             const float Y = (V - 0.5f) * Scale;
-            const float Z = std::sin(U * PiF) * std::sin(V * PiF) * Amp
-                          + 0.18f * Amp * std::cos((U - V) * TwoPiF + Phase);
+            const float Z = std::sin(U * Frontier::Constants::PiFloat) * std::sin(V * Frontier::Constants::PiFloat) * Amp
+                          + 0.18f * Amp * std::cos((U - V) * Frontier::Constants::TauFloat + Phase);
             return { X, Y, Z };
         }, Shading, 0u);
 
@@ -467,7 +467,7 @@ public:
 
         for (uint32_t I = 0u; I < Count; ++I)
         {
-            const float Angle = TwoPiF * (static_cast<float>(I) / static_cast<float>(Count)) + (NextUnitFloat(Rng) - 0.5f) * 0.35f;
+            const float Angle = Frontier::Constants::TauFloat * (static_cast<float>(I) / static_cast<float>(Count)) + (NextUnitFloat(Rng) - 0.5f) * 0.35f;
             const float Dist  = std::sqrt(NextUnitFloat(Rng)) * Scale * 0.44f;
             const float Rad   = Scale * (0.09f + 0.06f * NextUnitFloat(Rng));
             const float ColH  = Amp * (0.35f + 0.65f * NextUnitFloat(Rng));
@@ -536,7 +536,7 @@ public:
         const uint32_t BranchCount = 3u + Subdiv;
         for (uint32_t B = 0u; B < BranchCount; ++B)
         {
-            const float Azim  = TwoPiF * (static_cast<float>(B) / static_cast<float>(BranchCount)) + NextUnitFloat(Rng) * 0.5f;
+            const float Azim  = Frontier::Constants::TauFloat * (static_cast<float>(B) / static_cast<float>(BranchCount)) + NextUnitFloat(Rng) * 0.5f;
             const float StartZ = TrunkH * (0.58f + 0.36f * NextUnitFloat(Rng));
             const float Len   = Spread * (0.34f + 0.18f * NextUnitFloat(Rng));
             const float EndZ  = std::min(Height * 0.92f, StartZ + Height * (0.16f + 0.14f * NextUnitFloat(Rng)));
@@ -692,7 +692,7 @@ public:
         const uint32_t LugCount = 12u + Subdiv * 3u;
         for (uint32_t L = 0u; L < LugCount; ++L)
         {
-            const float A = TwoPiF * (static_cast<float>(L) / static_cast<float>(LugCount));
+            const float A = Frontier::Constants::TauFloat * (static_cast<float>(L) / static_cast<float>(LugCount));
             const float R = OuterR - 0.004f;
             AppendBoxPrimitive(OutResult.Network, { std::cos(A) * R, std::sin(A) * R, 0.0f }, { 0.014f, 0.014f, SecWidth * 0.34f }, {}, RubberShade, 0u, 2u);
         }
@@ -819,7 +819,7 @@ uint64_t ProceduralParameterSet::ComputeHash() const noexcept
     for (const auto& [K, _] : Values) Keys.emplace_back(K);
     std::sort(Keys.begin(), Keys.end());
 
-    uint64_t H = 0xCBF29CE484222325ull;
+    uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
     for (std::string_view K : Keys)
     {
         H = HashBytes(H, K.data(), K.size());

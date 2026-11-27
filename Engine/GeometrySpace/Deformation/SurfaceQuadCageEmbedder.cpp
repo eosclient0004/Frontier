@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Deformation/SurfaceQuadCageEmbedder.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,7 +18,6 @@ namespace Frontier::GeometrySpace::Deformation
 
 namespace
 {
-constexpr float kTwoPi = 6.28318530717958647692f;
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -76,8 +76,8 @@ CageEmbeddedSurface SurfaceQuadCageEmbedder::EmbedIntoPneumaticCarcass(
         const float rV = std::hypot(rx, ry);
 
         float ang = std::atan2(ry, rx);
-        if (ang < 0.0f) ang += kTwoPi;
-        const float sf    = (ang / kTwoPi) * static_cast<float>(S);
+        if (ang < 0.0f) ang += Frontier::Constants::TauFloat;
+        const float sf    = (ang / Frontier::Constants::TauFloat) * static_cast<float>(S);
         const uint32_t si = static_cast<uint32_t>(std::floor(sf)) % S;
         const uint32_t sNext = (si + 1u) % S;
         const float u     = sf - std::floor(sf);

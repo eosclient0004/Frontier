@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/SimulationSpace/ForceFields/KeyTrackSampler.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,12 +24,12 @@ namespace
 
 [[nodiscard]] inline double SrgbChannelToLinear(const double channel) noexcept
 {
-    return (channel <= 0.04045) ? (channel / 12.92) : std::pow((channel + 0.055) / 1.055, 2.4);
+    return static_cast<double>(Frontier::ColourSpace::DecodePiecewiseSrgbChannel(static_cast<float>(channel)));
 }
 
 [[nodiscard]] inline double LinearChannelToSrgb(const double channel) noexcept
 {
-    return (channel <= 0.0031308) ? (channel * 12.92) : (1.055 * std::pow(channel, 1.0 / 2.4) - 0.055);
+    return static_cast<double>(Frontier::ColourSpace::EncodePiecewiseSrgbChannel(static_cast<float>(channel)));
 }
 
 [[nodiscard]] inline int HexNibble(const char c) noexcept

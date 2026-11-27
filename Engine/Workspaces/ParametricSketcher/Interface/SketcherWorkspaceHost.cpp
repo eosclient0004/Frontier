@@ -8,6 +8,7 @@
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherDocumentCodec.h"
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherIcons.h"
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherProjectBrowser.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <volk.h>
 
@@ -435,7 +436,7 @@ void SketcherWorkspaceHost::RenderViewportTarget()
         auto Mix64 = [](uint64_t H, uint64_t V) noexcept -> uint64_t
         {
             H ^= V;
-            H *= 1099511628211ull;
+            H *= Frontier::Constants::Fnv1a64Prime;
             return H;
         };
         auto MixBytes = [&](uint64_t H, const void* Ptr, size_t Count) noexcept -> uint64_t
@@ -444,11 +445,11 @@ void SketcherWorkspaceHost::RenderViewportTarget()
             for (size_t I = 0u; I < Count; ++I)
             {
                 H ^= Bytes[I];
-                H *= 1099511628211ull;
+                H *= Frontier::Constants::Fnv1a64Prime;
             }
             return H;
         };
-        uint64_t Signature = 14695981039346656037ull;
+        uint64_t Signature = Frontier::Constants::Fnv1a64OffsetBasis;
         Signature = Mix64(Signature, TargetW);
         Signature = Mix64(Signature, TargetH);
         Signature = Mix64(Signature, Scene.Generation);

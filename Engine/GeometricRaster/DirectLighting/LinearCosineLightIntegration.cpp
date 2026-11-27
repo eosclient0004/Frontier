@@ -12,6 +12,8 @@
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 #include "Engine/MaterialSpace/EnergyCompensation/DirectionalAlbedoIntegral.h"
 #include "Engine/MaterialSpace/Scattering/BlackbodyEmission.h"
+#include "Engine/Mathematics/LinearColors.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -44,18 +46,12 @@ namespace
 
 [[nodiscard]] float EncodeLinearToSrgb(float LinearVal) noexcept
 {
-    const float C = std::clamp(LinearVal, 0.0f, 1.0f);
-    return (C <= 0.0031308f) ? (12.92f * C) : (1.055f * std::pow(C, 1.0f / 2.4f) - 0.055f);
+    return Frontier::ColourSpace::EncodePiecewiseSrgbChannel(LinearVal);
 }
 
 [[nodiscard]] Mathematics::LinearRGB ApplyAcesFilmic(Mathematics::LinearRGB Hdr) noexcept
 {
-    const auto Curve = [](float X) noexcept -> float
-    {
-        const float V = std::max(0.0f, X * 0.85f);
-        return std::clamp((V * (2.51f * V + 0.03f)) / (V * (2.43f * V + 0.59f) + 0.14f), 0.0f, 1.0f);
-    };
-    return { Curve(Hdr.R), Curve(Hdr.G), Curve(Hdr.B) };
+    return Frontier::ColourSpace::ApplyAcesFilmicRgb(Hdr, 0.85f);
 }
 
 } // namespace
@@ -279,7 +275,7 @@ struct DirectEmissiveTri
         if (Prim.MaterialOrdinal >= MatCount) continue;
         const auto& Mat = MaterialRegister.InspectAuthoredMaterial(Prim.MaterialOrdinal);
         const auto Emit = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
-        if ((0.2126f * Emit.R + 0.7152f * Emit.G + 0.0722f * Emit.B) <= 1.0e-5f) continue;
+        if (Frontier::Mathematics::EvaluateRec709Luminance(Emit) <= 1.0e-5f) continue;
 
         const Mathematics::Axis3D P0 = Prim.Corner0;
         const Mathematics::Axis3D P1 = Prim.Corner0 + Prim.Edge01;

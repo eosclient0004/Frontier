@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Codecs/PhotometricProfile.h"
+#include "Engine/Constants/MathConstants.h"
 
 #include <array>
 #include <cstdint>
@@ -68,7 +69,7 @@ struct PracticalLampPlacement
     std::array<float, 3> PeakIntensity { 0.0f, 0.0f, 0.0f }; // [lin] - RGB scene intensity at normalized profile peak
     uint32_t             ProfileIndex  = 0u;                 // [idx] - Index into resampled 128x32 .ies profile array
     float                FluxPower     = 0.0f;               // [lin] - Luminance-weighted total power (Luminance * NormalizedFlux)
-    float                CutoffHalfAngle = 3.14159265f;        // [rad] - Maximum polar angle of non-zero candela (theta_e)
+    float                CutoffHalfAngle = Frontier::Constants::PiFloat;        // [rad] - Maximum polar angle of non-zero candela (theta_e)
 };
 
 struct LightClusterEntry

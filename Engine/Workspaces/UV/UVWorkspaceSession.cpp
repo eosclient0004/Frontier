@@ -8,6 +8,8 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/Serialization/Container/BinaryFormatPrimitives.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,18 +83,11 @@ struct UVTriangle2D
     return true;
 }
 
-template <typename T>
-void AppendPod(std::vector<std::byte>& Buffer, const T& Payload)
-{
-    const std::size_t Offset = Buffer.size();
-    Buffer.resize(Offset + sizeof(T));
-    std::memcpy(Buffer.data() + Offset, &Payload, sizeof(T));
-}
 
 void AppendString(std::vector<std::byte>& Buffer, std::string_view Text)
 {
     const uint32_t Len = static_cast<uint32_t>(Text.size());
-    AppendPod(Buffer, Len);
+    Frontier::Serialization::AppendPodBytes(Buffer, Len);
     if (Len > 0u)
     {
         const std::size_t Offset = Buffer.size();
@@ -101,22 +96,11 @@ void AppendString(std::vector<std::byte>& Buffer, std::string_view Text)
     }
 }
 
-template <typename T>
-[[nodiscard]] bool ReadPod(std::span<const std::byte> Data, std::size_t& Cursor, T& OutValue) noexcept
-{
-    if (Cursor + sizeof(T) > Data.size())
-    {
-        return false;
-    }
-    std::memcpy(&OutValue, Data.data() + Cursor, sizeof(T));
-    Cursor += sizeof(T);
-    return true;
-}
 
 [[nodiscard]] bool ReadString(std::span<const std::byte> Data, std::size_t& Cursor, std::string& OutText)
 {
     uint32_t Len = 0u;
-    if (!ReadPod(Data, Cursor, Len) || Cursor + Len > Data.size())
+    if (!Frontier::Serialization::ReadPodBytes(Data, Cursor, Len) || Cursor + Len > Data.size())
     {
         return false;
     }
@@ -1571,7 +1555,7 @@ bool UVWorkspaceSession::ExecuteDirective(
                 }
                 else
                 {
-                    const float Step = 6.28318530718f / static_cast<float>(Loop.size());
+                    const float Step = Frontier::Constants::TauFloat / static_cast<float>(Loop.size());
                     for (std::size_t C = 0u; C < Loop.size(); ++C)
                     {
                         const float Angle = Step * static_cast<float>(C);
@@ -2041,46 +2025,46 @@ std::vector<std::byte> UVWorkspaceSession::CaptureAuthoringSnapshot() const
         Asset.UDIMTiles.size() * 16u;
     Buffer.reserve(EstimatedBytes);
 
-    AppendPod(Buffer, AuthoringSnapshotMagic);
-    AppendPod(Buffer, AuthoringSnapshotVersion);
-    AppendPod(Buffer, static_cast<uint32_t>(Asset.Network.Vertices.size()));
-    AppendPod(Buffer, static_cast<uint32_t>(Asset.Network.Edges.size()));
-    AppendPod(Buffer, static_cast<uint32_t>(Asset.Network.Faces.size()));
-    AppendPod(Buffer, static_cast<uint32_t>(LayerSpan.size()));
-    AppendPod(Buffer, static_cast<uint32_t>(Asset.UDIMTiles.size()));
-    AppendPod(Buffer, SelectedLayerOrdinal);
-    AppendPod(Buffer, Asset.Layers.QueryNextLayerOrdinal());
-    AppendPod(Buffer, ActiveUDIMNumber);
+    Frontier::Serialization::AppendPodBytes(Buffer, AuthoringSnapshotMagic);
+    Frontier::Serialization::AppendPodBytes(Buffer, AuthoringSnapshotVersion);
+    Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint32_t>(Asset.Network.Vertices.size()));
+    Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint32_t>(Asset.Network.Edges.size()));
+    Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint32_t>(Asset.Network.Faces.size()));
+    Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint32_t>(LayerSpan.size()));
+    Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint32_t>(Asset.UDIMTiles.size()));
+    Frontier::Serialization::AppendPodBytes(Buffer, SelectedLayerOrdinal);
+    Frontier::Serialization::AppendPodBytes(Buffer, Asset.Layers.QueryNextLayerOrdinal());
+    Frontier::Serialization::AppendPodBytes(Buffer, ActiveUDIMNumber);
 
     for (const auto& V : Asset.Network.Vertices)
     {
-        AppendPod(Buffer, V.Axes);
+        Frontier::Serialization::AppendPodBytes(Buffer, V.Axes);
     }
     for (const auto& E : Asset.Network.Edges)
     {
-        AppendPod(Buffer, E.ParameterUV);
-        AppendPod(Buffer, static_cast<uint8_t>(E.AttributeMask));
+        Frontier::Serialization::AppendPodBytes(Buffer, E.ParameterUV);
+        Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint8_t>(E.AttributeMask));
     }
     for (const auto& F : Asset.Network.Faces)
     {
-        AppendPod(Buffer, F.PriorityLayerOrdinal);
-        AppendPod(Buffer, F.PartGroupOrdinal);
-        AppendPod(Buffer, F.Shading);
+        Frontier::Serialization::AppendPodBytes(Buffer, F.PriorityLayerOrdinal);
+        Frontier::Serialization::AppendPodBytes(Buffer, F.PartGroupOrdinal);
+        Frontier::Serialization::AppendPodBytes(Buffer, F.Shading);
     }
     for (const auto& Layer : LayerSpan)
     {
-        AppendPod(Buffer, Layer.LayerOrdinal);
-        AppendPod(Buffer, Layer.TargetSharePercent);
-        AppendPod(Buffer, Layer.TargetUDIMNumber);
-        AppendPod(Buffer, Layer.LinearTintRGB);
+        Frontier::Serialization::AppendPodBytes(Buffer, Layer.LayerOrdinal);
+        Frontier::Serialization::AppendPodBytes(Buffer, Layer.TargetSharePercent);
+        Frontier::Serialization::AppendPodBytes(Buffer, Layer.TargetUDIMNumber);
+        Frontier::Serialization::AppendPodBytes(Buffer, Layer.LinearTintRGB);
         AppendString(Buffer, Layer.LayerTitle);
     }
     for (const uint32_t Code : Asset.UDIMTiles)
     {
-        AppendPod(Buffer, Code);
+        Frontier::Serialization::AppendPodBytes(Buffer, Code);
         const auto Setting = QueryUDIMTileSetting(Code);
-        AppendPod(Buffer, Setting.ResolutionPx);
-        AppendPod(Buffer, static_cast<uint8_t>(Setting.BackdropPreset));
+        Frontier::Serialization::AppendPodBytes(Buffer, Setting.ResolutionPx);
+        Frontier::Serialization::AppendPodBytes(Buffer, static_cast<uint8_t>(Setting.BackdropPreset));
     }
     return Buffer;
 }
@@ -2093,16 +2077,16 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
     uint16_t SavedSelectedLayer = 0u, SavedNextLayerOrd = 1u;
     uint32_t SavedActiveUDIM = 1001u;
 
-    if (!ReadPod(SnapshotBytes, Cursor, Magic) || Magic != AuthoringSnapshotMagic ||
-        !ReadPod(SnapshotBytes, Cursor, Version) || Version != AuthoringSnapshotVersion ||
-        !ReadPod(SnapshotBytes, Cursor, VertCount) || VertCount != Asset.Network.Vertices.size() ||
-        !ReadPod(SnapshotBytes, Cursor, EdgeCount) || EdgeCount != Asset.Network.Edges.size() ||
-        !ReadPod(SnapshotBytes, Cursor, FaceCount) || FaceCount != Asset.Network.Faces.size() ||
-        !ReadPod(SnapshotBytes, Cursor, LayerCount) ||
-        !ReadPod(SnapshotBytes, Cursor, UDIMCount) ||
-        !ReadPod(SnapshotBytes, Cursor, SavedSelectedLayer) ||
-        !ReadPod(SnapshotBytes, Cursor, SavedNextLayerOrd) ||
-        !ReadPod(SnapshotBytes, Cursor, SavedActiveUDIM))
+    if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, Magic) || Magic != AuthoringSnapshotMagic ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, Version) || Version != AuthoringSnapshotVersion ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, VertCount) || VertCount != Asset.Network.Vertices.size() ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, EdgeCount) || EdgeCount != Asset.Network.Edges.size() ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, FaceCount) || FaceCount != Asset.Network.Faces.size() ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, LayerCount) ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, UDIMCount) ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedSelectedLayer) ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedNextLayerOrd) ||
+        !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedActiveUDIM))
     {
         return false;
     }
@@ -2110,7 +2094,7 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
     std::vector<Mathematics::Axis3D> SavedVerts(VertCount);
     for (uint32_t I = 0u; I < VertCount; ++I)
     {
-        if (!ReadPod(SnapshotBytes, Cursor, SavedVerts[I]))
+        if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedVerts[I]))
         {
             return false;
         }
@@ -2120,7 +2104,7 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
     std::vector<uint8_t> SavedMasks(EdgeCount);
     for (uint32_t I = 0u; I < EdgeCount; ++I)
     {
-        if (!ReadPod(SnapshotBytes, Cursor, SavedUVs[I]) || !ReadPod(SnapshotBytes, Cursor, SavedMasks[I]))
+        if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedUVs[I]) || !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedMasks[I]))
         {
             return false;
         }
@@ -2131,9 +2115,9 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
     std::vector<GeometrySpace::FaceShadingAssignment> SavedShading(FaceCount);
     for (uint32_t I = 0u; I < FaceCount; ++I)
     {
-        if (!ReadPod(SnapshotBytes, Cursor, SavedFaceLayers[I]) ||
-            !ReadPod(SnapshotBytes, Cursor, SavedFaceParts[I]) ||
-            !ReadPod(SnapshotBytes, Cursor, SavedShading[I]))
+        if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedFaceLayers[I]) ||
+            !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedFaceParts[I]) ||
+            !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedShading[I]))
         {
             return false;
         }
@@ -2142,10 +2126,10 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
     std::vector<GeometrySpace::PriorityAllocationLayer> SavedLayers(LayerCount);
     for (uint32_t I = 0u; I < LayerCount; ++I)
     {
-        if (!ReadPod(SnapshotBytes, Cursor, SavedLayers[I].LayerOrdinal) ||
-            !ReadPod(SnapshotBytes, Cursor, SavedLayers[I].TargetSharePercent) ||
-            !ReadPod(SnapshotBytes, Cursor, SavedLayers[I].TargetUDIMNumber) ||
-            !ReadPod(SnapshotBytes, Cursor, SavedLayers[I].LinearTintRGB) ||
+        if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedLayers[I].LayerOrdinal) ||
+            !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedLayers[I].TargetSharePercent) ||
+            !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedLayers[I].TargetUDIMNumber) ||
+            !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, SavedLayers[I].LinearTintRGB) ||
             !ReadString(SnapshotBytes, Cursor, SavedLayers[I].LayerTitle))
         {
             return false;
@@ -2159,7 +2143,7 @@ bool UVWorkspaceSession::ApplyAuthoringSnapshot(std::span<const std::byte> Snaps
         uint32_t Code = 1001u;
         uint32_t Res = 2048u;
         uint8_t  Preset = 0u;
-        if (!ReadPod(SnapshotBytes, Cursor, Code) || !ReadPod(SnapshotBytes, Cursor, Res) || !ReadPod(SnapshotBytes, Cursor, Preset))
+        if (!Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, Code) || !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, Res) || !Frontier::Serialization::ReadPodBytes(SnapshotBytes, Cursor, Preset))
         {
             return false;
         }

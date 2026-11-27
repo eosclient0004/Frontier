@@ -37,11 +37,11 @@ constexpr int IconCount = static_cast<int>(IconSymbol::Count);
 constexpr int Columns   = 16;
 constexpr int Rows      = (IconCount + Columns - 1) / Columns;
 constexpr int Gutter    = 2;
-constexpr float PiF     = 3.14159265358979323846f;
 
 constexpr const char* IconFiles[] = {
 #define FRONTIER_ICON(Symbol, File) File,
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherSymbols.inc"
+#include "Engine/Constants/MathConstants.h"
 #undef FRONTIER_ICON
 };
 static_assert(std::size(IconFiles) == static_cast<size_t>(IconSymbol::Count));
@@ -113,7 +113,7 @@ void AppendEllipseContour(std::vector<VectorIconRepository::Contour>& Out, float
     C.Points.reserve(Segs);
     for (int I = 0; I < Segs; ++I)
     {
-        const float A = (2.0f * PiF * float(I)) / float(Segs);
+        const float A = (2.0f * Frontier::Constants::PiFloat * float(I)) / float(Segs);
         C.Points.push_back(Point2D{ Cx + Rx * std::cos(A), Cy + Ry * std::sin(A) });
     }
     Out.push_back(std::move(C));
@@ -139,16 +139,16 @@ void AppendRectContour(std::vector<VectorIconRepository::Contour>& Out, float X,
     C.Closed = true;
     constexpr int CornerSegs = 6;
     const struct { float Cx, Cy, Start; } Corners[4] = {
-        { X + W - Rx, Y + Ry,     -0.5f * PiF },
+        { X + W - Rx, Y + Ry,     -0.5f * Frontier::Constants::PiFloat },
         { X + W - Rx, Y + H - Ry,  0.0f },
-        { X + Rx,     Y + H - Ry,  0.5f * PiF },
-        { X + Rx,     Y + Ry,      PiF },
+        { X + Rx,     Y + H - Ry,  0.5f * Frontier::Constants::PiFloat },
+        { X + Rx,     Y + Ry,      Frontier::Constants::PiFloat },
     };
     for (const auto& Corner : Corners)
     {
         for (int I = 0; I <= CornerSegs; ++I)
         {
-            const float A = Corner.Start + (0.5f * PiF * float(I)) / float(CornerSegs);
+            const float A = Corner.Start + (0.5f * Frontier::Constants::PiFloat * float(I)) / float(CornerSegs);
             C.Points.push_back(Point2D{ Corner.Cx + Rx * std::cos(A), Corner.Cy + Ry * std::sin(A) });
         }
     }

@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Workspaces/ParametricSketcher/Document/SketcherReferenceSurface.h"
+#include "Engine/Constants/EngineConstants.h"
 
 #include <zstd.h>
 
@@ -721,8 +722,8 @@ struct PackedReferenceVertexHash
     {
         uint64_t Words[3] = {};
         std::memcpy(Words, &V, sizeof(Words));
-        uint64_t H = 14695981039346656037ull;
-        for (uint64_t W : Words) { H ^= W; H *= 1099511628211ull; }
+        uint64_t H = Frontier::Constants::Fnv1a64OffsetBasis;
+        for (uint64_t W : Words) { H ^= W; H *= Frontier::Constants::Fnv1a64Prime; }
         return static_cast<size_t>(H);
     }
 };

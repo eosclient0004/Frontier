@@ -8,6 +8,8 @@
 #include "Engine/MaterialSpace/Scattering/OpenPbrSurfaceScattering.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
 #include "Engine/SimulationSpace/PhysicsSpace/RigidBodyDynamics.h"
+#include "Engine/Constants/MathConstants.h"
+#include "Engine/ColourSpace/TransferFunction.h"
 
 #include <algorithm>
 #include <array>
@@ -23,7 +25,6 @@ namespace Frontier::Workspaces::Fracture
 namespace
 {
 
-constexpr float PiFloat = 3.14159265358979323846f;
 
 struct CameraBasis
 {
@@ -42,7 +43,7 @@ CameraBasis BuildCameraBasis(const FractureViewportCamera& Camera, uint32_t Widt
     Basis.Forward     = Mathematics::NormalizeAxis(Camera.TargetWorld - Basis.Eye, { 0.0f, 1.0f, 0.0f });
     Basis.Right       = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(Basis.Forward, { 0.0f, 0.0f, 1.0f }), { 1.0f, 0.0f, 0.0f });
     Basis.Up          = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(Basis.Right, Basis.Forward), { 0.0f, 0.0f, 1.0f });
-    Basis.TanHalfFovY = std::tan(0.5f * Camera.VerticalFovDeg * (PiFloat / 180.0f));
+    Basis.TanHalfFovY = std::tan(0.5f * Camera.VerticalFovDeg * (Frontier::Constants::PiFloat / 180.0f));
     Basis.Aspect      = static_cast<float>(std::max(1u, WidthPx)) / static_cast<float>(std::max(1u, HeightPx));
     return Basis;
 }
@@ -74,11 +75,7 @@ bool ProjectWorldPoint(
 
 uint8_t LinearToSrgb8(float V) noexcept
 {
-    const float Clamped = std::clamp(V, 0.0f, 1.0f);
-    const float Srgb    = (Clamped <= 0.0031308f)
-        ? (12.92f * Clamped)
-        : (1.055f * std::pow(Clamped, 1.0f / 2.4f) - 0.055f);
-    return static_cast<uint8_t>(std::clamp(std::lround(Srgb * 255.0f), 0l, 255l));
+    return Frontier::ColourSpace::EncodeLinearToSrgbByte(V);
 }
 
 Mathematics::LinearRGB AcesToneMap(Mathematics::LinearRGB Radiance) noexcept
