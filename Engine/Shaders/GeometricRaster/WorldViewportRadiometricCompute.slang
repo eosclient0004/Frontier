@@ -5,6 +5,7 @@
 // 0=MatCap, 1=OpenPbrDirect, 2=RealTimeGiGtxLowEnd, 3=RealTimeGiHighEnd, 4=PathTracerGameRealtime, 5=PathTracerSceneFinalRender
 
 #define FRONTIER_ATMOSPHERE_EMBEDDED 1
+#include "../Shared/ShaderMathConstants.slang"
 [[vk::binding(20, 0)]] StructuredBuffer<uint> PlanetaryCloudNoise;
 #include "../Atmosphere/SkyViewTransmittanceCompute.slang"
 #include "../Atmosphere/VolumetricCloudCompute.slang"
@@ -166,9 +167,6 @@ bool QueryClusterBitActive(uint ClusterOrdinal)
     return (ActiveClusterBitmask[WordIdx] & BitMask) != 0u;
 }
 
-static const float PiConst    = 3.14159265359;
-static const float TauConst   = 6.28318530718;
-static const float InvPiConst = 0.31830988618;
 static const uint  GdfGridRes = 96u;
 static const uint  GdfVoxCnt  = 884736u;  // 96^3
 static const uint  RadMip0Off = 0u;
@@ -802,7 +800,7 @@ float4 EvaluateUnifiedLocalMediaGpu(
 
             GpuLocalFogVolume Vol = Fog.LocalFogs[I];
             float  Sh    = (Vol.AbsorbShadowFalloffSteps.y > 0.5) ? SharedSh : 1.0;
-            float  Ph    = min(CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * PiConst), 6.5);
+            float  Ph    = min(CelestialPhaseHG(CosS, Vol.TintAniso.w) * (4.0 * FrontierPi), 6.5);
             float  Ms    = Sh + 0.35 * sqrt(Sh);
             float3 Li    = SunL * (Ph * Ms * 0.22) + SkyAmbient * (0.38 + 0.22 * FogHns[I]) + LowBandGlow * 0.12;
 
@@ -819,7 +817,7 @@ float4 EvaluateUnifiedLocalMediaGpu(
                     float3 LDir   = LVec / Dist;
                     float  RangeF = saturate(1.0 - Dist / Reach);
                     float  Atten  = (RangeF * RangeF) / max(0.35, Dist2);
-                    float  LPh    = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * PiConst);
+                    float  LPh    = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * FrontierPi);
                     Li += Lamp.PeakIntensityPad.xyz * (Atten * LPh * 0.08);
                 }
             }
@@ -834,7 +832,7 @@ float4 EvaluateUnifiedLocalMediaGpu(
                     float3 LDir  = LVec / Dist;
                     float  Area  = 4.0 * max(0.05, AL.CenterHalfWidth.w) * max(0.05, AL.RightHalfHeight.w);
                     float  Atten = Area / max(0.5, Dist2);
-                    float  LPh   = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * PiConst);
+                    float  LPh   = CelestialPhaseHG(dot(RayDir, LDir), Vol.TintAniso.w) * (4.0 * FrontierPi);
                     Li += AL.RadiancePacked.xyz * (Atten * LPh * 0.12);
                 }
             }
@@ -851,7 +849,7 @@ float4 EvaluateUnifiedLocalMediaGpu(
 
             GpuLocalCloudVolume Vol = Cloud.LocalClouds[J];
             float  G1     = clamp(Vol.FormErosionAnisoSteps.z, 0.0, 0.95);
-            float  Ph     = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * PiConst), 10.0);
+            float  Ph     = min(lerp(CelestialPhaseHG(CosS, G1), CelestialPhaseHG(CosS, -BackG), PhaseMix) * (4.0 * FrontierPi), 10.0);
             float  Ms     = SharedSh + 0.45 * sqrt(SharedSh) + 0.22 * pow(max(1.0e-6, SharedSh), 0.25);
             float  Powder = 1.0 - PowderK * exp(-Rho * Dt * 2.5 * (1.0 + CloudSigA)) * (1.0 - 0.5 * saturate(CosS));
             float3 Li     = SunL * (Ph * Ms * Powder * 0.55) + SkyAmbient * AmbGain * lerp(0.28, 0.68, CloudHns[J]);
@@ -1523,21 +1521,27 @@ float SampleGlobalDistanceWorld(float3 WorldPosition, out float OutLocalVoxelSiz
     return FieldDistance;
 }
 
+float EvaluateInterleavedGradientNoise01(uint2 PixelXY)
+{
+    return frac(IgnOuterMultiplier * frac(float(PixelXY.x) * IgnSpatialScaleX + float(PixelXY.y) * IgnSpatialScaleY));
+}
+
 // Fast 96^3 Signed GDF query with automatic per-instance Local Signed SDF refinement near geometry
-// (eliminates coarse GDF voxel bloat on tires, fenders, tripod legs, and analytical orbs during shadow & AO marching)
+// (smooth C1 transition band [1.75, 2.60] * GdfVox prevents contour steps at the GDF <-> Local-SDF boundary)
 float SampleShadowSignedDistance(float3 WorldPosition, out float OutLocalVoxelSize)
 {
     float GdfDist           = SampleGlobalDistanceVolumes(WorldPosition, OutLocalVoxelSize);
+    float GdfVox            = OutLocalVoxelSize;
     uint  LocalSdfInstCount = (WorldUniforms.GlobalDistanceBakeControl.w >> InstanceActiveBitShift) & InstanceSlotMask16;
-    if (LocalSdfInstCount == 0u || GdfDist > OutLocalVoxelSize * 2.4)
+    if (LocalSdfInstCount == 0u || GdfDist > GdfVox * 2.65)
     {
         return GdfDist;
     }
 
     float BestDist     = GdfDist;
-    float BestLocalVox = OutLocalVoxelSize;
+    float BestLocalVox = GdfVox;
     bool  RefinedHit   = false;
-    float SearchRadius = max(GdfDist, OutLocalVoxelSize * 1.5);
+    float SearchRadius = max(GdfDist, GdfVox * 1.6);
 
     [loop]
     for (uint InstIdx = 0u; InstIdx < LocalSdfInstCount; ++InstIdx)
@@ -1573,13 +1577,14 @@ float SampleShadowSignedDistance(float3 WorldPosition, out float OutLocalVoxelSi
             float InstPitch = (ShapeCode == 0u)
                 ? max(0.012, max(Inst.LocalMinPad.w, max(Inst.LocalMaxPad.w, Inst.LocalToWorldNormRow1.w)) * MinWorldScale)
                 : 0.012;
-            BestLocalVox = min(OutLocalVoxelSize, InstPitch);
+            BestLocalVox = min(GdfVox, InstPitch);
         }
     }
     if (RefinedHit)
     {
-        OutLocalVoxelSize = BestLocalVox;
-        return BestDist;
+        float BlendToGdf  = smoothstep(GdfVox * 1.75, GdfVox * 2.60, GdfDist);
+        OutLocalVoxelSize = lerp(BestLocalVox, GdfVox, BlendToGdf);
+        return lerp(BestDist, GdfDist, BlendToGdf);
     }
     return GdfDist;
 }
@@ -1591,32 +1596,40 @@ float TraceGlobalDistanceConeVisibility(
     float  MaxDist,
     float  ConeTan,
     bool   PointHard,
-    uint   MaxSteps)
+    uint   MaxSteps,
+    float  StartJitter01 = 0.5)
 {
     if (!IsGlobalDistanceFieldReady() || MaxDist <= 0.08)
     {
         return 1.0;
     }
 
-    float  Vox0      = QueryFineGdfVoxelSize();
-    float  StartLift = max(0.015, Vox0 * 0.22); // ~1.95 cm on 96^3 (down from 9.0 cm)
-    float3 StartP    = Origin + GeomN * StartLift;
-    float  NdotD     = max(0.0, dot(GeomN, Dir));
-    float  EndMargin = max(0.08, Vox0 * 1.15);
-    float  SafeMax   = MaxDist - EndMargin;
-    float  T         = max(0.025, Vox0 * 0.32);
+    float  Vox0         = QueryFineGdfVoxelSize();
+    float  StartLift    = max(0.015, Vox0 * 0.22); // ~1.95 cm on 96^3 (down from 9.0 cm)
+    float3 StartP       = Origin + GeomN * StartLift;
+    float  NdotD        = max(0.0, dot(GeomN, Dir));
+    float  EndMargin    = max(0.08, Vox0 * 1.15);
+    float  SafeMax      = MaxDist - EndMargin;
+    float  MinStepScale = clamp(32.0 / float(max(MaxSteps, 8u)), 0.35, 2.2);
+    float  BaseT        = max(0.025, Vox0 * 0.32);
+    float  JitterSpan   = min(Vox0 * 0.22, Vox0 * 0.30 * MinStepScale);
+    float  T            = max(0.015, BaseT + (StartJitter01 - 0.5) * JitterSpan);
     if (SafeMax <= T + 0.02)
     {
         return 1.0;
     }
 
-    // Step granularity scales smoothly with configured step budget (16..96, default 32)
-    // while allowing full sphere-trace jumps across open studio air so lights up to 14m are always reached.
-    float MinStepScale = clamp(32.0 / float(max(MaxSteps, 8u)), 0.35, 2.2);
+    // Step granularity scales smoothly with configured step budget (16..96, default 96)
+    // while Law-of-Cosines closest-approach triangulation recovers exact sub-step grazing distance.
     float GroundPlaneZ = QueryGlobalDistanceAnalyticGroundZ();
     bool  CheckGround  = (GroundPlaneZ > ValidAnalyticGroundFloorZ) && (Dir.z < -1.0e-4);
 
-    float MinVis = 1.0;
+    float MinVis          = 1.0;
+    float PrevDist        = 1.0e5;
+    float PrevT           = T;
+    float PrevClearWeight = 0.0;
+    bool  HasPrev         = false;
+
     [loop]
     for (uint Step = 0u; Step < MaxSteps; ++Step)
     {
@@ -1635,28 +1648,63 @@ float TraceGlobalDistanceConeVisibility(
             SelfPlaneDist - max(0.004, LocalVox * 0.08),
             abs(Dist));
 
+        // Sebastien Aaltonen (GDC 2018) Law-of-Cosines closest-point-of-approach along [PrevT, T]
+        // generalized for arbitrary relaxed step length H = T - PrevT (eliminates step-phase ripple bands).
+        float EvalDist  = Dist;
+        float EvalT     = T;
+        float EvalClear = ClearWeight;
+        if (HasPrev && PrevClearWeight > 0.25 && ClearWeight > 1.0e-3 && Dist > 0.0 && PrevDist > 0.0)
+        {
+            float StepH = T - PrevT;
+            if (StepH > 1.0e-4 && abs(PrevDist - Dist) < StepH && (PrevDist + Dist) > StepH)
+            {
+                float ProjX = (StepH * StepH + PrevDist * PrevDist - Dist * Dist) / (2.0 * StepH);
+                if (ProjX > 0.0 && ProjX < StepH)
+                {
+                    float PerpDist = sqrt(max(0.0, PrevDist * PrevDist - ProjX * ProjX));
+                    if (PerpDist < EvalDist)
+                    {
+                        EvalDist            = PerpDist;
+                        EvalT               = PrevT + ProjX;
+                        float EvalSelfPlane = StartLift + EvalT * NdotD;
+                        EvalClear           = 1.0 - smoothstep(
+                            EvalSelfPlane - max(0.022, LocalVox * 0.55),
+                            EvalSelfPlane - max(0.004, LocalVox * 0.08),
+                            abs(EvalDist));
+                    }
+                }
+            }
+        }
+
         if (PointHard)
         {
-            if (ClearWeight > 1.0e-3)
+            if (EvalClear > 1.0e-3)
             {
-                float HardBand = saturate((Dist + LocalVox * 0.04) / max(1.0e-3, LocalVox * 0.24));
-                MinVis = min(MinVis, lerp(1.0, HardBand, ClearWeight));
+                float HardBand = saturate((EvalDist + LocalVox * 0.04) / max(1.0e-3, LocalVox * 0.24));
+                MinVis = min(MinVis, lerp(1.0, HardBand, EvalClear));
                 if (MinVis <= 0.005) return 0.0;
             }
-            T += max(LocalVox * 0.18 * MinStepScale, max(0.0, Dist) * 0.85);
+            float StepAdv = max(LocalVox * 0.18 * MinStepScale, max(0.0, Dist) * 0.85);
+            PrevDist        = Dist;
+            PrevT           = T;
+            PrevClearWeight = ClearWeight;
+            HasPrev         = true;
+            T              += StepAdv;
         }
         else
         {
-            float RemSpan  = max(1.0e-3, SafeMax - T);
-            float Aperture = max(0.018, min(T * max(0.015, ConeTan), RemSpan * 0.55));
-            if (ClearWeight > 1.0e-3)
+            float EvalRemSpan  = max(1.0e-3, SafeMax - EvalT);
+            float EvalAperture = max(0.018, min(EvalT * max(0.015, ConeTan), EvalRemSpan * 0.55));
+            if (EvalClear > 1.0e-3)
             {
-                // Oscillation-free true signed-SDF cone visibility: exact 0.0 umbra inside solids (Dist <= 0)
-                float ConeVis = saturate((Dist + Aperture * 0.12) / (1.12 * Aperture));
-                MinVis = min(MinVis, lerp(1.0, ConeVis, ClearWeight));
+                // Oscillation-free true signed-SDF cone visibility: exact 0.0 umbra inside solids (EvalDist <= 0)
+                float ConeVis = saturate((EvalDist + EvalAperture * 0.12) / (1.12 * EvalAperture));
+                MinVis = min(MinVis, lerp(1.0, ConeVis, EvalClear));
                 if (MinVis <= 0.005) return 0.0;
             }
 
+            float RemSpan  = max(1.0e-3, SafeMax - T);
+            float Aperture = max(0.018, min(T * max(0.015, ConeTan), RemSpan * 0.55));
             float SafeDist = max(0.0, Dist);
             float FineCap  = max(LocalVox * 0.34, Aperture * 0.42) * MinStepScale;
             float StepAdv  = max(LocalVox * 0.14 * MinStepScale, min(SafeDist * 0.78, FineCap));
@@ -1664,7 +1712,11 @@ float TraceGlobalDistanceConeVisibility(
             {
                 StepAdv = max(StepAdv, SafeDist * 0.84);
             }
-            T += StepAdv;
+            PrevDist        = Dist;
+            PrevT           = T;
+            PrevClearWeight = ClearWeight;
+            HasPrev         = true;
+            T              += StepAdv;
         }
     }
     return PointHard ? smoothstep(0.20, 0.80, MinVis) : (MinVis * MinVis * (3.0 - 2.0 * MinVis));
@@ -1716,7 +1768,7 @@ float EvaluateGlobalDistanceAmbientOcclusion(
 
     float2 IgnSample     = (float2(PixelCoordinates) + 0.5) * float2(IgnSpatialScaleX, IgnSpatialScaleY);
     float  IgnTurn       = frac(IgnOuterMultiplier * frac(IgnSample.x + IgnSample.y));
-    float  AzimuthJitter = IgnTurn * TauConst;
+    float  AzimuthJitter = IgnTurn * FrontierTau;
 
     float OcclusionSum = 0.0;
     [loop]
@@ -2071,7 +2123,7 @@ float3 TraceSingleRadiosityCone(
             float3 GroundAlb   = GroundMat.DiffuseAlbedoRoughness.xyz * (1.0 - saturate(GroundMat.SpecParams.y));
             float3 SunDir      = WorldUniforms.SunDirConeTan.xyz;
             float  SunVis      = SampleCascadedSunShadowFast(GroundP, GroundN, GroundN, SunDir);
-            float3 GroundRad   = GroundAlb * (InvPiConst * max(0.0, SunDir.z) * SunVis) * WorldUniforms.SolarIrradiancePad.xyz
+            float3 GroundRad   = GroundAlb * (FrontierInvPi * max(0.0, SunDir.z) * SunVis) * WorldUniforms.SolarIrradiancePad.xyz
                                + GroundAlb * (0.28 * EvaluateSkyDome(GroundN));
             uint AreaLightCnt  = min(4u, WorldUniforms.LightGlassMaterialDebug.x);
             for (uint ALIdx = 0u; ALIdx < AreaLightCnt; ++ALIdx)
@@ -2081,7 +2133,7 @@ float3 TraceSingleRadiosityCone(
                 float  DistSqAl     = max(0.35, dot(ToAl, ToAl));
                 float  CosGround    = max(0.0, ToAl.z * rsqrt(DistSqAl));
                 float  QuadArea     = 4.0 * AL.CenterHalfWidth.w * AL.RightHalfHeight.w;
-                float  FormFactor   = saturate(QuadArea / (PiConst * DistSqAl + QuadArea));
+                float  FormFactor   = saturate(QuadArea / (FrontierPi * DistSqAl + QuadArea));
                 GroundRad          += GroundAlb * AL.RadiancePacked.xyz * (CosGround * FormFactor * 0.55);
             }
             AccumRad += (1.0 - AccumOcc) * GroundRad * SkyFallbackScale;
@@ -2138,7 +2190,7 @@ float3 EvaluateGdfVoxelConeGi(
     // 7-cone hemisphere (1 zenith + 6 tilted every 60 deg) with Jimenez IGN azimuthal rotation
     // eliminates axis-aligned '+' cross lobes around compact dynamic emissive sources.
     float  IgnPhase   = frac(IgnOuterMultiplier * frac(float(PixelCoord.x) * IgnSpatialScaleX + float(PixelCoord.y) * IgnSpatialScaleY));
-    float  BaseAzim   = IgnPhase * (PiConst / 3.0);
+    float  BaseAzim   = IgnPhase * (FrontierPi / 3.0);
     const float CosTilt = 0.6156615; // cos(52 deg)
     const float SinTilt = 0.7880108; // sin(52 deg)
     float3 GiIrr = 0.25 * TraceSingleRadiosityCone(Pos, GeomN, StartP, N, 0.60, 5u, 0.34, false);
@@ -2146,7 +2198,7 @@ float3 EvaluateGdfVoxelConeGi(
     [loop]
     for (uint RingIdx = 0u; RingIdx < 6u; ++RingIdx)
     {
-        float  Azim    = BaseAzim + float(RingIdx) * (PiConst / 3.0);
+        float  Azim    = BaseAzim + float(RingIdx) * (FrontierPi / 3.0);
         float3 RingDir = normalize(N * CosTilt + (TAxis * cos(Azim) + BAxis * sin(Azim)) * SinTilt);
         GiIrr += 0.125 * TraceSingleRadiosityCone(Pos, GeomN, StartP, RingDir, 0.60, 4u, 0.34, false);
     }
@@ -2188,7 +2240,7 @@ float IntegrateSphericalEdgeZ(float3 V1, float3 V2)
     if (X < 0.0)
     {
         float SinTheta = sqrt(max(1.0e-8, 1.0 - X * X));
-        ThetaOverSin   = PiConst / SinTheta - ThetaOverSin;
+        ThetaOverSin   = FrontierPi / SinTheta - ThetaOverSin;
     }
     return (V1.x * V2.y - V1.y * V2.x) * ThetaOverSin;
 }
@@ -2213,7 +2265,7 @@ float3 EvaluateSurfaceBrdf(GpuWorldMaterial80 Mat, float3 N, float3 V, float3 L)
     float CoeffB  = DiffRough * CoeffA;
     float SVal    = dot(V, L) - NdotV * NdotL;
     float InvMax  = (SVal > 0.0) ? (1.0 / max(1.0e-4, max(NdotV, NdotL))) : 1.0;
-    float3 Diff   = Albedo * (InvPiConst * (CoeffA + CoeffB * SVal * InvMax)) * (1.0 - Metalness) * (1.0 - TransW);
+    float3 Diff   = Albedo * (FrontierInvPi * (CoeffA + CoeffB * SVal * InvMax)) * (1.0 - Metalness) * (1.0 - TransW);
 
     float3 H       = normalize(V + L);
     float  NdotH   = max(0.0, dot(N, H));
@@ -2221,7 +2273,7 @@ float3 EvaluateSurfaceBrdf(GpuWorldMaterial80 Mat, float3 N, float3 V, float3 L)
     float  Alpha   = SpecRough * SpecRough;
     float  Alpha2  = Alpha * Alpha;
     float  Denom   = NdotH * NdotH * (Alpha2 - 1.0) + 1.0;
-    float  D_GGX   = Alpha2 / max(1.0e-6, PiConst * Denom * Denom);
+    float  D_GGX   = Alpha2 / max(1.0e-6, FrontierPi * Denom * Denom);
     float  KVis    = 0.5 * Alpha;
     float  Vis     = 0.25 / max(1.0e-4, (NdotV * (1.0 - KVis) + KVis) * (NdotL * (1.0 - KVis) + KVis));
     float  F0Diel  = pow((Ior - 1.0) / (Ior + 1.0), 2.0);
@@ -2240,7 +2292,7 @@ float3 EvaluateSurfaceBrdf(GpuWorldMaterial80 Mat, float3 N, float3 V, float3 L)
         float CA   = CoatRough * CoatRough;
         float CA2  = CA * CA;
         float CDen = NdotH * NdotH * (CA2 - 1.0) + 1.0;
-        float CD   = CA2 / max(1.0e-6, PiConst * CDen * CDen);
+        float CD   = CA2 / max(1.0e-6, FrontierPi * CDen * CDen);
         float CF   = 0.04 + 0.96 * Schlick;
         Spec      += float3(CoatW * CF * CD * 0.25);
         Diff      *= (1.0 - CoatW * CF);
@@ -2279,7 +2331,7 @@ float IntegrateClippedQuadFormFactor(float3 LocalQ[4])
     {
         ContourSum += IntegrateSphericalEdgeZ(Clipped[I], Clipped[(I + 1u) % ClipCount]);
     }
-    return saturate(abs(ContourSum) / TauConst);
+    return saturate(abs(ContourSum) / FrontierTau);
 }
 
 uint HashPositionSeed(float3 Pos, uint Salt)
@@ -2391,7 +2443,7 @@ float3 EvaluateAreaQuadLightGdfFast(GpuAreaQuadLight Quad, float3 Pos, float3 Ge
     return EvaluateAreaQuadBrdfAnalytic(Quad, Pos, N, V, Mat) * VisFactor;
 }
 
-float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, float3 N, float3 V, GpuWorldMaterial80 Mat, uint RngSalt)
+float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, float3 N, float3 V, GpuWorldMaterial80 Mat, uint RngSalt, float ShadowJitter01 = 0.5)
 {
     float3 RightT = Quad.RightHalfHeight.xyz;
     float3 UpB    = Quad.UpTwoSided.xyz;
@@ -2419,7 +2471,7 @@ float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, fl
         float EffRadius = max(0.035, 0.72 * (Quad.CenterHalfWidth.w + Quad.RightHalfHeight.w));
         float ConeTan   = clamp(EffRadius / CenterDist, 0.025, 0.65);
         if (PenumbraMode == 1u) ConeTan *= 0.85;
-        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, QuerySdfShadowMarchSteps());
+        VisFactor = TraceGlobalDistanceConeVisibility(Pos, GeomN, CenterDir, CenterDist, ConeTan, PenumbraMode == 0u, QuerySdfShadowMarchSteps(), ShadowJitter01);
     }
     else if (PenumbraMode == 0u)
     {
@@ -2448,7 +2500,7 @@ float3 EvaluateAreaQuadLight(GpuAreaQuadLight Quad, float3 Pos, float3 GeomN, fl
 
         uint   TapCount = (PenumbraMode >= 5u) ? 6u : 4u;
         uint   Rng      = HashPositionSeed(Pos, RngSalt + (WorldUniforms.DenoiseStepParams.w & 63u) * 199u);
-        float  RotAng   = PcgFloat01(Rng) * TauConst;
+        float  RotAng   = PcgFloat01(Rng) * FrontierTau;
         float  RadJit   = PcgFloat01(Rng);
         float3 RayOrig  = Pos + GeomN * 0.012;
         uint   VisCnt   = 0u;
@@ -2482,9 +2534,9 @@ float EvaluatePhotometricProfile128x32(
     float3 ZeroAzimuth)
 {
     float  CosTheta    = clamp(dot(BeamAxis, TowardSurface), -1.0, 1.0);
-    float  VerticalPos = acos(CosTheta) * (127.0 / PiConst);
+    float  VerticalPos = acos(CosTheta) * (127.0 / FrontierPi);
     float3 OrthoBit    = cross(BeamAxis, ZeroAzimuth);
-    float  HorizPos    = atan2(dot(TowardSurface, OrthoBit), dot(TowardSurface, ZeroAzimuth)) * (32.0 / TauConst);
+    float  HorizPos    = atan2(dot(TowardSurface, OrthoBit), dot(TowardSurface, ZeroAzimuth)) * (32.0 / FrontierTau);
     if (HorizPos < 0.0)
     {
         HorizPos += 32.0;
@@ -2743,17 +2795,18 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
     float TermFade  = EvaluateSmoothTerminatorFade(Hit.GeomNormal, Hit.ShadingNormal, SunDir);
     if (TermFade <= 1.0e-4) return 0.0;
 
-    float  TanSun    = max(0.004, WorldUniforms.SunDirConeTan.w);
-    float2 R2P       = PixelR2(PixelXY);
-    float  RotPhi    = R2P.x * TauConst;
-    float3 SmoothPos = ComputeSmoothSurfaceRayOrigin(Hit.Position, Hit.GeomNormal, Hit.ShadingNormal, 0.008);
+    float  TanSun      = max(0.004, WorldUniforms.SunDirConeTan.w);
+    float2 R2P         = PixelR2(PixelXY);
+    float  RotPhi      = R2P.x * FrontierTau;
+    float  SunJitter01 = EvaluateInterleavedGradientNoise01(PixelXY);
+    float3 SmoothPos   = ComputeSmoothSurfaceRayOrigin(Hit.Position, Hit.GeomNormal, Hit.ShadingNormal, 0.008);
 
     // Algorithm 4: WideTreeRayQuery — Path-Tracer 1-Ray R2 Solar-Disc AnyHit NEE + Spatial Penumbra Filter
     if (ShadowAlg == 4u)
     {
         if (EngineMode <= 2u && IsGlobalDistanceFieldReady())
         {
-            float GdfVis = TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 12.0, TanSun * 2.0, false, QuerySdfShadowMarchSteps());
+            float GdfVis = TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 12.0, TanSun * 2.0, false, QuerySdfShadowMarchSteps(), SunJitter01);
             if (GdfVis >= 0.99)
             {
                 return TermFade;
@@ -2762,7 +2815,7 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
         float3 T, B;
         ConstructOrthonormalBasis(SunDir, T, B);
         float  DiscR  = sqrt(saturate(R2P.x)) * TanSun;
-        float  DiscPh = R2P.y * TauConst;
+        float  DiscPh = R2P.y * FrontierTau;
         float3 JitSun = normalize(SunDir + T * (DiscR * cos(DiscPh)) + B * (DiscR * sin(DiscPh)));
         bool   Occ    = (dot(Hit.GeomNormal, JitSun) <= 0.0) || TraceSceneAnyHit(SmoothPos, JitSun, 0.008, 90.0);
         OutBlockerDist = Occ ? 0.55 : 0.0;
@@ -2777,7 +2830,7 @@ float EvaluateSolarShadow(RayHitReading Hit, float3 SunDir, uint2 PixelXY, out f
     {
         if (EngineMode <= 2u && IsGlobalDistanceFieldReady())
         {
-            return TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 14.0, TanSun, false, QuerySdfShadowMarchSteps()) * TermFade;
+            return TraceGlobalDistanceConeVisibility(SmoothPos, Hit.GeomNormal, SunDir, 14.0, TanSun, false, QuerySdfShadowMarchSteps(), SunJitter01) * TermFade;
         }
         float3 Orig = SmoothPos + Hit.GeomNormal * 0.008;
         return (TraceSceneAnyHit(Orig, SunDir, 0.020, 90.0) ? 0.0 : 1.0) * TermFade;
@@ -3171,8 +3224,9 @@ void ShadePrimarySurfaceDemod(
     [loop]
     for (uint L = 0u; L < LightCnt; ++L)
     {
+        float ShadowJitter01 = EvaluateInterleavedGradientNoise01(uint2(PixelXY.x + L * 17u, PixelXY.y + L * 31u));
         OutDirectBaseHdr += EvaluateAreaQuadLight(
-            WorldUniforms.AreaLights[L], SafePrimaryPos, Hit.GeomNormal, N, ViewDir, Mat, PixelSalt + L * 7919u);
+            WorldUniforms.AreaLights[L], SafePrimaryPos, Hit.GeomNormal, N, ViewDir, Mat, PixelSalt + L * 7919u, ShadowJitter01);
     }
 
     // 2b. ANSI/IESNA LM-63 Type C Photometric Point Luminaires
@@ -3381,8 +3435,8 @@ float3 EvaluateVolumetricGodRaysGpu(
     float  G          = clamp(Fog.GodRayParams0.z, 0.0, 0.94);
     float  G2         = G * G;
     float  Den        = max(1.0e-3, 1.0 + G2 - 2.0 * G * CosTheta);
-    float  MiePhase   = (1.0 - G2) / (4.0 * PiConst * pow(Den, 1.5));
-    float  Phase      = 0.85 * MiePhase + 0.15 * (1.0 / (4.0 * PiConst));
+    float  MiePhase   = (1.0 - G2) / (4.0 * FrontierPi * pow(Den, 1.5));
+    float  Phase      = 0.85 * MiePhase + 0.15 * (1.0 / (4.0 * FrontierPi));
     float  DecayScale = max(15.0, Fog.GodRayParams1.x * (1.35 - 0.85 * saturate(Fog.GodRayTint.w)));
 
     float3 Accum    = float3(0.0, 0.0, 0.0);
@@ -3527,7 +3581,7 @@ float3 EvaluateProgressiveViewportPath(float3 CamOrigin, float3 PrimaryDir, uint
             float3 SunT, SunB;
             ConstructOrthonormalBasis(SunDir, SunT, SunB);
             float  DiscR  = sqrt(Xi.x) * TanSun;
-            float  DiscPh = TauConst * Xi.y;
+            float  DiscPh = FrontierTau * Xi.y;
             float3 JitSun = normalize(SunDir + SunT * (DiscR * cos(DiscPh)) + SunB * (DiscR * sin(DiscPh)));
             float  TermF  = EvaluateSmoothTerminatorFade(CurHit.GeomNormal, N, JitSun);
             if (TermF > 1.0e-4 && dot(N, JitSun) > 0.0 && !TraceSceneAnyHit(SafePos, JitSun, 0.025, 110.0))
@@ -3589,7 +3643,7 @@ float3 EvaluateProgressiveViewportPath(float3 CamOrigin, float3 PrimaryDir, uint
             float3 DiskT1    = (LenSq > 1.0e-10) ? (float3(-Stretched.y, Stretched.x, 0.0) * rsqrt(LenSq)) : float3(1.0, 0.0, 0.0);
             float3 DiskT2    = cross(Stretched, DiskT1);
             float  Rad       = sqrt(saturate(BounceXi.x));
-            float  Phi       = TauConst * BounceXi.y;
+            float  Phi       = FrontierTau * BounceXi.y;
             float  P1        = Rad * cos(Phi);
             float  P2        = Rad * sin(Phi);
             float  Blend     = 0.5 * (1.0 + Stretched.z);
@@ -3608,7 +3662,7 @@ float3 EvaluateProgressiveViewportPath(float3 CamOrigin, float3 PrimaryDir, uint
         {
             float  SinT = sqrt(saturate(BounceXi.x));
             float  CosT = sqrt(max(0.0, 1.0 - BounceXi.x));
-            float  Phi  = TauConst * BounceXi.y;
+            float  Phi  = FrontierTau * BounceXi.y;
             RayD        = normalize(BasisT * (SinT * cos(Phi)) + BasisB * (SinT * sin(Phi)) + N * CosT);
             if (dot(RayD, CurHit.GeomNormal) <= 0.0)
             {
@@ -4365,7 +4419,7 @@ void HighEndBvhComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
             {
                 float SinT = sqrt(saturate(R2P.x));
                 float CosT = sqrt(max(0.0, 1.0 - R2P.x));
-                float Phi  = TauConst * R2P.y;
+                float Phi  = FrontierTau * R2P.y;
                 GiRayOrig  = PrimaryHit.Position + PrimaryHit.GeomNormal * 0.014 + N * 0.006;
                 GiRayDir   = normalize(BasisT * (SinT * cos(Phi)) + BasisB * (SinT * sin(Phi)) + N * CosT);
                 if (dot(GiRayDir, PrimaryHit.GeomNormal) <= 0.01)
@@ -5543,7 +5597,7 @@ void GlobalRadiosityBakeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         if (SunVis > 1.0e-3)
         {
             float CloudTr = EvaluateSolarCloudTransmittanceGpu(SurfPos, SunDir);
-            OutgoingRad += DiffAlbedo * (InvPiConst * max(0.0, dot(SurfN, SunDir)) * SunVis * CloudTr) * SunIrr;
+            OutgoingRad += DiffAlbedo * (FrontierInvPi * max(0.0, dot(SurfN, SunDir)) * SunVis * CloudTr) * SunIrr;
         }
 
         // Subtle sky-hemisphere ambient + glossy metallic sky bounce so shadowed surfaces and
