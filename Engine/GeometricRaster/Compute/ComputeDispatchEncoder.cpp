@@ -82,9 +82,9 @@ bool ComputeDispatchEncoder::InitializeEncoder(VulkanInterchange* BoundDevice, u
     MaxDispatchesPerAllocator = std::clamp(MaxDispatchesPerAllocator, 1u, 4096u);
     const std::array<VkDescriptorPoolSize, 6u> AllocatorCapacities {{
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         MaxDispatchesPerAllocator * 2u },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 48u },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 52u },
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxDispatchesPerAllocator * 8u },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 8u },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 16u },
         { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxDispatchesPerAllocator * 12u },
         { VK_DESCRIPTOR_TYPE_SAMPLER,                MaxDispatchesPerAllocator * 4u },
     }};
@@ -375,9 +375,9 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
         }
         const std::array<VkDescriptorPoolSize, 6u> AllocatorSizes {{
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         MaxDispatchesPerAllocator * 2u },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 48u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 52u },
             { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxDispatchesPerAllocator * 8u },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 8u },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 16u },
             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxDispatchesPerAllocator * 12u },
             { VK_DESCRIPTOR_TYPE_SAMPLER,                MaxDispatchesPerAllocator * 4u },
         }};
@@ -443,12 +443,158 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
     VkMemoryBarrier ComputeToShaderBarrier {};
     ComputeToShaderBarrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     ComputeToShaderBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    ComputeToShaderBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    ComputeToShaderBarrier.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT |
+        VK_ACCESS_SHADER_WRITE_BIT |
+        VK_ACCESS_TRANSFER_READ_BIT |
+        VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
     vkCmdPipelineBarrier(
         CmdBuffer,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT |
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+        0u,
+        1u,
+        &ComputeToShaderBarrier,
+        0u,
+        nullptr,
+        0u,
+        nullptr);
+
+    return true;
+}
+
+bool ComputeDispatchEncoder::EncodeComputeDispatchIndirect(
+    VkCommandBuffer                           CmdBuffer,
+    uint32_t                                  ProgramHandle,
+    std::span<const ComputeSlotDescriptor>    Slots,
+    VkBuffer                                  IndirectBufferHandle,
+    uint64_t                                  IndirectOffsetBytes,
+    const void*                               PushData,
+    uint32_t                                  PushBytes)
+{
+    if (DeviceInterchange == nullptr ||
+        ProgramHandle >= Programs.size() ||
+        IndirectBufferHandle == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+
+    VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
+    const RegisteredComputeProgram& Prog = Programs[ProgramHandle];
+
+    VkDescriptorSetAllocateInfo AllocSpec {};
+    AllocSpec.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    AllocSpec.descriptorSetCount = 1u;
+    AllocSpec.pSetLayouts        = &Prog.SlotLayout;
+
+    auto& ActiveAllocators = DescriptorRingAllocators[ActiveDescriptorRingSlot];
+    VkDescriptorSet DescSet = VK_NULL_HANDLE;
+    for (VkDescriptorPool Allocator : ActiveAllocators)
+    {
+        AllocSpec.descriptorPool = Allocator;
+        const VkResult AllocStatus = vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet);
+        if (AllocStatus == VK_SUCCESS)
+        {
+            break;
+        }
+        if (AllocStatus != VK_ERROR_OUT_OF_POOL_MEMORY && AllocStatus != VK_ERROR_FRAGMENTED_POOL)
+        {
+            return false;
+        }
+    }
+    if (DescSet == VK_NULL_HANDLE)
+    {
+        if (ActiveAllocators.size() >= 64u)
+        {
+            return false;
+        }
+        const std::array<VkDescriptorPoolSize, 6u> AllocatorSizes {{
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         MaxDispatchesPerAllocator * 2u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         MaxDispatchesPerAllocator * 52u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxDispatchesPerAllocator * 8u },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDispatchesPerAllocator * 16u },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxDispatchesPerAllocator * 12u },
+            { VK_DESCRIPTOR_TYPE_SAMPLER,                MaxDispatchesPerAllocator * 4u },
+        }};
+        VkDescriptorPoolCreateInfo AllocatorSpecNew {};
+        AllocatorSpecNew.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        AllocatorSpecNew.maxSets       = MaxDispatchesPerAllocator;
+        AllocatorSpecNew.poolSizeCount = static_cast<uint32_t>(AllocatorSizes.size());
+        AllocatorSpecNew.pPoolSizes    = AllocatorSizes.data();
+        VkDescriptorPool NewAllocator = VK_NULL_HANDLE;
+        if (vkCreateDescriptorPool(DeviceHandle, &AllocatorSpecNew, nullptr, &NewAllocator) != VK_SUCCESS)
+        {
+            return false;
+        }
+        AllocSpec.descriptorPool = NewAllocator;
+        if (vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet) != VK_SUCCESS)
+        {
+            vkDestroyDescriptorPool(DeviceHandle, NewAllocator, nullptr);
+            return false;
+        }
+        ActiveAllocators.push_back(NewAllocator);
+    }
+
+    std::vector<VkDescriptorBufferInfo> BufInfos(Slots.size());
+    std::vector<VkDescriptorImageInfo>  ImgInfos(Slots.size());
+    std::vector<VkWriteDescriptorSet>   Writes(Slots.size());
+    for (std::size_t Idx = 0u; Idx < Slots.size(); ++Idx)
+    {
+        Writes[Idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        Writes[Idx].dstSet          = DescSet;
+        Writes[Idx].dstBinding      = Slots[Idx].SlotIndex;
+        Writes[Idx].descriptorCount = 1u;
+        Writes[Idx].descriptorType  = Slots[Idx].SlotCategory;
+
+        if (Slots[Idx].SlotCategory == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
+            Slots[Idx].SlotCategory == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+            Slots[Idx].SlotCategory == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+            Slots[Idx].SlotCategory == VK_DESCRIPTOR_TYPE_SAMPLER)
+        {
+            ImgInfos[Idx].sampler     = Slots[Idx].SamplerHandle;
+            ImgInfos[Idx].imageView   = Slots[Idx].ImageViewHandle;
+            ImgInfos[Idx].imageLayout = Slots[Idx].ImageLayout;
+            Writes[Idx].pImageInfo    = &ImgInfos[Idx];
+        }
+        else
+        {
+            BufInfos[Idx].buffer   = Slots[Idx].BufferHandle;
+            BufInfos[Idx].offset   = Slots[Idx].OffsetBytes;
+            BufInfos[Idx].range    = Slots[Idx].ByteRange;
+            Writes[Idx].pBufferInfo = &BufInfos[Idx];
+        }
+    }
+
+    vkUpdateDescriptorSets(DeviceHandle, static_cast<uint32_t>(Writes.size()), Writes.data(), 0u, nullptr);
+
+    vkCmdBindPipeline(CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Prog.ComputeProgram);
+    vkCmdBindDescriptorSets(CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Prog.ProgramLayout, 0u, 1u, &DescSet, 0u, nullptr);
+    if (PushData != nullptr && PushBytes > 0u)
+    {
+        vkCmdPushConstants(CmdBuffer, Prog.ProgramLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0u, PushBytes, PushData);
+    }
+    vkCmdDispatchIndirect(CmdBuffer, IndirectBufferHandle, IndirectOffsetBytes);
+
+    VkMemoryBarrier ComputeToShaderBarrier {};
+    ComputeToShaderBarrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    ComputeToShaderBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    ComputeToShaderBarrier.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT |
+        VK_ACCESS_SHADER_WRITE_BIT |
+        VK_ACCESS_TRANSFER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        CmdBuffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
         0u,
         1u,
         &ComputeToShaderBarrier,

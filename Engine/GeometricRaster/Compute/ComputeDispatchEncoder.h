@@ -79,6 +79,15 @@ public:
         const void*                                 PushData    = nullptr,
         uint32_t                                    PushBytes   = 0u);
 
+    [[nodiscard]] bool EncodeComputeDispatchIndirect(
+        VkCommandBuffer                             CmdBuffer,
+        uint32_t                                    ProgramHandle,
+        std::span<const ComputeSlotDescriptor>      Slots,
+        VkBuffer                                    IndirectBufferHandle,
+        uint64_t                                    IndirectOffsetBytes = 0ull,
+        const void*                                 PushData            = nullptr,
+        uint32_t                                    PushBytes           = 0u);
+
     [[nodiscard]] DeviceBufferResource AllocateHostWritableBuffer(
         uint64_t           ByteSize,
         VkBufferUsageFlags UsageMask) const;

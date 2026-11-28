@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Diagnostics/ViewportTimingTelemetry.h"
+#include "Engine/DistanceFieldSpace/GlobalDistanceFieldVolume.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometricRaster/DirectLighting/UnifiedLightHierarchy.h"
 #include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
@@ -334,6 +335,8 @@ private:
     uint32_t               StellarCullProgramHandle        = UINT32_MAX;
     uint32_t               ShadowCascadeProgramHandle      = UINT32_MAX;
     uint32_t               GlobalDistanceBakeProgramHandle     = UINT32_MAX;
+    uint32_t               GdfBrickCullProgramHandle           = UINT32_MAX;
+    uint32_t               GdfBrickBuildProgramHandle          = UINT32_MAX;
     uint32_t               GlobalRadiosityProgramHandle        = UINT32_MAX;
     uint32_t               SurfelRadiositySolveProgramHandle   = UINT32_MAX;
     uint32_t               HighEndBvhProgramHandle             = UINT32_MAX;
@@ -392,6 +395,10 @@ private:
     DeviceBufferResource   SurfelRadiosityBuffer           {};
     DeviceBufferResource   PortalPairBuffer                {};
     DeviceBufferResource   ClipInstanceRangeBuffer         {};
+    DeviceBufferResource   GdfBrickUniformBuffer           {};
+    DeviceBufferResource   GdfDirtyBrickCoordBuffer        {};
+    DeviceBufferResource   GdfBrickCullBucketBuffer        {};
+    DeviceBufferResource   GdfBrickIndirectArgsBuffer      {};
     uint64_t               CachedCockpitDisplayAtlasGen    = 0ull;
     uint32_t               UploadedEmissiveTriCount        = 0u;
     uint32_t               UploadedEmissiveClusterCount    = 0u;
@@ -424,9 +431,12 @@ private:
     VkPipelineLayout       PrimaryVisPipelineLayout        = VK_NULL_HANDLE;
     VkPipeline             PrimaryVisPipeline              = VK_NULL_HANDLE;
 
-    // Hardware VK_IMAGE_TYPE_3D GDF & Radiosity volume textures + linear samplers
+    // Hardware VK_IMAGE_TYPE_3D 4-Cascade 128^3 GDF, 16^3 Brick-Min Summaries & Radiosity volume textures
     DeviceImageResource    GdfFineImage3D                  {};
     DeviceImageResource    GdfCoarseImage3D                {};
+    DeviceImageResource    GdfCascade2Image3D              {};
+    DeviceImageResource    GdfCascade3Image3D              {};
+    std::array<DeviceImageResource, 4u> GdfBrickMinImages3D {};
     DeviceImageResource    RadiosityMip0Image3D            {};
     DeviceImageResource    RadiosityMip0ScratchImage3D     {};
     DeviceImageResource    RadiosityCoarseImage3D          {};
@@ -436,6 +446,19 @@ private:
     VkSampler              LinearRepeatSampler3D           = VK_NULL_HANDLE;
     VkSampler              LinearClampSampler3D            = VK_NULL_HANDLE;
     bool                   Volume3DResourcesInitialized    = false;
+
+    DistanceFieldSpace::GlobalDistanceFieldSchedule                   GdfSchedule          {};
+    std::vector<DistanceFieldSpace::DistanceOccluderBoundsEntry>      ActiveGdfBounds      {};
+    std::array<std::array<float, 4u>, 4u>                             CascadeCenterSpan    {};
+    std::array<std::array<int32_t, 4u>, 4u>                           CascadeMinCell       {};
+    bool                                                              PendingGdfBrickSync  = true;
+
+    [[nodiscard]] bool DispatchSparseBrickGlobalDistanceUpdate(
+        VkCommandBuffer                Cmd,
+        const WorldSceneSpecification& Scene,
+        const Mathematics::Axis3D&     FocusWorld,
+        bool                           ForceFullReset,
+        uint32_t                       RingSliceIdx);
 
     // Async timeline rings (zero AwaitTimelineTick on live interactive frames)
     std::array<AsyncLiveFrameSlot, kLiveFrameSlots> LiveFrameSlots {};

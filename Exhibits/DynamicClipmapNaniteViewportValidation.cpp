@@ -642,11 +642,11 @@ int main()
         const auto [ScrolledMeanSeam, ScrolledMaxStep] = MeasureClipmapSeamStep(ScrolledGtxRgba);
         std::printf(
             "[DynamicClipmapNaniteViewportValidation] Toroidal Slab Scroll: "
-            "ScrollCount=%u -> %u | FineVoxUpdated=%u / 262144 (%.1f%%) | ScrolledSeam(Mean=%.2f, Max=%.2f)\n",
+            "ScrollCount=%u -> %u | FineVoxUpdated=%u / 2097152 (%.1f%%) | ScrolledSeam(Mean=%.2f, Max=%.2f)\n",
             BeforeScrollStats.ToroidalSlabScrollCount,
             AfterScrollStats.ToroidalSlabScrollCount,
             AfterScrollStats.LastFineUpdatedVoxelCount,
-            100.0 * static_cast<double>(AfterScrollStats.LastFineUpdatedVoxelCount) / 262144.0,
+            100.0 * static_cast<double>(AfterScrollStats.LastFineUpdatedVoxelCount) / 2097152.0,
             ScrolledMeanSeam,
             ScrolledMaxStep);
 
@@ -654,8 +654,8 @@ int main()
             ScrollMaskOk && ScrollGtxOk &&
             AfterScrollStats.ToroidalSlabScrollCount > BeforeScrollStats.ToroidalSlabScrollCount &&
             AfterScrollStats.LastFineUpdatedVoxelCount > 0u &&
-            AfterScrollStats.LastFineUpdatedVoxelCount <= 65536u,
-            "Camera scroll updates only toroidal dirty voxel slabs instead of full 64^3 GDF grid");
+            AfterScrollStats.LastFineUpdatedVoxelCount <= 524288u,
+            "Camera scroll updates only toroidal dirty voxel slabs instead of full 128^3 GDF grid");
         Checklist.Verify(
             ScrolledMeanSeam < 1.25f && ScrolledMaxStep < 2.50f,
             "Toroidal frac() wrap-around addressing introduces zero interior or border seam after scroll");

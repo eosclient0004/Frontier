@@ -183,14 +183,14 @@ struct BvhClosestSurfaceStack
     return std::sqrt(BestDistSq);
 }
 
-[[nodiscard]] bool CountRayParityAlongDirection(
+[[nodiscard]] uint32_t CountRayCrossingsAlongDirection(
     const SpatialAcceleration::WideBoundingTree& Tree,
     Mathematics::Axis3D                          Origin,
     Mathematics::Axis3D                          UnitDir) noexcept
 {
     if (Tree.WideEntries.empty() || Tree.Primitives.empty())
     {
-        return false;
+        return 0u;
     }
 
     const Mathematics::Axis3D InvDir {
@@ -272,7 +272,7 @@ struct BvhClosestSurfaceStack
         }
     }
 
-    return (Crossings & 1u) != 0u;
+    return Crossings;
 }
 
 [[nodiscard]] bool ClassifyInsideViaMajorityParity(
@@ -286,24 +286,39 @@ struct BvhClosestSurfaceStack
         return false;
     }
 
-    // Irrational non-axis-aligned unit directions prevent shared triangle-edge double-counting
-    static constexpr std::array<Mathematics::Axis3D, 3u> ParityAxes {{
+    // 5 irrational non-axis-aligned unit directions prevent shared triangle-edge double-counting
+    static constexpr std::array<Mathematics::Axis3D, 5u> ParityAxes {{
         {  0.9718253f,  0.1943651f,  0.1325216f },
-        { -0.1714986f,  0.9622504f, -0.2116951f },
-        {  0.1485221f, -0.2079310f,  0.9667892f },
+        { -0.8721410f,  0.3712035f,  0.3189678f },
+        {  0.1932541f, -0.9410672f,  0.2775697f },
+        { -0.2314056f,  0.8920144f,  0.3882797f },
+        {  0.1173092f,  0.1490821f,  0.9818417f },
     }};
 
     uint32_t InsideVotes = 0u;
+    uint32_t HitAxes     = 0u;
     for (const Mathematics::Axis3D& Dir : ParityAxes)
     {
-        if (CountRayParityAlongDirection(Tree, QueryPoint, Dir))
+        const uint32_t Crossings = CountRayCrossingsAlongDirection(Tree, QueryPoint, Dir);
+        if (Crossings > 0u)
+        {
+            ++HitAxes;
+        }
+        if ((Crossings & 1u) != 0u)
         {
             ++InsideVotes;
         }
-        if (InsideVotes >= 2u)
-        {
-            return true;
-        }
+    }
+    if (InsideVotes >= 3u)
+    {
+        return true;
+    }
+
+    // Open-bottom vehicle/shell enclosure fallback: enclosed horizontally and above roof (>14% height)
+    const float HeightSpan = Tree.RootBoundsMax.Z - Tree.RootBoundsMin.Z;
+    if (HitAxes == 5u && QueryPoint.Z > Tree.RootBoundsMin.Z + HeightSpan * 0.14f)
+    {
+        return true;
     }
     return false;
 }
@@ -398,11 +413,14 @@ bool LocalSignedDistanceVolume::BakeFromTrianglesAspect(
                 const float PY = LocalMin.Y + static_cast<float>(IY) * VoxelSpacing.Y;
                 for (uint32_t IX = 0u; IX < ResolutionX; ++IX)
                 {
-                    const float PX          = LocalMin.X + static_cast<float>(IX) * VoxelSpacing.X;
-                    const float Dist        = QueryExactUnsignedDistanceViaBvh(LocalTree, { PX, PY, PZ });
-                    const std::size_t Index = (static_cast<std::size_t>(IZ) * ResolutionY + IY) * ResolutionX + IX;
-                    DistanceSamples[Index]        = Dist;
-                    HalfDistanceSamples[Index]    = PackFloat32ToHalf16(Dist);
+                    const float PX                = LocalMin.X + static_cast<float>(IX) * VoxelSpacing.X;
+                    const Mathematics::Axis3D Pos { PX, PY, PZ };
+                    const float UnsignedDist      = QueryExactUnsignedDistanceViaBvh(LocalTree, Pos);
+                    const bool  Inside            = ClassifyInsideViaMajorityParity(LocalTree, Pos);
+                    const float SignedDist        = Inside ? -UnsignedDist : UnsignedDist;
+                    const std::size_t Index       = (static_cast<std::size_t>(IZ) * ResolutionY + IY) * ResolutionX + IX;
+                    DistanceSamples[Index]        = SignedDist;
+                    HalfDistanceSamples[Index]    = PackFloat32ToHalf16(SignedDist);
                 }
             }
         }

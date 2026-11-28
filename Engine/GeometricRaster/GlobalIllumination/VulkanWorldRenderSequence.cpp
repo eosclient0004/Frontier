@@ -219,8 +219,48 @@ struct WorldViewportUniformBlockStd140
     GpuCockpitDisplaySurfaceStd140 CockpitDisplays[4]                {}; // [0]=HMI, [1]=Cluster, [2]=WindshieldHUD, [3]=OnScreenHUD
     uint32_t                     GiPortalCounts[4]                   {}; // x=EmissiveClusters, y=BoneCapsules, z=Surfels, w=Portals|(ClipRanges<<8)
     uint32_t                     SurfelStepControl[4]                {}; // x=SurfelPhase(0/1), y=EmissiveTris, z=Flags, w=Reserved
+    float                        GlobalDistanceCascadeCenterSpan[4][4] {}; // [c]: xyz=CenterWorld, w=HalfSpanMeters (4/12/36/128m)
+    int32_t                      GlobalDistanceCascadeMinCell[4][4]    {}; // [c]: xyz=MinCellWorld (8-voxel brick aligned), w=Reserved
 };
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 3504u, "WorldViewportUniformBlockStd140 must equal 3504 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 3632u, "WorldViewportUniformBlockStd140 must equal 3632 bytes.");
+
+struct GpuGlobalDistanceBrickUniformsStd140
+{
+    float    CascadeCenterHalfSpan[4] {}; // xyz = CenterWorld, w = HalfSpanMeters
+    int32_t  CascadeMinCellIndex[4]   {}; // xyz = MinCellWorld (8-voxel aligned), w = CascadeIndex
+    uint32_t CountsTruncation[4]      {}; // x = DirtyBrickCount, y = InstanceCount, z = BoneCapsuleCount, w = bit_cast<uint32_t>(TruncationMeters)
+    uint32_t ShellOptions[4]          {}; // x = WriteSurfaceShellToggle
+};
+static_assert(sizeof(GpuGlobalDistanceBrickUniformsStd140) == 64u, "GpuGlobalDistanceBrickUniformsStd140 must equal 64 bytes.");
+
+struct GpuBrickCullBucket144
+{
+    uint32_t PackedHeader[4]    {};
+    uint32_t InstanceIndices[16] {};
+    uint32_t CapsuleIndices[16]  {};
+};
+static_assert(sizeof(GpuBrickCullBucket144) == 144u, "GpuBrickCullBucket144 must equal 144 bytes.");
+
+[[nodiscard]] std::array<VkDescriptorType, 54u> MakeWorldComputeSlotTypes() noexcept
+{
+    std::array<VkDescriptorType, 54u> SlotTypes {};
+    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfFineTex3D (Cascade 0)
+    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfCoarseTex3D (Cascade 1)
+    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // RadiosityMip0Tex3D
+    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // RadiosityCoarseTex3D
+    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // GdfBakeTargetImg3D
+    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // RadiosityBakeDstImg3D
+    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          // PrimaryVisImg2D
+    SlotTypes[48] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfCascade2Tex3D
+    SlotTypes[49] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfCascade3Tex3D
+    SlotTypes[50] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfBrickMin0Tex3D
+    SlotTypes[51] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfBrickMin1Tex3D
+    SlotTypes[52] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfBrickMin2Tex3D
+    SlotTypes[53] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // GdfBrickMin3Tex3D
+    return SlotTypes;
+}
 
 struct GpuEmissiveTriangle80
 {
@@ -406,15 +446,17 @@ struct QuantizedCornerTriangleEntry
 //                                        UDF CLIPMAP & BILATERAL DENOISE CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-constexpr uint32_t kGdfGridRes                   = 96u;                    // [count] - Nested signed GDF & Radiosity Mip0 grid resolution (96^3)
-constexpr uint32_t kGdfHalfRes                   = kGdfGridRes / 2u;       // [count] - Half grid resolution (48) for toroidal center offset
-constexpr uint32_t kGdfVoxelCount                = kGdfGridRes * kGdfGridRes * kGdfGridRes; // [count] - 884,736 voxels per cascade
-constexpr uint32_t kRadiosityCoarseBaseRes       = kGdfGridRes / 2u;       // [count] - Mip1 resolution (48 -> 24 -> 12 across 3 coarse mips)
+constexpr uint32_t kGdfGridRes                   = 128u;                   // [count] - 4-cascade signed GDF grid resolution (128^3 per cascade)
+constexpr uint32_t kGdfHalfRes                   = kGdfGridRes / 2u;       // [count] - Half grid resolution (64) for toroidal center offset
+constexpr uint32_t kGdfVoxelCount                = kGdfGridRes * kGdfGridRes * kGdfGridRes; // [count] - 2,097,152 voxels per GDF cascade
+constexpr uint32_t kRadiosityGridRes             = 64u;                    // [count] - Decoupled diffuse radiosity Mip0 resolution (64^3 -> 32^3 -> 16^3 -> 8^3)
+constexpr uint32_t kRadiosityVoxelCount          = kRadiosityGridRes * kRadiosityGridRes * kRadiosityGridRes; // [count] - 262,144 voxels
+constexpr uint32_t kRadiosityCoarseBaseRes       = kRadiosityGridRes / 2u; // [count] - Mip1 resolution (32 -> 16 -> 8 across 3 coarse mips)
 constexpr uint32_t kRadiosityTotalVoxels         =
-    kGdfVoxelCount +
-    (kGdfGridRes / 2u) * (kGdfGridRes / 2u) * (kGdfGridRes / 2u) +
-    (kGdfGridRes / 4u) * (kGdfGridRes / 4u) * (kGdfGridRes / 4u) +
-    (kGdfGridRes / 8u) * (kGdfGridRes / 8u) * (kGdfGridRes / 8u);          // [count] - 96^3 + 48^3 + 24^3 + 12^3 = 1,010,880 voxels
+    kRadiosityVoxelCount +
+    (kRadiosityGridRes / 2u) * (kRadiosityGridRes / 2u) * (kRadiosityGridRes / 2u) +
+    (kRadiosityGridRes / 4u) * (kRadiosityGridRes / 4u) * (kRadiosityGridRes / 4u) +
+    (kRadiosityGridRes / 8u) * (kRadiosityGridRes / 8u) * (kRadiosityGridRes / 8u); // [count] - 64^3 + 32^3 + 16^3 + 8^3 = 299,520 voxels
 constexpr float    FallbackLocalHalfExtentMeters = 0.40f;                  // [m]     - Default half-extent when pyramid empty
 constexpr float    MinimumValidScaleFloor        = 1.0e-4f;                // [-]     - Minimum positive world scale threshold
 constexpr float    DatumChangeToleranceMeters    = 1.0e-4f;                // [m]     - Minimum ground datum shift triggering sync
@@ -514,56 +556,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     }
     PumpEvents();
 
-    constexpr std::array<VkDescriptorType, 48u> SlotTypes {{
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0:  WorldUniforms
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1:  SceneBvhEntries
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2:  SceneTriangles
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 3:  MaterialEntries
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 4:  OutDisplayRgba8
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 5:  SolarShadowDepthBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 6:  AccumulationHdrBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 7:  AtmosphericSkyViewLut
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 8:  LunarSurfaceAtlasTexels
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 9:  BakedLensFlareAtlasTexels
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 10: GBufPosMask
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 11: GBufNormAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 12: GBufDirectBase
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 13: GBufSunContrib
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 14: GBufAlbedo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 15: PingShadowAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 16: PongShadowAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 17: CloudRadiometricBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 18: ProjectedCatalogStars
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 19: StellarTileBins
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 20: PlanetaryCloudNoise
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 21: RawCatalogStars
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 22: PhotometricProfileTables
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 23: PhotometricLampEntries
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 24: GlobalDistanceFieldBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 25: GlobalRadiosityFieldBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 26: PingIndirectIrradiance
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 27: PongIndirectIrradiance
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 28: GlobalSurfaceShellBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 29: LocalAssetSdfVoxelBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 30: DynamicLocalSdfInstanceBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 31: ActiveClusterBitmask
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 32: GdfFineTex3D
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 33: GdfCoarseTex3D
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 34: RadiosityMip0Tex3D
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 35: RadiosityCoarseTex3D
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 36: GdfBakeTargetImg3D
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 37: RadiosityBakeDstImg3D
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 38: PrimaryVisImg2D
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 39: CockpitDisplayAtlasRgba8
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 40: EmissiveTriangleBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 41: EmissiveClusterBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 42: DeformingBoneCapsuleBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 43: SurfelRadiosityBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 44: PortalPairBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 45: ClipInstanceRangeBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 46: PingDirectDiffuse
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 47: PongDirectDiffuse
-    }};
+    const auto SlotTypes = MakeWorldComputeSlotTypes();
 
     const std::filesystem::path ShaderBinaryPath = CompiledShaderDirectory / "WorldViewportRadiometricCompute.comp.spv";
     RadiometricProgramHandle = DispatchEncoder.RegisterProgram(
@@ -630,6 +623,37 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         SlotTypes,
         "GlobalDistanceBakeEntry");
     PumpEvents();
+    {
+        constexpr std::array<VkDescriptorType, 6u> BrickCullSlots {{
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0: BrickUniforms
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1: DynamicInstances
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2: BoneCapsules
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 3: DirtyBrickCoords
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 4: OutBrickBuckets
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 5: OutIndirectArgs
+        }};
+        GdfBrickCullProgramHandle = DispatchEncoder.RegisterProgram(
+            CompiledShaderDirectory / "GlobalDistanceBrickCull.comp.spv",
+            BrickCullSlots,
+            "BrickCullEntry");
+        PumpEvents();
+
+        constexpr std::array<VkDescriptorType, 8u> BrickBuildSlots {{
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0: BrickUniforms
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1: LocalAssetVoxels
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2: DynamicInstances
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 3: BoneCapsules
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 4: BrickBuckets
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  // 5: OutCascadeImg3D
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  // 6: OutBrickMinImg3D
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 7: GlobalSurfaceShellBuffer
+        }};
+        GdfBrickBuildProgramHandle = DispatchEncoder.RegisterProgram(
+            CompiledShaderDirectory / "GlobalDistanceBrickBuild.comp.spv",
+            BrickBuildSlots,
+            "BrickBuildEntry");
+        PumpEvents();
+    }
     GlobalRadiosityProgramHandle = DispatchEncoder.RegisterProgram(
         CompiledShaderDirectory / "WorldViewportGlobalRadiosityBake.comp.spv",
         SlotTypes,
@@ -694,9 +718,9 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     {
         EnsureBufferCapacity(Slot.UniformBuffer, 8192ull * 16ull, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     }
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kRadiosityVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     if (!EnsureVolume3DResources())
     {
         TeardownSequence();
@@ -936,9 +960,16 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(LocalAssetSdfVoxelBuffer);
         BoundDevice->ReleaseBuffer(DynamicLocalSdfInstanceBuffer);
         BoundDevice->ReleaseBuffer(ActiveClusterMaskBuffer);
+        BoundDevice->ReleaseBuffer(GdfBrickUniformBuffer);
+        BoundDevice->ReleaseBuffer(GdfDirtyBrickCoordBuffer);
+        BoundDevice->ReleaseBuffer(GdfBrickCullBucketBuffer);
+        BoundDevice->ReleaseBuffer(GdfBrickIndirectArgsBuffer);
         BoundDevice->ReleaseImage2D(DisplayOutputImage2D);
     }
     RetiredDisplayImages.clear();
+    ActiveGdfBounds.clear();
+    GdfSchedule.ResetSchedule();
+    PendingGdfBrickSync = true;
     AssetClusterTreeCache.clear();
     PreparedPyramidVolumes.clear();
     ResidentClusterInstances.clear();
@@ -960,6 +991,8 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     StellarCullProgramHandle          = UINT32_MAX;
     ShadowCascadeProgramHandle        = UINT32_MAX;
     GlobalDistanceBakeProgramHandle   = UINT32_MAX;
+    GdfBrickCullProgramHandle         = UINT32_MAX;
+    GdfBrickBuildProgramHandle        = UINT32_MAX;
     GlobalRadiosityProgramHandle      = UINT32_MAX;
     SurfelRadiositySolveProgramHandle = UINT32_MAX;
     HighEndBvhProgramHandle           = UINT32_MAX;
@@ -1283,6 +1316,12 @@ void VulkanWorldRenderSequence::ReleaseVolume3DResources() noexcept
         }
         BoundDevice->ReleaseImage2D(GdfFineImage3D);
         BoundDevice->ReleaseImage2D(GdfCoarseImage3D);
+        BoundDevice->ReleaseImage2D(GdfCascade2Image3D);
+        BoundDevice->ReleaseImage2D(GdfCascade3Image3D);
+        for (auto& BrickMinImg : GdfBrickMinImages3D)
+        {
+            BoundDevice->ReleaseImage2D(BrickMinImg);
+        }
         BoundDevice->ReleaseImage2D(RadiosityMip0Image3D);
         BoundDevice->ReleaseImage2D(RadiosityMip0ScratchImage3D);
         BoundDevice->ReleaseImage2D(RadiosityCoarseImage3D);
@@ -1309,16 +1348,30 @@ bool VulkanWorldRenderSequence::EnsureVolume3DResources()
         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
-    GdfFineImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    GdfCoarseImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    RadiosityMip0Image3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
-    RadiosityMip0ScratchImage3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    GdfFineImage3D     = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    GdfCoarseImage3D   = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    GdfCascade2Image3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    GdfCascade3Image3D = BoundDevice->AllocateImage3D(kGdfGridRes, kGdfGridRes, kGdfGridRes, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    constexpr uint32_t kBrickGridDim = DistanceFieldSpace::kGlobalDistanceBrickGridDim;
+    for (uint32_t CascadeIdx = 0u; CascadeIdx < 4u; ++CascadeIdx)
+    {
+        GdfBrickMinImages3D[CascadeIdx] = BoundDevice->AllocateImage3D(
+            kBrickGridDim, kBrickGridDim, kBrickGridDim, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    }
+    RadiosityMip0Image3D = BoundDevice->AllocateImage3D(kRadiosityGridRes, kRadiosityGridRes, kRadiosityGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
+    RadiosityMip0ScratchImage3D = BoundDevice->AllocateImage3D(kRadiosityGridRes, kRadiosityGridRes, kRadiosityGridRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
     RadiosityCoarseImage3D = BoundDevice->AllocateImage3D(kRadiosityCoarseBaseRes, kRadiosityCoarseBaseRes, kRadiosityCoarseBaseRes, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 3u);
     DummyFloat1x1x1Image3D = BoundDevice->AllocateImage3D(1u, 1u, 1u, VK_FORMAT_R16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
     DummyRgba1x1x1Image3D = BoundDevice->AllocateImage3D(1u, 1u, 1u, VK_FORMAT_R16G16B16A16_SFLOAT, VolUsage, VK_IMAGE_ASPECT_COLOR_BIT, 1u);
 
     if (GdfFineImage3D.ViewHandle == VK_NULL_HANDLE ||
         GdfCoarseImage3D.ViewHandle == VK_NULL_HANDLE ||
+        GdfCascade2Image3D.ViewHandle == VK_NULL_HANDLE ||
+        GdfCascade3Image3D.ViewHandle == VK_NULL_HANDLE ||
+        GdfBrickMinImages3D[0].ViewHandle == VK_NULL_HANDLE ||
+        GdfBrickMinImages3D[1].ViewHandle == VK_NULL_HANDLE ||
+        GdfBrickMinImages3D[2].ViewHandle == VK_NULL_HANDLE ||
+        GdfBrickMinImages3D[3].ViewHandle == VK_NULL_HANDLE ||
         RadiosityMip0Image3D.ViewHandle == VK_NULL_HANDLE ||
         RadiosityMip0ScratchImage3D.ViewHandle == VK_NULL_HANDLE ||
         RadiosityCoarseImage3D.ViewHandle == VK_NULL_HANDLE ||
@@ -1402,6 +1455,12 @@ bool VulkanWorldRenderSequence::EnsureVolume3DResources()
 
     TransitionInit(GdfFineImage3D.ImageHandle,              1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
     TransitionInit(GdfCoarseImage3D.ImageHandle,            1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
+    TransitionInit(GdfCascade2Image3D.ImageHandle,          1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
+    TransitionInit(GdfCascade3Image3D.ImageHandle,          1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
+    for (uint32_t C = 0u; C < 4u; ++C)
+    {
+        TransitionInit(GdfBrickMinImages3D[C].ImageHandle,  1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
+    }
     TransitionInit(RadiosityMip0Image3D.ImageHandle,        1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
     TransitionInit(RadiosityMip0ScratchImage3D.ImageHandle, 1u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
     TransitionInit(RadiosityCoarseImage3D.ImageHandle,      3u, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, VK_ACCESS_TRANSFER_WRITE_BIT);
@@ -1410,6 +1469,12 @@ bool VulkanWorldRenderSequence::EnsureVolume3DResources()
 
     vkCmdClearColorImage(InitCmd, GdfFineImage3D.ImageHandle,              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
     vkCmdClearColorImage(InitCmd, GdfCoarseImage3D.ImageHandle,            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+    vkCmdClearColorImage(InitCmd, GdfCascade2Image3D.ImageHandle,          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+    vkCmdClearColorImage(InitCmd, GdfCascade3Image3D.ImageHandle,          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+    for (uint32_t C = 0u; C < 4u; ++C)
+    {
+        vkCmdClearColorImage(InitCmd, GdfBrickMinImages3D[C].ImageHandle,  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+    }
     vkCmdClearColorImage(InitCmd, RadiosityMip0Image3D.ImageHandle,        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearZero, 1u, &Range1);
     vkCmdClearColorImage(InitCmd, RadiosityMip0ScratchImage3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearZero, 1u, &Range1);
     vkCmdClearColorImage(InitCmd, RadiosityCoarseImage3D.ImageHandle,      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearZero, 1u, &Range3);
@@ -1418,6 +1483,12 @@ bool VulkanWorldRenderSequence::EnsureVolume3DResources()
 
     TransitionInit(GdfFineImage3D.ImageHandle,              1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
     TransitionInit(GdfCoarseImage3D.ImageHandle,            1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    TransitionInit(GdfCascade2Image3D.ImageHandle,          1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    TransitionInit(GdfCascade3Image3D.ImageHandle,          1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    for (uint32_t C = 0u; C < 4u; ++C)
+    {
+        TransitionInit(GdfBrickMinImages3D[C].ImageHandle,  1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
     TransitionInit(RadiosityMip0Image3D.ImageHandle,        1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
     TransitionInit(RadiosityMip0ScratchImage3D.ImageHandle, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,                  VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT);
     TransitionInit(RadiosityCoarseImage3D.ImageHandle,      3u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
@@ -2032,16 +2103,7 @@ bool VulkanWorldRenderSequence::EnsureCloudLayerProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 48u> SlotTypes {};
-    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    const auto SlotTypes = MakeWorldComputeSlotTypes();
     CloudLayerProgramHandle = DispatchEncoder.RegisterProgram(
         CachedCompiledShaderDir / "WorldViewportCloudCompute.comp.spv",
         SlotTypes,
@@ -2064,16 +2126,7 @@ bool VulkanWorldRenderSequence::EnsureMotionBlurProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 48u> SlotTypes {};
-    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    const auto SlotTypes = MakeWorldComputeSlotTypes();
     MotionBlurProgramHandle = DispatchEncoder.RegisterProgram(
         CachedCompiledShaderDir / "WorldViewportMotionBlurCompute.comp.spv",
         SlotTypes,
@@ -2184,16 +2237,7 @@ bool VulkanWorldRenderSequence::EnsureBackgroundSkyProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 48u> SlotTypes {};
-    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    const auto SlotTypes = MakeWorldComputeSlotTypes();
     if (ActiveEventPump)
     {
         ActiveEventPump();
@@ -2224,16 +2268,7 @@ bool VulkanWorldRenderSequence::EnsureVolumetricMediaProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 48u> SlotTypes {};
-    SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SlotTypes[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    SlotTypes[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    const auto SlotTypes = MakeWorldComputeSlotTypes();
     if (ActiveEventPump)
     {
         ActiveEventPump();
@@ -4290,8 +4325,11 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
     // ② Upload compact per-instance dynamic rigid/scale transform array (< 0.02 ms even during gizmo drag)
     std::vector<GpuDynamicLocalSdfInstance144> GpuInstances;
     GpuInstances.reserve(std::max<std::size_t>(1u, Scene.ClusterInstances.size()));
+    ActiveGdfBounds.clear();
+    ActiveGdfBounds.reserve(Scene.ClusterInstances.size());
     float    NextAnalyticGroundZ            = UnsetAnalyticGroundPlaneZ;
     uint32_t NextAnalyticGroundMaterialSlot = 0u;
+    uint64_t ActiveBoundsOrdinal            = 1ull;
 
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
@@ -4443,6 +4481,41 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
             (1u << InstanceActiveBitShift) |
             (AnalyticGroundSlab ? (1u << InstanceGroundSlabBitShift) : 0u);
         GpuInstances.push_back(Dst);
+
+        if (!AnalyticGroundSlab)
+        {
+            Mathematics::Axis3D WorldMin {  1.0e30f,  1.0e30f,  1.0e30f };
+            Mathematics::Axis3D WorldMax { -1.0e30f, -1.0e30f, -1.0e30f };
+            for (uint32_t Corner = 0u; Corner < 8u; ++Corner)
+            {
+                const float LX = ((Corner & 1u) != 0u ? Dst.LocalMaxPad[0] : Dst.LocalMinPad[0]) * ScaleX;
+                const float LY = ((Corner & 2u) != 0u ? Dst.LocalMaxPad[1] : Dst.LocalMinPad[1]) * ScaleY;
+                const float LZ = ((Corner & 4u) != 0u ? Dst.LocalMaxPad[2] : Dst.LocalMinPad[2]) * ScaleZ;
+                const float WX = T.X + CosZ * LX - SinZ * LY;
+                const float WY = T.Y + SinZ * LX + CosZ * LY;
+                const float WZ = T.Z + LZ;
+                WorldMin.X = std::min(WorldMin.X, WX);
+                WorldMin.Y = std::min(WorldMin.Y, WY);
+                WorldMin.Z = std::min(WorldMin.Z, WZ);
+                WorldMax.X = std::max(WorldMax.X, WX);
+                WorldMax.Y = std::max(WorldMax.Y, WY);
+                WorldMax.Z = std::max(WorldMax.Z, WZ);
+            }
+
+            uint64_t InstHash = Frontier::Constants::Fnv1a64OffsetBasis;
+            const auto* InstBytes = reinterpret_cast<const uint8_t*>(&Dst);
+            for (std::size_t B = 0u; B < sizeof(Dst); ++B)
+            {
+                InstHash ^= static_cast<uint64_t>(InstBytes[B]);
+                InstHash *= Frontier::Constants::Fnv1a64Prime;
+            }
+            DistanceFieldSpace::DistanceOccluderBoundsEntry BoundsEntry {};
+            BoundsEntry.WorldMin      = WorldMin;
+            BoundsEntry.WorldMax      = WorldMax;
+            BoundsEntry.IdentityKey   = ActiveBoundsOrdinal++;
+            BoundsEntry.TransformHash = InstHash;
+            ActiveGdfBounds.push_back(BoundsEntry);
+        }
     }
 
     if (std::fabs(NextAnalyticGroundZ - ActiveAnalyticGroundPlaneZ) > DatumChangeToleranceMeters ||
@@ -4478,6 +4551,7 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         CachedDynamicSdfSignature = DynSig;
         DistanceFieldStats.DynamicInstanceUploadCount += 1u;
+        PendingGdfBrickSync = true;
         if (!GlobalDistanceFieldReady)
         {
             ResourcesChanged = true;
@@ -4487,8 +4561,304 @@ bool VulkanWorldRenderSequence::SynchronizeLocalSdfResources(const WorldSceneSpe
     {
         PendingFineGeometryReset   = true;
         PendingCoarseGeometryReset = true;
+        PendingGdfBrickSync        = true;
     }
     return ResourcesChanged;
+}
+
+bool VulkanWorldRenderSequence::DispatchSparseBrickGlobalDistanceUpdate(
+    VkCommandBuffer                Cmd,
+    const WorldSceneSpecification& Scene,
+    const Mathematics::Axis3D&     FocusWorld,
+    bool                           ForceFullReset,
+    uint32_t                       RingSliceIdx)
+{
+    if (Cmd == VK_NULL_HANDLE ||
+        GdfBrickCullProgramHandle == UINT32_MAX ||
+        GdfBrickBuildProgramHandle == UINT32_MAX ||
+        !EnsureVolume3DResources())
+    {
+        return false;
+    }
+
+    constexpr uint32_t kCascadeCnt         = DistanceFieldSpace::kGlobalDistanceCascadeCount;
+    constexpr uint32_t kBricksPerCas       = DistanceFieldSpace::kGlobalDistanceBricksPerCascade;
+    constexpr uint64_t kBrickUniStride     = 256ull;
+    constexpr uint64_t kIndirectArgsStride = 256ull;
+    constexpr uint64_t kSliceUniBytes      = kBrickUniStride * kCascadeCnt;
+    constexpr uint64_t kSliceCoordBytes    = static_cast<uint64_t>(kBricksPerCas) * sizeof(uint32_t) * kCascadeCnt;
+    constexpr uint64_t kNumRingSlices      = 3ull;
+
+    const uint32_t SafeSlice = RingSliceIdx % static_cast<uint32_t>(kNumRingSlices);
+    EnsureBufferCapacity(GdfBrickUniformBuffer,    kSliceUniBytes   * kNumRingSlices, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    EnsureBufferCapacity(GdfDirtyBrickCoordBuffer, kSliceCoordBytes * kNumRingSlices, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(
+        GdfBrickCullBucketBuffer,
+        static_cast<uint64_t>(kBricksPerCas) * sizeof(GpuBrickCullBucket144),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(
+        GdfBrickIndirectArgsBuffer,
+        static_cast<uint64_t>(kCascadeCnt) * kIndirectArgsStride,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    EnsureDeviceBufferCapacity(
+        GlobalSurfaceShellBuffer,
+        static_cast<uint64_t>(kRadiosityVoxelCount) * sizeof(uint32_t) * 2ull,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+    if (GdfBrickUniformBuffer.HostAddress == nullptr ||
+        GdfDirtyBrickCoordBuffer.HostAddress == nullptr ||
+        GdfBrickCullBucketBuffer.BufferHandle == VK_NULL_HANDLE ||
+        GdfBrickIndirectArgsBuffer.BufferHandle == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+
+    std::vector<DistanceFieldSpace::DistanceOccluderBoundsEntry> CombinedBounds = ActiveGdfBounds;
+    if (!Scene.GtxCharacterRig.LimbCapsules.empty())
+    {
+        const uint32_t CapCnt = static_cast<uint32_t>(std::min<std::size_t>(64u, Scene.GtxCharacterRig.LimbCapsules.size()));
+        for (uint32_t C = 0u; C < CapCnt; ++C)
+        {
+            const auto& Cap  = Scene.GtxCharacterRig.LimbCapsules[C];
+            const float MaxR = std::max(0.01f, std::max(Cap.RadiusStart, Cap.RadiusEnd)) + 0.10f;
+            DistanceFieldSpace::DistanceOccluderBoundsEntry CapBounds {};
+            CapBounds.WorldMin = {
+                std::min(Cap.JointStart.X, Cap.JointEnd.X) - MaxR,
+                std::min(Cap.JointStart.Y, Cap.JointEnd.Y) - MaxR,
+                std::min(Cap.JointStart.Z, Cap.JointEnd.Z) - MaxR
+            };
+            CapBounds.WorldMax = {
+                std::max(Cap.JointStart.X, Cap.JointEnd.X) + MaxR,
+                std::max(Cap.JointStart.Y, Cap.JointEnd.Y) + MaxR,
+                std::max(Cap.JointStart.Z, Cap.JointEnd.Z) + MaxR
+            };
+            uint64_t CapHash = Frontier::Constants::Fnv1a64OffsetBasis;
+            const float Fields[8] {
+                Cap.JointStart.X, Cap.JointStart.Y, Cap.JointStart.Z, Cap.RadiusStart,
+                Cap.JointEnd.X,   Cap.JointEnd.Y,   Cap.JointEnd.Z,   Cap.RadiusEnd
+            };
+            const auto* Raw = reinterpret_cast<const uint8_t*>(Fields);
+            for (std::size_t B = 0u; B < sizeof(Fields); ++B)
+            {
+                CapHash ^= static_cast<uint64_t>(Raw[B]);
+                CapHash *= Frontier::Constants::Fnv1a64Prime;
+            }
+            CapBounds.IdentityKey   = 0x8000000000000000ull + static_cast<uint64_t>(C);
+            CapBounds.TransformHash = CapHash;
+            CombinedBounds.push_back(CapBounds);
+        }
+    }
+
+    const DistanceFieldSpace::GlobalDistanceUpdatePlan Plan =
+        GdfSchedule.BuildUpdatePlan(FocusWorld, CombinedBounds, ForceFullReset);
+    const auto& Slices = GdfSchedule.QueryCascades();
+
+    for (uint32_t C = 0u; C < kCascadeCnt; ++C)
+    {
+        const auto& Slice = Slices[C];
+        CascadeCenterSpan[C] = std::array<float, 4u>{{ Slice.CenterWorld[0], Slice.CenterWorld[1], Slice.CenterWorld[2], Slice.HalfSpanMeters }};
+        CascadeMinCell[C]    = std::array<int32_t, 4u>{{ Slice.MinCellWorld[0], Slice.MinCellWorld[1], Slice.MinCellWorld[2], static_cast<int32_t>(C) }};
+    }
+
+    // Mirror Cascade 0 & Cascade 1 into legacy stats & radiosity fields for seamless 2-bounce GI alignment
+    for (uint32_t K = 0u; K < 4u; ++K)
+    {
+        CachedFineGdfCenterSpan[K]   = CascadeCenterSpan[0][K];
+        CachedCoarseGdfCenterSpan[K] = CascadeCenterSpan[1][K];
+    }
+    CachedFineToroidalMinCell[0]   = CascadeMinCell[0][0];
+    CachedFineToroidalMinCell[1]   = CascadeMinCell[0][1];
+    CachedFineToroidalMinCell[2]   = CascadeMinCell[0][2];
+    CachedCoarseToroidalMinCell[0] = CascadeMinCell[1][0];
+    CachedCoarseToroidalMinCell[1] = CascadeMinCell[1][1];
+    CachedCoarseToroidalMinCell[2] = CascadeMinCell[1][2];
+    FineToroidalValid              = true;
+    CoarseToroidalValid            = true;
+
+    DistanceFieldStats.FineCascadeCenterWorld[0]   = CascadeCenterSpan[0][0];
+    DistanceFieldStats.FineCascadeCenterWorld[1]   = CascadeCenterSpan[0][1];
+    DistanceFieldStats.FineCascadeCenterWorld[2]   = CascadeCenterSpan[0][2];
+    DistanceFieldStats.FineCascadeHalfSpanMeters   = CascadeCenterSpan[0][3];
+    DistanceFieldStats.CoarseCascadeCenterWorld[0] = CascadeCenterSpan[1][0];
+    DistanceFieldStats.CoarseCascadeCenterWorld[1] = CascadeCenterSpan[1][1];
+    DistanceFieldStats.CoarseCascadeCenterWorld[2] = CascadeCenterSpan[1][2];
+    DistanceFieldStats.CoarseCascadeHalfSpanMeters = CascadeCenterSpan[1][3];
+
+    std::array<DeviceImageResource*, 4u> CascadeImages {{
+        &GdfFineImage3D,
+        &GdfCoarseImage3D,
+        &GdfCascade2Image3D,
+        &GdfCascade3Image3D
+    }};
+
+    auto TransitionImage3D = [&](VkImage Img, VkImageLayout OldL, VkImageLayout NewL,
+                                 VkAccessFlags SrcAccess, VkAccessFlags DstAccess)
+    {
+        VkImageMemoryBarrier Barrier {};
+        Barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        Barrier.oldLayout           = OldL;
+        Barrier.newLayout           = NewL;
+        Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        Barrier.image               = Img;
+        Barrier.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+        Barrier.srcAccessMask       = SrcAccess;
+        Barrier.dstAccessMask       = DstAccess;
+        vkCmdPipelineBarrier(
+            Cmd,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0u,
+            0u, nullptr,
+            0u, nullptr,
+            1u, &Barrier);
+    };
+
+    uint8_t* BrickUniBase   = reinterpret_cast<uint8_t*>(GdfBrickUniformBuffer.HostAddress) + SafeSlice * kSliceUniBytes;
+    uint8_t* BrickCoordBase = reinterpret_cast<uint8_t*>(GdfDirtyBrickCoordBuffer.HostAddress) + SafeSlice * kSliceCoordBytes;
+    bool AnyDispatched      = false;
+
+    for (uint32_t C = 0u; C < kCascadeCnt; ++C)
+    {
+        const auto& CPlan = Plan.Cascades[C];
+        const auto& Slice = Slices[C];
+        const uint32_t DirtyCount = static_cast<uint32_t>(CPlan.PackedBrickCoords.size());
+        if (DirtyCount == 0u)
+        {
+            continue;
+        }
+
+        const uint64_t UniOffs   = static_cast<uint64_t>(SafeSlice) * kSliceUniBytes + static_cast<uint64_t>(C) * kBrickUniStride;
+        const uint64_t CoordOffs = static_cast<uint64_t>(SafeSlice) * kSliceCoordBytes + static_cast<uint64_t>(C) * kBricksPerCas * sizeof(uint32_t);
+        const uint64_t ArgsOffs  = static_cast<uint64_t>(C) * kIndirectArgsStride;
+
+        GpuGlobalDistanceBrickUniformsStd140 BrickUni {};
+        BrickUni.CascadeCenterHalfSpan[0] = Slice.CenterWorld[0];
+        BrickUni.CascadeCenterHalfSpan[1] = Slice.CenterWorld[1];
+        BrickUni.CascadeCenterHalfSpan[2] = Slice.CenterWorld[2];
+        BrickUni.CascadeCenterHalfSpan[3] = Slice.HalfSpanMeters;
+        BrickUni.CascadeMinCellIndex[0]   = Slice.MinCellWorld[0];
+        BrickUni.CascadeMinCellIndex[1]   = Slice.MinCellWorld[1];
+        BrickUni.CascadeMinCellIndex[2]   = Slice.MinCellWorld[2];
+        BrickUni.CascadeMinCellIndex[3]   = static_cast<int32_t>(C);
+        uint32_t TruncBits = 0u;
+        std::memcpy(&TruncBits, &Slice.TruncationMeters, sizeof(uint32_t));
+        BrickUni.CountsTruncation[0] = DirtyCount;
+        BrickUni.CountsTruncation[1] = UploadedLocalSdfInstanceCount;
+        BrickUni.CountsTruncation[2] = UploadedBoneCapsuleCount;
+        BrickUni.CountsTruncation[3] = TruncBits;
+        BrickUni.ShellOptions[0]     = (C == 0u) ? 1u : 0u;
+        std::memcpy(BrickUniBase + C * kBrickUniStride, &BrickUni, sizeof(BrickUni));
+        std::memcpy(
+            BrickCoordBase + static_cast<uint64_t>(C) * kBricksPerCas * sizeof(uint32_t),
+            CPlan.PackedBrickCoords.data(),
+            static_cast<std::size_t>(DirtyCount) * sizeof(uint32_t));
+
+        // Zero indirect dispatch counter for cascade C and synchronize transfer -> compute
+        vkCmdFillBuffer(Cmd, GdfBrickIndirectArgsBuffer.BufferHandle, ArgsOffs, 16ull, 0u);
+        VkMemoryBarrier FillBarrier {};
+        FillBarrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        FillBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        FillBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(
+            Cmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0u,
+            1u, &FillBarrier,
+            0u, nullptr,
+            0u, nullptr);
+
+        // GPU Pass 1: Sparse 8x8x8 brick culling -> OutBrickBuckets + OutIndirectArgs
+        const std::array<ComputeSlotDescriptor, 6u> CullSlots {{
+            { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GdfBrickUniformBuffer.BufferHandle,         sizeof(GpuGlobalDistanceBrickUniformsStd140), UniOffs },
+            { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, DynamicLocalSdfInstanceBuffer.BufferHandle, VK_WHOLE_SIZE, 0ull },
+            { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, DeformingBoneCapsuleBuffer.BufferHandle,    VK_WHOLE_SIZE, 0ull },
+            { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GdfDirtyBrickCoordBuffer.BufferHandle,      static_cast<uint64_t>(DirtyCount) * sizeof(uint32_t), CoordOffs },
+            { 4u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GdfBrickCullBucketBuffer.BufferHandle,      VK_WHOLE_SIZE, 0ull },
+            { 5u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GdfBrickIndirectArgsBuffer.BufferHandle,    16ull, ArgsOffs },
+        }};
+        const uint32_t CullGroups = (DirtyCount + 63u) / 64u;
+        if (!DispatchEncoder.EncodeComputeDispatch(Cmd, GdfBrickCullProgramHandle, CullSlots, CullGroups, 1u, 1u))
+        {
+            return false;
+        }
+
+        // Transition target 128^3 cascade & 16^3 brick-min summary into GENERAL for Pass 2
+        TransitionImage3D(
+            CascadeImages[C]->ImageHandle,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT);
+        TransitionImage3D(
+            GdfBrickMinImages3D[C].ImageHandle,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT);
+
+        // GPU Pass 2: vkCmdDispatchIndirect evaluating ONLY dirty 8x8x8 bricks using their culled object buckets
+        const std::array<ComputeSlotDescriptor, 8u> BuildSlots {{
+            { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GdfBrickUniformBuffer.BufferHandle,         sizeof(GpuGlobalDistanceBrickUniformsStd140), UniOffs },
+            { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, LocalAssetSdfVoxelBuffer.BufferHandle,      VK_WHOLE_SIZE, 0ull },
+            { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, DynamicLocalSdfInstanceBuffer.BufferHandle, VK_WHOLE_SIZE, 0ull },
+            { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, DeformingBoneCapsuleBuffer.BufferHandle,    VK_WHOLE_SIZE, 0ull },
+            { 4u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GdfBrickCullBucketBuffer.BufferHandle,      VK_WHOLE_SIZE, 0ull },
+            { 5u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_NULL_HANDLE, 0ull, 0ull, CascadeImages[C]->ViewHandle,        VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL },
+            { 6u, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,  VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[C].ViewHandle,   VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL },
+            { 7u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GlobalSurfaceShellBuffer.BufferHandle,      VK_WHOLE_SIZE, 0ull },
+        }};
+        if (!DispatchEncoder.EncodeComputeDispatchIndirect(
+                Cmd,
+                GdfBrickBuildProgramHandle,
+                BuildSlots,
+                GdfBrickIndirectArgsBuffer.BufferHandle,
+                ArgsOffs))
+        {
+            return false;
+        }
+
+        // Transition target cascade & brick-min summary back to SHADER_READ_ONLY_OPTIMAL
+        TransitionImage3D(
+            CascadeImages[C]->ImageHandle,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT);
+        TransitionImage3D(
+            GdfBrickMinImages3D[C].ImageHandle,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT);
+
+        if (C == 0u)
+        {
+            DistanceFieldStats.LastFineUpdatedVoxelCount = DirtyCount * 512u;
+            DistanceFieldStats.CascadeBakeCount         += 1u;
+            if (!CPlan.FullResetRequired)
+            {
+                DistanceFieldStats.ToroidalSlabScrollCount += 1u;
+            }
+        }
+        else if (C == 1u)
+        {
+            DistanceFieldStats.LastCoarseUpdatedVoxelCount = DirtyCount * 512u;
+            if (CPlan.FullResetRequired)
+            {
+                DistanceFieldStats.CoarseCascadeBakeCount += 1u;
+            }
+        }
+        AnyDispatched = true;
+    }
+
+    if (AnyDispatched)
+    {
+        GlobalDistanceFieldReady = true;
+    }
+    PendingGdfBrickSync = false;
+    return true;
 }
 
 Mathematics::Axis3D VulkanWorldRenderSequence::ResolveDynamicClipFocusWorld(
@@ -4910,8 +5280,6 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
 
     std::array<ToroidalSlabBox, 3u> FineSlabs {};
     std::array<ToroidalSlabBox, 3u> CoarseSlabs {};
-    uint32_t FineSlabCount    = 0u;
-    uint32_t CoarseSlabCount  = 0u;
     uint32_t FineVoxWritten   = 0u;
     uint32_t CoarseVoxWritten = 0u;
 
@@ -4922,7 +5290,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             SnapMinCellStep4(LastFineGdfFocusWorld.Y, FineVoxelM, CachedFineToroidalMinCell[1], FullFineReset),
             SnapMinCellStep4(LastFineGdfFocusWorld.Z, FineVoxelM, CachedFineToroidalMinCell[2], FullFineReset),
         };
-        FineSlabCount = ConstructToroidalDirtySlabs(
+        (void)ConstructToroidalDirtySlabs(
             CachedFineToroidalMinCell,
             NextFineMin,
             FullFineReset,
@@ -4943,7 +5311,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             SnapMinCellStep4(LastCoarseGdfFocusWorld.Y, CoarseVoxelM, CachedCoarseToroidalMinCell[1], FullCoarseReset),
             SnapMinCellStep4(LastCoarseGdfFocusWorld.Z, CoarseVoxelM, CachedCoarseToroidalMinCell[2], FullCoarseReset),
         };
-        CoarseSlabCount = ConstructToroidalDirtySlabs(
+        (void)ConstructToroidalDirtySlabs(
             CachedCoarseToroidalMinCell,
             NextCoarseMin,
             FullCoarseReset,
@@ -5009,9 +5377,9 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         static_cast<uint64_t>(CachedSunCascade.ResolutionTexels) * static_cast<uint64_t>(CachedSunCascade.ResolutionTexels);
     const uint64_t ShadowDepthBytes = ShadowDepthTexels * sizeof(float);
     EnsureDeviceBufferCapacity(SolarShadowDepthBuffer, ShadowDepthBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kRadiosityVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     EnsureDeviceBufferCapacity(OutputPixelBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(AccumulationHdrBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -5123,6 +5491,11 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     std::memcpy(Uniforms.GlobalDistanceCoarseCenterSpan, CachedCoarseGdfCenterSpan, sizeof(CachedCoarseGdfCenterSpan));
     std::memcpy(Uniforms.GlobalDistanceFineToroidalCell, CachedFineToroidalMinCell, sizeof(CachedFineToroidalMinCell));
     std::memcpy(Uniforms.GlobalDistanceCoarseToroidalCell, CachedCoarseToroidalMinCell, sizeof(CachedCoarseToroidalMinCell));
+    for (uint32_t C = 0u; C < 4u; ++C)
+    {
+        std::memcpy(Uniforms.GlobalDistanceCascadeCenterSpan[C], CascadeCenterSpan[C].data(), sizeof(float) * 4u);
+        std::memcpy(Uniforms.GlobalDistanceCascadeMinCell[C],    CascadeMinCell[C].data(),    sizeof(int32_t) * 4u);
+    }
     Uniforms.GlobalDistanceBakeControl[2] = 1u;
     Uniforms.GlobalDistanceBakeControl[3] = (UploadedLocalSdfInstanceCount & 0xFFFFu) << 16u;
 
@@ -5150,7 +5523,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         VkImageView   RadCoarseReadView,
         VkImageLayout RadCoarseReadLayout,
         VkImageView   GdfWriteView,
-        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 48u>
+        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 54u>
     {
         return {{
             {  0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, PrecomputeUniformBuffer.BufferHandle,         sizeof(WorldViewportUniformBlockStd140), UniOffs },
@@ -5201,6 +5574,12 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
             { 46u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PingDirectDiffuseBuffer.BufferHandle,    VK_WHOLE_SIZE },
             { 47u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PongDirectDiffuseBuffer.BufferHandle,    VK_WHOLE_SIZE },
+            { 48u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfCascade2Image3D.ViewHandle,     LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 49u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfCascade3Image3D.ViewHandle,     LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 50u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[0].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 51u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[1].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 52u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[2].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 53u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[3].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
         }};
     };
 
@@ -5271,19 +5650,39 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         const VkClearColorValue ClearZero {{ 0.0f, 0.0f, 0.0f, 0.0f }};
         TransitionVol3D(GdfFineImage3D.ImageHandle,         0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         TransitionVol3D(GdfCoarseImage3D.ImageHandle,       0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        TransitionVol3D(GdfCascade2Image3D.ImageHandle,     0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        TransitionVol3D(GdfCascade3Image3D.ImageHandle,     0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        for (uint32_t C = 0u; C < 4u; ++C)
+        {
+            TransitionVol3D(GdfBrickMinImages3D[C].ImageHandle, 0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        }
         TransitionVol3D(RadiosityMip0Image3D.ImageHandle,   0u, 1u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         TransitionVol3D(RadiosityCoarseImage3D.ImageHandle, 0u, 3u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         vkCmdClearColorImage(Cmd, GdfFineImage3D.ImageHandle,         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
         vkCmdClearColorImage(Cmd, GdfCoarseImage3D.ImageHandle,       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+        vkCmdClearColorImage(Cmd, GdfCascade2Image3D.ImageHandle,     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+        vkCmdClearColorImage(Cmd, GdfCascade3Image3D.ImageHandle,     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf,  1u, &Range1);
+        for (uint32_t C = 0u; C < 4u; ++C)
+        {
+            vkCmdClearColorImage(Cmd, GdfBrickMinImages3D[C].ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearGdf, 1u, &Range1);
+        }
         vkCmdClearColorImage(Cmd, RadiosityMip0Image3D.ImageHandle,   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearZero, 1u, &Range1);
         vkCmdClearColorImage(Cmd, RadiosityCoarseImage3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearZero, 1u, &Range3);
         TransitionVol3D(GdfFineImage3D.ImageHandle,         0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
         TransitionVol3D(GdfCoarseImage3D.ImageHandle,       0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        TransitionVol3D(GdfCascade2Image3D.ImageHandle,     0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        TransitionVol3D(GdfCascade3Image3D.ImageHandle,     0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        for (uint32_t C = 0u; C < 4u; ++C)
+        {
+            TransitionVol3D(GdfBrickMinImages3D[C].ImageHandle, 0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        }
         TransitionVol3D(RadiosityMip0Image3D.ImageHandle,   0u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
         TransitionVol3D(RadiosityCoarseImage3D.ImageHandle, 0u, 3u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
         GlobalDistanceFieldReady = false;
         FineToroidalValid        = false;
         CoarseToroidalValid      = false;
+        GdfSchedule.ResetSchedule();
+        PendingGdfBrickSync      = true;
     }
     else
     {
@@ -5336,118 +5735,54 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             TargetUni.GlobalDistanceSlabBounds[3] = 1u;
         };
 
-        if (DoFineGdfUpdate || DoCoarseGdfUpdate)
+        if (DoFineGdfUpdate || DoCoarseGdfUpdate || PendingGdfBrickSync || !GlobalDistanceFieldReady)
         {
-            bool DispatchedAnySlab  = false;
-            bool IncrementalScrolled = false;
-            for (uint32_t CascadeIdx = 0u; CascadeIdx < 2u; ++CascadeIdx)
+            if (!DispatchSparseBrickGlobalDistanceUpdate(
+                    Cmd,
+                    Scene,
+                    LastFineGdfFocusWorld,
+                    PendingFineGeometryReset || !GlobalDistanceFieldReady,
+                    2u))
             {
-                const bool      ActiveCascade = (CascadeIdx == 0u) ? DoFineGdfUpdate : DoCoarseGdfUpdate;
-                const uint32_t  SlabCnt       = (CascadeIdx == 0u) ? FineSlabCount   : CoarseSlabCount;
-                const auto&     SlabArray     = (CascadeIdx == 0u) ? FineSlabs       : CoarseSlabs;
-                if (!ActiveCascade || SlabCnt == 0u)
-                {
-                    continue;
-                }
-
-                DeviceImageResource& DstGdfImg = (CascadeIdx == 0u) ? GdfFineImage3D : GdfCoarseImage3D;
-                TransitionVol3D(
-                    DstGdfImg.ImageHandle, 0u, 1u,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT);
-
-                for (uint32_t SlabIdx = 0u; SlabIdx < SlabCnt; ++SlabIdx)
-                {
-                    const ToroidalSlabBox& Box = SlabArray[SlabIdx];
-                    const uint32_t ExtX    = Box.MaxCoord[0] - Box.MinCoord[0];
-                    const uint32_t ExtY    = Box.MaxCoord[1] - Box.MinCoord[1];
-                    const uint32_t ExtZ    = Box.MaxCoord[2] - Box.MinCoord[2];
-                    const uint32_t GroupsX = (ExtX + 3u) / 4u;
-                    const uint32_t GroupsY = (ExtY + 3u) / 4u;
-                    const uint32_t GroupsZ = (ExtZ + 3u) / 4u;
-
-                    const uint64_t UniOffs = static_cast<uint64_t>(NextUniSlot++) * UniformStrideBytes;
-                    WorldViewportUniformBlockStd140 GdfUni = Uniforms;
-                    GdfUni.GlobalDistanceBakeControl[0] = 0u;
-                    GdfUni.GlobalDistanceBakeControl[1] = CascadeIdx;
-                    GdfUni.GlobalDistanceBakeControl[2] = 1u;
-                    PackSlabUniform(GdfUni, Box);
-                    std::memcpy(UniformHostBytes + UniOffs, &GdfUni, sizeof(GdfUni));
-
-                    const auto GdfSlots = ConstructPrecomputeSlots(
-                        UniOffs,
-                        (CascadeIdx == 0u) ? DummyFloat1x1x1Image3D.ViewHandle : GdfFineImage3D.ViewHandle,
-                        (CascadeIdx == 0u) ? VK_IMAGE_LAYOUT_GENERAL          : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        (CascadeIdx == 1u) ? DummyFloat1x1x1Image3D.ViewHandle : GdfCoarseImage3D.ViewHandle,
-                        (CascadeIdx == 1u) ? VK_IMAGE_LAYOUT_GENERAL          : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        RadiosityMip0Image3D.ViewHandle,   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        RadiosityCoarseImage3D.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        DstGdfImg.ViewHandle,
-                        DummyRgba1x1x1Image3D.ViewHandle);
-                    if (!DispatchEncoder.EncodeComputeDispatch(Cmd, GlobalDistanceBakeProgramHandle, GdfSlots, GroupsX, GroupsY, GroupsZ))
-                    {
-                        BoundDevice->FreeCommandBuffer(Cmd);
-                        return false;
-                    }
-                    DispatchedAnySlab = true;
-                }
-
-                TransitionVol3D(
-                    DstGdfImg.ImageHandle, 0u, 1u,
-                    VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
-
-                if (CascadeIdx == 0u)
-                {
-                    DistanceFieldStats.LastFineUpdatedVoxelCount = FineVoxWritten;
-                    if (!FullFineReset && FineVoxWritten < kGdfVoxelCount)
-                    {
-                        IncrementalScrolled = true;
-                    }
-                }
-                else
-                {
-                    DistanceFieldStats.LastCoarseUpdatedVoxelCount = CoarseVoxWritten;
-                    DistanceFieldStats.CoarseCascadeBakeCount     += 1u;
-                    if (!FullCoarseReset && CoarseVoxWritten < kGdfVoxelCount)
-                    {
-                        IncrementalScrolled = true;
-                    }
-                }
+                BoundDevice->FreeCommandBuffer(Cmd);
+                return false;
             }
-            if (DispatchedAnySlab)
+            // Refresh Uniforms with exact 4-cascade sparse-brick centers & cells for downstream 2-bounce Radiosity Mip0
+            std::memcpy(&CachedFineToroidalMinCell[3], &ActiveAnalyticGroundPlaneZ, sizeof(float));
+            std::memcpy(&CachedCoarseToroidalMinCell[3], &ActiveAnalyticGroundMaterialSlot, sizeof(uint32_t));
+            std::memcpy(Uniforms.GlobalDistanceFineCenterSpan, CachedFineGdfCenterSpan, sizeof(CachedFineGdfCenterSpan));
+            std::memcpy(Uniforms.GlobalDistanceCoarseCenterSpan, CachedCoarseGdfCenterSpan, sizeof(CachedCoarseGdfCenterSpan));
+            std::memcpy(Uniforms.GlobalDistanceFineToroidalCell, CachedFineToroidalMinCell, sizeof(CachedFineToroidalMinCell));
+            std::memcpy(Uniforms.GlobalDistanceCoarseToroidalCell, CachedCoarseToroidalMinCell, sizeof(CachedCoarseToroidalMinCell));
+            for (uint32_t C = 0u; C < 4u; ++C)
             {
-                DistanceFieldStats.CascadeBakeCount += 1u;
+                std::memcpy(Uniforms.GlobalDistanceCascadeCenterSpan[C], CascadeCenterSpan[C].data(), sizeof(float) * 4u);
+                std::memcpy(Uniforms.GlobalDistanceCascadeMinCell[C],    CascadeMinCell[C].data(),    sizeof(int32_t) * 4u);
             }
-            if (IncrementalScrolled)
-            {
-                DistanceFieldStats.ToroidalSlabScrollCount += 1u;
-            }
+            Uniforms.GiPortalCounts[0] = UploadedEmissiveClusterCount;
+            Uniforms.GiPortalCounts[1] = UploadedBoneCapsuleCount;
+            Uniforms.GiPortalCounts[2] = UploadedSurfelCount;
+            Uniforms.GiPortalCounts[3] = (UploadedPortalPairCount & 0xFFu) | ((UploadedClipRangeCount & 0xFFu) << 8u);
         }
         InsertPrecomputeBarrier();
 
         const bool DoRadiosity = ((EffectiveMask & kPrecomputeRadiosity) != 0u) && (GlobalRadiosityProgramHandle != UINT32_MAX);
         if (DoRadiosity)
         {
-            const bool IncrementalRadiositySlabs =
-                DoFineGdfUpdate &&
-                !FullFineReset &&
-                ((EffectiveMask & kPrecomputeRadiosityFull) == 0u);
             const std::array<ToroidalSlabBox, 3u> FullVolumeSlabs {{
-                ToroidalSlabBox{ { 0u, 0u, 0u }, { kGdfGridRes, kGdfGridRes, kGdfGridRes } },
+                ToroidalSlabBox{ { 0u, 0u, 0u }, { kRadiosityGridRes, kRadiosityGridRes, kRadiosityGridRes } },
                 ToroidalSlabBox{},
                 ToroidalSlabBox{},
             }};
-            const auto&    RadSlabArray = IncrementalRadiositySlabs ? FineSlabs     : FullVolumeSlabs;
-            const uint32_t RadSlabCount = IncrementalRadiositySlabs ? FineSlabCount : 1u;
+            const bool     IncrementalRadiositySlabs = false;
+            const auto&    RadSlabArray = FullVolumeSlabs;
+            const uint32_t RadSlabCount = 1u;
 
             if (RadSlabCount > 0u)
             {
                 const uint32_t PhaseCount = ((EffectiveMask & kPrecomputeSecondBounce) != 0u) ? 8u : 4u;
-                // 96 -> 48 -> 24 -> 12 voxels divided by 4x4x4 workgroups = 24, 12, 6, 3 groups per axis
-                constexpr std::array<uint32_t, 8u> PhaseGroupCounts {{ 24u, 12u, 6u, 3u, 24u, 12u, 6u, 3u }};
+                // 64 -> 32 -> 16 -> 8 voxels divided by 4x4x4 workgroups = 16, 8, 4, 2 groups per axis
+                constexpr std::array<uint32_t, 8u> PhaseGroupCounts {{ 16u, 8u, 4u, 2u, 16u, 8u, 4u, 2u }};
                 for (uint32_t Phase = 0u; Phase < PhaseCount; ++Phase)
                 {
                     if (Phase == 0u)
@@ -5511,7 +5846,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                             VkImageCopy SeedCopy {};
                             SeedCopy.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
                             SeedCopy.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                            SeedCopy.extent         = { kGdfGridRes, kGdfGridRes, kGdfGridRes };
+                            SeedCopy.extent         = { kRadiosityGridRes, kRadiosityGridRes, kRadiosityGridRes };
                             vkCmdCopyImage(
                                 Cmd,
                                 RadiosityMip0Image3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -5573,7 +5908,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
                         VkImageCopy Copy2nd {};
                         Copy2nd.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
                         Copy2nd.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                        Copy2nd.extent         = { kGdfGridRes, kGdfGridRes, kGdfGridRes };
+                        Copy2nd.extent         = { kRadiosityGridRes, kRadiosityGridRes, kRadiosityGridRes };
                         vkCmdCopyImage(
                             Cmd,
                             RadiosityMip0ScratchImage3D.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -6112,6 +6447,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     if (UploadedBoneCapsuleCount > 0u || PrevBoneCaps > 0u || DeformingBoneCapsuleBuffer.BufferHandle == VK_NULL_HANDLE)
     {
         UploadHostVisibleBuffer(DeformingBoneCapsuleBuffer, BoneCapsules.data(), BoneCapsules.size() * sizeof(GpuBoneCapsule32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        PendingGdfBrickSync = true;
     }
 
     // -------------------------------------------------------------------------
@@ -7579,6 +7915,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         {
             const Mathematics::Axis3D BoundsSpan    = Scene.SceneTree.RootBoundsMax - Scene.SceneTree.RootBoundsMin;
             float                     MaxHalfExtent = 0.5f * std::max({ std::abs(BoundsSpan.X), std::abs(BoundsSpan.Y), std::abs(BoundsSpan.Z), 5.6f });
+            bool                      AnyCasterBounds = false;
             {
                 Mathematics::Axis3D CasterMin {
                     std::numeric_limits<float>::max(),
@@ -7590,7 +7927,6 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                     std::numeric_limits<float>::lowest(),
                     std::numeric_limits<float>::lowest()
                 };
-                bool AnyCasterBounds = false;
                 for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
                 {
                     if (!Inst.VisibilityEnabled || Inst.TransparentGlass || !Inst.CastShadows || Inst.UniformScale <= MinimumValidScaleFloor)
@@ -7643,17 +7979,21 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             const float               FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.50f, 5.25f) * 8.0f) * 0.125f;
             const float               CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
 
-            // Anchor Fine GDF to the scene's foreground subjects whenever the camera orbits near the studio,
-            // so static baked GDF + 2-bounce 3D Radiosity are baked ONCE and reused with ZERO orbit rebakes!
-            const Mathematics::Axis3D SceneSubjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
-            const float CameraSubjectSpan = std::max({
-                std::abs(DesiredClipFocus.X - SceneSubjectAnchor.X),
-                std::abs(DesiredClipFocus.Y - SceneSubjectAnchor.Y),
-                std::abs(DesiredClipFocus.Z - SceneSubjectAnchor.Z),
-            });
-            if (CameraSubjectSpan <= FineGdfHalf * 0.60f)
+            // Anchor Fine GDF to the scene's foreground subjects whenever the camera orbits near a hero asset,
+            // so static baked GDF + 2-bounce 3D Radiosity are baked ONCE and reused with ZERO orbit rebakes.
+            // On open ground / terrain scenes without foreground casters, let Cascade 0 scroll toroidally with camera!
+            if (AnyCasterBounds)
             {
-                DesiredClipFocus = SceneSubjectAnchor;
+                const Mathematics::Axis3D SceneSubjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
+                const float CameraSubjectSpan = std::max({
+                    std::abs(DesiredClipFocus.X - SceneSubjectAnchor.X),
+                    std::abs(DesiredClipFocus.Y - SceneSubjectAnchor.Y),
+                    std::abs(DesiredClipFocus.Z - SceneSubjectAnchor.Z),
+                });
+                if (CameraSubjectSpan <= FineGdfHalf * 0.60f)
+                {
+                    DesiredClipFocus = SceneSubjectAnchor;
+                }
             }
 
             (void)SynchronizeMaterialEntriesIfChanged(Scene);
@@ -7667,7 +8007,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 std::abs(DesiredClipFocus.Y - CachedFineGdfCenterSpan[1]),
                 std::abs(DesiredClipFocus.Z - CachedFineGdfCenterSpan[2]),
             });
-            if (!FineToroidalValid || FineAxisDrift >= FineGdfHalf * 0.40f)
+            if (!FineToroidalValid || FineAxisDrift >= std::max(0.50f, FineGdfHalf * 0.125f))
             {
                 PrecomputeMask |= kPrecomputeFineGdf;
                 if (UsesRadiosityField)
@@ -8292,6 +8632,11 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     std::memcpy(Uniforms.GlobalDistanceCoarseCenterSpan, CachedCoarseGdfCenterSpan, sizeof(CachedCoarseGdfCenterSpan));
     std::memcpy(Uniforms.GlobalDistanceFineToroidalCell, CachedFineToroidalMinCell, sizeof(CachedFineToroidalMinCell));
     std::memcpy(Uniforms.GlobalDistanceCoarseToroidalCell, CachedCoarseToroidalMinCell, sizeof(CachedCoarseToroidalMinCell));
+    for (uint32_t C = 0u; C < 4u; ++C)
+    {
+        std::memcpy(Uniforms.GlobalDistanceCascadeCenterSpan[C], CascadeCenterSpan[C].data(), sizeof(float) * 4u);
+        std::memcpy(Uniforms.GlobalDistanceCascadeMinCell[C],    CascadeMinCell[C].data(),    sizeof(int32_t) * 4u);
+    }
     Uniforms.GlobalDistanceSlabBounds[3] = 0u;
     Uniforms.GlobalDistanceBakeControl[0] = 0u;
     Uniforms.GlobalDistanceBakeControl[1] = 0u;
@@ -8500,6 +8845,34 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
 
     WriteStamp(0u, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+    {
+        const Mathematics::Axis3D LiveFocus = ActiveClipFocusInitialized
+            ? ActiveClipFocusWorld
+            : ResolveDynamicClipFocusWorld(&Camera, Scene);
+        const bool Cascade0ScrollCandidate =
+            (std::abs(LiveFocus.X - CascadeCenterSpan[0][0]) >= 0.75f) ||
+            (std::abs(LiveFocus.Y - CascadeCenterSpan[0][1]) >= 0.75f) ||
+            (std::abs(LiveFocus.Z - CascadeCenterSpan[0][2]) >= 0.75f);
+        if (PendingGdfBrickSync || !GlobalDistanceFieldReady || Cascade0ScrollCandidate)
+        {
+            if (DispatchSparseBrickGlobalDistanceUpdate(Cmd, Scene, LiveFocus, !GlobalDistanceFieldReady, SlotIdx))
+            {
+                std::memcpy(&CachedFineToroidalMinCell[3], &ActiveAnalyticGroundPlaneZ, sizeof(float));
+                std::memcpy(&CachedCoarseToroidalMinCell[3], &ActiveAnalyticGroundMaterialSlot, sizeof(uint32_t));
+                std::memcpy(Uniforms.GlobalDistanceFineCenterSpan, CachedFineGdfCenterSpan, sizeof(CachedFineGdfCenterSpan));
+                std::memcpy(Uniforms.GlobalDistanceCoarseCenterSpan, CachedCoarseGdfCenterSpan, sizeof(CachedCoarseGdfCenterSpan));
+                std::memcpy(Uniforms.GlobalDistanceFineToroidalCell, CachedFineToroidalMinCell, sizeof(CachedFineToroidalMinCell));
+                std::memcpy(Uniforms.GlobalDistanceCoarseToroidalCell, CachedCoarseToroidalMinCell, sizeof(CachedCoarseToroidalMinCell));
+                for (uint32_t C = 0u; C < 4u; ++C)
+                {
+                    std::memcpy(Uniforms.GlobalDistanceCascadeCenterSpan[C], CascadeCenterSpan[C].data(), sizeof(float) * 4u);
+                    std::memcpy(Uniforms.GlobalDistanceCascadeMinCell[C],    CascadeMinCell[C].data(),    sizeof(int32_t) * 4u);
+                }
+                Uniforms.GlobalDistanceBakeControl[2] = GlobalDistanceFieldReady ? 1u : 0u;
+                std::memcpy(UniformBytes, &Uniforms, sizeof(Uniforms));
+            }
+        }
+    }
     if (AtmoActive)
     {
         DispatchGpuSkyViewLut(Cmd, Scene);
@@ -8518,7 +8891,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     WriteStamp(1u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     EnsureBufferCapacity(ActiveClusterMaskBuffer, MaskSliceOffsetBytes * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 48u>
+    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 54u>
     {
         const auto& InShadow      = SwapPingPong ? PongShadowAoBuffer : PingShadowAoBuffer;
         const auto& OutShadow     = SwapPingPong ? PingShadowAoBuffer : PongShadowAoBuffer;
@@ -8575,6 +8948,12 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
             { 46u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         InDirectDiff.BufferHandle,               AccBytes      },
             { 47u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         OutDirectDiff.BufferHandle,              AccBytes      },
+            { 48u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfCascade2Image3D.ViewHandle,     LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 49u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfCascade3Image3D.ViewHandle,     LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 50u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[0].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 51u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[1].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 52u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[2].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+            { 53u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_NULL_HANDLE, 0ull, 0ull, GdfBrickMinImages3D[3].ViewHandle, LinearRepeatSampler3D, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
         }};
     };
 
@@ -8640,19 +9019,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         SurfelRadiosityDirty = false;
     }
 
-    auto BuildLazyViewportSlots = []() -> std::array<VkDescriptorType, 48u>
+    auto BuildLazyViewportSlots = []() -> std::array<VkDescriptorType, 54u>
     {
-        std::array<VkDescriptorType, 48u> LazySlots {};
-        LazySlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        LazySlots[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        LazySlots[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        LazySlots[33] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        LazySlots[34] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        LazySlots[35] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        LazySlots[36] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        LazySlots[37] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        LazySlots[38] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        return LazySlots;
+        return MakeWorldComputeSlotTypes();
     };
     if ((EngIdx == 4u || EngIdx == 5u) && Config.DebugChannel == 0u && ViewportPathTraceProgramHandle == UINT32_MAX)
     {

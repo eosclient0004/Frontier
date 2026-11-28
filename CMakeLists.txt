@@ -428,6 +428,7 @@ function(frontier_compile_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV
         COMMAND "${FRONTIER_SLANGC_BIN}"
             "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
             -I "${FRONTIER_SHADER_SRC_DIR}"
+            -I "${CMAKE_SOURCE_DIR}/Engine/Shaders/DistanceField"
             -target spirv
             -profile spirv_1_3
             -emit-spirv-directly
@@ -440,6 +441,7 @@ function(frontier_compile_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV
         DEPENDS
             "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
             "${FRONTIER_SHADER_SRC_DIR}/MatCapEvaluation.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders/DistanceField/GlobalDistanceBrickShared.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/SkyViewTransmittanceCompute.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudNoise.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudDensity.slang"
@@ -481,6 +483,8 @@ frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   Background
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   VolumetricMediaCompositeEntry compute  WorldViewportVolumetricMediaCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ShadowCascadeComputeEntry compute  WorldViewportShadowCascadeCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   GlobalDistanceBakeEntry   compute  WorldViewportGlobalDistanceBake.comp.spv)
+frontier_compile_slang_shader(../DistanceField/GlobalDistanceBrickCullCompute.slang  BrickCullEntry  compute  GlobalDistanceBrickCull.comp.spv)
+frontier_compile_slang_shader(../DistanceField/GlobalDistanceBrickBuildCompute.slang BrickBuildEntry compute  GlobalDistanceBrickBuild.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   GlobalRadiosityBakeEntry  compute  WorldViewportGlobalRadiosityBake.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   SurfelRadiositySolveEntry compute  WorldViewportSurfelRadiositySolve.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ViewportPathTraceEntry    compute  WorldViewportPathTraceCompute.comp.spv)
@@ -1178,6 +1182,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/ParametricSketcher/Document/SketcherSpecimen.cpp
     Engine/DistanceFieldSpace/CompiledSurfaceField.cpp
     Engine/DistanceFieldSpace/LocalSignedDistanceVolume.cpp
+    Engine/DistanceFieldSpace/GlobalDistanceFieldVolume.cpp
     Engine/SpatialAcceleration/ClusterPyramid.cpp
     Engine/SpatialAcceleration/WideBoundingTree.cpp
     Engine/SpatialAcceleration/CompressedWideTree.cpp
