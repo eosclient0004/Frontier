@@ -3368,9 +3368,12 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                     SafeStep);
             }
 
-            bool ProjectAdapterMutated     = false;
+            const bool PathTracerEngineActive = (DisplayCfg.RenderEngineIndex == 4u || DisplayCfg.RenderEngineIndex == 5u);
+            const bool ShouldTickProjectAdapter = !PathTracerEngineActive || WorldSimEnabled;
+
+            bool ProjectAdapterMutated        = false;
             bool ProjectAdapterMaterialsDirty = false;
-            if (ActiveProjectSceneAdapter != nullptr && ActiveProjectSceneAdapter->TickEditorScene)
+            if (ShouldTickProjectAdapter && ActiveProjectSceneAdapter != nullptr && ActiveProjectSceneAdapter->TickEditorScene)
             {
                 ProjectSceneSimSeconds += SafeStep;
                 ProjectAdapterMutated = ActiveProjectSceneAdapter->TickEditorScene(
@@ -3393,7 +3396,8 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 {
                     (void)GpuWorldRenderer->SynchronizeMaterialEntriesIfChanged(ShowcaseBundle->Scene);
                 }
-                GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
+                // Fast dynamic-only GPU sync: NEVER rebuild static baked BVH/GDF/shadows on dynamic motion!
+                GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, false);
             }
             if (InteractionSceneSync && !NeedsPrep && !InteractionFastDrag && !WorldTransformGizmo.QueryDragging())
             {
@@ -3422,7 +3426,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             // Progressive PT renders continuously until it converges: keep dispatching while the
             // accumulated spp is below the target (0 = no cap, renders until camera/scene changes,
             // which reset accumulation in the Vulkan sequence / below).
-            const bool PathTracerEngineActive = (DisplayCfg.RenderEngineIndex == 4u || DisplayCfg.RenderEngineIndex == 5u);
             if (PathTracerEngineActive && GpuReady && (SceneMutated || DisplayChanged))
             {
                 GpuWorldRenderer->ResetProgressiveAccumulation();

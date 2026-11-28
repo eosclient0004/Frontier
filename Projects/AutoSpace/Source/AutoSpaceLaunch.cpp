@@ -122,7 +122,7 @@ void PrintDrivingControlsLegend()
         << "  S / Down             Brake (auto-Reverse when stopped)\n"
         << "  A / D  or Left/Right Steer Left / Right\n"
         << "  Space                Handbrake (initiate drifts & rear tire smoke)\n"
-        << "  B                    Burnout Line-Lock (front brake + full rear throttle smoke)\n"
+        << "  B                    Burnout Line-Lock (front brake + full rear throttle)\n"
         << "  E / Q or Shift/Ctrl  Manual Gear Shift Up / Down\n"
         << "  T                    Cycle Assists (Sport -> Drift/Off -> Safe)\n"
         << "  C / V / Tab          Cycle Camera (Chase / Drift / Interior Cockpit / HMI / Orbit / Portal B)\n"
@@ -131,7 +131,7 @@ void PrintDrivingControlsLegend()
         << "  U / G                Toggle On-Screen HUD / Windshield Glass Optical HUD\n"
         << "  F5 / F6 / F7 / F8    Switch Render Engine (PBR / SDF+GI / MatCap / PathTracer) - HMI syncs live\n"
         << "  Mouse Drag / Wheel   Orbit Camera / Zoom (Left-Click interacts with HMI in Cockpit/HMI view)\n"
-        << "  R                    Reset Car & Clear Smoke (or Reset Camera)\n"
+        << "  R                    Reset Car (or Reset Camera)\n"
         << "  Esc                  Exit\n"
         << "======================================================================\n\n";
 }
@@ -598,7 +598,6 @@ int main(int ArgumentCount, char** ArgumentVector)
         Lobby.QueryHeroVehicleWorldPose(HeroPos, HeroYawDeg);
         SmoothedFollowYawRad = HeroYawDeg * Frontier::Constants::DegToRadFloat;
         const auto Reading   = Lobby.AcquireHeroVehicleReading();
-        const auto SmokeTel  = Lobby.InspectTireSmokeTelemetry();
         std::cout
             << "[AutoSpace DriveTest=" << DriveTestScenario << "] "
             << "Pos=(" << HeroPos.X << ", " << HeroPos.Y << ", " << HeroPos.Z << ") m | "
@@ -608,9 +607,6 @@ int main(int ArgumentCount, char** ArgumentVector)
             << "RPM=" << (Reading.Valid() ? Reading->EngineRpm : 0.0f) << " | "
             << "RearSlipRL=" << (Reading.Valid() ? Reading->Corners[2u].LongitudinalSlip : 0.0f) << " | "
             << "RearTempC=" << (Reading.Valid() ? (Reading->Corners[2u].TreadTempKelvin - 273.15f) : 20.0f) << " | "
-            << "SmokeVoxels=" << SmokeTel.ActiveSmokeVoxels << " | "
-            << "SmokeMass=" << SmokeTel.TotalSmokeMass << " | "
-            << "SdfLeaks=" << SmokeTel.SdfInteriorLeakVoxels << " | "
             << "LocalFogs=" << Lobby.InspectWorldScene().Atmosphere.Fog.LocalFogs.size()
             << "\n";
     }
@@ -668,10 +664,6 @@ int main(int ArgumentCount, char** ArgumentVector)
             }
             case AutoSpace::HmiButtonId::ToggleTransmissionMode:
                 AutomaticShiftUi = !AutomaticShiftUi;
-                break;
-            case AutoSpace::HmiButtonId::ToggleSmokePlumes:
-                HmiPanel.TireSmokeEnabled = !HmiPanel.TireSmokeEnabled;
-                Session.AccessLobbyLifecycle().SetTireSmokeEnabled(HmiPanel.TireSmokeEnabled);
                 break;
             default:
                 break;
@@ -1006,7 +998,7 @@ int main(int ArgumentCount, char** ArgumentVector)
             LastHandbrake01 = 0.0f;
         }
 
-        // Update live title-bar telemetry on Level 4 (~4 Hz) so speed, gear, RPM & tire smoke are visible immediately
+        // Update live title-bar telemetry on Level 4 (~4 Hz) so speed, gear & RPM are visible immediately
         if (DrivingCamActive && DesktopWindow != nullptr)
         {
             TitleRefreshAccumSec += WallDt;
@@ -1014,7 +1006,6 @@ int main(int ArgumentCount, char** ArgumentVector)
             {
                 TitleRefreshAccumSec = 0.0;
                 const auto Reading   = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading();
-                const auto SmokeTel  = Session.InspectLobbyLifecycle().InspectTireSmokeTelemetry();
                 static constexpr const char* kCamLabels[6]    = { "Chase", "Drift Quarter", "Interior Cockpit", "HMI Focus", "Orbit", "World B Portal Exit" };
                 static constexpr const char* kAssistLabels[3] = { "Sport", "Drift/Off", "Safe" };
                 char TitleBuf[256] {};
@@ -1028,11 +1019,10 @@ int main(int ArgumentCount, char** ArgumentVector)
                 std::snprintf(
                     TitleBuf,
                     sizeof(TitleBuf),
-                    "AutoSpace · Training Ground | %3.0f km/h | %s | %4.0f RPM | Smoke: %u vox | [%s] [TCS:%s]  (V:Cam H:HMI U:HUD)",
+                    "AutoSpace · Training Ground | %3.0f km/h | %s | %4.0f RPM | [%s] [TCS:%s]  (V:Cam H:HMI U:HUD)",
                     Kph,
                     GearLabel,
                     Rpm,
-                    SmokeTel.ActiveSmokeVoxels,
                     kCamLabels[DrivingCamMode],
                     kAssistLabels[AssistModeIndex % 3u]);
                 DesktopWindow->ApplyTitle(TitleBuf);
@@ -1277,7 +1267,7 @@ int main(int ArgumentCount, char** ArgumentVector)
                 }
             }
 
-            // Build live automotive telemetry snapshot from Jolt VehicleReading + Eulerian Tire Smoke Bridge
+            // Build live automotive telemetry snapshot from Jolt VehicleReading
             AutoSpace::CockpitTelemetryReading Tel {};
             if (const auto Reading = Session.InspectLobbyLifecycle().AcquireHeroVehicleReading(); Reading.Valid())
             {
@@ -1297,9 +1287,6 @@ int main(int ArgumentCount, char** ArgumentVector)
                 }
                 Tel.RearSlipRatio = MaxRearSlip;
             }
-            const auto SmokeTel = Session.InspectLobbyLifecycle().InspectTireSmokeTelemetry();
-            Tel.SmokePeakDensity      = SmokeTel.PeakSmokeDensity;
-            Tel.ActiveSmokeVoxels     = SmokeTel.ActiveSmokeVoxels;
             Tel.Throttle01            = LastThrottle01;
             Tel.Brake01               = LastBrake01;
             Tel.Handbrake01           = LastHandbrake01;

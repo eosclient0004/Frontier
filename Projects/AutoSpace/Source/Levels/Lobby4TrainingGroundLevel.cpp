@@ -130,7 +130,7 @@ void BuildLobby4TrainingGroundLevel(IStudioLobbySceneBuilderContext& Ctx, const 
     // 1. Hero Driving Vehicle Folder (1:1 physical meters scale, facing +X matching Jolt VehiclePhysicsRig)
     const InstanceToken VehiclesFolder = Ctx.CreateFolderEntry(
         "Training Vehicle",
-        "Live Jolt VehiclePhysicsRig + Eulerian Tire Fluid Smoke",
+        "Live Jolt VehiclePhysicsRig",
         {});
     {
         const uint16_t HeroPaint = RegisterVehicleBodyPaintMaterial(
@@ -150,7 +150,7 @@ void BuildLobby4TrainingGroundLevel(IStudioLobbySceneBuilderContext& Ctx, const 
         (void)Ctx.AppendSurfaceEntity(
             "vehicle-hero",
             "Hero Coupe · Training Ground",
-            "Live drivable Jolt vehicle (1:1 scale, +X heading) with GT cockpit, HMI & 3D Eulerian tire smoke",
+            "Live drivable Jolt vehicle (1:1 scale, +X heading) with GT cockpit & HMI",
             BuildAssembledControlVehicleSurface(
                 VehicleTemplate,
                 Palette,

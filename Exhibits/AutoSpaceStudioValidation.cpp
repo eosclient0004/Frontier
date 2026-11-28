@@ -627,7 +627,7 @@ int main(int Argc, char** Argv)
         Tracker.Check(Tel.CameraRigCount == 3u && Tel.ParticleCloudCount == 0u && Tel.TotalMeshTriangles >= 85000u,
             "Lobby 1 rigs & mesh budget verified (3 camera rigs, 0 particles, >= 85k tris)");
 #if FRONTIER_PROFILE_EDITOR
-        Tracker.Check(Tel.OutlinerRowCount == 36u,
+        Tracker.Check(Tel.OutlinerRowCount == 37u,
             "Lobby 1 Editor Outliner populated cleanly via WorldInstanceEditorBridge (rows=" + std::to_string(Tel.OutlinerRowCount) + ")");
 #else
         Tracker.Check(Tel.OutlinerRowCount == 0u, "Lobby 1 Shipping build carries 0 Editor Outliner rows");
@@ -682,14 +682,14 @@ int main(int Argc, char** Argv)
         Tracker.Check(Tel.ParticleCloudCount == 1u && Tel.SimulatedParticleCount == 280u,
             "Lobby 2 ParticleSpace cloud active (ground-dust, 280 simulated particles)");
 #if FRONTIER_PROFILE_EDITOR
-        Tracker.Check(Tel.OutlinerRowCount == 24u,
+        Tracker.Check(Tel.OutlinerRowCount == 25u,
             "Lobby 2 Editor Outliner populated without leak/rocks/foliage (rows=" + std::to_string(Tel.OutlinerRowCount) + ")");
 #else
         Tracker.Check(Tel.OutlinerRowCount == 0u, "Lobby 2 Shipping build carries 0 Editor Outliner rows");
 #endif
 
-        // Confirm zero rock or foliage entities exist in Lobby 2 scene surface registry (4 vehicles + 3 set + 1 fan + 1 softbox + 2 crew = 11)
-        bool HasFoliageOrRocks = (Tel.SurfaceInstanceCount != 11u);
+        // Confirm zero rock or foliage entities exist in Lobby 2 scene surface registry (4 vehicles + 3 set + 1 fan + 1 softbox + 2 crew + 1 dynamic orb = 12)
+        bool HasFoliageOrRocks = (Tel.SurfaceInstanceCount != 12u);
         const auto& DustNodeList = Lifecycle.InspectLobbyLifecycle().InspectParticleClouds();
         for (const auto& Cloud : DustNodeList)
         {
@@ -701,7 +701,7 @@ int main(int Argc, char** Argv)
                 HasFoliageOrRocks = true;
             }
         }
-        Tracker.Check(!HasFoliageOrRocks, "Lobby 2 leaves rocks & botanical foliage completely blank/omitted (surfaces=11)");
+        Tracker.Check(!HasFoliageOrRocks, "Lobby 2 leaves rocks & botanical foliage completely blank/omitted (surfaces=12)");
 
         const uint32_t Ticks = Lifecycle.RunBoundedTicks(30u, 1.0 / 60.0);
         Tracker.Check(Ticks == 30u, "Lobby 2 simulated 30 deterministic ticks cleanly");
@@ -742,8 +742,8 @@ int main(int Argc, char** Argv)
         Tracker.Check(Tel.ActiveLobby == AutoSpace::StudioLobbyId::StudioLobby3RacingGarage, "Lobby 3 active slug == studio-lobby-3");
         Tracker.Check(Tel.VehicleCount == 4u && Tel.AreaLightCount == 2u && Tel.PhotometricLightCount == 2u,
             "Lobby 3 counts: 4 vehicles (1 on hydraulic lift), 2 area lights, 2 IES lights");
-        Tracker.Check(Tel.ParticleCloudCount == 2u && Tel.SimulatedParticleCount == 310u && Tel.TotalMeshTriangles >= 115000u,
-            "Lobby 3 multi-cloud ParticleSpace active (mist-spray + ground-dust, 310 active particles, >= 115k tris)");
+        Tracker.Check(Tel.ParticleCloudCount == 1u && Tel.SimulatedParticleCount == 165u && Tel.TotalMeshTriangles >= 115000u,
+            "Lobby 3 ParticleSpace active (ground-dust only, 165 active particles, zero tire smoke, >= 115k tris)");
 #if FRONTIER_PROFILE_EDITOR
         Tracker.Check(Tel.OutlinerRowCount == 27u,
             "Lobby 3 Editor Outliner populated without leak (rows=" + std::to_string(Tel.OutlinerRowCount) + ")");
@@ -761,8 +761,8 @@ int main(int Argc, char** Argv)
                 Lifecycle.AccessLobbyLifecycle(), ParticleRenderer,
                 VulkanReady ? &GpuSequence : nullptr, CpuSequence,
                 0u, 1.05f, 3u, WidthPx, HeightPx, L3HeroRgba, Calls, Sprites, Err);
-            Tracker.Check(RenderOk && Calls >= 2u && Sprites >= 10u,
-                "Lobby 3 Hero34 rendered with occluded ParticleSpace smoke + dust (calls=" +
+            Tracker.Check(RenderOk && Calls >= 1u && Sprites >= 10u,
+                "Lobby 3 Hero34 rendered with occluded ParticleSpace dust (calls=" +
                     std::to_string(Calls) + ", sprites=" + std::to_string(Sprites) + ")");
             if (RenderOk)
             {

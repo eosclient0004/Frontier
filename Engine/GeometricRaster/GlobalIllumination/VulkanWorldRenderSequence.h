@@ -379,6 +379,8 @@ private:
     DeviceBufferResource   GlobalRadiosityFieldBuffer      {};
     DeviceBufferResource   PingIndirectIrradianceBuffer    {};
     DeviceBufferResource   PongIndirectIrradianceBuffer    {};
+    DeviceBufferResource   PingDirectDiffuseBuffer         {};
+    DeviceBufferResource   PongDirectDiffuseBuffer         {};
     DeviceBufferResource   GlobalSurfaceShellBuffer        {};
     DeviceBufferResource   LocalAssetSdfVoxelBuffer        {};
     DeviceBufferResource   DynamicLocalSdfInstanceBuffer   {};

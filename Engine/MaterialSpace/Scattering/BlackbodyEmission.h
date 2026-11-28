@@ -48,7 +48,8 @@ namespace Frontier::MaterialSpace::Scattering
         const float B460 = EvalBand(460.0);
 
         const float PhotopicLum = std::max(1.0e-7f, Frontier::Mathematics::EvaluateRec709Luminance(B630, B535, B460));
-        const float LumScale    = (Params.EmissionLuminanceNits > 0.0f) ? (Params.EmissionLuminanceNits * 0.00028f) : 0.26f;
+        // Unified physical nits -> scene-linear HDR scale (EV100 studio exposure: ~2857 nits = 1.0 HDR)
+        const float LumScale    = (Params.EmissionLuminanceNits > 0.0f) ? (Params.EmissionLuminanceNits * 0.00035f) : 0.35f;
 
         TotalRadiance.R = (B630 / PhotopicLum) * LumScale * Params.EmissionTint.R;
         TotalRadiance.G = (B535 / PhotopicLum) * LumScale * Params.EmissionTint.G;
@@ -56,7 +57,7 @@ namespace Frontier::MaterialSpace::Scattering
     }
     else if (Params.EmissionLuminanceNits > 0.0f)
     {
-        const float ScaledNits = Params.EmissionLuminanceNits * 0.002f;
+        const float ScaledNits = Params.EmissionLuminanceNits * 0.00035f;
         TotalRadiance.R = ScaledNits * Params.EmissionTint.R;
         TotalRadiance.G = ScaledNits * Params.EmissionTint.G;
         TotalRadiance.B = ScaledNits * Params.EmissionTint.B;

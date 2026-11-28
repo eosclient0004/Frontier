@@ -510,12 +510,13 @@ void ViewportPanel::RenderCanvasPane(
         const ControlContact ChipHit = DropdownSelector::ConstructButton(Surface, ProjChip, ProjName, ProjectionDropdownOpen, Input.PrimaryPointer);
         if (ChipHit.Pressed)
         {
-            ProjectionChipConsumed = true;
-            ActivePaneIndex        = PaneIndex;
-            ProjectionDropdownOpen = !ProjectionDropdownOpen;
-            ConstructSheetOpen     = false;
+            ProjectionChipConsumed       = true;
+            ActivePaneIndex              = PaneIndex;
+            ActiveProjectionAnchorBounds = ProjChip;
+            ProjectionDropdownOpen       = !ProjectionDropdownOpen;
+            ConstructSheetOpen           = false;
             RenderSettingsSheetOpen      = false;
-            DebugDropdownOpen      = false;
+            DebugDropdownOpen            = false;
         }
         else if (!OverlayCoversCanvas && PaneBounds.Contains(Cursor) &&
                  (Input.PrimaryPointer.Pressed || Input.SecondaryPressed))
@@ -2766,10 +2767,11 @@ void ViewportPanel::Render(
             ControlIcon::CameraBody);
         if (ProjHit.Pressed)
         {
-            ProjectionDropdownOpen = !ProjectionDropdownOpen;
-            ConstructSheetOpen     = false;
+            ActiveProjectionAnchorBounds = ProjectionBtn;
+            ProjectionDropdownOpen       = !ProjectionDropdownOpen;
+            ConstructSheetOpen           = false;
             RenderSettingsSheetOpen      = false;
-            DebugDropdownOpen      = false;
+            DebugDropdownOpen            = false;
         }
     }
 
@@ -2950,6 +2952,10 @@ void ViewportPanel::Render(
     // 4. Projection Dropdown (DropdownSelector::ConstructOptionSheet), Construct Dialog & Settings Sheet Overlays (zero shadow)
     if (ProjectionDropdownOpen)
     {
+        const Rectangle2D ProjAnchor =
+            (ActiveProjectionAnchorBounds.Width > 1.0f && ActiveProjectionAnchorBounds.Height > 1.0f)
+                ? ActiveProjectionAnchorBounds
+                : ProjectionBtn;
         constexpr std::array<const char*, 5> ProjectionOptions = {{
             "Perspective",
             "Orthographic",
@@ -2962,11 +2968,11 @@ void ViewportPanel::Render(
         const uint32_t    CurrentIdx = static_cast<uint32_t>(Current);
         uint32_t          ChosenIdx  = CurrentIdx;
         const Rectangle2D DropSheet  = DropdownSelector::QuerySheetBounds(
-            ActiveOverlay, ProjectionBtn, ProjectionOptions.data(), static_cast<uint32_t>(ProjectionOptions.size()));
+            ActiveOverlay, ProjAnchor, ProjectionOptions.data(), static_cast<uint32_t>(ProjectionOptions.size()));
 
         if (DropdownSelector::ConstructOptionSheet(
                 ActiveOverlay,
-                ProjectionBtn,
+                ProjAnchor,
                 ProjectionOptions.data(),
                 static_cast<uint32_t>(ProjectionOptions.size()),
                 CurrentIdx,
@@ -2984,7 +2990,7 @@ void ViewportPanel::Render(
             }
             ProjectionDropdownOpen = false;
         }
-        else if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !DropSheet.Contains(Cursor) && !ProjectionBtn.Contains(Cursor))
+        else if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !DropSheet.Contains(Cursor) && !ProjAnchor.Contains(Cursor) && !ProjectionBtn.Contains(Cursor))
         {
             ProjectionDropdownOpen = false;
         }

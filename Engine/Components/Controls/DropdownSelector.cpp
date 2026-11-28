@@ -35,11 +35,13 @@ constexpr float    ScrollbarLaneReservePx = 12.0f;
 
 struct DropdownScrollSlot
 {
-    uint64_t         Key              = 0ull;
-    uint64_t         LastSeenFrame    = 0ull;
-    Rectangle2D      LastSheetBounds  {};
-    bool             HasSheetBounds   = false;
-    SmoothScrollView Scroll           {};
+    uint64_t         Key                     = 0ull;
+    uint64_t         LastSeenFrame           = 0ull;
+    Rectangle2D      LastSheetBounds         {};
+    bool             HasSheetBounds          = false;
+    bool             AwaitReleaseBeforeSelect = false;
+    int32_t          ArmedRowIndex           = -1;
+    SmoothScrollView Scroll                  {};
 };
 
 constexpr std::size_t                                 ScrollSlotCapacity = 16u;
@@ -276,6 +278,18 @@ Rectangle2D QuerySheetBounds(
                 }
                 else
                 {
+                    // Never spawn directly on top of the trigger button when constrained vertically:
+                    // place cleanly beside the button if horizontal room allows, otherwise clamp vertically.
+                    const float RightCandidateX = ButtonBounds.Right() + ControlMetrics::DropdownPaddingX;
+                    const float LeftCandidateX  = ButtonBounds.X - ControlMetrics::DropdownPaddingX - SheetWidth;
+                    if (RightCandidateX + SheetWidth <= LogicalRight)
+                    {
+                        SheetX = RightCandidateX;
+                    }
+                    else if (LeftCandidateX >= LogicalLeft)
+                    {
+                        SheetX = LeftCandidateX;
+                    }
                     SheetY = std::max(LogicalTop, LogicalBottom - TotalHeight);
                 }
             }
@@ -312,6 +326,22 @@ ControlContact ConstructOptionSheet(
     DropdownScrollSlot& Slot          = AcquireDropdownSlot(ComputeDropdownKey(ButtonBounds, OptionCount), FreshlyOpened);
     Slot.LastSheetBounds              = SheetBounds;
     Slot.HasSheetBounds               = true;
+
+    if (FreshlyOpened)
+    {
+        // Ignore the opening press/release cycle so a single click on the dropdown trigger NEVER selects an option!
+        Slot.AwaitReleaseBeforeSelect = Pointer.Down || Pointer.Pressed;
+        Slot.ArmedRowIndex            = -1;
+    }
+    if (Slot.AwaitReleaseBeforeSelect && !Pointer.Down)
+    {
+        Slot.AwaitReleaseBeforeSelect = false;
+    }
+    const bool CanInteractRows = !FreshlyOpened && !Slot.AwaitReleaseBeforeSelect;
+    if (!CanInteractRows || (!Pointer.Down && !Pointer.Released))
+    {
+        Slot.ArmedRowIndex = -1;
+    }
 
     if (Scrollable && FreshlyOpened && SelectedIndex < OptionCount)
     {
@@ -364,14 +394,16 @@ ControlContact ConstructOptionSheet(
         if (Hover)
         {
             Contact.Hovered = true;
-            if (Pointer.Pressed)
+            if (CanInteractRows && Pointer.Pressed)
             {
-                Contact.Pressed = true;
+                Contact.Pressed    = true;
+                Slot.ArmedRowIndex = static_cast<int32_t>(Index);
             }
-            if (Pointer.Released)
+            if (CanInteractRows && Pointer.Released && Slot.ArmedRowIndex == static_cast<int32_t>(Index))
             {
-                Contact.Clicked = true;
-                ChosenIndex     = Index;
+                Contact.Clicked    = true;
+                ChosenIndex        = Index;
+                Slot.ArmedRowIndex = -1;
             }
         }
         if (Index == SelectedIndex)
@@ -446,6 +478,25 @@ ControlContact ConstructDirectiveSheet(
     Surface.FillRectangle(SheetBounds, HtmlSheetFill.ScaledAlpha(Opacity), SheetCornerRadius);
     Surface.StrokeRectangle(SheetBounds, HtmlSheetBorder.ScaledAlpha(Opacity), SheetCornerRadius, 1.0f);
 
+    bool                FreshlyOpened = false;
+    DropdownScrollSlot& Slot          = AcquireDropdownSlot(ComputeDropdownKey(SheetBounds, static_cast<uint32_t>(Entries.size())), FreshlyOpened);
+    Slot.LastSheetBounds              = SheetBounds;
+    Slot.HasSheetBounds               = true;
+    if (FreshlyOpened)
+    {
+        Slot.AwaitReleaseBeforeSelect = Pointer.Down || Pointer.Pressed;
+        Slot.ArmedRowIndex            = -1;
+    }
+    if (Slot.AwaitReleaseBeforeSelect && !Pointer.Down)
+    {
+        Slot.AwaitReleaseBeforeSelect = false;
+    }
+    const bool CanInteractRows = !FreshlyOpened && !Slot.AwaitReleaseBeforeSelect;
+    if (!CanInteractRows || (!Pointer.Down && !Pointer.Released))
+    {
+        Slot.ArmedRowIndex = -1;
+    }
+
     Rectangle2D HoveredDisabledRow   {};
     const char* HoveredDisabledTip   = nullptr;
 
@@ -492,16 +543,16 @@ ControlContact ConstructDirectiveSheet(
         if (Hover)
         {
             Contact.Hovered = true;
-            if (Pointer.Pressed)
+            if (CanInteractRows && Pointer.Pressed)
             {
-                Contact.Pressed = true;
-                Contact.Clicked = true;
-                ChosenIndex     = static_cast<int32_t>(Index);
+                Contact.Pressed    = true;
+                Slot.ArmedRowIndex = static_cast<int32_t>(Index);
             }
-            else if (Pointer.Released)
+            else if (CanInteractRows && Pointer.Released && Slot.ArmedRowIndex == static_cast<int32_t>(Index))
             {
-                Contact.Clicked = true;
-                ChosenIndex     = static_cast<int32_t>(Index);
+                Contact.Clicked    = true;
+                ChosenIndex        = static_cast<int32_t>(Index);
+                Slot.ArmedRowIndex = -1;
             }
         }
 

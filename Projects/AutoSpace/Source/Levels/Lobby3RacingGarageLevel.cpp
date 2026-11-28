@@ -91,8 +91,8 @@ void BuildLobby3RacingGarageLevel(IStudioLobbySceneBuilderContext& Ctx, const Lo
         BuildTiledFloorSurface({ 44.0f, 24.8f, 2.2f, true }, Palette), ConvertHtmlPositionToWorldZUp(0.0f, 0.0f, 6.2f),
         Palette.Resolve(StudioMaterialCode::ConcreteGarage), ArchFolder, false);
 
-    // 3. Mechanics Equipment & Engine ParticleSpace Smoke/Dust
-    const InstanceToken PropsFolder = Ctx.CreateFolderEntry("Mechanics Equipment & Smoke", "Toolboxes, workbench, air compressor, tire rack, cables & smoke FX", {});
+    // 3. Mechanics Equipment & Engine ParticleSpace Dust
+    const InstanceToken PropsFolder = Ctx.CreateFolderEntry("Mechanics Equipment & Dust", "Toolboxes, workbench, air compressor, tire rack, cables & dust FX", {});
     if (Policy.EnableCrewProps)
     {
         (void)Ctx.AppendSurfaceEntity("l3-tool-chest", "Double-Bank Cherry-Red Tool Chest", "10-drawer rolling tool chest + impact gun",
@@ -118,10 +118,6 @@ void BuildLobby3RacingGarageLevel(IStudioLobbySceneBuilderContext& Ctx, const Lo
             Palette.Resolve(StudioMaterialCode::RubberMat), PropsFolder, false);
     }
 
-    Ctx.AppendParticleEmitter(
-        "l3-garage-smoke", "Volumetric Garage & Tire Smoke",
-        "Frontier::ParticleSpace (mist-spray) · exhaust & pit-bay atmosphere plume",
-        "mist-spray", ConvertHtmlPositionToWorldZUp(0.85f, 0.55f, 0.95f), 145u, 64.0f, PropsFolder);
     Ctx.AppendParticleEmitter(
         "l3-dust-particles", "Sunbeam Garage Dust Motes",
         "Frontier::ParticleSpace (ground-dust) · sunlit pit-archway dust motes",

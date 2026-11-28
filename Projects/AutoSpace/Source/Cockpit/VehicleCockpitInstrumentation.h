@@ -11,7 +11,6 @@
 
 #include "Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.h"
 #include "Engine/Mathematics/CoordinateSpace.h"
-#include "Engine/SimulationSpace/Fluid/VehicleTireFluidSmokeBridge.h"
 #include "Engine/SimulationSpace/PhysicsSpace/VehicleDynamicsSolver.h"
 #include "Source/Geometry/StudioProceduralSurface.h"
 
@@ -54,7 +53,6 @@ enum class HmiButtonId : uint8_t
     ToggleWindshieldHud,
     ToggleStabilityAssist,
     ToggleTransmissionMode,
-    ToggleSmokePlumes,
     Count
 };
 
@@ -64,7 +62,6 @@ struct HmiControlPanel
     HmiEngineSyncMode EngineMode             = HmiEngineSyncMode::SyncToMain;
     bool              WindshieldHudEnabled   = true;
     bool              OnScreenHudEnabled     = true;
-    bool              TireSmokeEnabled       = true;
     HmiButtonId       HoveredButton          = HmiButtonId::None;
     HmiButtonId       LastClickedButton      = HmiButtonId::None;
     float             ClickFlashSeconds      = 0.0f;
@@ -83,8 +80,6 @@ struct CockpitTelemetryReading
     float       VehicleYawDeg         = 0.0f;
     float       RearSlipRatio         = 0.0f;
     float       WheelSlipRatios[4]    { 0.0f, 0.0f, 0.0f, 0.0f };
-    float       SmokePeakDensity      = 0.0f;
-    uint32_t    ActiveSmokeVoxels     = 0u;
     bool        StabilityAssistOn     = true;
     bool        AutomaticTransmission = true;
     bool        AbsActive             = false;
@@ -191,7 +186,7 @@ private:
         const CockpitTelemetryReading& T) const;
 
     VehicleCockpitAnchorLayout  Layout_        {};
-    std::array<ButtonRectPx, 6u> HmiButtons_   {};
+    std::array<ButtonRectPx, 5u> HmiButtons_   {};
     uint32_t                    HmiOffset_     = 0u;
     uint32_t                    ClusterOffset_ = 0u;
     uint32_t                    WindOffset_    = 0u;

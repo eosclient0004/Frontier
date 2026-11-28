@@ -32,6 +32,24 @@ PinnedArtifacts = [
         ),
         'Witness': 'Slang/slangtorch/bin/slangc.exe' if os.name == 'nt' else 'Slang/slangtorch/bin/slangc',
     },
+    {
+        'Category': 'SlangSpirvOpt',
+        'Url': (
+            'https://files.pythonhosted.org/packages/e4/db/acc07f69057835b10dc33a7db5c0499b992273e75f1bbec6deda49128cc1/slangpy-0.43.1-cp311-cp311-win_amd64.whl'
+            if os.name == 'nt'
+            else 'https://files.pythonhosted.org/packages/0b/89/917567a889417c87842cea379091cb46b7f4f4000e9fec1b9d25d251c4cf/slangpy-0.43.1-cp311-cp311-manylinux_2_34_x86_64.whl'
+        ),
+        'Sha256': (
+            '3da28207fa1f173c81b22efc1cd02e4804066b975a18749b1a7b09c0708018d6'
+            if os.name == 'nt'
+            else '965dbbd1d907c90e17027945780146a67c66baf766f3d0b8af3f52ea2c4a8eb9'
+        ),
+        'Witness': (
+            'Slang/slangtorch/bin/slang-glslang.dll'
+            if os.name == 'nt'
+            else 'Slang/slangtorch/bin/libslang-glslang-2026.14.1.so'
+        ),
+    },
 ]
 if os.name != 'nt':
     PinnedArtifacts.append(
@@ -79,6 +97,14 @@ def Main():
                             Destination.parent.mkdir(parents=True, exist_ok=True)
                             Destination.write_bytes(ZipBundle.read(EntryName))
             (ToolchainRoot / Entry['Witness']).chmod(0o755)
+        elif Category == 'SlangSpirvOpt':
+            WheelEntryPath = 'slangpy/slang-glslang.dll' if os.name == 'nt' else 'slangpy/libslang-glslang-2026.12.so'
+            Destination = (ToolchainRoot / Entry['Witness']).resolve()
+            if not Destination.is_relative_to((ToolchainRoot / 'Slang').resolve()):
+                raise RuntimeError('Unsafe SlangSpirvOpt destination')
+            with zipfile.ZipFile(io.BytesIO(Payload)) as ZipBundle:
+                Destination.parent.mkdir(parents=True, exist_ok=True)
+                Destination.write_bytes(ZipBundle.read(WheelEntryPath))
         elif Category == 'SwiftShader':
             with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as OuterBundle:
                 BrotliBytes = OuterBundle.extractfile('package/bin/swiftshader.tar.br').read()

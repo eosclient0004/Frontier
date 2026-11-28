@@ -317,19 +317,18 @@ VehicleCockpitInstrumentation::VehicleCockpitInstrumentation()
     OverlayOffset_ = WindOffset_ + WindshieldWidthPx * WindshieldHeightPx;
     TotalTexels_   = OverlayOffset_ + OverlayWidthPx * OverlayHeightPx;
 
-    // 6 ergonomic interactive buttons stacked neatly along the right side of the 512x288 HMI screen
+    // 5 ergonomic interactive buttons stacked neatly along the right side of the 512x288 HMI screen
     constexpr int32_t BtnX0 = 324;
     constexpr int32_t BtnX1 = 502;
     constexpr int32_t TopY  = 40;
-    constexpr int32_t BtnH  = 35;
-    constexpr int32_t GapY  = 6;
-    const std::array<HmiButtonId, 6u> Order {{
+    constexpr int32_t BtnH  = 41;
+    constexpr int32_t GapY  = 8;
+    const std::array<HmiButtonId, 5u> Order {{
         HmiButtonId::CycleFeedCam,
         HmiButtonId::CycleHmiEngine,
         HmiButtonId::ToggleWindshieldHud,
         HmiButtonId::ToggleStabilityAssist,
         HmiButtonId::ToggleTransmissionMode,
-        HmiButtonId::ToggleSmokePlumes,
     }};
     for (size_t I = 0u; I < Order.size(); ++I)
     {
@@ -698,11 +697,6 @@ void VehicleCockpitInstrumentation::RenderHmiCanvas(
                 StatusText = T.AutomaticTransmission ? "AUTO" : "MANUAL";
                 IsActive = T.AutomaticTransmission;
                 break;
-            case HmiButtonId::ToggleSmokePlumes:
-                Title    = "TIRE SMOKE";
-                StatusText = S.TireSmokeEnabled ? "LIVE" : "MUTED";
-                IsActive = S.TireSmokeEnabled;
-                break;
             default:
                 break;
         }
@@ -813,7 +807,7 @@ void VehicleCockpitInstrumentation::RenderClusterCanvas(
     Cv.FillRect(260, 152, 314, 170, PackRgba8(24, 48, 72, 255));
     Cv.PaintTextCentered(287, 158, T.AutomaticTransmission ? "AUTO" : "MAN", 1, PackRgba8(230, 244, 255, 255));
 
-    // 4. Right Circular Tire Slip & Smoke Telemetry Pod (Cx = 408, Cy = 110, R = 68)
+    // 4. Right Circular Tire Slip Telemetry Pod (Cx = 408, Cy = 110, R = 68)
     constexpr float SlipCx = 408.0f;
     constexpr float SlipCy = 110.0f;
     const float SlipFrac = std::clamp(T.RearSlipRatio, 0.0f, 1.0f);
@@ -836,15 +830,15 @@ void VehicleCockpitInstrumentation::RenderClusterCanvas(
     Cv.FillRect(384, 106, 392, 122, WheelColor(T.WheelSlipRatios[2]));     // RL
     Cv.FillRect(424, 106, 432, 122, WheelColor(T.WheelSlipRatios[3]));     // RR
 
-    char SmokeBuf[24] {};
-    std::snprintf(SmokeBuf, sizeof(SmokeBuf), "SLIP %d%%", static_cast<int>(std::lround(SlipFrac * 100.0f)));
-    Cv.PaintTextCentered(static_cast<int32_t>(SlipCx), 132, SmokeBuf, 1, PackRgba8(232, 244, 255, 255));
+    char SlipBuf[24] {};
+    std::snprintf(SlipBuf, sizeof(SlipBuf), "SLIP %d%%", static_cast<int>(std::lround(SlipFrac * 100.0f)));
+    Cv.PaintTextCentered(static_cast<int32_t>(SlipCx), 132, SlipBuf, 1, PackRgba8(232, 244, 255, 255));
     Cv.PaintTextCentered(
         static_cast<int32_t>(SlipCx),
         146,
-        (T.ActiveSmokeVoxels > 0u) ? "SMOKE LIVE" : "GRIP OK",
+        (SlipFrac > 0.22f) ? "SLIP HIGH" : "GRIP OK",
         1,
-        (T.ActiveSmokeVoxels > 0u) ? PackRgba8(255, 186, 68, 255) : PackRgba8(76, 238, 176, 255));
+        (SlipFrac > 0.22f) ? PackRgba8(255, 186, 68, 255) : PackRgba8(76, 238, 176, 255));
 }
 
 void VehicleCockpitInstrumentation::RenderWindshieldHudCanvas(
@@ -918,14 +912,14 @@ void VehicleCockpitInstrumentation::RenderWindshieldHudCanvas(
         Cv.FillRect(Sx, 164, Sx + 10, 174, Col);
     }
 
-    // 5. Optical Slip / Drift / Smoke Alert Line
-    if (T.RearSlipRatio > 0.22f || T.ActiveSmokeVoxels > 0u)
+    // 5. Optical Slip / Drift Alert Line
+    if (T.RearSlipRatio > 0.22f)
     {
         Cv.PaintRectBorder(168, 190, 344, 214, 2, HudAmber);
         Cv.PaintTextCentered(
             256,
             197,
-            (T.ActiveSmokeVoxels > 0u) ? "DRIFT · TIRE SMOKE" : "REAR TRACTION SLIP",
+            "REAR TRACTION SLIP",
             1,
             HudAmber);
     }
@@ -1004,9 +998,9 @@ void VehicleCockpitInstrumentation::RenderOnScreenOverlayCanvas(
         Cv.PaintText(
             554,
             328,
-            (T.ActiveSmokeVoxels > 0u) ? "SMOKE ON" : (T.StabilityAssistOn ? "ESC ON" : "DRIFT"),
+            T.StabilityAssistOn ? "ESC ON" : "DRIFT",
             1,
-            (T.ActiveSmokeVoxels > 0u) ? PackRgba8(255, 192, 56, 255) : PackRgba8(130, 226, 248, 255));
+            PackRgba8(130, 226, 248, 255));
     }
 }
 

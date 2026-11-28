@@ -397,15 +397,23 @@ endif()
 
 if(CMAKE_HOST_WIN32)
     set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc.exe")
+    set(FRONTIER_SLANG_GLSLANG_LIB "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slang-glslang.dll")
 else()
     set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc")
+    set(FRONTIER_SLANG_GLSLANG_LIB "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/libslang-glslang-2026.14.1.so")
 endif()
-if(NOT EXISTS "${FRONTIER_SLANGC_BIN}")
+if(NOT EXISTS "${FRONTIER_SLANGC_BIN}" OR NOT EXISTS "${FRONTIER_SLANG_GLSLANG_LIB}")
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareShaderToolchain.py"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         RESULT_VARIABLE FRONTIER_SHADER_TOOLCHAIN_STATUS
     )
+endif()
+if(EXISTS "${FRONTIER_SLANG_GLSLANG_LIB}")
+    set(FRONTIER_SLANG_SPIRV_OPT_FLAG "-O3")
+else()
+    set(FRONTIER_SLANG_SPIRV_OPT_FLAG "-O0")
+    message(WARNING "[Frontier] slang-glslang (spirv-opt) missing next to slangc; falling back to -O0 SPIR-V.")
 endif()
 
 set(FRONTIER_COMPILED_SHADER_DIR "${CMAKE_BINARY_DIR}/CompiledShaders")
@@ -425,7 +433,7 @@ function(frontier_compile_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -493,7 +501,7 @@ add_custom_command(
         -entry CloudCaptureEntry
         -target cpp
         -fp-mode precise
-        -O0
+        -O2
         -o "${FRONTIER_PLANETARY_CLOUD_GENERATED}"
     DEPENDS
         "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudNoise.slang"
@@ -538,7 +546,7 @@ function(frontier_compile_modular_slang_shader DOMAIN_REL_PATH ENTRY_NAME SHADER
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -589,7 +597,7 @@ function(frontier_compile_sketcher_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNI
             -profile spirv_1_5
             -target spirv
             -emit-spirv-directly
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -I "${CMAKE_SOURCE_DIR}"
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
@@ -637,7 +645,7 @@ function(frontier_compile_vector_slang_shader SLANG_REL_PATH ENTRY_NAME SHADER_U
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -676,7 +684,7 @@ function(frontier_compile_forcefield_slang_shader SLANG_REL_PATH ENTRY_NAME SHAD
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -708,7 +716,7 @@ function(frontier_compile_particlespace_slang_shader SLANG_REL_PATH ENTRY_NAME S
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -765,7 +773,7 @@ function(frontier_compile_fluid_slang_shader SLANG_REL_PATH ENTRY_NAME SHADER_UN
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -820,7 +828,7 @@ function(frontier_compile_deformable_slang_shader SLANG_REL_PATH ENTRY_NAME SHAD
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -857,7 +865,7 @@ function(frontier_compile_baking_slang_shader SLANG_REL_PATH ENTRY_NAME SHADER_U
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0)
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG})
     else()
         set(BAKE_SLANG_FLAGS
             -target spirv
@@ -866,7 +874,7 @@ function(frontier_compile_baking_slang_shader SLANG_REL_PATH ENTRY_NAME SHADER_U
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0)
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG})
     endif()
     add_custom_command(
         OUTPUT "${OUT_SPV}"
@@ -915,7 +923,7 @@ function(frontier_compile_component_editor_slang_shader SLANG_STEM ENTRY_NAME SH
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -952,7 +960,7 @@ function(frontier_compile_world_module_slang_shader SLANG_REL_PATH ENTRY_NAME SH
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -matrix-layout-row-major
-            -O0
+            ${FRONTIER_SLANG_SPIRV_OPT_FLAG}
             -entry "${ENTRY_NAME}"
             -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
@@ -1284,7 +1292,6 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/SimulationSpace/Fluid/FluidVolumeRenderer.cpp
     Engine/SimulationSpace/Fluid/FluidSimulationPostOverlay.cpp
     Engine/SimulationSpace/Fluid/FluidPresetRegistry.cpp
-    Engine/SimulationSpace/Fluid/VehicleTireFluidSmokeBridge.cpp
     Engine/SimulationSpace/Deformable/TetrahedralSolidBuilder.cpp
     Engine/SimulationSpace/Deformable/ConflictColorPartitioner.cpp
     Engine/SimulationSpace/Deformable/NeoHookeanTetSolver.cpp
@@ -1658,7 +1665,6 @@ if(BUILD_TESTING)
     frontier_register_exhibit(CrossThreadConstraintValidation           Exhibits/CrossThreadConstraintValidation.cpp)
     frontier_register_exhibit(ControlVehiclePhysicsValidation           Exhibits/ControlVehiclePhysicsValidation.cpp)
     frontier_register_exhibit(VehiclePhysicsDriveExhibit                Exhibits/VehiclePhysicsDriveExhibit.cpp)
-    frontier_register_exhibit(VehicleTireFluidSmokeExhibit              Exhibits/VehicleTireFluidSmokeExhibit.cpp)
     frontier_register_exhibit(ForceFieldValidation                      Exhibits/ForceFieldValidation.cpp)
     target_compile_definitions(ForceFieldValidation PRIVATE FRONTIER_FORCEFIELD_WITH_LIVE_JOLT=1)
     frontier_register_exhibit(ParticleGpuPhysicsValidation              Exhibits/ParticleGpuPhysicsValidation.cpp)

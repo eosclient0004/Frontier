@@ -195,28 +195,80 @@ Mathematics::LinearRGB LinearCosineLightIntegration::EvaluateVisibilityGatedQuad
     }
     const float DiffuseFormFactor = IntegrateClippedQuadCosineFormFactor(DiffuseLocal);
 
-    // 2. GGX-Fitted Inverse LTC Transform M^{-1} mapping rough GGX lobe into canonical cosine distribution!
-    const float Alpha = std::clamp(Mat.Specular.Roughness * Mat.Specular.Roughness, 0.004f, 1.0f);
-    const float SinV  = std::sqrt(std::max(0.0f, 1.0f - NdotV * NdotV));
-    // Rational fit to Heitz 2016 M^{-1} shear & anisotropic width parameters (exact mirror peak at R + roughness widening!)
-    const float InvScaleX = 1.0f / std::max(0.04f, Alpha * (0.85f + 0.15f * NdotV));
-    const float InvScaleY = 1.0f / std::max(0.04f, Alpha);
-    const float ShearXZ   = -SinV / std::max(0.08f, NdotV + Alpha);
+    // 2. Dominant-Lobe GGX LTC Transform aligned strictly to mirror reflection R = (-SinV, 0, +NdotV) blended to N at high roughness!
+    const float Alpha    = std::clamp(Mat.Specular.Roughness * Mat.Specular.Roughness, 0.004f, 1.0f);
+    const float SinV     = std::sqrt(std::max(0.0f, 1.0f - NdotV * NdotV));
+    const float DomBlend = (1.0f - Alpha) * (std::sqrt(std::max(0.0f, 1.0f - Alpha)) + Alpha);
+    const Mathematics::Axis3D LobeZ = Mathematics::NormalizeAxis(
+        { -SinV * DomBlend, 0.0f, (1.0f - DomBlend) + DomBlend * NdotV },
+        { 0.0f, 0.0f, 1.0f });
+    const Mathematics::Axis3D LobeX { LobeZ.Z, 0.0f, -LobeZ.X };
+    const float InvScaleX = 1.0f / std::max(0.03f, Alpha * (1.15f + 0.45f * NdotV));
+    const float InvScaleY = 1.0f / std::max(0.03f, Alpha * (1.35f + 0.25f * NdotV));
 
-    std::array<Mathematics::Axis3D, 4u> SpecularLocal {};
+    // Clip diffuse quad to upper hemisphere Z >= 0 first, then map into the mirror-centered GGX cosine lobe
+    std::array<Mathematics::Axis3D, 8u> HorizonPoly {};
+    uint32_t HorizonCount = 0u;
     for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
     {
-        const Mathematics::Axis3D D = DiffuseLocal[Idx];
-        // Reflect/shear around view mirror direction in (T1, T2, N) frame & scale by 1/Alpha!
-        const float MirrorX = -D.X * NdotV + D.Z * SinV;
-        const float MirrorZ =  D.X * SinV  + D.Z * NdotV;
-        SpecularLocal[Idx] = {
-            (MirrorX + ShearXZ * MirrorZ * Alpha) * InvScaleX,
-            D.Y * InvScaleY,
-            MirrorZ,
-        };
+        const Mathematics::Axis3D Cur  = DiffuseLocal[Idx];
+        const Mathematics::Axis3D Next = DiffuseLocal[(Idx + 1u) & 3u];
+        const bool CurAbove            = (Cur.Z >= 0.0f);
+        const bool NextAbove           = (Next.Z >= 0.0f);
+        if (CurAbove) HorizonPoly[HorizonCount++] = Cur;
+        if (CurAbove != NextAbove)
+        {
+            const float T = Cur.Z / (Cur.Z - Next.Z);
+            Mathematics::Axis3D Hit = Cur + (Next - Cur) * T;
+            Hit.Z = 0.0f;
+            HorizonPoly[HorizonCount++] = Hit;
+        }
     }
-    const float SpecFormFactor = IntegrateClippedQuadCosineFormFactor(SpecularLocal);
+
+    float SpecFormFactor = 0.0f;
+    if (HorizonCount >= 3u)
+    {
+        std::array<Mathematics::Axis3D, 8u> SpecClipped {};
+        uint32_t SpecCount = 0u;
+        for (uint32_t Idx = 0u; Idx < HorizonCount; ++Idx)
+        {
+            const Mathematics::Axis3D D0 = HorizonPoly[Idx];
+            const Mathematics::Axis3D D1 = HorizonPoly[(Idx + 1u) % HorizonCount];
+            const Mathematics::Axis3D C0 {
+                Mathematics::EvaluateDot(D0, LobeX) * InvScaleX,
+                D0.Y * InvScaleY,
+                Mathematics::EvaluateDot(D0, LobeZ),
+            };
+            const Mathematics::Axis3D C1 {
+                Mathematics::EvaluateDot(D1, LobeX) * InvScaleX,
+                D1.Y * InvScaleY,
+                Mathematics::EvaluateDot(D1, LobeZ),
+            };
+            const bool A0 = (C0.Z >= 0.0f);
+            const bool A1 = (C1.Z >= 0.0f);
+            if (A0) SpecClipped[SpecCount++] = C0;
+            if (A0 != A1)
+            {
+                const float T = C0.Z / (C0.Z - C1.Z);
+                Mathematics::Axis3D Hit = C0 + (C1 - C0) * T;
+                Hit.Z = 0.0f;
+                SpecClipped[SpecCount++] = Hit;
+            }
+        }
+        if (SpecCount >= 3u)
+        {
+            for (uint32_t Idx = 0u; Idx < SpecCount; ++Idx)
+            {
+                SpecClipped[Idx] = Mathematics::NormalizeAxis(SpecClipped[Idx], { 0.0f, 0.0f, 1.0f });
+            }
+            float ContourSum = 0.0f;
+            for (uint32_t Idx = 0u; Idx < SpecCount; ++Idx)
+            {
+                ContourSum += IntegrateSphericalPolygonEdgeZ(SpecClipped[Idx], SpecClipped[(Idx + 1u) % SpecCount]);
+            }
+            SpecFormFactor = std::clamp(std::fabs(ContourSum) / Constants::TauFloat, 0.0f, 1.0f);
+        }
+    }
 
     // Combine with 4 KB DirectionalAlbedoSheet & F0/F82 Fresnel!
     const auto& AlbedoSheet = MaterialSpace::InspectGlobalDirectionalAlbedoSheet();

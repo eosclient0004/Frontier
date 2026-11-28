@@ -301,6 +301,7 @@ private:
     bool                       ShadowDropdownOpen      = false;                                   // [-]   - Shadow Algorithm DropdownSelector open
     bool                       SdfPenumbraDropdownOpen = false;                                   // [-]   - 6-Mode SDF Shadow/Penumbra DropdownSelector open
     Rectangle2D                HeaderDebugButtonBounds {};                                        // [px]  - Last Header Debug button bounds
+    Rectangle2D                ActiveProjectionAnchorBounds {};                                   // [px]  - Active Projection selector anchor (toolbar or pane chip)
     Rectangle2D                DebugButtonBounds       {};                                        // [px]  - Last Debug View button bounds
     Rectangle2D                EngineButtonBounds      {};                                        // [px]  - Last Engine selector button bounds
     Rectangle2D                ShadowButtonBounds      {};                                        // [px]  - Last Shadow selector button bounds

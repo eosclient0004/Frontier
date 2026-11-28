@@ -514,7 +514,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
     }
     PumpEvents();
 
-    constexpr std::array<VkDescriptorType, 46u> SlotTypes {{
+    constexpr std::array<VkDescriptorType, 48u> SlotTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // 0:  WorldUniforms
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 1:  SceneBvhEntries
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 2:  SceneTriangles
@@ -561,6 +561,8 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 43: SurfelRadiosityBuffer
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 44: PortalPairBuffer
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 45: ClipInstanceRangeBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 46: PingDirectDiffuse
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 47: PongDirectDiffuse
     }};
 
     const std::filesystem::path ShaderBinaryPath = CompiledShaderDirectory / "WorldViewportRadiometricCompute.comp.spv";
@@ -928,6 +930,8 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(GlobalRadiosityFieldBuffer);
         BoundDevice->ReleaseBuffer(PingIndirectIrradianceBuffer);
         BoundDevice->ReleaseBuffer(PongIndirectIrradianceBuffer);
+        BoundDevice->ReleaseBuffer(PingDirectDiffuseBuffer);
+        BoundDevice->ReleaseBuffer(PongDirectDiffuseBuffer);
         BoundDevice->ReleaseBuffer(GlobalSurfaceShellBuffer);
         BoundDevice->ReleaseBuffer(LocalAssetSdfVoxelBuffer);
         BoundDevice->ReleaseBuffer(DynamicLocalSdfInstanceBuffer);
@@ -2028,7 +2032,7 @@ bool VulkanWorldRenderSequence::EnsureCloudLayerProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 46u> SlotTypes {};
+    std::array<VkDescriptorType, 48u> SlotTypes {};
     SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2060,7 +2064,7 @@ bool VulkanWorldRenderSequence::EnsureMotionBlurProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 46u> SlotTypes {};
+    std::array<VkDescriptorType, 48u> SlotTypes {};
     SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2180,7 +2184,7 @@ bool VulkanWorldRenderSequence::EnsureBackgroundSkyProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 46u> SlotTypes {};
+    std::array<VkDescriptorType, 48u> SlotTypes {};
     SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -2220,7 +2224,7 @@ bool VulkanWorldRenderSequence::EnsureVolumetricMediaProgram()
     {
         return false;
     }
-    std::array<VkDescriptorType, 46u> SlotTypes {};
+    std::array<VkDescriptorType, 48u> SlotTypes {};
     SlotTypes.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     SlotTypes[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SlotTypes[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -5020,6 +5024,8 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     EnsureDeviceBufferCapacity(PongShadowAoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PingIndirectIrradianceBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PongIndirectIrradianceBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(PingDirectDiffuseBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(PongDirectDiffuseBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(CloudRadiometricBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
     Mathematics::LinearRGB EffectiveSunIrrad = Scene.Sun.SolarIrradiance;
@@ -5144,7 +5150,7 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
         VkImageView   RadCoarseReadView,
         VkImageLayout RadCoarseReadLayout,
         VkImageView   GdfWriteView,
-        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 46u>
+        VkImageView   RadWriteView) -> std::array<ComputeSlotDescriptor, 48u>
     {
         return {{
             {  0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, PrecomputeUniformBuffer.BufferHandle,         sizeof(WorldViewportUniformBlockStd140), UniOffs },
@@ -5193,6 +5199,8 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             { 43u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         SurfelRadiosityBuffer.BufferHandle,      VK_WHOLE_SIZE },
             { 44u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PortalPairBuffer.BufferHandle,           VK_WHOLE_SIZE },
             { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
+            { 46u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PingDirectDiffuseBuffer.BufferHandle,    VK_WHOLE_SIZE },
+            { 47u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PongDirectDiffuseBuffer.BufferHandle,    VK_WHOLE_SIZE },
         }};
     };
 
@@ -5281,8 +5289,15 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
     {
         uint32_t NextUniSlot = 0u;
 
-        const bool DoFineShadow   = (EffectiveMask & kPrecomputeFineShadow) != 0u;
-        const bool DoCoarseShadow = (EffectiveMask & kPrecomputeCoarseShadow) != 0u;
+        const bool HasActiveSolarIrradiance =
+            (EffectiveSunIrrad.R + EffectiveSunIrrad.G + EffectiveSunIrrad.B) > 1.0e-5f;
+        const bool DoFineShadow   = HasActiveSolarIrradiance && ((EffectiveMask & kPrecomputeFineShadow) != 0u);
+        const bool DoCoarseShadow = HasActiveSolarIrradiance && ((EffectiveMask & kPrecomputeCoarseShadow) != 0u);
+        if (!HasActiveSolarIrradiance && ((EffectiveMask & (kPrecomputeFineShadow | kPrecomputeCoarseShadow)) != 0u))
+        {
+            vkCmdFillBuffer(Cmd, SolarShadowDepthBuffer.BufferHandle, 0ull, ShadowDepthBytes, 0x49742400u); // 1.0e6f
+            InsertPrecomputeBarrier();
+        }
         if (DoFineShadow || DoCoarseShadow)
         {
             const uint64_t UniOffs = static_cast<uint64_t>(NextUniSlot++) * UniformStrideBytes;
@@ -5724,11 +5739,11 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     // -------------------------------------------------------------------------
     std::vector<GpuEmissiveTriangle80> EmissiveTris;
     std::vector<GpuEmissiveCluster64>  EmissiveClusters;
-    EmissiveTris.reserve(256u);
+    EmissiveTris.reserve(512u);
     EmissiveClusters.reserve(32u);
 
-    constexpr uint32_t MaxGpuEmissiveTris     = 256u;
-    constexpr uint32_t MaxGpuEmissiveClusters = 16u;
+    constexpr uint32_t MaxGpuEmissiveTris     = 512u;
+    constexpr uint32_t MaxGpuEmissiveClusters = 32u;
 
     auto AppendClusterFromTris = [&](
         uint32_t StartIdx,
@@ -5769,14 +5784,22 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             return;
         }
         FluxCenter = FluxCenter * (1.0f / TotalWeight);
-        // Avoid double-lighting & double-shadowing physical fixture diffusers already represented
-        // by explicit Scene.AreaLights or Scene.PhotometricRadiators at the same location.
+        // Avoid double-lighting physical softbox silk meshes lying right on an explicit Scene.AreaLights plane,
+        // without swallowing vehicle headlights/taillights or desk screens meters below the ceiling!
         if (SphereRadiusM <= 0.0f)
         {
             for (const auto& Quad : Scene.AreaLights)
             {
-                const float MatchRadius = std::max(0.95f, std::max(Quad.HalfWidthMeters, Quad.HalfHeightMeters) * 1.15f);
-                if (Mathematics::EvaluateLength(FluxCenter - Quad.CenterWorld) <= MatchRadius)
+                const Mathematics::Axis3D QuadNormal = Mathematics::NormalizeAxis(
+                    Mathematics::EvaluateCross(Quad.RightTangent, Quad.UpBitangent),
+                    { 0.0f, 0.0f, -1.0f });
+                const Mathematics::Axis3D Delta = FluxCenter - Quad.CenterWorld;
+                const float PlaneDist = std::fabs(Mathematics::EvaluateDot(Delta, QuadNormal));
+                const float ProjU     = std::fabs(Mathematics::EvaluateDot(Delta, Quad.RightTangent));
+                const float ProjV     = std::fabs(Mathematics::EvaluateDot(Delta, Quad.UpBitangent));
+                if (PlaneDist <= 0.45f &&
+                    ProjU <= std::max(0.55f, Quad.HalfWidthMeters * 1.12f) &&
+                    ProjV <= std::max(0.55f, Quad.HalfHeightMeters * 1.12f))
                 {
                     EmissiveTris.resize(StartIdx);
                     return;
@@ -5784,7 +5807,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             }
             for (const auto& Lamp : Scene.PhotometricRadiators)
             {
-                if (Mathematics::EvaluateLength(FluxCenter - Lamp.PositionWorld) <= 0.95f)
+                if (Mathematics::EvaluateLength(FluxCenter - Lamp.PositionWorld) <= 0.55f)
                 {
                     EmissiveTris.resize(StartIdx);
                     return;
@@ -5869,11 +5892,16 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                 }
             }
 
-            // Collect world-space emissive triangles for polygonal luminaires (panels, headlights, taillights, orbs without analytic code)
-            uint32_t FirstClusterTri = static_cast<uint32_t>(EmissiveTris.size());
-            uint32_t InstEmTriCount  = 0u;
-            Mathematics::Axis3D BMin{  1.0e9f,  1.0e9f,  1.0e9f };
-            Mathematics::Axis3D BMax{ -1.0e9f, -1.0e9f, -1.0e9f };
+            // Collect world-space emissive triangles grouped by material slot so headlights & taillights
+            // on the same vehicle become distinct spatially accurate emissive light clusters!
+            struct EmissiveMaterialBucket
+            {
+                uint16_t                           MaterialId = 0u;
+                std::vector<GpuEmissiveTriangle80> Triangles  {};
+                Mathematics::Axis3D                BMin       {  1.0e9f,  1.0e9f,  1.0e9f };
+                Mathematics::Axis3D                BMax       { -1.0e9f, -1.0e9f, -1.0e9f };
+            };
+            std::vector<EmissiveMaterialBucket> InstBuckets;
             for (const auto& Clust : Asset.Clusters)
             {
                 if (Clust.HierarchyLevel != 0u)
@@ -5882,10 +5910,6 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                 }
                 for (uint32_t K = 0u; K < Clust.TriangleCount; ++K)
                 {
-                    if (EmissiveTris.size() >= MaxGpuEmissiveTris || InstEmTriCount >= 32u)
-                    {
-                        break;
-                    }
                     const uint32_t TriIdx = Clust.TriangleStartOffset + K;
                     if (TriIdx >= Asset.Triangles.size())
                     {
@@ -5902,7 +5926,29 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                     }
                     const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
                     const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
-                    if (Lum <= 0.25f)
+                    if (Lum <= 0.04f)
+                    {
+                        continue;
+                    }
+                    EmissiveMaterialBucket* Bucket = nullptr;
+                    for (auto& Existing : InstBuckets)
+                    {
+                        if (Existing.MaterialId == MatId)
+                        {
+                            Bucket = &Existing;
+                            break;
+                        }
+                    }
+                    if (Bucket == nullptr)
+                    {
+                        if (InstBuckets.size() >= 6u)
+                        {
+                            continue;
+                        }
+                        InstBuckets.push_back(EmissiveMaterialBucket{ MatId, {}, { 1.0e9f, 1.0e9f, 1.0e9f }, { -1.0e9f, -1.0e9f, -1.0e9f } });
+                        Bucket = &InstBuckets.back();
+                    }
+                    if (Bucket->Triangles.size() >= 32u)
                     {
                         continue;
                     }
@@ -5922,25 +5968,40 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                     OutT.VertexCPad[0]     = V2.X; OutT.VertexCPad[1] = V2.Y; OutT.VertexCPad[2] = V2.Z; OutT.VertexCPad[3] = 0.0f;
                     OutT.UnitNormalPad[0]  = UnitN.X; OutT.UnitNormalPad[1] = UnitN.Y; OutT.UnitNormalPad[2] = UnitN.Z; OutT.UnitNormalPad[3] = 0.0f;
                     OutT.LinearRadiance[0] = Em.R; OutT.LinearRadiance[1] = Em.G; OutT.LinearRadiance[2] = Em.B; OutT.LinearRadiance[3] = Lum;
-                    EmissiveTris.push_back(OutT);
-                    ++InstEmTriCount;
-                    BMin.X = std::min({ BMin.X, V0.X, V1.X, V2.X }); BMax.X = std::max({ BMax.X, V0.X, V1.X, V2.X });
-                    BMin.Y = std::min({ BMin.Y, V0.Y, V1.Y, V2.Y }); BMax.Y = std::max({ BMax.Y, V0.Y, V1.Y, V2.Y });
-                    BMin.Z = std::min({ BMin.Z, V0.Z, V1.Z, V2.Z }); BMax.Z = std::max({ BMax.Z, V0.Z, V1.Z, V2.Z });
+                    Bucket->Triangles.push_back(OutT);
+                    Bucket->BMin.X = std::min({ Bucket->BMin.X, V0.X, V1.X, V2.X }); Bucket->BMax.X = std::max({ Bucket->BMax.X, V0.X, V1.X, V2.X });
+                    Bucket->BMin.Y = std::min({ Bucket->BMin.Y, V0.Y, V1.Y, V2.Y }); Bucket->BMax.Y = std::max({ Bucket->BMax.Y, V0.Y, V1.Y, V2.Y });
+                    Bucket->BMin.Z = std::min({ Bucket->BMin.Z, V0.Z, V1.Z, V2.Z }); Bucket->BMax.Z = std::max({ Bucket->BMax.Z, V0.Z, V1.Z, V2.Z });
                 }
             }
-            if (InstEmTriCount > 0u)
+            for (const auto& Bucket : InstBuckets)
             {
-                const float ExtX = BMax.X - BMin.X;
-                const float ExtY = BMax.Y - BMin.Y;
-                const float ExtZ = BMax.Z - BMin.Z;
-                const float MaxExt = std::max({ ExtX, ExtY, ExtZ });
-                const float MinExt = std::min({ ExtX, ExtY, ExtZ });
-                // Compact spherical emissive meshes (like icosphere orbs) get analytical spherical flux radius
-                const float DetectedSphereR = (InstEmTriCount >= 12u && MaxExt < 2.2f && MinExt > MaxExt * 0.72f)
-                    ? (0.5f * (ExtX + ExtY + ExtZ) * (1.0f / 3.0f))
-                    : 0.0f;
-                AppendClusterFromTris(FirstClusterTri, static_cast<uint32_t>(EmissiveTris.size()), InstIdx, DetectedSphereR);
+                if (Bucket.Triangles.empty() || EmissiveClusters.size() >= MaxGpuEmissiveClusters)
+                {
+                    break;
+                }
+                const uint32_t FirstClusterTri = static_cast<uint32_t>(EmissiveTris.size());
+                for (const auto& TriEntry : Bucket.Triangles)
+                {
+                    if (EmissiveTris.size() >= MaxGpuEmissiveTris)
+                    {
+                        break;
+                    }
+                    EmissiveTris.push_back(TriEntry);
+                }
+                const uint32_t AddedCount = static_cast<uint32_t>(EmissiveTris.size()) - FirstClusterTri;
+                if (AddedCount > 0u)
+                {
+                    const float ExtX = Bucket.BMax.X - Bucket.BMin.X;
+                    const float ExtY = Bucket.BMax.Y - Bucket.BMin.Y;
+                    const float ExtZ = Bucket.BMax.Z - Bucket.BMin.Z;
+                    const float MaxExt = std::max({ ExtX, ExtY, ExtZ });
+                    const float MinExt = std::min({ ExtX, ExtY, ExtZ });
+                    const float DetectedSphereR = (AddedCount >= 12u && MaxExt < 2.2f && MinExt > MaxExt * 0.72f)
+                        ? (0.5f * (ExtX + ExtY + ExtZ) * (1.0f / 3.0f))
+                        : 0.0f;
+                    AppendClusterFromTris(FirstClusterTri, static_cast<uint32_t>(EmissiveTris.size()), InstIdx, DetectedSphereR);
+                }
             }
         }
     }
@@ -5960,7 +6021,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             }
             const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
             const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
-            if (Lum <= 0.25f)
+            if (Lum <= 0.04f)
             {
                 continue;
             }
@@ -7416,6 +7477,8 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     EnsureDeviceBufferCapacity(PongShadowAoBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PingIndirectIrradianceBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PongIndirectIrradianceBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(PingDirectDiffuseBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(PongDirectDiffuseBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -7431,6 +7494,8 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         GBufPosMaskBuffer.BufferHandle == VK_NULL_HANDLE ||
         PongShadowAoBuffer.BufferHandle == VK_NULL_HANDLE ||
         PongIndirectIrradianceBuffer.BufferHandle == VK_NULL_HANDLE ||
+        PingDirectDiffuseBuffer.BufferHandle == VK_NULL_HANDLE ||
+        PongDirectDiffuseBuffer.BufferHandle == VK_NULL_HANDLE ||
         GlobalDistanceFieldBuffer.BufferHandle == VK_NULL_HANDLE ||
         GlobalRadiosityFieldBuffer.BufferHandle == VK_NULL_HANDLE ||
         GlobalSurfaceShellBuffer.BufferHandle == VK_NULL_HANDLE ||
@@ -7485,7 +7550,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
 
     const bool DynamicInstancesChanged =
         !Scene.ClusterInstances.empty() && SynchronizeLocalSdfResources(Scene);
-    const Mathematics::Axis3D DesiredClipFocus = ResolveDynamicClipFocusWorld(&Camera, Scene);
+    Mathematics::Axis3D DesiredClipFocus = ResolveDynamicClipFocusWorld(&Camera, Scene);
     const bool SunDirectionShifted = Mathematics::EvaluateDot(SunDir, LastSyncedSunDir) < 0.99995f;
 
     uint32_t PrecomputeMask = 0u;
@@ -7575,10 +7640,21 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                     MaxHalfExtent = std::min(MaxHalfExtent, CasterHalf);
                 }
             }
-            const float               FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.25f, 4.25f) * 8.0f) * 0.125f;
+            const float               FineGdfHalf   = std::round(std::clamp(MaxHalfExtent * 1.18f, 3.50f, 5.25f) * 8.0f) * 0.125f;
             const float               CoarseGdfHalf = std::round(std::clamp(MaxHalfExtent * 1.15f, FineGdfHalf * 2.5f, 24.0f) * 8.0f) * 0.125f;
-            const float               FineVoxelM    = (2.0f * FineGdfHalf) / static_cast<float>(kGdfGridRes);
-            const float               CoarseVoxelM  = (2.0f * CoarseGdfHalf) / static_cast<float>(kGdfGridRes);
+
+            // Anchor Fine GDF to the scene's foreground subjects whenever the camera orbits near the studio,
+            // so static baked GDF + 2-bounce 3D Radiosity are baked ONCE and reused with ZERO orbit rebakes!
+            const Mathematics::Axis3D SceneSubjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
+            const float CameraSubjectSpan = std::max({
+                std::abs(DesiredClipFocus.X - SceneSubjectAnchor.X),
+                std::abs(DesiredClipFocus.Y - SceneSubjectAnchor.Y),
+                std::abs(DesiredClipFocus.Z - SceneSubjectAnchor.Z),
+            });
+            if (CameraSubjectSpan <= FineGdfHalf * 0.60f)
+            {
+                DesiredClipFocus = SceneSubjectAnchor;
+            }
 
             (void)SynchronizeMaterialEntriesIfChanged(Scene);
 
@@ -7591,7 +7667,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 std::abs(DesiredClipFocus.Y - CachedFineGdfCenterSpan[1]),
                 std::abs(DesiredClipFocus.Z - CachedFineGdfCenterSpan[2]),
             });
-            if (!FineToroidalValid || FineAxisDrift >= FineVoxelM * 4.35f)
+            if (!FineToroidalValid || FineAxisDrift >= FineGdfHalf * 0.40f)
             {
                 PrecomputeMask |= kPrecomputeFineGdf;
                 if (UsesRadiosityField)
@@ -7618,31 +7694,36 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 std::abs(DesiredClipFocus.Z - CachedCoarseGdfCenterSpan[2]),
             });
             if (!CoarseToroidalValid ||
-                (MaxHalfExtent > CoarseGdfHalf && CoarseAxisDrift >= CoarseVoxelM * 4.35f))
+                (MaxHalfExtent > CoarseGdfHalf && CoarseAxisDrift >= CoarseGdfHalf * 0.35f))
             {
                 PrecomputeMask |= kPrecomputeCoarseGdf;
             }
         }
 
-        // Scroll the Fine Sun Shadow Cascade when the camera focus navigates outside its active core,
-        // while keeping it anchored with wide hysteresis near foreground subjects (zero shimmer or redundant bakes).
-        constexpr float FineSunHalfMeters = 6.00f;
-        const Mathematics::Axis3D SceneObjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
-        const float FocusFromObject = std::max({
-            std::abs(DesiredClipFocus.X - SceneObjectAnchor.X),
-            std::abs(DesiredClipFocus.Y - SceneObjectAnchor.Y),
-            std::abs(DesiredClipFocus.Z - SceneObjectAnchor.Z),
-        });
-        const Mathematics::Axis3D DesiredFineShadowAnchor =
-            (FocusFromObject <= FineSunHalfMeters * 0.55f) ? SceneObjectAnchor : DesiredClipFocus;
-        const float FineShadowDrift = std::max({
-            std::abs(DesiredFineShadowAnchor.X - LastFineShadowFocusWorld.X),
-            std::abs(DesiredFineShadowAnchor.Y - LastFineShadowFocusWorld.Y),
-            std::abs(DesiredFineShadowAnchor.Z - LastFineShadowFocusWorld.Z),
-        });
-        if (FineShadowDrift >= FineSunHalfMeters * 0.55f)
+        // Scroll the Fine Sun Shadow Cascade ONLY when solar irradiance is active and focus leaves its core.
+        const bool HasActiveSolarIrradiance =
+            AtmoActive ||
+            (Scene.Sun.SolarIrradiance.R + Scene.Sun.SolarIrradiance.G + Scene.Sun.SolarIrradiance.B) > 1.0e-5f;
+        if (HasActiveSolarIrradiance)
         {
-            PrecomputeMask |= kPrecomputeFineShadow;
+            constexpr float FineSunHalfMeters = 6.00f;
+            const Mathematics::Axis3D SceneObjectAnchor = ResolveDynamicClipFocusWorld(nullptr, Scene);
+            const float FocusFromObject = std::max({
+                std::abs(DesiredClipFocus.X - SceneObjectAnchor.X),
+                std::abs(DesiredClipFocus.Y - SceneObjectAnchor.Y),
+                std::abs(DesiredClipFocus.Z - SceneObjectAnchor.Z),
+            });
+            const Mathematics::Axis3D DesiredFineShadowAnchor =
+                (FocusFromObject <= FineSunHalfMeters * 0.55f) ? SceneObjectAnchor : DesiredClipFocus;
+            const float FineShadowDrift = std::max({
+                std::abs(DesiredFineShadowAnchor.X - LastFineShadowFocusWorld.X),
+                std::abs(DesiredFineShadowAnchor.Y - LastFineShadowFocusWorld.Y),
+                std::abs(DesiredFineShadowAnchor.Z - LastFineShadowFocusWorld.Z),
+            });
+            if (FineShadowDrift >= FineSunHalfMeters * 0.55f)
+            {
+                PrecomputeMask |= kPrecomputeFineShadow;
+            }
         }
     }
 
@@ -8437,12 +8518,14 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     WriteStamp(1u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     EnsureBufferCapacity(ActiveClusterMaskBuffer, MaskSliceOffsetBytes * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 46u>
+    auto ConstructStepSlots = [&](uint64_t UniOffset, bool SwapPingPong) -> std::array<ComputeSlotDescriptor, 48u>
     {
-        const auto& InShadow  = SwapPingPong ? PongShadowAoBuffer : PingShadowAoBuffer;
-        const auto& OutShadow = SwapPingPong ? PingShadowAoBuffer : PongShadowAoBuffer;
-        const auto& InIndir   = SwapPingPong ? PongIndirectIrradianceBuffer : PingIndirectIrradianceBuffer;
-        const auto& OutIndir  = SwapPingPong ? PingIndirectIrradianceBuffer : PongIndirectIrradianceBuffer;
+        const auto& InShadow      = SwapPingPong ? PongShadowAoBuffer : PingShadowAoBuffer;
+        const auto& OutShadow     = SwapPingPong ? PingShadowAoBuffer : PongShadowAoBuffer;
+        const auto& InIndir       = SwapPingPong ? PongIndirectIrradianceBuffer : PingIndirectIrradianceBuffer;
+        const auto& OutIndir      = SwapPingPong ? PingIndirectIrradianceBuffer : PongIndirectIrradianceBuffer;
+        const auto& InDirectDiff  = SwapPingPong ? PongDirectDiffuseBuffer : PingDirectDiffuseBuffer;
+        const auto& OutDirectDiff = SwapPingPong ? PingDirectDiffuseBuffer : PongDirectDiffuseBuffer;
         return {{
             {  0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ActiveSlot.UniformBuffer.BufferHandle,        sizeof(WorldViewportUniformBlockStd140), UniOffset },
             {  1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, BvhEntryBuffer.BufferHandle,                  VK_WHOLE_SIZE },
@@ -8490,6 +8573,8 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             { 43u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         SurfelRadiosityBuffer.BufferHandle,      VK_WHOLE_SIZE },
             { 44u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         PortalPairBuffer.BufferHandle,           VK_WHOLE_SIZE },
             { 45u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         ClipInstanceRangeBuffer.BufferHandle,    VK_WHOLE_SIZE },
+            { 46u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         InDirectDiff.BufferHandle,               AccBytes      },
+            { 47u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         OutDirectDiff.BufferHandle,              AccBytes      },
         }};
     };
 
@@ -8531,9 +8616,8 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-    // Real-time 2-Bounce Surfel Radiosity Solve on GPU (Step 0: Direct Sun + Area + IES + Exact BVH4 Stokes Emissive;
-    // Step 1: 128-Surfel Bunnell Disk Albedo Color-Bleed Bounce) — dispatches whenever lighting, emissives, or scene changed!
-    if (SurfelRadiosityDirty && SurfelRadiositySolveProgramHandle != UINT32_MAX && UploadedSurfelCount > 0u)
+    // Real-time 2-Bounce Surfel Radiosity Solve on GPU (GI engines only: EngIdx >= 2u; OpenPbrDirect skips GI solve!)
+    if (EngIdx >= 2u && SurfelRadiosityDirty && SurfelRadiositySolveProgramHandle != UINT32_MAX && UploadedSurfelCount > 0u)
     {
         const uint32_t SurfelGroups = (UploadedSurfelCount + 63u) / 64u;
         const uint64_t UniOffsStep0 = 12ull * UniformStrideBytes;
@@ -8556,9 +8640,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         SurfelRadiosityDirty = false;
     }
 
-    auto MakeLazyViewportSlots = []() -> std::array<VkDescriptorType, 46u>
+    auto BuildLazyViewportSlots = []() -> std::array<VkDescriptorType, 48u>
     {
-        std::array<VkDescriptorType, 46u> LazySlots {};
+        std::array<VkDescriptorType, 48u> LazySlots {};
         LazySlots.fill(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         LazySlots[0]  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         LazySlots[32] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -8572,7 +8656,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     };
     if ((EngIdx == 4u || EngIdx == 5u) && Config.DebugChannel == 0u && ViewportPathTraceProgramHandle == UINT32_MAX)
     {
-        const auto LazyPtSlots = MakeLazyViewportSlots();
+        const auto LazyPtSlots = BuildLazyViewportSlots();
         ViewportPathTraceProgramHandle = DispatchEncoder.RegisterProgram(
             CachedCompiledShaderDir / "WorldViewportPathTraceCompute.comp.spv",
             LazyPtSlots,
@@ -8581,7 +8665,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     }
     if (EngIdx == 3u && HighEndBvhProgramHandle == UINT32_MAX)
     {
-        const auto LazyHighEndSlots = MakeLazyViewportSlots();
+        const auto LazyHighEndSlots = BuildLazyViewportSlots();
         HighEndBvhProgramHandle = DispatchEncoder.RegisterProgram(
             CachedCompiledShaderDir / "WorldViewportHighEndCompute.comp.spv",
             LazyHighEndSlots,
@@ -8702,16 +8786,13 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             MultiStepSunFilter ||
             (EngIdx == DirectPbrOrdinal || EngIdx == LowEndGtxOrdinal);
 
-        // Collapse 3-step sequential Denoise -> 1 fused pass on DirectPBR / GTX GDF GI when multi-step sun denoise isn't required.
-        const bool UseSingleFusedDenoisePass =
-            MultiStepBilateralDenoise &&
-            !MultiStepSunFilter &&
-            (Config.DebugChannel != DebugChannelFilteredAo) &&
-            (EngIdx == DirectPbrOrdinal || EngIdx == LowEndGtxOrdinal);
-
-        if (UseHalfResIndirect && (UseSingleFusedDenoisePass || !MultiStepBilateralDenoise))
+        // Always run full 3-step edge-preserving À-Trous bilateral filtering across GI, AO,
+        // solar shadows, and demodulated studio direct-diffuse shadows (zero single-step collapse).
+        if (UseHalfResIndirect)
         {
-            if (!DispatchHalfResIndirect(false))
+            // Write half-res indirect samples into PingIndirectIrradianceBuffer (SwapPingPong=true)
+            // so Step 0 reads PingIndirectIrradiance and writes full-res PongIndirectIrradiance race-free!
+            if (!DispatchHalfResIndirect(true))
             {
                 BoundDevice->FreeCommandBuffer(Cmd);
                 return false;
@@ -8720,49 +8801,24 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         WriteStamp(5u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         WriteStamp(6u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-        if (UseSingleFusedDenoisePass)
-        {
-            const uint64_t UniformOffset = UniformStrideBytes;
-            WorldViewportUniformBlockStd140 StepUniforms = Uniforms;
-            StepUniforms.DenoiseStepParams[0] = 2u;
-            StepUniforms.DenoiseStepParams[1] =
-                EnableFinalToneStackBit |
-                (UseHalfResIndirect ? EnableHalfResIndirectBit : EnableSpatialAoDenoiseBit) |
-                (FirstStepSunFilter ? EnableSpatialSunDenoiseBit : 0u);
-            std::memcpy(UniformBytes + UniformOffset, &StepUniforms, sizeof(StepUniforms));
-
-            const auto StepSlots = ConstructStepSlots(UniformOffset, false);
-            if (!DispatchEncoder.EncodeComputeDispatch(Cmd, DenoiseProgramHandle, StepSlots, GroupsX, GroupsY, 1u))
-            {
-                BoundDevice->FreeCommandBuffer(Cmd);
-                return false;
-            }
-        }
-        else if (MultiStepBilateralDenoise)
+        if (MultiStepBilateralDenoise)
         {
             for (uint32_t StepIndex = 0u; StepIndex < BilateralDenoiseStepCount; ++StepIndex)
             {
-                const bool IsFinalStep = (StepIndex + 1u == BilateralDenoiseStepCount);
+                const bool IsFinalStep  = (StepIndex + 1u == BilateralDenoiseStepCount);
                 const bool SwapPingPong = (StepIndex & 1u) != 0u;
                 if (IsFinalStep)
                 {
                     MotionBlurSourceSwapPingPong = SwapPingPong;
                 }
-                if (IsFinalStep && UseHalfResIndirect)
-                {
-                    if (!DispatchHalfResIndirect(SwapPingPong))
-                    {
-                        BoundDevice->FreeCommandBuffer(Cmd);
-                        return false;
-                    }
-                }
                 const uint64_t UniformOffset = static_cast<uint64_t>(StepIndex + 1u) * UniformStrideBytes;
                 WorldViewportUniformBlockStd140 StepUniforms = Uniforms;
                 const bool FilterSunThisStep = (StepIndex == 0u) ? FirstStepSunFilter : MultiStepSunFilter;
+                const bool UpsampleHalfResNow = UseHalfResIndirect && (StepIndex == 0u);
                 StepUniforms.DenoiseStepParams[0] = BilateralDenoiseStrides[StepIndex];
                 StepUniforms.DenoiseStepParams[1] =
                     (IsFinalStep ? EnableFinalToneStackBit : 0u) |
-                    (UseHalfResIndirect ? (IsFinalStep ? EnableHalfResIndirectBit : 0u) : EnableSpatialAoDenoiseBit) |
+                    (UpsampleHalfResNow ? EnableHalfResIndirectBit : EnableSpatialAoDenoiseBit) |
                     (FilterSunThisStep ? EnableSpatialSunDenoiseBit : 0u);
                 std::memcpy(UniformBytes + UniformOffset, &StepUniforms, sizeof(StepUniforms));
 
