@@ -1607,7 +1607,40 @@ void RegisterShowcaseGalleryInOutliner(
         }
     }
 
+    auto FindCoupledLuminaireDiffuserEntry = [&](const Mathematics::Axis3D& LightPos) -> int32_t
+    {
+        int32_t BestIdx  = -1;
+        float   BestDist = 1.15f;
+        for (std::size_t ObjIdx = 0u; ObjIdx < InOutBundle.Objects.size(); ++ObjIdx)
+        {
+            const auto& Obj = InOutBundle.Objects[ObjIdx];
+            const bool FixtureTitle =
+                ContainsCaseInsensitive(Obj.Title, "softbox") ||
+                ContainsCaseInsensitive(Obj.Title, "umbrella") ||
+                ContainsCaseInsensitive(Obj.Title, "fresnel") ||
+                ContainsCaseInsensitive(Obj.Title, "led panel") ||
+                ContainsCaseInsensitive(Obj.Title, "strobe") ||
+                ContainsCaseInsensitive(Obj.Title, "diffuser") ||
+                ContainsCaseInsensitive(Obj.Title, "fixture") ||
+                ContainsCaseInsensitive(Obj.Title, "light bank") ||
+                ContainsCaseInsensitive(Obj.Title, "skylight") ||
+                ContainsCaseInsensitive(Obj.Title, "lamp");
+            if (!FixtureTitle)
+            {
+                continue;
+            }
+            const float Dist = Mathematics::EvaluateLength(Obj.CenterWorld - LightPos);
+            if (Dist < BestDist)
+            {
+                BestDist = Dist;
+                BestIdx  = static_cast<int32_t>(ObjIdx);
+            }
+        }
+        return BestIdx;
+    };
+
     InOutBundle.AreaLightBindings.clear();
+    InOutBundle.PhotometricLightBindings.clear();
     InOutBundle.CeilingSoftboxToken = {};
     if (!InOutBundle.Scene.AreaLights.empty() || !InOutBundle.Scene.PhotometricRadiators.empty())
     {
@@ -1655,6 +1688,8 @@ void RegisterShowcaseGalleryInOutliner(
                     LightSlot,
                     LightIdx,
                     Softbox.EmittedRadiance,
+                    FindCoupledLuminaireDiffuserEntry(Softbox.CenterWorld),
+                    false,
                 });
             }
         }
@@ -1680,6 +1715,14 @@ void RegisterShowcaseGalleryInOutliner(
                 RadEntry->ScaleZ            = 1.0f;
                 RadEntry->VisibilityEnabled = true;
                 RadEntry->CastShadows       = false;
+
+                InOutBundle.PhotometricLightBindings.push_back({
+                    RadSlot,
+                    RadIdx,
+                    Radiator.PeakIntensityRgb,
+                    FindCoupledLuminaireDiffuserEntry(Radiator.PositionWorld),
+                    false,
+                });
             }
         }
     }
@@ -1832,6 +1875,36 @@ void RebuildShowcaseSceneAcceleration(ShowcaseWorldSceneBundle& InOutBundle)
     }
 }
 
+[[nodiscard]] bool QueryEntrySuppressedByHiddenLight(
+    const OutlinerPanel&            SourceOutliner,
+    const ShowcaseWorldSceneBundle& Bundle,
+    std::size_t                     EntryIdx) noexcept
+{
+    for (const ShowcaseAreaLightLink& Binding : Bundle.AreaLightBindings)
+    {
+        if (Binding.CoupledDiffuserEntryIndex == static_cast<int32_t>(EntryIdx))
+        {
+            const OutlinerRecordEntry* LE = SourceOutliner.FindEntry(Binding.SlotToken);
+            if (LE == nullptr || !SourceOutliner.QueryEffectiveVisibility(Binding.SlotToken))
+            {
+                return true;
+            }
+        }
+    }
+    for (const ShowcasePhotometricLightLink& Binding : Bundle.PhotometricLightBindings)
+    {
+        if (Binding.CoupledDiffuserEntryIndex == static_cast<int32_t>(EntryIdx))
+        {
+            const OutlinerRecordEntry* RE = SourceOutliner.FindEntry(Binding.SlotToken);
+            if (RE == nullptr || !SourceOutliner.QueryEffectiveVisibility(Binding.SlotToken))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool SynchronizeShowcaseGalleryFromOutliner(
     const OutlinerPanel&      SourceOutliner,
     ShowcaseWorldSceneBundle& InOutBundle)
@@ -1839,8 +1912,9 @@ bool SynchronizeShowcaseGalleryFromOutliner(
     bool Changed         = false;
     bool AccelInvalidated = false;
 
-    for (ShowcaseWorldAssetEntry& Obj : InOutBundle.Objects)
+    for (std::size_t ObjIdx = 0u; ObjIdx < InOutBundle.Objects.size(); ++ObjIdx)
     {
+        ShowcaseWorldAssetEntry& Obj = InOutBundle.Objects[ObjIdx];
         if (!Obj.SlotToken.Valid() || Obj.ClusterInstanceIndex >= InOutBundle.Scene.ClusterInstances.size())
         {
             continue;
@@ -1848,7 +1922,9 @@ bool SynchronizeShowcaseGalleryFromOutliner(
         const OutlinerRecordEntry* Entry = SourceOutliner.FindEntry(Obj.SlotToken);
         auto&                      Inst  = InOutBundle.Scene.ClusterInstances[Obj.ClusterInstanceIndex];
 
-        const bool  EffectiveVis = (Entry != nullptr) && SourceOutliner.QueryEffectiveVisibility(Obj.SlotToken);
+        const bool EffectiveVis = (Entry != nullptr) &&
+                                  SourceOutliner.QueryEffectiveVisibility(Obj.SlotToken) &&
+                                  !QueryEntrySuppressedByHiddenLight(SourceOutliner, InOutBundle, ObjIdx);
         const float BaseExtent   = std::max(0.05f, std::max({ Obj.AuthoredDimensions.X, Obj.AuthoredDimensions.Y, Obj.AuthoredDimensions.Z }));
         float       UserScale    = 1.0f;
         if (Entry != nullptr && Obj.AuthoredDimensions.X > 1.0e-4f)
@@ -2033,20 +2109,100 @@ bool SynchronizeShowcaseGalleryFromOutliner(
         }
     }
 
-    if (!InOutBundle.Scene.AreaLights.empty())
+    auto SyncCoupledDiffuserVisibility = [&](int32_t DiffuserObjIdx, bool LightActive, bool& InOutSuppressed)
     {
-        if (const OutlinerRecordEntry* SoftboxEntry = SourceOutliner.FindEntry(InOutBundle.CeilingSoftboxToken))
+        if (DiffuserObjIdx < 0 || static_cast<std::size_t>(DiffuserObjIdx) >= InOutBundle.Objects.size())
         {
-            auto& Softbox = InOutBundle.Scene.AreaLights.front();
-            const bool LightVisible = SourceOutliner.QueryEffectiveVisibility(InOutBundle.CeilingSoftboxToken);
-            const Mathematics::LinearRGB TargetEmit = LightVisible
-                ? Mathematics::LinearRGB{ 7.5f, 6.6f, 5.4f }
-                : Mathematics::LinearRGB{ 0.0f, 0.0f, 0.0f };
-            if (!NearlyEqualFloat(Softbox.EmittedRadiance.R, TargetEmit.R))
+            return;
+        }
+        const auto& DiffObj = InOutBundle.Objects[static_cast<std::size_t>(DiffuserObjIdx)];
+        if (DiffObj.ClusterInstanceIndex >= InOutBundle.Scene.ClusterInstances.size())
+        {
+            return;
+        }
+        auto& DiffInst = InOutBundle.Scene.ClusterInstances[DiffObj.ClusterInstanceIndex];
+        if (!LightActive)
+        {
+            if (DiffInst.VisibilityEnabled)
             {
-                Softbox.EmittedRadiance = TargetEmit;
-                Changed                 = true;
+                DiffInst.VisibilityEnabled = false;
+                InOutSuppressed            = true;
+                AccelInvalidated           = true;
+                Changed                    = true;
             }
+        }
+        else if (InOutSuppressed)
+        {
+            const bool OwnerVisible = !DiffObj.SlotToken.Valid() || SourceOutliner.QueryEffectiveVisibility(DiffObj.SlotToken);
+            if (OwnerVisible && !DiffInst.VisibilityEnabled)
+            {
+                DiffInst.VisibilityEnabled = true;
+                AccelInvalidated           = true;
+                Changed                    = true;
+            }
+            InOutSuppressed = false;
+        }
+    };
+
+    // Sync ALL bound LTC polygonal area lights (using their true authored BaseEmittedRadiance, never hardcoded!)
+    for (ShowcaseAreaLightLink& Binding : InOutBundle.AreaLightBindings)
+    {
+        if (Binding.AreaLightIndex >= InOutBundle.Scene.AreaLights.size())
+        {
+            continue;
+        }
+        auto&                      Quad       = InOutBundle.Scene.AreaLights[Binding.AreaLightIndex];
+        const OutlinerRecordEntry* LightEntry = SourceOutliner.FindEntry(Binding.SlotToken);
+        const bool                 LightOn    = (LightEntry != nullptr) && SourceOutliner.QueryEffectiveVisibility(Binding.SlotToken);
+        const Mathematics::LinearRGB TargetEmit = LightOn
+            ? Binding.BaseEmittedRadiance
+            : Mathematics::LinearRGB{ 0.0f, 0.0f, 0.0f };
+        if (!NearlyEqualFloat(Quad.EmittedRadiance.R, TargetEmit.R) ||
+            !NearlyEqualFloat(Quad.EmittedRadiance.G, TargetEmit.G) ||
+            !NearlyEqualFloat(Quad.EmittedRadiance.B, TargetEmit.B))
+        {
+            Quad.EmittedRadiance = TargetEmit;
+            Changed              = true;
+        }
+        if (LightEntry != nullptr)
+        {
+            const Mathematics::Axis3D NextCenter{ LightEntry->PositionX, LightEntry->PositionY, LightEntry->PositionZ };
+            if (!NearlyEqualFloat(Quad.CenterWorld.X, NextCenter.X) ||
+                !NearlyEqualFloat(Quad.CenterWorld.Y, NextCenter.Y) ||
+                !NearlyEqualFloat(Quad.CenterWorld.Z, NextCenter.Z))
+            {
+                Quad.CenterWorld = NextCenter;
+                Changed          = true;
+            }
+            const float NextHalfW = std::max(0.10f, LightEntry->ScaleX * 0.5f);
+            const float NextHalfH = std::max(0.10f, LightEntry->ScaleY * 0.5f);
+            if (!NearlyEqualFloat(Quad.HalfWidthMeters, NextHalfW) ||
+                !NearlyEqualFloat(Quad.HalfHeightMeters, NextHalfH))
+            {
+                Quad.HalfWidthMeters  = NextHalfW;
+                Quad.HalfHeightMeters = NextHalfH;
+                Changed               = true;
+            }
+        }
+        SyncCoupledDiffuserVisibility(Binding.CoupledDiffuserEntryIndex, LightOn, Binding.DiffuserSuppressedByLight);
+    }
+
+    // Fallback for standalone CeilingSoftboxToken if AreaLightBindings wasn't populated
+    if (InOutBundle.AreaLightBindings.empty() && !InOutBundle.Scene.AreaLights.empty() && InOutBundle.CeilingSoftboxToken.Valid())
+    {
+        auto&                      Softbox      = InOutBundle.Scene.AreaLights.front();
+        const OutlinerRecordEntry* SoftboxEntry = SourceOutliner.FindEntry(InOutBundle.CeilingSoftboxToken);
+        const bool                 LightVisible = (SoftboxEntry != nullptr) && SourceOutliner.QueryEffectiveVisibility(InOutBundle.CeilingSoftboxToken);
+        const Mathematics::LinearRGB TargetEmit = LightVisible
+            ? Mathematics::LinearRGB{ 7.5f, 6.6f, 5.4f }
+            : Mathematics::LinearRGB{ 0.0f, 0.0f, 0.0f };
+        if (!NearlyEqualFloat(Softbox.EmittedRadiance.R, TargetEmit.R))
+        {
+            Softbox.EmittedRadiance = TargetEmit;
+            Changed                 = true;
+        }
+        if (SoftboxEntry != nullptr)
+        {
             const Mathematics::Axis3D NextCenter{ SoftboxEntry->PositionX, SoftboxEntry->PositionY, SoftboxEntry->PositionZ };
             if (!NearlyEqualFloat(Softbox.CenterWorld.X, NextCenter.X) ||
                 !NearlyEqualFloat(Softbox.CenterWorld.Y, NextCenter.Y) ||
@@ -2065,6 +2221,40 @@ bool SynchronizeShowcaseGalleryFromOutliner(
                 Changed                  = true;
             }
         }
+    }
+
+    // Sync ALL bound IES PhotometricRadiators (visibility, deletion, position, and coupled luminaire fixture!)
+    for (ShowcasePhotometricLightLink& Binding : InOutBundle.PhotometricLightBindings)
+    {
+        if (Binding.RadiatorIndex >= InOutBundle.Scene.PhotometricRadiators.size())
+        {
+            continue;
+        }
+        auto&                      Radiator = InOutBundle.Scene.PhotometricRadiators[Binding.RadiatorIndex];
+        const OutlinerRecordEntry* RadEntry = SourceOutliner.FindEntry(Binding.SlotToken);
+        const bool                 LampOn   = (RadEntry != nullptr) && SourceOutliner.QueryEffectiveVisibility(Binding.SlotToken);
+        const Mathematics::LinearRGB TargetPeak = LampOn
+            ? Binding.BasePeakIntensityRgb
+            : Mathematics::LinearRGB{ 0.0f, 0.0f, 0.0f };
+        if (!NearlyEqualFloat(Radiator.PeakIntensityRgb.R, TargetPeak.R) ||
+            !NearlyEqualFloat(Radiator.PeakIntensityRgb.G, TargetPeak.G) ||
+            !NearlyEqualFloat(Radiator.PeakIntensityRgb.B, TargetPeak.B))
+        {
+            Radiator.PeakIntensityRgb = TargetPeak;
+            Changed                   = true;
+        }
+        if (RadEntry != nullptr)
+        {
+            const Mathematics::Axis3D NextPos{ RadEntry->PositionX, RadEntry->PositionY, RadEntry->PositionZ };
+            if (!NearlyEqualFloat(Radiator.PositionWorld.X, NextPos.X) ||
+                !NearlyEqualFloat(Radiator.PositionWorld.Y, NextPos.Y) ||
+                !NearlyEqualFloat(Radiator.PositionWorld.Z, NextPos.Z))
+            {
+                Radiator.PositionWorld = NextPos;
+                Changed                = true;
+            }
+        }
+        SyncCoupledDiffuserVisibility(Binding.CoupledDiffuserEntryIndex, LampOn, Binding.DiffuserSuppressedByLight);
     }
 
     if (AccelInvalidated)
@@ -2191,11 +2381,15 @@ bool SynchronizeShowcaseGallerySceneLive(
         }
         else if (Entry.Category == ConstructSlotCategory::PointLuminaire)
         {
-            const bool KnownLight = std::any_of(
+            const bool KnownAreaLight = std::any_of(
                 InOutBundle.AreaLightBindings.begin(),
                 InOutBundle.AreaLightBindings.end(),
                 [&](const ShowcaseAreaLightLink& L) { return L.SlotToken == Entry.Token; });
-            if (!KnownLight)
+            const bool KnownPhotometricLight = std::any_of(
+                InOutBundle.PhotometricLightBindings.begin(),
+                InOutBundle.PhotometricLightBindings.end(),
+                [&](const ShowcasePhotometricLightLink& L) { return L.SlotToken == Entry.Token; });
+            if (!KnownAreaLight && !KnownPhotometricLight)
             {
                 PolygonalAreaQuadLight NewQuad {};
                 NewQuad.CenterWorld = { Entry.PositionX, Entry.PositionY, Entry.PositionZ };
@@ -2219,46 +2413,19 @@ bool SynchronizeShowcaseGallerySceneLive(
                 NewQuad.EmittedRadiance  = { 5.8f, 5.4f, 4.8f };
                 const uint32_t LightIdx  = static_cast<uint32_t>(InOutBundle.Scene.AreaLights.size());
                 InOutBundle.Scene.AreaLights.push_back(NewQuad);
-                InOutBundle.AreaLightBindings.push_back({ Entry.Token, LightIdx, NewQuad.EmittedRadiance });
+                InOutBundle.AreaLightBindings.push_back({ Entry.Token, LightIdx, NewQuad.EmittedRadiance, -1, false });
                 Changed = true;
             }
         }
     }
 
-    // 2. Sync dynamic area light bindings (beyond index 0 Ceiling Softbox)
-    for (ShowcaseAreaLightLink& Binding : InOutBundle.AreaLightBindings)
-    {
-        if (Binding.SlotToken == InOutBundle.CeilingSoftboxToken ||
-            Binding.AreaLightIndex >= InOutBundle.Scene.AreaLights.size())
-        {
-            continue;
-        }
-        const OutlinerRecordEntry* LightEntry = InOutOutliner.FindEntry(Binding.SlotToken);
-        auto&                      Quad       = InOutBundle.Scene.AreaLights[Binding.AreaLightIndex];
-        const bool                 Active     = (LightEntry != nullptr) && InOutOutliner.QueryEffectiveVisibility(Binding.SlotToken);
-        const Mathematics::LinearRGB TargetRad = Active ? Binding.BaseEmittedRadiance : Mathematics::LinearRGB{ 0.0f, 0.0f, 0.0f };
-        if (!NearlyEqualFloat(Quad.EmittedRadiance.R, TargetRad.R))
-        {
-            Quad.EmittedRadiance = TargetRad;
-            Changed              = true;
-        }
-        if (LightEntry != nullptr)
-        {
-            const Mathematics::Axis3D NextPos{ LightEntry->PositionX, LightEntry->PositionY, LightEntry->PositionZ };
-            if (!NearlyEqualFloat(Quad.CenterWorld.X, NextPos.X) ||
-                !NearlyEqualFloat(Quad.CenterWorld.Y, NextPos.Y) ||
-                !NearlyEqualFloat(Quad.CenterWorld.Z, NextPos.Z))
-            {
-                Quad.CenterWorld = NextPos;
-                Changed          = true;
-            }
-        }
-    }
+    // 2. Sync dynamic area & photometric light bindings (handles visibility, deletion, transforms & coupled diffusers in step 4)
 
     // 3. Synchronize existing gallery & constructed objects + camera + sun + softbox
     bool AccelInvalidated = false;
-    for (ShowcaseWorldAssetEntry& Obj : InOutBundle.Objects)
+    for (std::size_t ObjIdx = 0u; ObjIdx < InOutBundle.Objects.size(); ++ObjIdx)
     {
+        ShowcaseWorldAssetEntry& Obj = InOutBundle.Objects[ObjIdx];
         if (!Obj.SlotToken.Valid() || Obj.ClusterInstanceIndex >= InOutBundle.Scene.ClusterInstances.size())
         {
             continue;
@@ -2266,7 +2433,15 @@ bool SynchronizeShowcaseGallerySceneLive(
         const OutlinerRecordEntry* Entry = InOutOutliner.FindEntry(Obj.SlotToken);
         auto&                      Inst  = InOutBundle.Scene.ClusterInstances[Obj.ClusterInstanceIndex];
 
-        const bool  EffectiveVis      = (Entry != nullptr) && InOutOutliner.QueryEffectiveVisibility(Obj.SlotToken);
+        const bool  EffectiveVis      = (Entry != nullptr) &&
+                                        InOutOutliner.QueryEffectiveVisibility(Obj.SlotToken) &&
+                                        !QueryEntrySuppressedByHiddenLight(InOutOutliner, InOutBundle, ObjIdx);
+        if (Inst.VisibilityEnabled != EffectiveVis)
+        {
+            Inst.VisibilityEnabled = EffectiveVis;
+            Changed                = true;
+            AccelInvalidated       = true;
+        }
         const float AuthoredMaxExtent = std::max(0.05f, std::max({ Obj.AuthoredDimensions.X, Obj.AuthoredDimensions.Y, Obj.AuthoredDimensions.Z }));
         float       UserScale         = 1.0f;
         if (Entry != nullptr && Obj.AuthoredDimensions.X > 1.0e-4f)

@@ -486,6 +486,7 @@ private:
     bool                   SkyViewLutValid                 = false;
     std::array<uint8_t, 128u> LastSkyViewUniformSnapshot   {};
     uint64_t               LastRadiosityLightingSignature  = 0ull;
+    uint64_t               LastEmissiveInputSignature      = 0ull;
     uint64_t               CachedLocalSdfAssetSignature    = 0ull;
     uint64_t               CachedDynamicSdfSignature       = 0ull;
     Mathematics::Axis3D    ActiveClipFocusWorld            { 0.0f, 0.0f, 0.0f };

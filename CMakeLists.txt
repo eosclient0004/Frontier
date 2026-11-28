@@ -1480,28 +1480,24 @@ target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/stb"
 )
-set(FRONTIER_GIT_COMMIT_HASH "unknown")
-find_package(Git QUIET)
-if(GIT_FOUND)
-    execute_process(
-        COMMAND "${GIT_EXECUTABLE}" rev-parse --short=8 HEAD
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        OUTPUT_VARIABLE _FRONTIER_GIT_SHA
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-    )
-    if(_FRONTIER_GIT_SHA)
-        set(FRONTIER_GIT_COMMIT_HASH "${_FRONTIER_GIT_SHA}")
-    endif()
-endif()
-# Write commit hash into a dedicated header (only included by ViewportTimingTelemetry.h)
-# so sccache keeps ~99% cache hit rate across commits on Windows CI!
-file(WRITE "${FRONTIER_GENERATED_INCLUDE_DIR}/FrontierBuildInfo.h.tmp"
-    "#pragma once\n#define FRONTIER_GIT_COMMIT_HASH \"${FRONTIER_GIT_COMMIT_HASH}\"\n")
-configure_file(
-    "${FRONTIER_GENERATED_INCLUDE_DIR}/FrontierBuildInfo.h.tmp"
-    "${FRONTIER_GENERATED_INCLUDE_DIR}/FrontierBuildInfo.h"
-    COPYONLY)
+# Seed FrontierBuildInfo.h at configure time AND refresh it at build time via FrontierGitRevisionStamp
+# (only rewrites the header when git HEAD actually changes so sccache keeps ~99% hit rate!).
+set(_FRONTIER_BUILD_HEADER "${FRONTIER_GENERATED_INCLUDE_DIR}/FrontierBuildInfo.h")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DOUTPUT_HEADER=${_FRONTIER_BUILD_HEADER}"
+        -P "${CMAKE_SOURCE_DIR}/CMake/StampGitRevisionHeader.cmake"
+)
+add_custom_target(FrontierGitRevisionStamp ALL
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DOUTPUT_HEADER=${_FRONTIER_BUILD_HEADER}"
+        -P "${CMAKE_SOURCE_DIR}/CMake/StampGitRevisionHeader.cmake"
+    COMMENT "Checking active Git revision for FrontierBuildInfo.h"
+    VERBATIM
+)
+add_dependencies(FrontierEngine FrontierGitRevisionStamp)
 target_compile_definitions(FrontierEngine PUBLIC
     "FRONTIER_COMPILED_SHADER_DIR=\"${FRONTIER_COMPILED_SHADER_DIR}\""
     "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\""
@@ -1769,6 +1765,15 @@ if(BUILD_TESTING)
     target_compile_definitions(AutoSpaceStudioValidation PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
     target_link_libraries(AutoSpaceStudioValidation PRIVATE AutoSpaceProject)
     add_test(NAME AutoSpaceStudioValidation COMMAND AutoSpaceStudioValidation)
+
+    add_executable(LiveLightingSynchronizationValidation Exhibits/LiveLightingSynchronizationValidation.cpp)
+    target_include_directories(LiveLightingSynchronizationValidation PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/Projects/AutoSpace"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_compile_definitions(LiveLightingSynchronizationValidation PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(LiveLightingSynchronizationValidation PRIVATE AutoSpaceProject)
+    add_test(NAME LiveLightingSynchronizationValidation COMMAND LiveLightingSynchronizationValidation)
 
     add_executable(PortalVehicleVerification Exhibits/PortalVehicleVerification.cpp)
     target_include_directories(PortalVehicleVerification PRIVATE

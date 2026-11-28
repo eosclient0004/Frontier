@@ -3369,7 +3369,9 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             }
 
             const bool PathTracerEngineActive = (DisplayCfg.RenderEngineIndex == 4u || DisplayCfg.RenderEngineIndex == 5u);
-            const bool ShouldTickProjectAdapter = !PathTracerEngineActive || WorldSimEnabled;
+            // Only animate dynamic project scripts (e.g. AutoSpace orbiting Dynamic Emissive Orb) during
+            // Play / Simulate mode so Edit-mode gizmo transforms are preserved and idle frames incur zero churn.
+            const bool ShouldTickProjectAdapter = WorldSimEnabled;
 
             bool ProjectAdapterMutated        = false;
             bool ProjectAdapterMaterialsDirty = false;

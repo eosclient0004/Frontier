@@ -2547,22 +2547,22 @@ float3 EvaluateGdfVoxelConeGi(
     float  Vox0   = QueryFineGdfVoxelSize();
     float3 StartP = Pos + GeomN * (Vox0 * 0.88) + N * (Vox0 * 0.35);
 
-    // 7-cone hemisphere (1 zenith + 6 tilted every 60 deg) with Jimenez IGN azimuthal rotation
-    // eliminates axis-aligned '+' cross lobes around compact dynamic emissive sources.
+    // 5-cone hemisphere (1 zenith + 4 tilted every 90 deg) with Jimenez IGN azimuthal rotation
+    // eliminates axis-aligned '+' cross lobes while cutting cone-marching texture bandwidth ~30%.
     float  IgnPhase   = frac(IgnOuterMultiplier * frac(float(PixelCoord.x) * IgnSpatialScaleX + float(PixelCoord.y) * IgnSpatialScaleY));
-    float  StartAzim   = IgnPhase * (FrontierPi / 3.0);
+    float  StartAzim   = IgnPhase * (FrontierPi * 0.5);
     const float CosTilt = 0.6156615; // cos(52 deg)
     const float SinTilt = 0.7880108; // sin(52 deg)
     float3 GiIrr = float3(0.0);
 
     [loop]
-    for (uint ConeIdx = 0u; ConeIdx < 7u; ++ConeIdx)
+    for (uint ConeIdx = 0u; ConeIdx < 5u; ++ConeIdx)
     {
-        float  Azim    = StartAzim + float(ConeIdx - 1u) * (FrontierPi / 3.0);
+        float  Azim    = StartAzim + float(ConeIdx - 1u) * (FrontierPi * 0.5);
         float3 ConeDir = (ConeIdx == 0u)
             ? N
             : normalize(N * CosTilt + (TAxis * cos(Azim) + BAxis * sin(Azim)) * SinTilt);
-        float  Weight  = (ConeIdx == 0u) ? 0.25 : 0.125;
+        float  Weight  = (ConeIdx == 0u) ? 0.28 : 0.18;
         uint   Steps   = (ConeIdx == 0u) ? 5u : 4u;
         GiIrr += Weight * TraceSingleRadiosityCone(Pos, GeomN, StartP, ConeDir, 0.60, Steps, 0.34, false);
     }
@@ -4141,17 +4141,17 @@ float3 EvaluateSurfelGiGatherGpu(float3 WorldPos, float3 ShadingN, float3 GeomN)
         // Bunnell disk-to-point radiosity form factor (smooth, firefly-free, energy-conserving)
         float DiskArea = max(0.04, S.NormalArea.w);
         float FormF    = (CosRecv * CosSource * DiskArea) / (FrontierPi * DistSq + DiskArea * 1.15);
+        if (FormF <= 0.0035)
+        {
+            continue;
+        }
 
-        // Two ultra-fast hardware trilinear 3D GDF fetches (0 Local-SDF instance loops!):
-        // ~200x faster than SampleShadowSignedDistance AND prevents GI color bleed under solid vehicles/walls!
+        // Single midpoint hardware trilinear 3D GDF occlusion fetch (~2x fewer texture reads, zero bleed under solids)
         float Vis = 1.0;
         if (DistSq > 0.36 && GdfReady)
         {
-            float2 NearGdf = SampleGlobalDistanceVolumes(OffsetPos + Delta * 0.32);
-            float2 MidGdf  = SampleGlobalDistanceVolumes(OffsetPos + Delta * 0.56);
-            float  VisNear = saturate((NearGdf.x + 0.02) / max(0.14, NearGdf.y * 1.8));
-            float  VisMid  = saturate((MidGdf.x  + 0.02) / max(0.16, MidGdf.y  * 1.9));
-            Vis = min(VisNear, VisMid);
+            float2 MidGdf = SampleGlobalDistanceVolumes(OffsetPos + Delta * 0.45);
+            Vis = saturate((MidGdf.x + 0.02) / max(0.15, MidGdf.y * 1.85));
         }
         GatherIrr += ExitRad * (FrontierPi * FormF * Vis);
     }

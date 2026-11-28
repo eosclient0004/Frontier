@@ -850,6 +850,7 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         CachedPortalBufferSignature   = 0ull;
         CachedClipBufferSignature     = 0ull;
         CachedSurfelLightSignature    = 0ull;
+        LastEmissiveInputSignature    = 0ull;
         SurfelRadiosityDirty          = true;
         const GpuDynamicLocalSdfInstance144 ZeroInst {};
         UploadHostVisibleBuffer(DynamicLocalSdfInstanceBuffer, &ZeroInst, sizeof(ZeroInst), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -1049,6 +1050,7 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
     SkyViewLutValid                 = false;
     LastSkyViewUniformSnapshot.fill(0u);
     LastRadiosityLightingSignature  = 0ull;
+    LastEmissiveInputSignature      = 0ull;
     HasPrevMotionBlurCameraBasis    = false;
     UploadedBvhCount                = 0u;
     UploadedTriangleCount           = 0u;
@@ -5983,9 +5985,13 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(
             };
             uint64_t LightingSig = Frontier::Constants::Fnv1a64OffsetBasis;
             LightingSig = HashMixBytes(LightingSig, Uniforms.SolarIrradiancePad, sizeof(Uniforms.SolarIrradiancePad));
+            LightingSig = HashMixBytes(LightingSig, Uniforms.SunDirConeTan, sizeof(Uniforms.SunDirConeTan));
             LightingSig = HashMixBytes(LightingSig, Uniforms.SkyRadianceBvhCount, sizeof(float) * 3u);
             LightingSig = HashMixBytes(LightingSig, Uniforms.AreaLights, sizeof(Uniforms.AreaLights));
             LightingSig = HashMixBytes(LightingSig, &LightCount, sizeof(LightCount));
+            LightingSig = HashMixBytes(LightingSig, &CachedPhotometricSignature, sizeof(CachedPhotometricSignature));
+            LightingSig = HashMixBytes(LightingSig, &CachedEmissiveBufferSignature, sizeof(CachedEmissiveBufferSignature));
+            LightingSig = HashMixBytes(LightingSig, &CachedMaterialEntriesSignature, sizeof(CachedMaterialEntriesSignature));
             LastRadiosityLightingSignature = LightingSig;
         }
         else if (DoFineGdfUpdate || DoCoarseGdfUpdate)
@@ -6070,8 +6076,77 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
 
     // -------------------------------------------------------------------------
     // 1. Live World-Space Emissive Triangles & Stokes/Spherical Luminaire Clusters
-    //    Guaranteed 100% locked to every moving emissive instance (e.g. DynamicEmissiveOrb)
+    //    Fast O(N_instances + N_lights) input signature skips the entire triangle scan on static/orbit frames!
     // -------------------------------------------------------------------------
+    auto HashBytes64 = [](const void* Ptr, std::size_t Len, uint64_t Seed = Constants::Fnv1a64OffsetBasis) noexcept -> uint64_t
+    {
+        uint64_t H = Seed;
+        const auto* Bytes = reinterpret_cast<const uint8_t*>(Ptr);
+        for (std::size_t I = 0u; I < Len; ++I)
+        {
+            H ^= static_cast<uint64_t>(Bytes[I]);
+            H *= Constants::Fnv1a64Prime;
+        }
+        return H;
+    };
+
+    uint64_t EmissiveInputSig = Constants::Fnv1a64OffsetBasis;
+    const uint32_t MatSlotCount = Scene.MaterialRegister.QuerySlotCount();
+    EmissiveInputSig = HashBytes64(&CachedMaterialEntriesSignature, sizeof(CachedMaterialEntriesSignature), EmissiveInputSig);
+    EmissiveInputSig = HashBytes64(&MatSlotCount, sizeof(MatSlotCount), EmissiveInputSig);
+    // Mix live emissive material properties directly in case materials mutated without SynchronizeMaterialEntriesIfChanged
+    std::vector<Mathematics::LinearRGB> EmissiveMatRadiance(MatSlotCount);
+    std::vector<float>                  EmissiveMatLum(MatSlotCount, 0.0f);
+    bool                                AnyEmissiveMaterial = false;
+    for (uint32_t MIdx = 0u; MIdx < MatSlotCount; ++MIdx)
+    {
+        const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(static_cast<uint16_t>(MIdx));
+        if (Mat.PorosityLight.DynamicDisplaySlot == 0u)
+        {
+            const auto Em  = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
+            const float Lu = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
+            if (Lu > 0.04f)
+            {
+                EmissiveMatRadiance[MIdx] = Em;
+                EmissiveMatLum[MIdx]      = Lu;
+                AnyEmissiveMaterial       = true;
+                EmissiveInputSig = HashBytes64(&MIdx, sizeof(MIdx), EmissiveInputSig);
+                EmissiveInputSig = HashBytes64(&Em, sizeof(Em), EmissiveInputSig);
+            }
+        }
+    }
+    const uint32_t InstCountU32 = static_cast<uint32_t>(Scene.ClusterInstances.size());
+    EmissiveInputSig = HashBytes64(&InstCountU32, sizeof(InstCountU32), EmissiveInputSig);
+    for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
+    {
+        const uint8_t Flags = static_cast<uint8_t>((Inst.VisibilityEnabled ? 1u : 0u) | (Inst.AnalyticalShapeCode << 1u));
+        const uintptr_t PyrAddr = reinterpret_cast<uintptr_t>(Inst.PyramidAsset);
+        EmissiveInputSig = HashBytes64(&Flags, sizeof(Flags), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Inst.MaterialSlot, sizeof(Inst.MaterialSlot), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&PyrAddr, sizeof(PyrAddr), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Inst.WorldTranslation, sizeof(Inst.WorldTranslation), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Inst.RotationZDegrees, sizeof(Inst.RotationZDegrees), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Inst.UniformScale, sizeof(Inst.UniformScale), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Inst.LocalHalfExtents, sizeof(Inst.LocalHalfExtents), EmissiveInputSig);
+    }
+    for (const auto& Quad : Scene.AreaLights)
+    {
+        EmissiveInputSig = HashBytes64(&Quad.CenterWorld, sizeof(Quad.CenterWorld), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Quad.HalfWidthMeters, sizeof(Quad.HalfWidthMeters), EmissiveInputSig);
+        EmissiveInputSig = HashBytes64(&Quad.HalfHeightMeters, sizeof(Quad.HalfHeightMeters), EmissiveInputSig);
+    }
+    for (const auto& Lamp : Scene.PhotometricRadiators)
+    {
+        EmissiveInputSig = HashBytes64(&Lamp.PositionWorld, sizeof(Lamp.PositionWorld), EmissiveInputSig);
+    }
+    if (Scene.ClusterInstances.empty())
+    {
+        const std::size_t PrimCount = Scene.SceneTree.Primitives.size();
+        EmissiveInputSig = HashBytes64(&PrimCount, sizeof(PrimCount), EmissiveInputSig);
+    }
+
+    if (EmissiveInputSig != LastEmissiveInputSignature || EmissiveClusterBuffer.BufferHandle == VK_NULL_HANDLE)
+    {
     std::vector<GpuEmissiveTriangle80> EmissiveTris;
     std::vector<GpuEmissiveCluster64>  EmissiveClusters;
     EmissiveTris.reserve(512u);
@@ -6182,7 +6257,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         EmissiveClusters.push_back(Cl);
     };
 
-    if (!Scene.ClusterInstances.empty())
+    if (AnyEmissiveMaterial && !Scene.ClusterInstances.empty())
     {
         for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
         {
@@ -6196,12 +6271,9 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             if (Inst.AnalyticalShapeCode == 2u)
             {
                 const uint16_t MatId = Inst.MaterialSlot;
-                const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(MatId);
-                if (Mat.PorosityLight.DynamicDisplaySlot == 0u)
+                if (MatId < MatSlotCount && EmissiveMatLum[MatId] > 0.15f)
                 {
-                    const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
-                    const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
-                    if (Lum > 0.15f)
+                    const auto Em = EmissiveMatRadiance[MatId];
                     {
                         const float SphereR = std::max(0.05f, Inst.LocalHalfExtents.X * Inst.UniformScale);
                         GpuEmissiveCluster64 Cl {};
@@ -6227,8 +6299,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                 }
             }
 
-            // Collect world-space emissive triangles grouped by material slot so headlights & taillights
-            // on the same vehicle become distinct spatially accurate emissive light clusters!
+            // Collect world-space emissive triangles grouped by material slot (O(1) precomputed emissive lookup!)
             struct EmissiveMaterialBucket
             {
                 uint16_t                           MaterialId = 0u;
@@ -6251,20 +6322,15 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
                         break;
                     }
                     const auto& Tri = Asset.Triangles[TriIdx];
-                    const uint16_t MatId = (Tri.MaterialOrdinal < Scene.MaterialRegister.QuerySlotCount())
+                    const uint16_t MatId = (Tri.MaterialOrdinal < MatSlotCount)
                         ? Tri.MaterialOrdinal
                         : Inst.MaterialSlot;
-                    const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(MatId);
-                    if (Mat.PorosityLight.DynamicDisplaySlot != 0u)
+                    if (MatId >= MatSlotCount || EmissiveMatLum[MatId] <= 0.04f)
                     {
                         continue;
                     }
-                    const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
-                    const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
-                    if (Lum <= 0.04f)
-                    {
-                        continue;
-                    }
+                    const auto  Em  = EmissiveMatRadiance[MatId];
+                    const float Lum = EmissiveMatLum[MatId];
                     EmissiveMaterialBucket* Bucket = nullptr;
                     for (auto& Existing : InstBuckets)
                     {
@@ -6340,7 +6406,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             }
         }
     }
-    else
+    else if (AnyEmissiveMaterial)
     {
         uint32_t FirstFallback = 0u;
         for (const auto& Prim : Scene.SceneTree.Primitives)
@@ -6349,17 +6415,12 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
             {
                 break;
             }
-            const auto& Mat = Scene.MaterialRegister.InspectAuthoredMaterial(Prim.MaterialOrdinal);
-            if (Mat.PorosityLight.DynamicDisplaySlot != 0u)
+            if (Prim.MaterialOrdinal >= MatSlotCount || EmissiveMatLum[Prim.MaterialOrdinal] <= 0.04f)
             {
                 continue;
             }
-            const auto Em = MaterialSpace::Scattering::EvaluatePlanckianBlackbodyRadiance(Mat.PorosityLight);
-            const float Lum = 0.2126f * Em.R + 0.7152f * Em.G + 0.0722f * Em.B;
-            if (Lum <= 0.04f)
-            {
-                continue;
-            }
+            const auto  Em  = EmissiveMatRadiance[Prim.MaterialOrdinal];
+            const float Lum = EmissiveMatLum[Prim.MaterialOrdinal];
             const Mathematics::Axis3D V0 = Prim.Corner0;
             const Mathematics::Axis3D V1 = Prim.Corner0 + Prim.Edge01;
             const Mathematics::Axis3D V2 = Prim.Corner0 + Prim.Edge02;
@@ -6394,17 +6455,6 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         EmissiveClusters.emplace_back();
     }
-    auto HashBytes64 = [](const void* Ptr, std::size_t Len, uint64_t Seed = Constants::Fnv1a64OffsetBasis) noexcept -> uint64_t
-    {
-        uint64_t H = Seed;
-        const auto* Bytes = reinterpret_cast<const uint8_t*>(Ptr);
-        for (std::size_t I = 0u; I < Len; ++I)
-        {
-            H ^= static_cast<uint64_t>(Bytes[I]);
-            H *= Constants::Fnv1a64Prime;
-        }
-        return H;
-    };
     uint64_t EmissiveSig = HashBytes64(EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64));
     EmissiveSig = HashBytes64(EmissiveTris.data(), EmissiveTris.size() * sizeof(GpuEmissiveTriangle80), EmissiveSig);
     EmissiveSig ^= (static_cast<uint64_t>(UploadedEmissiveClusterCount) << 32u) | UploadedEmissiveTriCount;
@@ -6415,6 +6465,8 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         UploadHostVisibleBuffer(EmissiveClusterBuffer, EmissiveClusters.data(), EmissiveClusters.size() * sizeof(GpuEmissiveCluster64), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         CachedEmissiveBufferSignature = EmissiveSig;
         SurfelRadiosityDirty = true;
+    }
+    LastEmissiveInputSignature = EmissiveInputSig;
     }
 
     // -------------------------------------------------------------------------
@@ -6615,9 +6667,11 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     {
         MixU32(reinterpret_cast<uintptr_t>(Inst.PyramidAsset) & 0xFFFFFFFFu);
         MixU32(Inst.MaterialSlot);
+        MixU32((Inst.VisibilityEnabled && Inst.UniformScale > 1.0e-4f) ? 1u : 0u);
     }
-    // Check whether dynamic lights or sun changed so the lightweight 128-surfel GPU solve refreshes cleanly
-    uint64_t SurfelLightSig = CachedEmissiveBufferSignature ^ CachedMaterialEntriesSignature;
+    // Check whether dynamic lights, area quads, photometric IES lamps, sky, or sun changed so the
+    // lightweight 128-surfel GPU solve refreshes cleanly on the very same frame
+    uint64_t SurfelLightSig = CachedEmissiveBufferSignature ^ CachedMaterialEntriesSignature ^ CachedPhotometricSignature;
     auto MixLightF32 = [&](float V)
     {
         uint32_t B = 0u;
@@ -6631,9 +6685,24 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
     MixLightF32(Scene.Sun.SolarIrradiance.R);
     MixLightF32(Scene.Sun.SolarIrradiance.G);
     MixLightF32(Scene.Sun.SolarIrradiance.B);
+    MixLightF32(Scene.SkyRadiance.R);
+    MixLightF32(Scene.SkyRadiance.G);
+    MixLightF32(Scene.SkyRadiance.B);
+    SurfelLightSig ^= static_cast<uint64_t>(Scene.AreaLights.size()) * 0x9E3779B97F4A7C15ull;
+    for (const auto& Quad : Scene.AreaLights)
+    {
+        MixLightF32(Quad.CenterWorld.X);
+        MixLightF32(Quad.CenterWorld.Y);
+        MixLightF32(Quad.CenterWorld.Z);
+        MixLightF32(Quad.EmittedRadiance.R);
+        MixLightF32(Quad.EmittedRadiance.G);
+        MixLightF32(Quad.EmittedRadiance.B);
+        MixLightF32(Quad.HalfWidthMeters);
+        MixLightF32(Quad.HalfHeightMeters);
+    }
     for (const RigidClusterInstance& Inst : Scene.ClusterInstances)
     {
-        if (Inst.VisibilityEnabled && Inst.CastShadows)
+        if (Inst.VisibilityEnabled && Inst.UniformScale > 1.0e-4f && Inst.CastShadows)
         {
             MixLightF32(std::round(Inst.WorldTranslation.X * 10.0f));
             MixLightF32(std::round(Inst.WorldTranslation.Y * 10.0f));
@@ -6735,7 +6804,7 @@ void VulkanWorldRenderSequence::SynchronizeStokesSurfelPortalBuffers(const World
         for (uint32_t InstIdx = 0u; InstIdx < static_cast<uint32_t>(Scene.ClusterInstances.size()); ++InstIdx)
         {
             const RigidClusterInstance& Inst = Scene.ClusterInstances[InstIdx];
-            if (!Inst.VisibilityEnabled || Inst.PyramidAsset == nullptr || Inst.ClipPlaneEnabled ||
+            if (!Inst.VisibilityEnabled || Inst.UniformScale <= 1.0e-4f || Inst.PyramidAsset == nullptr || Inst.ClipPlaneEnabled ||
                 (Inst.AnalyticalShapeCode == 2u && !Inst.CastShadows))
             {
                 continue;
@@ -7815,9 +7884,9 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     EnsureDeviceBufferCapacity(PongIndirectIrradianceBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PingDirectDiffuseBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(PongDirectDiffuseBuffer, AccBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 2ull * static_cast<uint64_t>(kGdfVoxelCount) * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalDistanceFieldBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GlobalRadiosityFieldBuffer, static_cast<uint64_t>(kRadiosityTotalVoxels) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kGdfVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    EnsureDeviceBufferCapacity(GlobalSurfaceShellBuffer, static_cast<uint64_t>(kRadiosityVoxelCount) * sizeof(uint32_t) * 2ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(CloudRadiometricBuffer, CloudBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     const uint32_t StarTileCols  = (std::max(1u, WidthPx) + 15u) / 16u;
     const uint32_t StarTileRows  = (std::max(1u, HeightPx) + 15u) / 16u;
@@ -8577,6 +8646,94 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     constexpr uint64_t UniformStrideBytes = 8192ull;
 
     // Refresh the 2-bounce 3D Radiosity Pyramid (~0.2 ms, zero triangle traversal) if dynamic luminaire/solar radiance shifted
+    // Keep live Stokes emissives, bone capsules, multi-world portals, clip planes & surfel field synchronized
+    // BEFORE evaluating LastRadiosityLightingSignature so emissive/photometric changes refresh 2-bounce GI on the same frame!
+    SynchronizeStokesSurfelPortalBuffers(Scene);
+
+    // Sync live PhotometricRadiators (IES intensity/visibility/position) cleanly via host-visible buffer if mutated
+    {
+        uint64_t LivePhotoSig = Constants::Fnv1a64OffsetBasis;
+        auto MixU32 = [&](uint32_t V)
+        {
+            LivePhotoSig ^= static_cast<uint64_t>(V);
+            LivePhotoSig *= Constants::Fnv1a64Prime;
+        };
+        auto MixF32 = [&](float V)
+        {
+            uint32_t B = 0u;
+            std::memcpy(&B, &V, sizeof(B));
+            MixU32(B);
+        };
+        MixU32(static_cast<uint32_t>(Scene.PhotometricProfiles.size()));
+        MixU32(static_cast<uint32_t>(Scene.PhotometricRadiators.size()));
+        for (const auto& Profile : Scene.PhotometricProfiles)
+        {
+            if (!Profile.NormalizedCandela.empty())
+            {
+                MixF32(Profile.NormalizedCandela.front());
+                MixF32(Profile.NormalizedCandela[Profile.NormalizedCandela.size() / 2u]);
+                MixF32(Profile.NormalizedCandela.back());
+            }
+        }
+        for (const auto& Src : Scene.PhotometricRadiators)
+        {
+            MixF32(Src.PositionWorld.X);
+            MixF32(Src.PositionWorld.Y);
+            MixF32(Src.PositionWorld.Z);
+            MixF32(Src.RangeMeters);
+            MixF32(Src.BeamAxis.X);
+            MixF32(Src.BeamAxis.Y);
+            MixF32(Src.BeamAxis.Z);
+            MixF32(Src.PeakIntensityRgb.R);
+            MixF32(Src.PeakIntensityRgb.G);
+            MixF32(Src.PeakIntensityRgb.B);
+            MixU32(Src.ProfileOrdinal);
+        }
+        if (LivePhotoSig != CachedPhotometricSignature)
+        {
+            if (!Scene.PhotometricRadiators.empty())
+            {
+                std::vector<GpuPhotometricLamp64> GpuLamps(Scene.PhotometricRadiators.size());
+                for (std::size_t L = 0u; L < Scene.PhotometricRadiators.size(); ++L)
+                {
+                    const auto& Src = Scene.PhotometricRadiators[L];
+                    auto&       Dst = GpuLamps[L];
+                    Dst.PositionRange[0]      = Src.PositionWorld.X;
+                    Dst.PositionRange[1]      = Src.PositionWorld.Y;
+                    Dst.PositionRange[2]      = Src.PositionWorld.Z;
+                    Dst.PositionRange[3]      = Src.RangeMeters;
+                    Dst.BeamAxisRadius[0]     = Src.BeamAxis.X;
+                    Dst.BeamAxisRadius[1]     = Src.BeamAxis.Y;
+                    Dst.BeamAxisRadius[2]     = Src.BeamAxis.Z;
+                    Dst.BeamAxisRadius[3]     = Src.RadiusMeters;
+                    Dst.ZeroAzimuthProfile[0] = Src.ZeroAzimuthAxis.X;
+                    Dst.ZeroAzimuthProfile[1] = Src.ZeroAzimuthAxis.Y;
+                    Dst.ZeroAzimuthProfile[2] = Src.ZeroAzimuthAxis.Z;
+                    Dst.ZeroAzimuthProfile[3] = static_cast<float>(Src.ProfileOrdinal);
+                    Dst.PeakIntensityPad[0]   = Src.PeakIntensityRgb.R;
+                    Dst.PeakIntensityPad[1]   = Src.PeakIntensityRgb.G;
+                    Dst.PeakIntensityPad[2]   = Src.PeakIntensityRgb.B;
+                    Dst.PeakIntensityPad[3]   = 0.0f;
+                }
+                UploadHostVisibleBuffer(
+                    PhotometricLampEntryBuffer,
+                    GpuLamps.data(),
+                    static_cast<uint64_t>(GpuLamps.size()) * sizeof(GpuPhotometricLamp64),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                UploadedPhotometricLamps = static_cast<uint32_t>(GpuLamps.size());
+            }
+            else
+            {
+                UploadedPhotometricLamps = 0u;
+            }
+            CachedPhotometricSignature = LivePhotoSig;
+            SurfelRadiosityDirty       = true;
+            Uniforms.DenoiseStepParams[2] =
+                ((UploadedPhotometricProfiles & 0xFFFFu) << 16u) |
+                (UploadedPhotometricLamps & 0xFFFFu);
+        }
+    }
+
     {
         auto HashMixBytes = [](uint64_t SeedVal, const void* BytesPtr, std::size_t ByteLen) -> uint64_t
         {
@@ -8590,9 +8747,13 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         };
         uint64_t LightingSig = Frontier::Constants::Fnv1a64OffsetBasis;
         LightingSig = HashMixBytes(LightingSig, Uniforms.SolarIrradiancePad, sizeof(Uniforms.SolarIrradiancePad));
+        LightingSig = HashMixBytes(LightingSig, Uniforms.SunDirConeTan, sizeof(Uniforms.SunDirConeTan));
         LightingSig = HashMixBytes(LightingSig, Uniforms.SkyRadianceBvhCount, sizeof(float) * 3u);
         LightingSig = HashMixBytes(LightingSig, Uniforms.AreaLights, sizeof(Uniforms.AreaLights));
         LightingSig = HashMixBytes(LightingSig, &LightCount, sizeof(LightCount));
+        LightingSig = HashMixBytes(LightingSig, &CachedPhotometricSignature, sizeof(CachedPhotometricSignature));
+        LightingSig = HashMixBytes(LightingSig, &CachedEmissiveBufferSignature, sizeof(CachedEmissiveBufferSignature));
+        LightingSig = HashMixBytes(LightingSig, &CachedMaterialEntriesSignature, sizeof(CachedMaterialEntriesSignature));
 
         if (Config.Engine != WorldRenderEngine::MatCap &&
             GlobalDistanceFieldReady &&
@@ -8622,9 +8783,6 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     {
         return false;
     }
-
-    // Keep live Stokes emissives, bone capsules, multi-world portals, clip planes & surfel field synchronized
-    SynchronizeStokesSurfelPortalBuffers(Scene);
 
     std::memcpy(&CachedFineToroidalMinCell[3], &ActiveAnalyticGroundPlaneZ, sizeof(float));
     std::memcpy(&CachedCoarseToroidalMinCell[3], &ActiveAnalyticGroundMaterialSlot, sizeof(uint32_t));

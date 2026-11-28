@@ -81,19 +81,31 @@ struct ShowcaseWorldAssetEntry
 
 struct ShowcaseAreaLightLink
 {
-    OutlinerSlotToken      SlotToken            {};                        // [id]  - Bound OutlinerPanel light slot token
-    uint32_t               AreaLightIndex       = 0u;                      // [idx] - Index in Scene.AreaLights
-    Mathematics::LinearRGB BaseEmittedRadiance  { 7.5f, 6.6f, 5.4f };      // [nit] - Enabled radiance when visible
+    OutlinerSlotToken      SlotToken                  {};                        // [id]  - Bound OutlinerPanel light slot token
+    uint32_t               AreaLightIndex             = 0u;                      // [idx] - Index in Scene.AreaLights
+    Mathematics::LinearRGB BaseEmittedRadiance        { 7.5f, 6.6f, 5.4f };      // [nit] - Enabled radiance when visible
+    int32_t                CoupledDiffuserEntryIndex  = -1;                      // [idx] - Optional physical luminaire diffuser mesh coupled to this light
+    bool                   DiffuserSuppressedByLight  = false;                   // [-]   - True while light hide/delete suppressed the coupled diffuser
+};
+
+struct ShowcasePhotometricLightLink
+{
+    OutlinerSlotToken      SlotToken                  {};                        // [id]  - Bound OutlinerPanel photometric IES light slot token
+    uint32_t               RadiatorIndex              = 0u;                      // [idx] - Index in Scene.PhotometricRadiators
+    Mathematics::LinearRGB BasePeakIntensityRgb       { 16.0f, 15.0f, 13.0f };   // [cd]  - Enabled peak intensity when visible
+    int32_t                CoupledDiffuserEntryIndex  = -1;                      // [idx] - Optional physical luminaire fixture mesh coupled to this lamp
+    bool                   DiffuserSuppressedByLight  = false;                   // [-]   - True while lamp hide/delete suppressed the coupled fixture
 };
 
 struct ShowcaseWorldSceneBundle
 {
-    std::array<ShowcaseGeometryAsset, 8u>                  GeometryAssets       {}; // [-] - Persistent canonical cluster pyramid owners
-    std::vector<std::unique_ptr<ShowcaseGeometryAsset>>    DynamicGeometryAssets{}; // [-] - Heap-stable dynamically constructed geometry
-    WorldSceneSpecification                                Scene                {}; // [-] - Complete world scene specification
-    PerspectiveCameraBasis                                 EditorCamera         {}; // [-] - Canonical EditorCamera navigation frame
-    std::vector<ShowcaseWorldAssetEntry>                  Objects              {}; // [-] - Registered gallery & constructed geometry
-    std::vector<ShowcaseAreaLightLink>                  AreaLightBindings    {}; // [-] - Registered LTC polygonal area lights
+    std::array<ShowcaseGeometryAsset, 8u>                  GeometryAssets          {}; // [-] - Persistent canonical cluster pyramid owners
+    std::vector<std::unique_ptr<ShowcaseGeometryAsset>>    DynamicGeometryAssets   {}; // [-] - Heap-stable dynamically constructed geometry
+    WorldSceneSpecification                                Scene                   {}; // [-] - Complete world scene specification
+    PerspectiveCameraBasis                                 EditorCamera            {}; // [-] - Canonical EditorCamera navigation frame
+    std::vector<ShowcaseWorldAssetEntry>                   Objects                 {}; // [-] - Registered gallery & constructed geometry
+    std::vector<ShowcaseAreaLightLink>                     AreaLightBindings       {}; // [-] - Registered LTC polygonal area lights
+    std::vector<ShowcasePhotometricLightLink>              PhotometricLightBindings{}; // [-] - Registered IES photometric radiators
 
     OutlinerSlotToken                                      ShowcaseFolderToken  {}; // [id] - "Showcase" collection folder token
     OutlinerSlotToken                                      CamerasFolderToken   {}; // [id] - "Cameras" collection folder token
