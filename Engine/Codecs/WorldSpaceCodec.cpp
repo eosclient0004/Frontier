@@ -80,6 +80,44 @@ SpaceContainerPayload WorldSpaceEncoder::BuildPayload(
     CameraTbl.insert_or_assign("FarClipMeters", static_cast<double>(Model.EditorCamera.FarClipMeters));
     Payload.DomainManifest.insert_or_assign(".EditorCamera", std::move(CameraTbl));
 
+    if (Model.SkyRadianceAuthored || Model.SolarAtmosphereEnabled || Model.SkyAtmosphereEnabled || Model.VolumetricCloudsEnabled)
+    {
+        toml::table EnvTbl{};
+        EnvTbl.insert_or_assign("SkyRadiance", PackWorldVec3(Model.SkyRadiance.R, Model.SkyRadiance.G, Model.SkyRadiance.B));
+        EnvTbl.insert_or_assign("SolarAtmosphereEnabled", Model.SolarAtmosphereEnabled);
+        EnvTbl.insert_or_assign("SkyAtmosphereEnabled", Model.SkyAtmosphereEnabled);
+        EnvTbl.insert_or_assign("VolumetricCloudsEnabled", Model.VolumetricCloudsEnabled);
+        Payload.DomainManifest.insert_or_assign(".WorldEnvironment", std::move(EnvTbl));
+    }
+
+    if (!Model.MaterialPalettePaths.empty())
+    {
+        toml::array MatArr{};
+        for (const std::string& MatPath : Model.MaterialPalettePaths)
+        {
+            MatArr.push_back(MatPath);
+        }
+        Payload.DomainManifest.insert_or_assign("MaterialPalette", std::move(MatArr));
+    }
+
+    if (!Model.CameraPresets.empty())
+    {
+        toml::array CamArr{};
+        for (const WorldCameraPresetEntry& Preset : Model.CameraPresets)
+        {
+            toml::table PTbl{};
+            PTbl.insert_or_assign("Label", Preset.Label);
+            PTbl.insert_or_assign("CameraOrigin", PackWorldVec3(Preset.Camera.CameraOrigin.X, Preset.Camera.CameraOrigin.Y, Preset.Camera.CameraOrigin.Z));
+            PTbl.insert_or_assign("TargetPoint", PackWorldVec3(Preset.Camera.TargetPoint.X, Preset.Camera.TargetPoint.Y, Preset.Camera.TargetPoint.Z));
+            PTbl.insert_or_assign("WorldUpAxis", PackWorldVec3(Preset.Camera.WorldUpAxis.X, Preset.Camera.WorldUpAxis.Y, Preset.Camera.WorldUpAxis.Z));
+            PTbl.insert_or_assign("VerticalFovRadians", static_cast<double>(Preset.Camera.VerticalFovRadians));
+            PTbl.insert_or_assign("NearClipMeters", static_cast<double>(Preset.Camera.NearClipMeters));
+            PTbl.insert_or_assign("FarClipMeters", static_cast<double>(Preset.Camera.FarClipMeters));
+            CamArr.push_back(std::move(PTbl));
+        }
+        Payload.DomainManifest.insert_or_assign("CameraPresets", std::move(CamArr));
+    }
+
     if (!Model.GeometryPlacements.empty())
     {
         toml::array PlacementArr{};
@@ -102,6 +140,9 @@ SpaceContainerPayload WorldSpaceEncoder::BuildPayload(
             Tbl.insert_or_assign("CenterWorld", PackWorldVec3(Entry.CenterWorld.X, Entry.CenterWorld.Y, Entry.CenterWorld.Z));
             Tbl.insert_or_assign("DimensionsMeters", PackWorldVec3(Entry.DimensionsMeters.X, Entry.DimensionsMeters.Y, Entry.DimensionsMeters.Z));
             Tbl.insert_or_assign("RotationZDegrees", static_cast<double>(Entry.RotationZDegrees));
+            Tbl.insert_or_assign("UniformScale", static_cast<double>(Entry.UniformScale));
+            Tbl.insert_or_assign("NonUniformScale", PackWorldVec3(Entry.NonUniformScale.X, Entry.NonUniformScale.Y, Entry.NonUniformScale.Z));
+            Tbl.insert_or_assign("AnalyticalShapeCode", static_cast<int64_t>(Entry.AnalyticalShapeCode));
             Tbl.insert_or_assign("PrimitiveShapeOrdinal", static_cast<int64_t>(Entry.PrimitiveShapeOrdinal));
             Tbl.insert_or_assign("SphericalPrimitive", Entry.SphericalPrimitive);
             Tbl.insert_or_assign("GlassShell", Entry.GlassShell);
@@ -244,6 +285,45 @@ bool WorldSpaceDecoder::ExtractModel(
         OutModel.EditorCamera.FarClipMeters      = static_cast<float>((*CameraTbl)["FarClipMeters"].value_or(5000.0));
     }
 
+    if (const auto* EnvTbl = Payload.DomainManifest[".WorldEnvironment"].as_table())
+    {
+        UnpackWorldVec3((*EnvTbl)["SkyRadiance"], OutModel.SkyRadiance.R, OutModel.SkyRadiance.G, OutModel.SkyRadiance.B);
+        OutModel.SkyRadianceAuthored     = true;
+        OutModel.SolarAtmosphereEnabled  = (*EnvTbl)["SolarAtmosphereEnabled"].value_or(false);
+        OutModel.SkyAtmosphereEnabled    = (*EnvTbl)["SkyAtmosphereEnabled"].value_or(false);
+        OutModel.VolumetricCloudsEnabled = (*EnvTbl)["VolumetricCloudsEnabled"].value_or(false);
+    }
+
+    if (const auto* MatArr = Payload.DomainManifest["MaterialPalette"].as_array())
+    {
+        for (const toml::node& Elem : *MatArr)
+        {
+            if (const auto S = Elem.value<std::string>(); S.has_value())
+            {
+                OutModel.MaterialPalettePaths.push_back(*S);
+            }
+        }
+    }
+
+    if (const auto* CamArr = Payload.DomainManifest["CameraPresets"].as_array())
+    {
+        for (const toml::node& Elem : *CamArr)
+        {
+            if (const auto* PTbl = Elem.as_table())
+            {
+                WorldCameraPresetEntry Preset{};
+                Preset.Label = (*PTbl)["Label"].value_or(std::string{ "Camera" });
+                UnpackWorldVec3((*PTbl)["CameraOrigin"], Preset.Camera.CameraOrigin.X, Preset.Camera.CameraOrigin.Y, Preset.Camera.CameraOrigin.Z);
+                UnpackWorldVec3((*PTbl)["TargetPoint"], Preset.Camera.TargetPoint.X, Preset.Camera.TargetPoint.Y, Preset.Camera.TargetPoint.Z);
+                UnpackWorldVec3((*PTbl)["WorldUpAxis"], Preset.Camera.WorldUpAxis.X, Preset.Camera.WorldUpAxis.Y, Preset.Camera.WorldUpAxis.Z);
+                Preset.Camera.VerticalFovRadians = static_cast<float>((*PTbl)["VerticalFovRadians"].value_or(Frontier::Constants::QuarterPi));
+                Preset.Camera.NearClipMeters     = static_cast<float>((*PTbl)["NearClipMeters"].value_or(0.10));
+                Preset.Camera.FarClipMeters      = static_cast<float>((*PTbl)["FarClipMeters"].value_or(5000.0));
+                OutModel.CameraPresets.push_back(std::move(Preset));
+            }
+        }
+    }
+
     if (const auto* PlacementArr = Payload.DomainManifest[".WorldPlacement"].as_array())
     {
         for (const toml::node& Elem : *PlacementArr)
@@ -264,6 +344,9 @@ bool WorldSpaceDecoder::ExtractModel(
             UnpackWorldVec3((*Tbl)["CenterWorld"], Entry.CenterWorld.X, Entry.CenterWorld.Y, Entry.CenterWorld.Z);
             UnpackWorldVec3((*Tbl)["DimensionsMeters"], Entry.DimensionsMeters.X, Entry.DimensionsMeters.Y, Entry.DimensionsMeters.Z);
             Entry.RotationZDegrees      = static_cast<float>((*Tbl)["RotationZDegrees"].value_or(0.0));
+            Entry.UniformScale          = static_cast<float>((*Tbl)["UniformScale"].value_or(1.0));
+            UnpackWorldVec3((*Tbl)["NonUniformScale"], Entry.NonUniformScale.X, Entry.NonUniformScale.Y, Entry.NonUniformScale.Z);
+            Entry.AnalyticalShapeCode   = static_cast<uint32_t>((*Tbl)["AnalyticalShapeCode"].value_or(int64_t{ 0 }));
             Entry.PrimitiveShapeOrdinal = static_cast<uint32_t>((*Tbl)["PrimitiveShapeOrdinal"].value_or(int64_t{ 0 }));
             Entry.SphericalPrimitive    = (*Tbl)["SphericalPrimitive"].value_or(false);
             Entry.GlassShell            = (*Tbl)["GlassShell"].value_or(false);

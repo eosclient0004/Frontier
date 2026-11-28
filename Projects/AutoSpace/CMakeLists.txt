@@ -15,6 +15,7 @@ add_library(AutoSpaceProject STATIC
     Source/Cockpit/VehicleCockpitInstrumentation.cpp
     Source/Gameplay/LobbyLifecycle.cpp
     Source/Gameplay/AutoSpaceLifecycle.cpp
+    Source/Serialization/AutoSpaceSpaceResourceArchive.cpp
 )
 if(FRONTIER_PROFILE STREQUAL "Editor")
     target_sources(AutoSpaceProject PRIVATE

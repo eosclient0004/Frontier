@@ -610,4 +610,102 @@ float LocalSignedDistanceVolume::SampleSmoothWorldDistance(
     return (BoxD > 0.0f) ? std::hypot(BoundaryD, BoxD) : BoundaryD;
 }
 
+std::vector<std::byte> LocalSignedDistanceVolume::SerializeHalfBinaryBytes() const
+{
+    constexpr uint32_t kSignedVolumeMagic   = 0x31464453u; // 'SDF1'
+    constexpr uint32_t kSignedVolumeVersion = 1u;
+
+    const std::size_t ExpectedCount =
+        static_cast<std::size_t>(ResolutionX) *
+        static_cast<std::size_t>(ResolutionY) *
+        static_cast<std::size_t>(ResolutionZ);
+    if (ExpectedCount == 0u || HalfDistanceSamples.size() != ExpectedCount)
+    {
+        return {};
+    }
+
+    const std::size_t HeaderBytes = 5u * sizeof(uint32_t) + 3u * sizeof(Mathematics::Axis3D);
+    const std::size_t SampleBytes = ExpectedCount * sizeof(uint16_t);
+    std::vector<std::byte> Out(HeaderBytes + SampleBytes);
+    std::size_t Cursor = 0u;
+    auto WritePod = [&](const auto& Item) noexcept
+    {
+        std::memcpy(Out.data() + Cursor, &Item, sizeof(Item));
+        Cursor += sizeof(Item);
+    };
+
+    WritePod(kSignedVolumeMagic);
+    WritePod(kSignedVolumeVersion);
+    WritePod(ResolutionX);
+    WritePod(ResolutionY);
+    WritePod(ResolutionZ);
+    WritePod(LocalMin);
+    WritePod(LocalMax);
+    WritePod(VoxelSpacing);
+    std::memcpy(Out.data() + Cursor, HalfDistanceSamples.data(), SampleBytes);
+    return Out;
+}
+
+bool LocalSignedDistanceVolume::DeserializeHalfBinaryBytes(std::span<const std::byte> RawBytes)
+{
+    constexpr uint32_t kSignedVolumeMagic   = 0x31464453u; // 'SDF1'
+    constexpr uint32_t kSignedVolumeVersion = 1u;
+    const std::size_t  HeaderBytes          = 5u * sizeof(uint32_t) + 3u * sizeof(Mathematics::Axis3D);
+    if (RawBytes.size() < HeaderBytes)
+    {
+        return false;
+    }
+
+    std::size_t Cursor = 0u;
+    auto ReadPod = [&](auto& OutItem) noexcept -> bool
+    {
+        if (Cursor + sizeof(OutItem) > RawBytes.size())
+        {
+            return false;
+        }
+        std::memcpy(&OutItem, RawBytes.data() + Cursor, sizeof(OutItem));
+        Cursor += sizeof(OutItem);
+        return true;
+    };
+
+    uint32_t Magic = 0u, Version = 0u, ResX = 0u, ResY = 0u, ResZ = 0u;
+    Mathematics::Axis3D MinPt {}, MaxPt {}, Spacing {};
+    if (!ReadPod(Magic) || !ReadPod(Version) ||
+        Magic != kSignedVolumeMagic || Version != kSignedVolumeVersion ||
+        !ReadPod(ResX) || !ReadPod(ResY) || !ReadPod(ResZ) ||
+        !ReadPod(MinPt) || !ReadPod(MaxPt) || !ReadPod(Spacing))
+    {
+        return false;
+    }
+    if (ResX == 0u || ResY == 0u || ResZ == 0u || ResX > 256u || ResY > 256u || ResZ > 256u)
+    {
+        return false;
+    }
+    const std::size_t SampleCount =
+        static_cast<std::size_t>(ResX) *
+        static_cast<std::size_t>(ResY) *
+        static_cast<std::size_t>(ResZ);
+    const std::size_t SampleBytes = SampleCount * sizeof(uint16_t);
+    if (Cursor + SampleBytes != RawBytes.size())
+    {
+        return false;
+    }
+
+    ResolutionX  = ResX;
+    ResolutionY  = ResY;
+    ResolutionZ  = ResZ;
+    LocalMin     = MinPt;
+    LocalMax     = MaxPt;
+    VoxelSpacing = Spacing;
+    HalfDistanceSamples.resize(SampleCount);
+    std::memcpy(HalfDistanceSamples.data(), RawBytes.data() + Cursor, SampleBytes);
+
+    DistanceSamples.resize(SampleCount);
+    for (std::size_t I = 0u; I < SampleCount; ++I)
+    {
+        DistanceSamples[I] = UnpackHalf16ToFloat32(HalfDistanceSamples[I]);
+    }
+    return true;
+}
+
 } // namespace Frontier::DistanceFieldSpace

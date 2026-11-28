@@ -39,11 +39,20 @@ struct WorldGeometryPlacementEntry
     Mathematics::Axis3D   CenterWorld           { 0.0f, 0.0f, 0.0f };   // [m]   - World-space center coordinate
     Mathematics::Scalar3D DimensionsMeters      { 1.0f, 1.0f, 1.0f };   // [m]   - Full X/Y/Z extent in meters
     float                 RotationZDegrees      = 0.0f;                 // [deg] - Rigid yaw rotation around +Z
+    float                 UniformScale          = 1.0f;                 // [-]   - Rigid uniform world scale
+    Mathematics::Scalar3D NonUniformScale       { 1.0f, 1.0f, 1.0f };   // [-]   - Full 3-axis rigid world scale
+    uint32_t              AnalyticalShapeCode   = 0u;                   // [-]   - DistanceShapeBakedVolume or analytical primitive tag
     uint32_t              PrimitiveShapeOrdinal = 0u;                   // [idx] - 0=Box, 1=Sphere, 2=Cylinder, 3=Cone, 4=Torus
     bool                  SphericalPrimitive    = false;
     bool                  GlassShell            = false;
     bool                  VisibilityEnabled     = true;
     bool                  CastShadows           = true;
+};
+
+struct WorldCameraPresetEntry
+{
+    std::string                             Label  {};
+    GeometricRaster::PerspectiveCameraBasis Camera {};
 };
 
 struct WorldMeasuredLuminairePlacement
@@ -73,6 +82,13 @@ struct WorldSpaceDocumentModel
     std::string                                  EnvironmentVolumetricPath   {};
     std::string                                  RenderSettingsPath          {};
     GeometricRaster::PerspectiveCameraBasis      EditorCamera                {};
+    std::vector<WorldCameraPresetEntry>          CameraPresets               {};
+    std::vector<std::string>                     MaterialPalettePaths        {};
+    Mathematics::LinearRGB                       SkyRadiance                 { 0.0f, 0.0f, 0.0f };
+    bool                                         SkyRadianceAuthored         = false;
+    bool                                         SolarAtmosphereEnabled      = false;
+    bool                                         SkyAtmosphereEnabled        = false;
+    bool                                         VolumetricCloudsEnabled     = false;
     std::vector<WorldGeometryPlacementEntry>     GeometryPlacements          {};
     std::vector<WorldAreaLuminairePlacement>     AreaLuminairePlacements     {};
     std::vector<WorldMeasuredLuminairePlacement> MeasuredLuminairePlacements {};

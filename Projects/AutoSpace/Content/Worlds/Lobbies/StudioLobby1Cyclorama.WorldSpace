@@ -1,0 +1,587 @@
+# Frontier Two-Tier Hybrid .Space Container (Canonical PascalCase TOML Header)
+MaterialPalette = [
+    'Content/Materials/DefaultStudioClay_94a686c7.MaterialSpace',
+    'Content/Materials/StudioCyclorama_c4d380ab.MaterialSpace',
+    'Content/Materials/StudioTiledFloor_79f42f0d.MaterialSpace',
+    'Content/Materials/StudioTiledFloorAlt_1cc77f24.MaterialSpace',
+    'Content/Materials/StudioCeilingRib_a428b94a.MaterialSpace',
+    'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace',
+    'Content/Materials/StudioChromeMetal_58d5b212.MaterialSpace',
+    'Content/Materials/StudioRubberMat_acf3ad19.MaterialSpace',
+    'Content/Materials/StudioEmissiveDiffuser_213cc099.MaterialSpace',
+    'Content/Materials/DynamicEmissiveOrb_abaa321b.MaterialSpace',
+    'Content/Materials/StudioUmbrellaSilver_ca35f068.MaterialSpace',
+    'Content/Materials/StudioTetherScreen_f034f3cc.MaterialSpace',
+    'Content/Materials/StudioPelicanCase_3e487a3e.MaterialSpace',
+    'Content/Materials/StudioForestBackdrop_4e663842.MaterialSpace',
+    'Content/Materials/StudioBlackFlag_0d208fbc.MaterialSpace',
+    'Content/Materials/StudioFanHousing_6de73807.MaterialSpace',
+    'Content/Materials/StudioFanBlade_517c129f.MaterialSpace',
+    'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace',
+    'Content/Materials/StudioSafetyYellow_dad0ed18.MaterialSpace',
+    'Content/Materials/StudioConcreteGarage_91244cf1.MaterialSpace',
+    'Content/Materials/StudioTrackAsphalt_0fc73762.MaterialSpace',
+    'Content/Materials/StudioTrackPaintWhite_e5a786f5.MaterialSpace',
+    'Content/Materials/StudioTrackGrass_e528ae46.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyBlue_fe1bfffe.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyDome_1b77a003.MaterialSpace',
+    'Content/Materials/StudioTimberBench_08948952.MaterialSpace',
+    'Content/Materials/VehicleRimAlloy_8d08b2b2.MaterialSpace',
+    'Content/Materials/VehicleGlossCanopy_0bc5d9d4.MaterialSpace',
+    'Content/Materials/VehicleGlass_8f111435.MaterialSpace',
+    'Content/Materials/VehicleIntakePolymer_125306c6.MaterialSpace',
+    'Content/Materials/VehicleTireRubber_ad45a874.MaterialSpace',
+    'Content/Materials/VehicleTrimMetal_27892627.MaterialSpace',
+    'Content/Materials/VehicleHeadlightOptic_f3a099e3.MaterialSpace',
+    'Content/Materials/VehicleTaillightOptic_e938b1d3.MaterialSpace',
+    'Content/Materials/VehicleBrakeCaliper_91886f2a.MaterialSpace',
+    'Content/Materials/CockpitCarbonTrim_d46e9073.MaterialSpace',
+    'Content/Materials/CockpitHmiDisplay_e6d142f3.MaterialSpace',
+    'Content/Materials/CockpitClusterDisplay_a2068c8a.MaterialSpace',
+    'Content/Materials/ObsidianGloss_5adfa2f0.MaterialSpace',
+    'Content/Materials/HeroCrimsonCaliper_0290c725.MaterialSpace',
+    'Content/Materials/AlpineGT3White_0161e720.MaterialSpace',
+    'Content/Materials/LiquidTitanium_256421b6.MaterialSpace',
+    'Content/Materials/GoldCaliper_ee38035b.MaterialSpace'
+]
+
+['.DocumentHeader']
+AuthoringWorkspace = 'Frontier.WorldWorkspace'
+BinaryAlignmentBytes = 64
+ContainerExtension = '.WorldSpace'
+DocumentTitle = 'StudioLobby1Cyclorama'
+SchemaVersion = 1
+
+['.EditorCamera']
+CameraOrigin = [ 5.75, -6.4499998092651367, 1.6200000047683716 ]
+FarClipMeters = 5000.0
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.05000000074505806, 0.15000000596046448, 0.77999997138977051 ]
+VerticalFovRadians = 0.61086523532867432
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+['.WorldEnvironment']
+SkyAtmosphereEnabled = false
+SkyRadiance = [ 0.014000000432133675, 0.017999999225139618, 0.026000000536441803 ]
+SolarAtmosphereEnabled = false
+VolumetricCloudsEnabled = false
+
+['.WorldReferences']
+AreaLuminaireCount = 3
+EnvironmentVolumetricPath = ''
+GeometryPlacementCount = 22
+MeasuredLuminaireCount = 2
+RenderSettingsPath = ''
+SolarPhotometryPath = 'Content/Photometry/StudioLobby1Cyclorama_Solar.PhotometrySpace'
+
+[['.SectionDirectory']]
+ByteLength = 704
+ChecksumFnv1a64 = '0x4C69252C790F20F8'
+RelativeAlignedOffset = 0
+SectionIdentifier = 'WorldPlacementTransforms'
+SubFormatTag = '.WorldPlacement'
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.0, 0.15000000596046448, 0.026000000536441803 ]
+DimensionsMeters = [ 4.9227876663208008, 3.053394079208374, 1.3442271947860718 ]
+GeometrySpacePath = 'Content/Geometry/Hero_Coupe_Cyclorama_d010f93c.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Hero Coupe б╥ Cyclorama'
+PrimaryMaterialPath = 'Content/Materials/ObsidianGloss_5adfa2f0.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-hero'
+Subtitle = 'ControlledIntegrator б╥ Center hero vehicle under overhead softbox'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -12.199999809265137, -4.8000001907348633, 0.0 ]
+DimensionsMeters = [ 4.8124470710754395, 3.4624605178833008, 1.3088527917861938 ]
+GeometrySpacePath = 'Content/Geometry/Alpine_GT_Outer_Left_Bay_246ae131.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Alpine GT б╥ Outer Left Bay'
+PrimaryMaterialPath = 'Content/Materials/AlpineGT3White_0161e720.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-gt3'
+Subtitle = 'ControlledIntegrator б╥ Parked outside cyclorama on outer tiled floor'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 12.199999809265137, -4.8000001907348633, 0.0 ]
+DimensionsMeters = [ 4.8124470710754395, 3.4624602794647217, 1.3088527917861938 ]
+GeometrySpacePath = 'Content/Geometry/Liquid_Tourer_Outer_Right_Bay_6c34a457.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Liquid Tourer б╥ Outer Right Bay'
+PrimaryMaterialPath = 'Content/Materials/LiquidTitanium_256421b6.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-tourer'
+Subtitle = 'ControlledIntegrator б╥ Parked outside cyclorama on outer tiled floor'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, 0.80000001192092896, 0.0 ]
+DimensionsMeters = [ 18.0, 13.5, 7.0 ]
+GeometrySpacePath = 'Content/Geometry/Cyclorama_Infinity_Cove_0b6275c1.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Cyclorama Infinity Cove'
+PrimaryMaterialPath = 'Content/Materials/StudioCyclorama_c4d380ab.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'studio-cyclorama'
+Subtitle = 'Procedural studio.cyclorama б╥ seamless matte cove'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, -0.0, 0.0 ]
+DimensionsMeters = [ 48.0, 40.0, 0.05000000074505806 ]
+GeometrySpacePath = 'Content/Geometry/Glossy_Tiled_Studio_Floor_c2201f68.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Glossy Tiled Studio Floor'
+PrimaryMaterialPath = 'Content/Materials/StudioTiledFloor_79f42f0d.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'studio-floor'
+Subtitle = 'Procedural studio.tiled_floor б╥ dark reflective slate tiles'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, 0.5, 0.0 ]
+DimensionsMeters = [ 34.0, 28.0, 0.71000003814697266 ]
+GeometrySpacePath = 'Content/Geometry/Ribbed_Ceiling_Truss_b6935232.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Ribbed Ceiling & Truss'
+PrimaryMaterialPath = 'Content/Materials/StudioCeilingRib_a428b94a.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'studio-ceiling'
+Subtitle = 'Procedural studio.ceiling_truss б╥ overhead grid & steel ribs'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, 0.25, 4.2199997901916504 ]
+DimensionsMeters = [ 7.4600000381469727, 4.2600002288818359, 3.1850004196166992 ]
+GeometrySpacePath = 'Content/Geometry/Overhead_Softbox_Bank_882c6008.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Overhead Softbox Bank'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-softbox-fixture'
+Subtitle = 'Procedural studio.light_fixture б╥ suspended silk overhead softbox'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -3.6500000953674316, -1.5499999523162842, 0.0 ]
+DimensionsMeters = [ 1.6520602703094482, 1.4293925762176514, 2.0898330211639404 ]
+GeometrySpacePath = 'Content/Geometry/Key_Fresnel_Tripod_59789251.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Key Fresnel Tripod'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-key-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ wheeled studio light stand'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ -3.6500000953674316, -1.5499999523162842, 2.0 ]
+DimensionsMeters = [ 0.85019773244857788, 0.79364657402038574, 0.68821310997009277 ]
+GeometrySpacePath = 'Content/Geometry/Barn_Door_Fresnel_Fixture_5e49bb36.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Barn-Door Fresnel Fixture'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-key-fixture'
+Subtitle = 'Procedural studio.light_fixture б╥ articulated 4-leaf barn doors'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 3.4500000476837158, -1.8500000238418579, 0.0 ]
+DimensionsMeters = [ 1.8289544582366943, 1.2875151634216309, 1.9728316068649292 ]
+GeometrySpacePath = 'Content/Geometry/Umbrella_Fill_Tripod_a40ae518.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Umbrella Fill Tripod'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-umbrella-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ silver umbrella stand'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 3.4500000476837158, -1.8500000238418579, 1.8799998760223389 ]
+DimensionsMeters = [ 1.0045058727264404, 1.3531203269958496, 1.4648592472076416 ]
+GeometrySpacePath = 'Content/Geometry/Parabolic_Umbrella_Modifier_2bdef907.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Parabolic Umbrella Modifier'
+PrimaryMaterialPath = 'Content/Materials/StudioUmbrellaSilver_ca35f068.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-umbrella-fixture'
+Subtitle = 'Procedural studio.light_fixture б╥ 16-rib silver bounce umbrella'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -4.3499999046325684, 2.6500000953674316, 0.0 ]
+DimensionsMeters = [ 1.8458840847015381, 1.3292162418365479, 2.2688415050506592 ]
+GeometrySpacePath = 'Content/Geometry/Back_Left_Rim_Tripod_55b89c21.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Back-Left Rim Tripod'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-rim-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ wheeled rim stand'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ -4.3499999046325684, 2.6500000953674316, 2.179999828338623 ]
+DimensionsMeters = [ 0.82665657997131348, 1.1428303718566895, 0.82493305206298828 ]
+GeometrySpacePath = 'Content/Geometry/Rim_LED_Panel_Fixture_f1d697fe.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Rim LED Panel Fixture'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-rim-fixture'
+Subtitle = 'Procedural studio.light_fixture б╥ cool edge-separation LED'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 4.5500001907348633, 2.4000000953674316, 0.0 ]
+DimensionsMeters = [ 1.6434003114700317, 1.4548649787902832, 2.1878390312194824 ]
+GeometrySpacePath = 'Content/Geometry/Back_Right_Accent_Tripod_90b2308b.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Back-Right Accent Tripod'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-accent-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ wheeled accent strobe stand'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 4.5500001907348633, 2.4000000953674316, 2.0999999046325684 ]
+DimensionsMeters = [ 0.65007996559143066, 0.83308529853820801, 0.86236542463302612 ]
+GeometrySpacePath = 'Content/Geometry/Octa_Softbox_Strobe_5ec0d0d1.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Octa Softbox Strobe'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-accent-fixture'
+Subtitle = 'Procedural studio.light_fixture б╥ 8-sided studio octa modifier'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -3.25, -5.75, 0.0 ]
+DimensionsMeters = [ 1.4406363964080811, 1.8954676389694214, 1.6921238899230957 ]
+GeometrySpacePath = 'Content/Geometry/Cinema_Tripod_A_60df6a3b.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Cinema Tripod A'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-cam-a-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ heavy matte tripod + floor mat'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -3.25, -5.75, 1.6119999885559082 ]
+DimensionsMeters = [ 0.63082361221313477, 0.96700465679168701, 0.50785648822784424 ]
+GeometrySpacePath = 'Content/Geometry/Cinema_Camera_A_e3c51135.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Cinema Camera A'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-cam-a-body'
+Subtitle = 'Procedural studio.cinema_camera б╥ twin-magazine cine camera'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 2.5499999523162842, -5.6500000953674316, 0.0 ]
+DimensionsMeters = [ 1.4280880689620972, 1.7288047075271606, 1.5309602022171021 ]
+GeometrySpacePath = 'Content/Geometry/Cinema_Tripod_B_cd9e8a33.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Cinema Tripod B'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-cam-b-tripod'
+Subtitle = 'Shared procedural studio.tripod б╥ foreground tether camera tripod'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 2.5499999523162842, -5.6500000953674316, 1.4520000219345093 ]
+DimensionsMeters = [ 0.48455756902694702, 0.71580386161804199, 0.31499260663986206 ]
+GeometrySpacePath = 'Content/Geometry/Medium_Format_Camera_B_e33b8e92.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Medium Format Camera B'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'rig-cam-b-body'
+Subtitle = 'Procedural studio.cinema_camera б╥ medium format studio camera'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 5.9000000953674316, -6.4499998092651367, 0.0 ]
+DimensionsMeters = [ 2.9092807769775391, 1.8427338600158691, 1.0634919404983521 ]
+GeometrySpacePath = 'Content/Geometry/Tether_Workstation_Desk_f4eb3686.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Tether Workstation & Desk'
+PrimaryMaterialPath = 'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'prop-workstation'
+Subtitle = 'Procedural studio.workstation б╥ hairpin desk, laptop & flight cases'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -6.4000000953674316, -6.25, 0.0 ]
+DimensionsMeters = [ 1.6131367683410645, 0.77071040868759155, 0.54199999570846558 ]
+GeometrySpacePath = 'Content/Geometry/Grip_Cases_Floor_Mats_54c6b825.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Grip Cases & Floor Mats'
+PrimaryMaterialPath = 'Content/Materials/StudioPelicanCase_3e487a3e.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'prop-grip-cases'
+Subtitle = 'Procedural studio.workstation б╥ stage-left Pelican cases & cables'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 2
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ -1.7216470241546631, 1.1873730421066284, 1.1890370845794678 ]
+DimensionsMeters = [ 0.47999998927116394, 0.47999998927116394, 0.47999998927116394 ]
+GeometrySpacePath = 'Content/Geometry/Dynamic_Emissive_Orb_94c55630.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Dynamic Emissive Orb'
+PrimaryMaterialPath = 'Content/Materials/DynamicEmissiveOrb_abaa321b.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = true
+StableIdentifier = 'fx-emissive-orb'
+Subtitle = 'Live orbiting emissive GI sphere (color-cycling)'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[[AreaLuminaires]]
+CenterWorld = [ 0.0, 0.25, 3.9800000190734863 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby1Cyclorama_AreaLight_1.PhotometrySpace'
+PlacementTitle = 'Overhead Softbox'
+VisibilityEnabled = true
+
+[[AreaLuminaires]]
+CenterWorld = [ 3.2150359153747559, -1.7137888669967651, 2.0518944263458252 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby1Cyclorama_AreaLight_2.PhotometrySpace'
+PlacementTitle = 'Studio Area Softbox 2'
+VisibilityEnabled = true
+
+[[AreaLuminaires]]
+CenterWorld = [ -4.1653542518615723, 2.543881893157959, 2.4648182392120361 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby1Cyclorama_AreaLight_3.PhotometrySpace'
+PlacementTitle = 'Studio Area Softbox 3'
+VisibilityEnabled = true
+
+[[CameraPresets]]
+CameraOrigin = [ 3.8499999046325684, -5.1500000953674316, 0.85000002384185791 ]
+FarClipMeters = 5000.0
+Label = 'Low Front'
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ -0.10000000149011612, -0.0, 0.72000002861022949 ]
+VerticalFovRadians = 0.5585053563117981
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ -5.4499998092651367, -5.4499998092651367, 1.5399999618530273 ]
+FarClipMeters = 5000.0
+Label = 'Rear Quarter'
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.15000000596046448, 0.25, 0.75999999046325684 ]
+VerticalFovRadians = 0.62831854820251465
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ 0.15000000596046448, -8.25, 1.2200000286102295 ]
+FarClipMeters = 5000.0
+Label = 'Profile 65mm'
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.0, 0.15000000596046448, 0.77999997138977051 ]
+VerticalFovRadians = 0.43633231520652771
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ 5.4000000953674316, -8.1000003814697266, 4.4499998092651367 ]
+FarClipMeters = 5000.0
+Label = 'Overhead Crane'
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.0, 0.40000000596046448, 0.69999998807907104 ]
+VerticalFovRadians = 0.69813168048858643
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ -7.4000000953674316, -8.8500003814697266, 1.9199999570846558 ]
+FarClipMeters = 5000.0
+Label = 'Crew BTS'
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.25, 0.40000000596046448, 1.1200000047683716 ]
+VerticalFovRadians = 0.73303830623626709
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[MeasuredLuminaires]]
+BeamAxis = [ 0.85457497835159302, 0.39802119135856628, -0.333587646484375 ]
+PeakIntensityRgb = [ 16.5, 15.199999809265137, 13.399999618530273 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby1Cyclorama_IesLamp_1.PhotometrySpace'
+PlacementTitle = 'Photometric Key Fresnel'
+PositionWorld = [ -3.3530633449554443, -1.4117007255554199, 2.1888852119445801 ]
+RadiusMeters = 0.11999999731779099
+RangeMeters = 22.0
+ZeroAzimuthAxis = [ -0.42220547795295715, 0.90650010108947754, 0.0 ]
+
+[[MeasuredLuminaires]]
+BeamAxis = [ -0.86171495914459229, -0.42612272500991821, -0.27543929219245911 ]
+PeakIntensityRgb = [ 12.5, 13.0, 14.5 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby1Cyclorama_IesLamp_2.PhotometrySpace'
+PlacementTitle = 'Photometric Rim Fresnel'
+PositionWorld = [ 4.2710986137390137, 2.2620816230773926, 2.2452175617218018 ]
+RadiusMeters = 0.11999999731779099
+RangeMeters = 22.0
+ZeroAzimuthAxis = [ 0.44326907396316528, -0.89638864994049072, 0.0 ]
+# === FRONTIER_BINARY_BOUNDARY ===
+                                      ≥>ТЩт<    z┤²@оjC@ё╛?   33Cа ≥≥ю        ▒Ъ≥@Т≤]@}┬╖?   33CA ≥≥ю        ▒Ъ≥@С≤]@}┬╖?       млL?          ░A  XA  Ю@          ─          @B   BмлL=          ?          B  ЮA░б5?         ─>=
+┤@    R╦Н@ЛQ┬@вK@    ≥iюffф©        ╤vс?VЖ╤?с©@    ≥iюffф©   @    ▐╕Y?l,K?╪.0?   мл\@млЛ©        .Й?Lм╓?©┘Э?   мл\@млЛ©жёП?    ╕⌠─?3╜?┌─╩?   33▀ю ≥)@        НEЛ?б#╙?Ё4@   33▀ю ≥)@┘@    д÷S?DH▓?п.S?    ≥▒@ ≥@        ЯZр?9╨?▌@    ≥▒@ ≥@ff@    ╓k&?EU?Шц\?     Pю  ╦ю        фf╦?╞·Р?└≈ь?     Pю  ╦юVн?    ╗}!?·█w?Б?   33#@мл╢ю        ≈к╤?yIщ?│Жц?   33#@мл╢ю#ш╧?    НЬ>Л>7?╤F║>   мл╪@ffню        ╗1:@╢чК?│ ┬?   мллю  хю        D{н?GME?┐ю
+?   Н^э©вШ≈?^2≤?    ▐бУ>▐бУ>▐бУ>   

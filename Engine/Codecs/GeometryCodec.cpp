@@ -336,6 +336,18 @@ SpaceContainerPayload GeometryEncoder::ConstructPayload(
         Payload.BinarySections.push_back(std::move(WideTreeBlock));
     }
 
+    if (Document.SignedDistanceIncluded && !Document.SignedDistanceVolume.HalfDistanceSamples.empty())
+    {
+        BinarySectionBlock SignedVolumeBlock {};
+        SignedVolumeBlock.SectionIdentifier = "SignedDistanceField";
+        SignedVolumeBlock.SubFormatTag      = ".SignedDistanceVolume";
+        SignedVolumeBlock.PayloadBytes      = Document.SignedDistanceVolume.SerializeHalfBinaryBytes();
+        if (!SignedVolumeBlock.PayloadBytes.empty())
+        {
+            Payload.BinarySections.push_back(std::move(SignedVolumeBlock));
+        }
+    }
+
     if (OptionalRevision != nullptr)
     {
         RevisionEncoder::AttachRevisionSections(*OptionalRevision, Payload);
@@ -488,6 +500,15 @@ bool GeometryDecoder::ExtractDocument(
                 return false;
             }
             OutDocument.WideTreeIncluded = true;
+        }
+        else if (Section.SubFormatTag == ".SignedDistanceVolume")
+        {
+            if (!OutDocument.SignedDistanceVolume.DeserializeHalfBinaryBytes(Section.PayloadBytes))
+            {
+                OutDiagnostic = "Corrupt .SignedDistanceVolume section inside .GeometrySpace.";
+                return false;
+            }
+            OutDocument.SignedDistanceIncluded = true;
         }
     }
 

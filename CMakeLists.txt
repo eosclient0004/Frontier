@@ -1775,6 +1775,15 @@ if(BUILD_TESTING)
     target_link_libraries(LiveLightingSynchronizationValidation PRIVATE AutoSpaceProject)
     add_test(NAME LiveLightingSynchronizationValidation COMMAND LiveLightingSynchronizationValidation)
 
+    add_executable(NativeSpaceResourceRoundTripValidation Exhibits/NativeSpaceResourceRoundTripValidation.cpp)
+    target_include_directories(NativeSpaceResourceRoundTripValidation PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/Projects/AutoSpace"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_compile_definitions(NativeSpaceResourceRoundTripValidation PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(NativeSpaceResourceRoundTripValidation PRIVATE AutoSpaceProject)
+    add_test(NAME NativeSpaceResourceRoundTripValidation COMMAND NativeSpaceResourceRoundTripValidation)
+
     add_executable(PortalVehicleVerification Exhibits/PortalVehicleVerification.cpp)
     target_include_directories(PortalVehicleVerification PRIVATE
         "${CMAKE_SOURCE_DIR}"

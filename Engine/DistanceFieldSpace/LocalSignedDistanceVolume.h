@@ -12,6 +12,7 @@
 #include "Engine/Mathematics/AxisCoordinates.h"
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -92,6 +93,10 @@ public:
     {
         return HalfDistanceSamples.size() * sizeof(uint16_t);
     }
+
+    // Compact FP16 binary serialization embedded inside .GeometrySpace containers
+    [[nodiscard]] std::vector<std::byte> SerializeHalfBinaryBytes() const;
+    [[nodiscard]] bool DeserializeHalfBinaryBytes(std::span<const std::byte> RawBytes);
 };
 
 } // namespace Frontier::DistanceFieldSpace

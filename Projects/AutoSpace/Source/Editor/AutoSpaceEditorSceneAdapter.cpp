@@ -17,6 +17,7 @@
 #include "Engine/Mathematics/AxisCoordinates.h"
 #include "Engine/Serialization/Container/TextFormatPrimitives.h"
 #include "Source/Gameplay/LobbyLifecycle.h"
+#include "Source/Serialization/AutoSpaceSpaceResourceArchive.h"
 
 #include <algorithm>
 #include <cctype>
@@ -111,7 +112,52 @@ namespace
     using namespace Frontier::SpatialAcceleration;
 
     const StudioLobbyId SelectedLobby = ResolveLobbyFromVariant(Request.SceneVariantIndex);
-    LobbyPolicy         Policy        = LobbyPolicyEngine::BuildDefault(SelectedLobby);
+    const std::string   LobbyLabel(LobbyPolicyEngine::QueryLabel(SelectedLobby));
+
+    // Phase 4: Prefer native disk-backed .WorldSpace / .MaterialSpace / .GeometrySpace (with embedded signed SDF)
+    // / .PhotometrySpace assets when present under Projects/AutoSpace/Content/, falling back cleanly to procedural build.
+    const std::filesystem::path ProjectRoot = Request.ProjectSpacePath.empty()
+        ? (Request.RepositoryRoot / "Projects" / "AutoSpace")
+        : Request.ProjectSpacePath.parent_path();
+    const std::filesystem::path LobbyWorldPath =
+        AutoSpaceSpaceResourceArchive::ResolveLobbyWorldPath(ProjectRoot, SelectedLobby);
+    std::error_code DiskCheckEc {};
+    if (std::filesystem::exists(LobbyWorldPath, DiskCheckEc))
+    {
+        std::vector<LobbyLoadedCameraPreset> DiskExtraCameras;
+        LobbyArchiveSummary                  DiskSummary {};
+        std::string                          DiskDiag {};
+        if (AutoSpaceSpaceResourceArchive::LoadLobbyFromDisk(
+                ProjectRoot,
+                SelectedLobby,
+                Request.ViewportWidthPx,
+                Request.ViewportHeightPx,
+                OutBundle,
+                DiskExtraCameras,
+                DiskSummary,
+                DiskDiag))
+        {
+            OutResult.SceneFolderTitle         = "AutoSpace · " + LobbyLabel;
+            OutResult.SceneFolderSubtitle      = "Disk-backed .WorldSpace · Native Space Resources";
+            OutResult.ActiveVariantTitle       = LobbyLabel;
+            OutResult.PreferredLightingMode    = UnifiedLightingMode::ExactReference;
+            OutResult.PreferredExposureGain    = ResolveLobbyExposureGain(SelectedLobby);
+            OutResult.DisableStaticClipmapBake = true;
+            OutResult.ExtraCameras.clear();
+            for (const auto& CamPreset : DiskExtraCameras)
+            {
+                Frontier::Lifecycle::ProjectSceneCameraEntry ExtraCam {};
+                ExtraCam.Title    = CamPreset.Label.empty() ? "Camera Preset" : CamPreset.Label;
+                ExtraCam.Subtitle = "AutoSpace Camera Preset (.WorldSpace)";
+                ExtraCam.Camera   = CamPreset.Camera;
+                OutResult.ExtraCameras.push_back(std::move(ExtraCam));
+            }
+            OutDiagnostic.clear();
+            return true;
+        }
+    }
+
+    LobbyPolicy Policy = LobbyPolicyEngine::BuildDefault(SelectedLobby);
     Policy.EnableHeroVehiclePhysics   = false;
     Policy.EnableEngineParticles      = false;
 
@@ -254,7 +300,6 @@ namespace
         OutBundle.EditorCamera.ViewportHeightPx = Request.ViewportHeightPx;
     }
 
-    const std::string LobbyLabel(LobbyPolicyEngine::QueryLabel(SelectedLobby));
     OutResult.SceneFolderTitle         = "AutoSpace · " + LobbyLabel;
     OutResult.SceneFolderSubtitle      = "MainWorld · Single-level Lobby Scene";
     OutResult.ActiveVariantTitle       = LobbyLabel;

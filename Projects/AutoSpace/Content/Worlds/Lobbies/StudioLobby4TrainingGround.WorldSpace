@@ -1,0 +1,207 @@
+# Frontier Two-Tier Hybrid .Space Container (Canonical PascalCase TOML Header)
+MaterialPalette = [
+    'Content/Materials/DefaultStudioClay_94a686c7.MaterialSpace',
+    'Content/Materials/StudioCyclorama_c4d380ab.MaterialSpace',
+    'Content/Materials/StudioTiledFloor_79f42f0d.MaterialSpace',
+    'Content/Materials/StudioTiledFloorAlt_1cc77f24.MaterialSpace',
+    'Content/Materials/StudioCeilingRib_a428b94a.MaterialSpace',
+    'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace',
+    'Content/Materials/StudioChromeMetal_58d5b212.MaterialSpace',
+    'Content/Materials/StudioRubberMat_acf3ad19.MaterialSpace',
+    'Content/Materials/StudioEmissiveDiffuser_213cc099.MaterialSpace',
+    'Content/Materials/DynamicEmissiveOrb_62e73215.MaterialSpace',
+    'Content/Materials/StudioUmbrellaSilver_ca35f068.MaterialSpace',
+    'Content/Materials/StudioTetherScreen_f034f3cc.MaterialSpace',
+    'Content/Materials/StudioPelicanCase_3e487a3e.MaterialSpace',
+    'Content/Materials/StudioForestBackdrop_4e663842.MaterialSpace',
+    'Content/Materials/StudioBlackFlag_0d208fbc.MaterialSpace',
+    'Content/Materials/StudioFanHousing_6de73807.MaterialSpace',
+    'Content/Materials/StudioFanBlade_517c129f.MaterialSpace',
+    'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace',
+    'Content/Materials/StudioSafetyYellow_dad0ed18.MaterialSpace',
+    'Content/Materials/StudioConcreteGarage_91244cf1.MaterialSpace',
+    'Content/Materials/StudioTrackAsphalt_0fc73762.MaterialSpace',
+    'Content/Materials/StudioTrackPaintWhite_e5a786f5.MaterialSpace',
+    'Content/Materials/StudioTrackGrass_e528ae46.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyBlue_fe1bfffe.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyDome_1b77a003.MaterialSpace',
+    'Content/Materials/StudioTimberBench_08948952.MaterialSpace',
+    'Content/Materials/VehicleRimAlloy_8d08b2b2.MaterialSpace',
+    'Content/Materials/VehicleGlossCanopy_0bc5d9d4.MaterialSpace',
+    'Content/Materials/VehicleGlass_8f111435.MaterialSpace',
+    'Content/Materials/VehicleIntakePolymer_125306c6.MaterialSpace',
+    'Content/Materials/VehicleTireRubber_ad45a874.MaterialSpace',
+    'Content/Materials/VehicleTrimMetal_27892627.MaterialSpace',
+    'Content/Materials/VehicleHeadlightOptic_f3a099e3.MaterialSpace',
+    'Content/Materials/VehicleTaillightOptic_e938b1d3.MaterialSpace',
+    'Content/Materials/VehicleBrakeCaliper_91886f2a.MaterialSpace',
+    'Content/Materials/CockpitCarbonTrim_d46e9073.MaterialSpace',
+    'Content/Materials/CockpitHmiDisplay_e6d142f3.MaterialSpace',
+    'Content/Materials/CockpitClusterDisplay_a2068c8a.MaterialSpace',
+    'Content/Materials/ProvingGroundSapphire_e553a40c.MaterialSpace',
+    'Content/Materials/TrackCrimsonCaliper_b0fd38dd.MaterialSpace',
+    'Content/Materials/WorldBTerracottaDeck_473e9c82.MaterialSpace',
+    'Content/Materials/WorldBCrimsonPillar_ba8b8b60.MaterialSpace',
+    'Content/Materials/WorldBEmeraldPillar_bd330586.MaterialSpace',
+    'Content/Materials/WorldBGoldArch_e3e51f75.MaterialSpace',
+    'Content/Materials/StandardOpenPbrSurface_8e2c6e0d.MaterialSpace'
+]
+
+['.DocumentHeader']
+AuthoringWorkspace = 'Frontier.WorldWorkspace'
+BinaryAlignmentBytes = 64
+ContainerExtension = '.WorldSpace'
+DocumentTitle = 'StudioLobby4TrainingGround'
+SchemaVersion = 1
+
+['.EditorCamera']
+CameraOrigin = [ -6.5999999046325684, -0.34999999403953552, 2.25 ]
+FarClipMeters = 5000.0
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ 1.6000000238418579, 0.0, 0.92000001668930054 ]
+VerticalFovRadians = 0.83775806427001953
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+['.WorldEnvironment']
+SkyAtmosphereEnabled = true
+SkyRadiance = [ 0.36000001430511475, 0.51999998092651367, 0.77999997138977051 ]
+SolarAtmosphereEnabled = true
+VolumetricCloudsEnabled = false
+
+['.WorldReferences']
+AreaLuminaireCount = 0
+EnvironmentVolumetricPath = ''
+GeometryPlacementCount = 4
+MeasuredLuminaireCount = 0
+RenderSettingsPath = ''
+SolarPhotometryPath = 'Content/Photometry/StudioLobby4TrainingGround_Solar.PhotometrySpace'
+
+[['.SectionDirectory']]
+ByteLength = 128
+ChecksumFnv1a64 = '0x54FB2CB0E89E4947'
+RelativeAlignedOffset = 0
+SectionIdentifier = 'WorldPlacementTransforms'
+SubFormatTag = '.WorldPlacement'
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.0, 0.0, 0.0 ]
+DimensionsMeters = [ 6.2201800346374512, 2.4996199607849121, 1.7687200307846069 ]
+GeometrySpacePath = 'Content/Geometry/Hero_Coupe_Training_Ground_7b261531.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Hero Coupe ¬∑ Training Ground'
+PrimaryMaterialPath = 'Content/Materials/ProvingGroundSapphire_e553a40c.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-hero'
+Subtitle = 'Live drivable Jolt vehicle (1:1 scale, +X heading) with GT cockpit & HMI'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.0, -680.0, 0.0 ]
+DimensionsMeters = [ 6.2201800346374512, 2.4996199607849121, 1.7687200307846069 ]
+GeometrySpacePath = 'Content/Geometry/Hero_Coupe_Portal_Exit_Projection_208255ee.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Hero Coupe ¬∑ Portal Exit Projection'
+PrimaryMaterialPath = 'Content/Materials/ProvingGroundSapphire_e553a40c.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-hero-portal-clone'
+Subtitle = 'Synchronized half-clipped exit projection active only while straddling a multi-world portal'
+UniformScale = 1.0
+VisibilityEnabled = false
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, 0.0, 0.0 ]
+DimensionsMeters = [ 240.0, 240.0, 0.05000000074505806 ]
+GeometrySpacePath = 'Content/Geometry/Flat_Proving_Ground_Plane_World_A_d9ee6ec4.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Flat Proving Ground Plane (World A)'
+PrimaryMaterialPath = 'Content/Materials/StudioTrackAsphalt_0fc73762.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'training-flat-plane'
+Subtitle = '240 m x 240 m level asphalt plane at Z = 0.0 m'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.0, -680.0, 0.0 ]
+DimensionsMeters = [ 72.0, 60.0, 9.5 ]
+GeometrySpacePath = 'Content/Geometry/World_B_Sunset_Proving_Deck_3e447ef7.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'World B ¬∑ Sunset Proving Deck'
+PrimaryMaterialPath = 'Content/Materials/WorldBTerracottaDeck_473e9c82.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'world-b-sunset-deck'
+Subtitle = 'Distant sunset proving deck (X=0, Y=-680, Z=0 m) with crimson/emerald bounce colonnade & low-grip surface'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[[CameraPresets]]
+CameraOrigin = [ -5.3000001907348633, 3.3499999046325684, 1.5499999523162842 ]
+FarClipMeters = 5000.0
+Label = 'Drift Quarter Cam'
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ -0.44999998807907104, 0.0, 0.72000002861022949 ]
+VerticalFovRadians = 0.80285143852233887
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ -0.18000000715255737, 0.34000000357627869, 1.3999999761581421 ]
+FarClipMeters = 5000.0
+Label = 'Interior Cockpit Cam'
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ 1.7999999523162842, 0.14000000059604645, 1.2400000095367432 ]
+VerticalFovRadians = 1.1170107126235962
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ 0.2199999988079071, 0.090000003576278687, 1.1799999475479126 ]
+FarClipMeters = 5000.0
+Label = 'HMI Focus Cam'
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ 0.64999997615814209, -0.070000000298023224, 1.1150000095367432 ]
+VerticalFovRadians = 0.80285143852233887
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ 5.8000001907348633, -4.4000000953674316, 2.1500000953674316 ]
+FarClipMeters = 5000.0
+Label = 'Showcase Orbit Cam'
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ 0.0, 0.0, 0.77999997138977051 ]
+VerticalFovRadians = 0.73303830623626709
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+[[CameraPresets]]
+CameraOrigin = [ 7.4000000953674316, -683.5999755859375, 2.0499999523162842 ]
+FarClipMeters = 5000.0
+Label = 'World B Portal Exit Cam'
+NearClipMeters = 0.039999999105930328
+TargetPoint = [ 0.34999999403953552, -680.0, 1.0499999523162842 ]
+VerticalFovRadians = 0.83775806427001953
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+# === FRONTIER_BINARY_BOUNDARY ===
+                                         ∑«@∆˘@ke‚?         *ƒ        ∑«@∆˘@ke‚?                     pC  pCÕÃL=         *ƒ          êB  pB  A   

@@ -1,0 +1,424 @@
+# Frontier Two-Tier Hybrid .Space Container (Canonical PascalCase TOML Header)
+MaterialPalette = [
+    'Content/Materials/DefaultStudioClay_94a686c7.MaterialSpace',
+    'Content/Materials/StudioCyclorama_c4d380ab.MaterialSpace',
+    'Content/Materials/StudioTiledFloor_79f42f0d.MaterialSpace',
+    'Content/Materials/StudioTiledFloorAlt_1cc77f24.MaterialSpace',
+    'Content/Materials/StudioCeilingRib_a428b94a.MaterialSpace',
+    'Content/Materials/StudioDarkMetal_28d04a44.MaterialSpace',
+    'Content/Materials/StudioChromeMetal_58d5b212.MaterialSpace',
+    'Content/Materials/StudioRubberMat_acf3ad19.MaterialSpace',
+    'Content/Materials/StudioEmissiveDiffuser_213cc099.MaterialSpace',
+    'Content/Materials/DynamicEmissiveOrb_a5933cf7.MaterialSpace',
+    'Content/Materials/StudioUmbrellaSilver_ca35f068.MaterialSpace',
+    'Content/Materials/StudioTetherScreen_f034f3cc.MaterialSpace',
+    'Content/Materials/StudioPelicanCase_3e487a3e.MaterialSpace',
+    'Content/Materials/StudioForestBackdrop_4e663842.MaterialSpace',
+    'Content/Materials/StudioBlackFlag_0d208fbc.MaterialSpace',
+    'Content/Materials/StudioFanHousing_6de73807.MaterialSpace',
+    'Content/Materials/StudioFanBlade_517c129f.MaterialSpace',
+    'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace',
+    'Content/Materials/StudioSafetyYellow_dad0ed18.MaterialSpace',
+    'Content/Materials/StudioConcreteGarage_91244cf1.MaterialSpace',
+    'Content/Materials/StudioTrackAsphalt_0fc73762.MaterialSpace',
+    'Content/Materials/StudioTrackPaintWhite_e5a786f5.MaterialSpace',
+    'Content/Materials/StudioTrackGrass_e528ae46.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyBlue_fe1bfffe.MaterialSpace',
+    'Content/Materials/StudioStadiumSkyDome_1b77a003.MaterialSpace',
+    'Content/Materials/StudioTimberBench_08948952.MaterialSpace',
+    'Content/Materials/VehicleRimAlloy_8d08b2b2.MaterialSpace',
+    'Content/Materials/VehicleGlossCanopy_0bc5d9d4.MaterialSpace',
+    'Content/Materials/VehicleGlass_8f111435.MaterialSpace',
+    'Content/Materials/VehicleIntakePolymer_125306c6.MaterialSpace',
+    'Content/Materials/VehicleTireRubber_ad45a874.MaterialSpace',
+    'Content/Materials/VehicleTrimMetal_27892627.MaterialSpace',
+    'Content/Materials/VehicleHeadlightOptic_f3a099e3.MaterialSpace',
+    'Content/Materials/VehicleTaillightOptic_e938b1d3.MaterialSpace',
+    'Content/Materials/VehicleBrakeCaliper_91886f2a.MaterialSpace',
+    'Content/Materials/CockpitCarbonTrim_d46e9073.MaterialSpace',
+    'Content/Materials/CockpitHmiDisplay_e6d142f3.MaterialSpace',
+    'Content/Materials/CockpitClusterDisplay_a2068c8a.MaterialSpace',
+    'Content/Materials/SignalOrange_436e664a.MaterialSpace',
+    'Content/Materials/ObsidianGloss_0da03e11.MaterialSpace',
+    'Content/Materials/AlpineWhite_71c4932e.MaterialSpace',
+    'Content/Materials/MidnightCobalt_9d70b938.MaterialSpace',
+    'Content/Materials/CrimsonCaliper_7e279d42.MaterialSpace'
+]
+
+['.DocumentHeader']
+AuthoringWorkspace = 'Frontier.WorldWorkspace'
+BinaryAlignmentBytes = 64
+ContainerExtension = '.WorldSpace'
+DocumentTitle = 'StudioLobby3RacingGarage'
+SchemaVersion = 1
+
+['.EditorCamera']
+CameraOrigin = [ 4.9499998092651367, -5.8499999046325684, 1.5199999809265137 ]
+FarClipMeters = 5000.0
+NearClipMeters = 0.10000000149011612
+TargetPoint = [ 0.34999999403953552, -0.34999999403953552, 0.87999999523162842 ]
+VerticalFovRadians = 0.62831854820251465
+WorldUpAxis = [ 0.0, 0.0, 1.0 ]
+
+['.WorldEnvironment']
+SkyAtmosphereEnabled = false
+SkyRadiance = [ 0.18000000715255737, 0.23999999463558197, 0.34000000357627869 ]
+SolarAtmosphereEnabled = true
+VolumetricCloudsEnabled = true
+
+['.WorldReferences']
+AreaLuminaireCount = 2
+EnvironmentVolumetricPath = ''
+GeometryPlacementCount = 16
+MeasuredLuminaireCount = 2
+RenderSettingsPath = ''
+SolarPhotometryPath = 'Content/Photometry/StudioLobby3RacingGarage_Solar.PhotometrySpace'
+
+[['.SectionDirectory']]
+ByteLength = 512
+ChecksumFnv1a64 = '0xA5875D46F14CB020'
+RelativeAlignedOffset = 0
+SectionIdentifier = 'WorldPlacementTransforms'
+SubFormatTag = '.WorldPlacement'
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.34999999403953552, -0.25, 0.0 ]
+DimensionsMeters = [ 4.9591798782348633, 4.1941728591918945, 1.3796015977859497 ]
+GeometrySpacePath = 'Content/Geometry/Hero_GT_Pit_Bay_Center_92b671ba.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Hero GT Â· Pit Bay Center'
+PrimaryMaterialPath = 'Content/Materials/SignalOrange_436e664a.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-hero'
+Subtitle = 'ControlledIntegrator Â· Signal Orange GT in afternoon pit-lane sunbeam'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 5.4499998092651367, -8.6499996185302734, 0.0 ]
+DimensionsMeters = [ 4.6839237213134766, 4.2132778167724609, 1.3265399932861328 ]
+GeometrySpacePath = 'Content/Geometry/Alpine_GT_Right_Pit_Bay_40ce9f5b.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Alpine GT Â· Right Pit Bay'
+PrimaryMaterialPath = 'Content/Materials/AlpineWhite_71c4932e.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-gt3'
+Subtitle = 'ControlledIntegrator Â· Paddock GT car in right bay'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -5.3499999046325684, -8.75, 0.0 ]
+DimensionsMeters = [ 4.7290639877319336, 4.1251072883605957, 1.3265399932861328 ]
+GeometrySpacePath = 'Content/Geometry/Midnight_Cobalt_Outer_Paddock_6515f282.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Midnight Cobalt Â· Outer Paddock'
+PrimaryMaterialPath = 'Content/Materials/MidnightCobalt_9d70b938.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-tourer'
+Subtitle = 'ControlledIntegrator Â· Reserve track car on left paddock apron'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, -0.0, 0.0 ]
+DimensionsMeters = [ 440.0, 429.22622680664062, 227.65043640136719 ]
+GeometrySpacePath = 'Content/Geometry/3D_Racing_Track_Stadium_e2d808c2.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = '3D Racing Track & Stadium'
+PrimaryMaterialPath = 'Content/Materials/StudioTrackAsphalt_0fc73762.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-race-track'
+Subtitle = 'Procedural studio.race_track Â· 3-lane FIA circuit, pit wall, gantry & 14-tier grandstands'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 0.0, -0.0, 0.0 ]
+DimensionsMeters = [ 22.600000381469727, 27.0, 7.3691449165344238 ]
+GeometrySpacePath = 'Content/Geometry/Pit_Garage_Cages_Mezzanine_eacdee25.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Pit Garage, Cages & Mezzanine'
+PrimaryMaterialPath = 'Content/Materials/StudioConcreteGarage_91244cf1.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-garage-shell'
+Subtitle = 'Procedural studio.garage_shell Â· pit archway, security bars, mezzanine & linear LEDs'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -5.5500001907348633, 1.5499999523162842, 0.0 ]
+DimensionsMeters = [ 3.372800350189209, 5.7408747673034668, 3.869999885559082 ]
+GeometrySpacePath = 'Content/Geometry/Hydraulic_4_Post_Car_Lift_e52aedb4.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Hydraulic 4-Post Car Lift'
+PrimaryMaterialPath = 'Content/Materials/StudioSafetyYellow_dad0ed18.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-car-lift'
+Subtitle = 'Procedural studio.car_lift Â· 4-post lift supporting elevated track coupe at Z = 2.12m'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -5.5500001907348633, 1.5499999523162842, 2.119999885559082 ]
+DimensionsMeters = [ 1.8497189283370972, 4.602933406829834, 1.3088527917861938 ]
+GeometrySpacePath = 'Content/Geometry/Track_Coupe_On_Hydraulic_Lift_c4bd9291.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Track Coupe Â· On Hydraulic Lift'
+PrimaryMaterialPath = 'Content/Materials/ObsidianGloss_0da03e11.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'vehicle-lift'
+Subtitle = 'ControlledIntegrator Â· Elevated race car mounted on hydraulic lift deck'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, -6.1999998092651367, 0.0 ]
+DimensionsMeters = [ 44.0, 24.799999237060547, 0.05000000074505806 ]
+GeometrySpacePath = 'Content/Geometry/Polished_Concrete_Pit_Floor_fdb1203c.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Polished Concrete Pit Floor'
+PrimaryMaterialPath = 'Content/Materials/StudioConcreteGarage_91244cf1.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'studio-floor'
+Subtitle = 'Procedural studio.tiled_floor Â· motorsport garage concrete floor'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 7.0999999046325684, 2.4000000953674316, 0.0 ]
+DimensionsMeters = [ 0.85957157611846924, 2.0144684314727783, 1.6144957542419434 ]
+GeometrySpacePath = 'Content/Geometry/Double_Bank_Cherry_Red_Tool_Chest_1fa0f0b8.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Double-Bank Cherry-Red Tool Chest'
+PrimaryMaterialPath = 'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-tool-chest'
+Subtitle = '10-drawer rolling tool chest + impact gun'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 5.3499999046325684, -2.2000000476837158, 0.0 ]
+DimensionsMeters = [ 1.9202667474746704, 1.5612211227416992, 1.4800000190734863 ]
+GeometrySpacePath = 'Content/Geometry/Rolling_Cherry_Red_Tool_Cart_0130c8ec.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Rolling Cherry-Red Tool Cart'
+PrimaryMaterialPath = 'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-tool-cart'
+Subtitle = 'Service trolley with toolboxes & slicks'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 9.75, 0.34999999403953552, 0.0 ]
+DimensionsMeters = [ 0.82000011205673218, 2.9749999046325684, 2.0399999618530273 ]
+GeometrySpacePath = 'Content/Geometry/Mechanic_s_Workbench_Pegboard_29677c27.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = "Mechanic's Workbench & Pegboard"
+PrimaryMaterialPath = 'Content/Materials/StudioTimberBench_08948952.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-workbench'
+Subtitle = 'Butcher-block bench, vise, wrenches & drums'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -9.6499996185302734, -3.8499999046325684, 0.0 ]
+DimensionsMeters = [ 0.68000006675720215, 1.5299999713897705, 2.0900001525878906 ]
+GeometrySpacePath = 'Content/Geometry/Air_Compressor_Welding_Cart_9e8b158d.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Air Compressor & Welding Cart'
+PrimaryMaterialPath = 'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-air-compressor'
+Subtitle = '80-gallon vertical compressor & gas bottles'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ 4.0500001907348633, 4.5500001907348633, 0.0 ]
+DimensionsMeters = [ 2.5884029865264893, 1.6309399604797363, 2.059999942779541 ]
+GeometrySpacePath = 'Content/Geometry/Racing_Slick_Tire_Rack_Jack_dea31010.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Racing Slick Tire Rack & Jack'
+PrimaryMaterialPath = 'Content/Materials/StudioSafetyYellow_dad0ed18.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-tire-rack'
+Subtitle = '2-tier slick rack, trolley jack & stands'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = true
+CenterWorld = [ -1.5499999523162842, 4.6500000953674316, 0.0 ]
+DimensionsMeters = [ 1.3627998828887939, 1.1573472023010254, 1.6800000667572021 ]
+GeometrySpacePath = 'Content/Geometry/Diagnostic_Telemetry_Cabinet_847a4914.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Diagnostic Telemetry Cabinet'
+PrimaryMaterialPath = 'Content/Materials/StudioCherryRedTool_bbb2243d.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-diag-cabinet'
+Subtitle = 'Rolling pit telemetry chest'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 0
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ 0.0, -0.0, 0.0 ]
+DimensionsMeters = [ 11.432170867919922, 8.8827533721923828, 0.075999997556209564 ]
+GeometrySpacePath = 'Content/Geometry/Floor_Air_Hoses_Cable_Ramp_0c7a365f.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Floor Air Hoses & Cable Ramp'
+PrimaryMaterialPath = 'Content/Materials/StudioRubberMat_acf3ad19.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = false
+StableIdentifier = 'l3-garage-cables'
+Subtitle = 'Pneumatic hoses & yellow cable ramp'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[['.WorldPlacement']]
+AnalyticalShapeCode = 2
+AuthorNotes = 'Loaded from disk-backed Frontier .WorldSpace / .GeometrySpace resource.'
+CastShadows = false
+CenterWorld = [ -2.4397304058074951, -0.071643948554992676, 1.1168352365493774 ]
+DimensionsMeters = [ 0.47999998927116394, 0.47999998927116394, 0.47999998927116394 ]
+GeometrySpacePath = 'Content/Geometry/Dynamic_Emissive_Orb_94c55630.GeometrySpace'
+GlassShell = false
+NonUniformScale = [ 1.0, 1.0, 1.0 ]
+PlacementTitle = 'Dynamic Emissive Orb'
+PrimaryMaterialPath = 'Content/Materials/DynamicEmissiveOrb_a5933cf7.MaterialSpace'
+PrimitiveShapeOrdinal = 0
+RotationZDegrees = 0.0
+SphericalPrimitive = true
+StableIdentifier = 'fx-emissive-orb'
+Subtitle = 'Live orbiting emissive GI sphere (color-cycling)'
+UniformScale = 1.0
+VisibilityEnabled = true
+
+[[AreaLuminaires]]
+CenterWorld = [ 0.0, -0.34999999403953552, 6.0500001907348633 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby3RacingGarage_AreaLight_1.PhotometrySpace'
+PlacementTitle = 'Overhead Softbox'
+VisibilityEnabled = true
+
+[[AreaLuminaires]]
+CenterWorld = [ -4.1999998092651367, 6.3000001907348633, 3.0999999046325684 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby3RacingGarage_AreaLight_2.PhotometrySpace'
+PlacementTitle = 'Studio Area Softbox 2'
+VisibilityEnabled = true
+
+[[MeasuredLuminaires]]
+BeamAxis = [ 0.52840489149093628, -0.75060594081878662, -0.39671012759208679 ]
+PeakIntensityRgb = [ 26.0, 21.0, 14.0 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby3RacingGarage_IesLamp_1.PhotometrySpace'
+PlacementTitle = 'Photometric Key Fresnel'
+PositionWorld = [ -9.3999996185302734, 13.5, 8.1999998092651367 ]
+RadiusMeters = 0.11999999731779099
+RangeMeters = 36.0
+ZeroAzimuthAxis = [ 0.81770354509353638, 0.57563966512680054, -0.0 ]
+
+[[MeasuredLuminaires]]
+BeamAxis = [ -0.72255069017410278, 0.1564285010099411, -0.67338746786117554 ]
+PeakIntensityRgb = [ 18.0, 13.0, 8.1999998092651367 ]
+PhotometrySpacePath = 'Content/Photometry/StudioLobby3RacingGarage_IesLamp_2.PhotometrySpace'
+PlacementTitle = 'Photometric Rim Fresnel'
+PositionWorld = [ 5.1999998092651367, -1.3999999761581421, 5.4000000953674316 ]
+RadiusMeters = 0.11999999731779099
+RangeMeters = 22.0
+ZeroAzimuthAxis = [ -0.21159294247627258, -0.97735786437988281, 0.0 ]
+# === FRONTIER_BINARY_BOUNDARY ===
+                     33³>  €¾        š±ž@ª6†@É–°?   ff®@ff
+Á        ´â•@,Ó†@Ì©?   33«À  Á        ~T—@á „@Ì©?          €          ÜCõœÖCƒ¦cC          €        ÍÌ´A  ØA	Ðë@   š™±ÀffÆ?        öÛW@?µ·@®w@   š™±ÀffÆ?®@    —Ãì?;K“@}ˆ§?       ffÆÀ          0BffÆAÍÌL=   33ã@š™@        â\?í @Ì§Î?   33«@ÍÌÀ        MËõ?ÖÇ?¤p½?     A33³>        ‡ëQ?ff>@\@   ffÁffvÀ        |.?
+×Ã?Â@   š™@š™‘@        e¨%@¤ÂÐ?
+×@   ffÆ¿ÍÌ”@        :p®?ô#”?>
+×?          €        ,ê6AÂAã¥›=   ‹$Àº’½uôŽ?    Âõ>Âõ>Âõ>   

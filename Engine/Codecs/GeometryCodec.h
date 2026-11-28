@@ -11,6 +11,7 @@
 
 #include "Engine/Codecs/RevisionCodec.h"
 #include "Engine/Codecs/SpaceContainerCodec.h"
+#include "Engine/DistanceFieldSpace/LocalSignedDistanceVolume.h"
 #include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 #include "Engine/SpatialAcceleration/ClusterPyramid.h"
@@ -46,10 +47,12 @@ struct GeometrySpaceDocument
     std::string                           SurfaceParameterPath    {};    // [-]    - Linked .SurfaceParameterSpace asset path
     float                                 CreaseAngleDegrees      = 38.0f; // [deg] - Crease smoothing angle
     std::vector<float>                    FaceCornerNormals       {};    // [-]    - Optional 9 floats/face creased corner normals
-    SpatialAcceleration::ClusterPyramid   ClusterHierarchy        {};    // [-]    - Optional prebuilt 128-triangle LOD pyramid
-    SpatialAcceleration::WideBoundingTree RayAcceleration         {};    // [-]    - Optional prebuilt 128 B 4-wide BVH4
-    bool                                  ClustersIncluded        = false; // [-]  - True when ClusterHierarchy is persisted
-    bool                                  WideTreeIncluded        = false; // [-]  - True when RayAcceleration is persisted
+    SpatialAcceleration::ClusterPyramid           ClusterHierarchy        {};    // [-]  - Optional prebuilt 128-triangle LOD pyramid
+    SpatialAcceleration::WideBoundingTree         RayAcceleration         {};    // [-]  - Optional prebuilt 128 B 4-wide BVH4
+    DistanceFieldSpace::LocalSignedDistanceVolume SignedDistanceVolume    {};    // [-]  - Optional pre-baked true signed local SDF volume
+    bool                                          ClustersIncluded        = false; // [-] - True when ClusterHierarchy is persisted
+    bool                                          WideTreeIncluded        = false; // [-] - True when RayAcceleration is persisted
+    bool                                          SignedDistanceIncluded  = false; // [-] - True when SignedDistanceVolume is persisted
 };
 
 class GeometryEncoder
