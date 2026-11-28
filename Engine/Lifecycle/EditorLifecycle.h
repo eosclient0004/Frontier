@@ -55,6 +55,11 @@ namespace Frontier::GeometricRaster
 class ImGuiOverlayRasterization;
 }
 
+namespace Frontier
+{
+class ThumbnailSheetRepository;
+}
+
 namespace Frontier::Lifecycle
 {
 
@@ -224,6 +229,7 @@ private:
     std::unique_ptr<GeometricRaster::TieredWorldRenderSequence>      ShowcaseRenderer     {}; // [-] - Calibrated MatCap / OpenPBR Direct world renderer
     std::unique_ptr<GeometricRaster::VulkanWorldRenderSequence>      GpuWorldRenderer     {}; // [-] - Hardware Vulkan .slang compute world render sequence
     std::unique_ptr<GeometricRaster::WorldGizmoOverlayRasterization> WorldGizmoRasterizer {}; // [-] - Vulkan .slang 3D Gizmo overlay rasterizer
+    std::unique_ptr<ThumbnailSheetRepository>                        OutlinerIconSheet    {}; // [-] - GPU-baked 128x128 specimen icons for Outliner rows
     std::vector<uint8_t>                                             CachedWorldRgba8     {}; // [-] - Clean world RGBA8 buffer before gizmo overlay rasterization
     uint32_t                                                         CachedWorldWidthPx   = 0u;
     uint32_t                                                         CachedWorldHeightPx  = 0u;

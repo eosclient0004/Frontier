@@ -958,6 +958,71 @@ bool ThumbnailSheetRepository::UpdateEntryThumbnailRgba(
     return true;
 }
 
+void ThumbnailSheetRepository::ClearEntries() noexcept
+{
+    Entries.clear();
+    for (auto& Page : SheetPages)
+    {
+        if (Page)
+        {
+            std::fill(Page->BackingBytes.begin(), Page->BackingBytes.end(), uint8_t{ 0u });
+            Page->TextureStorage.Status = ImTextureStatus_WantUpdates;
+        }
+    }
+}
+
+std::size_t ThumbnailSheetRepository::BakeAndRegisterSpecimenTile(
+    std::string_view            DisplayTitle,
+    const ThumbnailGpuBakeDesc& SpecimenDesc)
+{
+    const std::size_t SlotOrdinal = Entries.size();
+    const uint16_t    PageOrd     = static_cast<uint16_t>(SlotOrdinal / TilesPerPage);
+    const uint32_t    InPageIdx   = static_cast<uint32_t>(SlotOrdinal % TilesPerPage);
+    const uint16_t    Col         = static_cast<uint16_t>(InPageIdx % TilesPerRow);
+    const uint16_t    Row         = static_cast<uint16_t>(InPageIdx / TilesPerRow);
+    const uint32_t    TileBytes   = TileDimensionPixels * TileDimensionPixels * 4u;
+
+    ContentRepositoryEntry Entry {};
+    Entry.DisplayTitle    = std::string(DisplayTitle);
+    Entry.ContainerFormat = QueryCanonicalSuffix(SpecimenDesc.Category);
+    Entry.IndexHeader.ContentHash64 =
+        Frontier::Serialization::ComputeFnv1a64String(Entry.DisplayTitle + "#" + std::to_string(SpecimenDesc.SubMode));
+    Entry.IndexHeader.WorkspaceCompatibilityMask = ComputeWorkspacesAllowingCategory(SpecimenDesc.Category);
+    Entry.IndexHeader.SheetSliceByteOffset       = 64ull + static_cast<uint64_t>(SlotOrdinal) * TileBytes;
+    Entry.IndexHeader.SheetSliceByteLength       = TileBytes;
+    Entry.IndexHeader.SheetPageOrdinal           = PageOrd;
+    Entry.IndexHeader.TileColumn                 = Col;
+    Entry.IndexHeader.TileRow                    = Row;
+    Entry.IndexHeader.TilePixelExtent            = static_cast<uint16_t>(TileDimensionPixels);
+    Entry.IndexHeader.CategoryCode               = static_cast<uint8_t>(SpecimenDesc.Category);
+    Entry.IndexHeader.OriginCode                 = static_cast<uint8_t>(ContentOriginFilter::Project);
+    Entry.IndexHeader.TintRed                    = SpecimenDesc.Tint.Red;
+    Entry.IndexHeader.TintGreen                  = SpecimenDesc.Tint.Green;
+    Entry.IndexHeader.TintBlue                   = SpecimenDesc.Tint.Blue;
+    Entry.IndexHeader.ReadOnlyProtected          = 0u;
+
+    std::vector<uint8_t> TileRgba;
+    GpuThumbnailBakerFn  GpuBaker {};
+    {
+        std::lock_guard<std::mutex> Lock(GlobalThumbGpuBakerMutex);
+        GpuBaker = GlobalThumbGpuBaker;
+    }
+
+    if (GpuBaker && GpuBaker(SpecimenDesc, TileDimensionPixels, TileRgba) && TileRgba.size() == TileBytes)
+    {
+        GlobalThumbGpuBakeCount.fetch_add(1ull, std::memory_order_relaxed);
+        CopyTileBytesIntoPage(Entry.IndexHeader, TileRgba);
+        Entry.TileResident = true;
+    }
+    else
+    {
+        BakeProceduralTileIntoPage(Entry);
+    }
+
+    Entries.push_back(std::move(Entry));
+    return Entries.size() - 1u;
+}
+
 std::size_t ThumbnailSheetRepository::RegisterOrUpdateProjectEntry(
     std::string_view             DisplayTitle,
     ContentCategory              Category,

@@ -4,6 +4,7 @@
 // 🧩 Editor-only authoring loop implementation
 
 #include "Engine/Lifecycle/EditorLifecycle.h"
+#include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
 #include "Engine/Lifecycle/ProjectEditorSceneRegistry.h"
 #include "Engine/Lifecycle/ThoughtLog.h"
 #include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
@@ -270,6 +271,8 @@ bool EditorLifecycle::AttachVulkanGizmoOverlay(
         return false;
     }
 
+    (void)InspectorGpuBaker::AttachDevice(BoundDevice, CompiledShaderDirectory);
+
     if (GpuWorldRenderer == nullptr || !GpuWorldRenderer->QueryReady())
     {
         auto CandidateWorldGpu = std::make_unique<GeometricRaster::VulkanWorldRenderSequence>();
@@ -305,6 +308,15 @@ bool EditorLifecycle::AttachVulkanGizmoOverlay(
     WorldTransformGizmo.ConfigureHandleFilter(Editor::GizmoHandleFilter::Universal);
     if (ShowcaseBundle != nullptr)
     {
+        if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())
+        {
+            if (!OutlinerIconSheet)
+            {
+                OutlinerIconSheet = std::make_unique<ThumbnailSheetRepository>();
+            }
+            (void)GeometricRaster::BakeShowcaseOutlinerIcons(ActivePanes->Outliner, *ShowcaseBundle, *OutlinerIconSheet);
+            ActivePanes->Outliner.AttachIconSheetRepository(OutlinerIconSheet.get());
+        }
         RefreshShowcaseViewportRaster();
     }
     return true;
@@ -617,6 +629,13 @@ void EditorLifecycle::PopulateWorldSceneSession(uint32_t RenderWidthPx, uint32_t
             }
         }
     }
+
+    if (!OutlinerIconSheet)
+    {
+        OutlinerIconSheet = std::make_unique<ThumbnailSheetRepository>();
+    }
+    (void)GeometricRaster::BakeShowcaseOutlinerIcons(Panes->Outliner, *ShowcaseBundle, *OutlinerIconSheet);
+    Panes->Outliner.AttachIconSheetRepository(OutlinerIconSheet.get());
 
     // Protect primary Editor camera from accidental deletion
     if (OutlinerRecordEntry* CamRec = Panes->Outliner.AccessEntry(ShowcaseBundle->EditorCameraToken))
@@ -3859,7 +3878,13 @@ void EditorLifecycle::Finalize() noexcept
     SimulationAdapter.Teardown();
     WorldSimulation.Stop();
     EditorSequence.Finalize();
+    if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())
+    {
+        ActivePanes->Outliner.AttachIconSheetRepository(nullptr);
+    }
+    OutlinerIconSheet.reset();
     InspectorGpuBaker::DetachImGuiPresenter();
+    InspectorGpuBaker::DetachDevice();
     if (StartupConfig.ImGuiPresenter != nullptr)
     {
         StartupConfig.ImGuiPresenter->ReleaseExternalImages();

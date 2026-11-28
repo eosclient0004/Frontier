@@ -232,7 +232,7 @@ public:
     struct ThumbnailGpuBakeDesc
     {
         ContentCategory Category     = ContentCategory::Materials;
-        uint32_t        SubMode      = 0u; // 0=Sphere, 1=Cube, 2=Torus, 3=Cone, 4=Cylinder
+        uint32_t        SubMode      = 0u; // 0=Sphere, 1=Box, 2=Torus, 3=Cone, 4=Cylinder, 5=Coupe, 6=Softbox, 7=Fresnel, 8=Camera, 9=Cyclorama
         ColorRgba       Tint         { 180u, 180u, 186u, 255u };
         float           Metallic     = 0.0f;
         float           Roughness    = 0.28f;
@@ -241,6 +241,11 @@ public:
         float           Emission     = 0.0f;
     };
     using GpuThumbnailBakerFn = std::function<bool(const ThumbnailGpuBakeDesc&, uint32_t, std::vector<uint8_t>&)>;
+
+    void        ClearEntries() noexcept;
+    std::size_t BakeAndRegisterSpecimenTile(
+        std::string_view            DisplayTitle,
+        const ThumbnailGpuBakeDesc& SpecimenDesc);
 
     static void AssignGpuThumbnailBaker(GpuThumbnailBakerFn Baker);
     static void ClearGpuThumbnailBaker() noexcept;

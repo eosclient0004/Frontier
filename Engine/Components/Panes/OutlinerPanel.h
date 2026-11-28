@@ -24,6 +24,10 @@
 namespace Frontier
 {
 
+class ThumbnailSheetRepository;
+
+inline constexpr std::size_t OutlinerNoIconTile = ~std::size_t{ 0u };
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                      ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
@@ -124,6 +128,7 @@ struct OutlinerRecordEntry
     std::string          DuplicateReason    {};                                         // [-]  - Hover tooltip reason when Duplicate is disabled
     std::string          RemovalReason      {};                                         // [-]  - Hover tooltip reason when Delete is disabled
     std::string          DomainTag          {};                                         // [-]  - Domain identifier (e.g. "env:sun", "env:folder")
+    std::size_t          IconTileIndex      = OutlinerNoIconTile;                       // [idx]- Optional baked specimen tile inside ThumbnailSheetRepository
 };
 
 struct OutlinerVisibleRow
@@ -163,6 +168,7 @@ public:
     void ConfigureTitleVariant(OutlinerTitleVariant Variant) noexcept;
     void ConfigureConstructTemplates(std::span<const OutlinerConstructTemplate> Templates);
     void ConfigureFooterReadings(const OutlinerFooterReadings& Readings);
+    void AttachIconSheetRepository(const ThumbnailSheetRepository* Repository) noexcept;
 
     OutlinerSlotToken ConstructFromTemplate(uint32_t TemplateIndex, OutlinerSlotToken ExplicitEnclosure = {});
     OutlinerSlotToken ConstructFolder(std::string_view FolderTitle = "Folder", OutlinerSlotToken ExplicitEnclosure = {});
@@ -296,6 +302,7 @@ private:
     std::function<void(std::string_view)>                      DirectConstructCallback    {};             // [-]   - Optional empty-area quick construct handler
     double                                                     LastRealtimeCanvasLatchSec = -1.0;           // [s]   - Last ImGui time RealtimeText invalidated retained canvas
     std::string                                                LatchedRealtimeCanvasText  {};             // [-]   - 2 Hz latched FPS text for retained-canvas signature
+    const ThumbnailSheetRepository*                            IconSheetRepository        = nullptr;      // [-]   - Non-owning baked specimen tile sheet for per-row icons
 };
 
 //------------------------------------------------------------------------------------------------------------------------

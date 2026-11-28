@@ -1784,6 +1784,15 @@ if(BUILD_TESTING)
     target_link_libraries(NativeSpaceResourceRoundTripValidation PRIVATE AutoSpaceProject)
     add_test(NAME NativeSpaceResourceRoundTripValidation COMMAND NativeSpaceResourceRoundTripValidation)
 
+    add_executable(OutlinerSpecimenIconsValidation Exhibits/OutlinerSpecimenIconsValidation.cpp)
+    target_include_directories(OutlinerSpecimenIconsValidation PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/Projects/AutoSpace"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_compile_definitions(OutlinerSpecimenIconsValidation PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(OutlinerSpecimenIconsValidation PRIVATE AutoSpaceProject)
+    add_test(NAME OutlinerSpecimenIconsValidation COMMAND OutlinerSpecimenIconsValidation)
+
     add_executable(PortalVehicleVerification Exhibits/PortalVehicleVerification.cpp)
     target_include_directories(PortalVehicleVerification PRIVATE
         "${CMAKE_SOURCE_DIR}"

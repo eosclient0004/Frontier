@@ -4,6 +4,7 @@
 // 🧩 Default & Blank World Scenes, EditorCamera, and OutlinerPanel bidirectional registration
 
 #include "Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.h"
+#include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
 
 #include "Engine/Codecs/ControlVehicleSurfaceDecoder.h"
 #include "Engine/Codecs/GeometryCodec.h"
@@ -3057,6 +3058,311 @@ Mathematics::Axis3D RaycastShowcasePlacementAtUv(
         }
     }
     return { 0.0f, -0.85f, GalleryFloorTopZ + std::max(0.05f, HalfHeightMeters) };
+}
+
+namespace
+{
+[[nodiscard]] bool ContainsTokenInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
+{
+    if (Needle.empty() || Needle.size() > Haystack.size())
+    {
+        return false;
+    }
+    for (std::size_t Start = 0u; Start + Needle.size() <= Haystack.size(); ++Start)
+    {
+        bool Matched = true;
+        for (std::size_t Offset = 0u; Offset < Needle.size(); ++Offset)
+        {
+            const unsigned char A = static_cast<unsigned char>(Haystack[Start + Offset]);
+            const unsigned char B = static_cast<unsigned char>(Needle[Offset]);
+            if (std::tolower(A) != std::tolower(B))
+            {
+                Matched = false;
+                break;
+            }
+        }
+        if (Matched)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] ColorRgba LinearColorToSrgbTint(float RedLin, float GreenLin, float BlueLin) noexcept
+{
+    const float MaxChan = std::max({ RedLin, GreenLin, BlueLin, 0.0f });
+    float R = std::max(0.0f, RedLin);
+    float G = std::max(0.0f, GreenLin);
+    float B = std::max(0.0f, BlueLin);
+    if (MaxChan > 1.0f)
+    {
+        R /= MaxChan;
+        G /= MaxChan;
+        B /= MaxChan;
+    }
+    const auto ToByte = [](float Linear) noexcept -> uint8_t {
+        const float Srgb = std::pow(std::clamp(Linear, 0.0f, 1.0f), 1.0f / 2.2f);
+        return static_cast<uint8_t>(std::clamp(Srgb * 255.0f + 0.5f, 8.0f, 255.0f));
+    };
+    return ColorRgba { ToByte(R), ToByte(G), ToByte(B), 255u };
+}
+
+[[nodiscard]] uint32_t SelectGeometrySpecimenSubMode(
+    std::string_view Title,
+    uint32_t         AnalyticalShapeCode,
+    bool             EmissiveSurface) noexcept
+{
+    if (ContainsTokenInsensitive(Title, "coupe") ||
+        ContainsTokenInsensitive(Title, "tourer") ||
+        ContainsTokenInsensitive(Title, "sedan") ||
+        ContainsTokenInsensitive(Title, "suv") ||
+        ContainsTokenInsensitive(Title, "roadster") ||
+        ContainsTokenInsensitive(Title, "vehicle") ||
+        ContainsTokenInsensitive(Title, "hypercar") ||
+        ContainsTokenInsensitive(Title, "prototype") ||
+        ContainsTokenInsensitive(Title, "chassis") ||
+        ContainsTokenInsensitive(Title, "alpine gt") ||
+        ContainsTokenInsensitive(Title, "buggy") ||
+        ContainsTokenInsensitive(Title, "rally") ||
+        ContainsTokenInsensitive(Title, "car"))
+    {
+        return 5u; // Automotive Coupe
+    }
+    if (ContainsTokenInsensitive(Title, "camera"))
+    {
+        return 8u; // Cinema Camera / Medium Format Camera Rig
+    }
+    if (ContainsTokenInsensitive(Title, "fresnel") ||
+        ContainsTokenInsensitive(Title, "barn-door") ||
+        ContainsTokenInsensitive(Title, "spot"))
+    {
+        return 7u; // Studio Fresnel / Barn-Door Lamp
+    }
+    if (ContainsTokenInsensitive(Title, "cyclorama") ||
+        ContainsTokenInsensitive(Title, "cove") ||
+        ContainsTokenInsensitive(Title, "floor") ||
+        ContainsTokenInsensitive(Title, "stage") ||
+        ContainsTokenInsensitive(Title, "turntable") ||
+        ContainsTokenInsensitive(Title, "plinth") ||
+        ContainsTokenInsensitive(Title, "wall") ||
+        ContainsTokenInsensitive(Title, "deck"))
+    {
+        return 9u; // Cyclorama / Studio Stage
+    }
+    if (ContainsTokenInsensitive(Title, "diffuser") ||
+        ContainsTokenInsensitive(Title, "softbox") ||
+        ContainsTokenInsensitive(Title, "strobe") ||
+        ContainsTokenInsensitive(Title, "strip") ||
+        ContainsTokenInsensitive(Title, "panel") ||
+        ContainsTokenInsensitive(Title, "lightbar") ||
+        ContainsTokenInsensitive(Title, "banner"))
+    {
+        return 6u; // Studio Softbox / Emissive Panel
+    }
+    if (ContainsTokenInsensitive(Title, "tire") ||
+        ContainsTokenInsensitive(Title, "wheel") ||
+        ContainsTokenInsensitive(Title, "rim") ||
+        ContainsTokenInsensitive(Title, "torus") ||
+        ContainsTokenInsensitive(Title, "ring") ||
+        ContainsTokenInsensitive(Title, "arch"))
+    {
+        return 2u; // Torus / Wheel Ring
+    }
+    if (ContainsTokenInsensitive(Title, "column") ||
+        ContainsTokenInsensitive(Title, "pillar") ||
+        ContainsTokenInsensitive(Title, "lift") ||
+        ContainsTokenInsensitive(Title, "post") ||
+        ContainsTokenInsensitive(Title, "cylinder") ||
+        ContainsTokenInsensitive(Title, "bollard") ||
+        ContainsTokenInsensitive(Title, "pedestal") ||
+        ContainsTokenInsensitive(Title, "drum"))
+    {
+        return 4u; // Cylinder / Lift Column
+    }
+    if (ContainsTokenInsensitive(Title, "cone") ||
+        ContainsTokenInsensitive(Title, "tripod") ||
+        ContainsTokenInsensitive(Title, "stand") ||
+        ContainsTokenInsensitive(Title, "baffle") ||
+        ContainsTokenInsensitive(Title, "pyramid"))
+    {
+        return 3u; // Cone / Studio Stand
+    }
+    if (AnalyticalShapeCode == 1u ||
+        EmissiveSurface ||
+        ContainsTokenInsensitive(Title, "orb") ||
+        ContainsTokenInsensitive(Title, "sphere") ||
+        ContainsTokenInsensitive(Title, "globe") ||
+        ContainsTokenInsensitive(Title, "dome") ||
+        ContainsTokenInsensitive(Title, "ball"))
+    {
+        return 0u; // Studio Shader-Ball / Emissive Orb
+    }
+    return 1u; // Chamfered Box / Cabinet / Workbench
+}
+} // namespace
+
+uint32_t BakeShowcaseOutlinerIcons(
+    OutlinerPanel&                  InOutOutliner,
+    const ShowcaseWorldSceneBundle& Bundle,
+    ThumbnailSheetRepository&       InOutRepository)
+{
+    InOutRepository.ClearEntries();
+
+    // Collect tokens first so AccessEntry mutations stay completely safe
+    std::vector<OutlinerSlotToken> Tokens;
+    Tokens.reserve(InOutOutliner.QueryEntries().size());
+    for (const OutlinerRecordEntry& Rec : InOutOutliner.QueryEntries())
+    {
+        Tokens.push_back(Rec.Token);
+    }
+
+    uint32_t BakedCount   = 0u;
+    uint32_t CameraCursor = 0u;
+    for (const OutlinerSlotToken Token : Tokens)
+    {
+        OutlinerRecordEntry* Entry = InOutOutliner.AccessEntry(Token);
+        if (Entry == nullptr)
+        {
+            continue;
+        }
+        if (Entry->Category == ConstructSlotCategory::Folder ||
+            Entry->DomainTag.starts_with("env:"))
+        {
+            Entry->IconTileIndex = OutlinerNoIconTile;
+            continue;
+        }
+
+        ThumbnailSheetRepository::ThumbnailGpuBakeDesc Desc {};
+        bool MatchedDomain = false;
+
+        // 1) Geometry scene entries -> authored OpenPBR material + semantic 3D silhouette
+        for (const ShowcaseWorldAssetEntry& Bind : Bundle.Objects)
+        {
+            if (Bind.SlotToken != Token)
+            {
+                continue;
+            }
+            const MaterialSpace::SurfaceMaterial Mat =
+                Bundle.Scene.MaterialRegister.InspectAuthoredMaterial(Bind.MaterialSlot);
+            const bool EmissiveSurface = (Mat.PorosityLight.EmissionLuminanceNits > 0.25f);
+            uint32_t ShapeCode = Bind.SphericalPrimitive ? 1u : 0u;
+            if (Bind.ClusterInstanceIndex < Bundle.Scene.ClusterInstances.size())
+            {
+                ShapeCode = Bundle.Scene.ClusterInstances[Bind.ClusterInstanceIndex].AnalyticalShapeCode;
+            }
+
+            Desc.Category     = ContentCategory::Geometry;
+            Desc.SubMode      = SelectGeometrySpecimenSubMode(Entry->Title, ShapeCode, EmissiveSurface);
+            Desc.Tint         = EmissiveSurface
+                                    ? LinearColorToSrgbTint(
+                                          Mat.PorosityLight.EmissionTint.R,
+                                          Mat.PorosityLight.EmissionTint.G,
+                                          Mat.PorosityLight.EmissionTint.B)
+                                    : LinearColorToSrgbTint(
+                                          Mat.Diffuse.BaseColor.R,
+                                          Mat.Diffuse.BaseColor.G,
+                                          Mat.Diffuse.BaseColor.B);
+            Desc.Metallic     = std::clamp(Mat.Specular.Metalness, 0.0f, 1.0f);
+            Desc.Roughness    = std::clamp(Mat.Specular.Roughness, 0.04f, 0.96f);
+            Desc.Clearcoat    = std::clamp(Mat.Clearcoat.CoatWeight, 0.0f, 1.0f);
+            Desc.Transmission = std::clamp(Mat.Transmission.TransmissionWeight, 0.0f, 1.0f);
+            Desc.Emission     = EmissiveSurface
+                                    ? std::clamp(Mat.PorosityLight.EmissionLuminanceNits * 0.28f, 0.45f, 3.6f)
+                                    : 0.0f;
+            MatchedDomain = true;
+            break;
+        }
+
+        // 2) Area luminaire entries -> Studio Softbox silhouette glowing with authored radiance color
+        if (!MatchedDomain)
+        {
+            for (const ShowcaseAreaLightLink& LightBind : Bundle.AreaLightBindings)
+            {
+                if (LightBind.SlotToken != Token)
+                {
+                    continue;
+                }
+                Mathematics::LinearRGB Rad = LightBind.BaseEmittedRadiance;
+                if (Rad.R + Rad.G + Rad.B <= 1.0e-4f && LightBind.AreaLightIndex < Bundle.Scene.AreaLights.size())
+                {
+                    Rad = Bundle.Scene.AreaLights[LightBind.AreaLightIndex].EmittedRadiance;
+                }
+                Desc.Category     = ContentCategory::Photometry;
+                Desc.SubMode      = 6u; // Studio Softbox Luminaire
+                Desc.Tint         = LinearColorToSrgbTint(Rad.R, Rad.G, Rad.B);
+                Desc.Metallic     = 0.15f;
+                Desc.Roughness    = 0.28f;
+                Desc.Clearcoat    = 0.0f;
+                Desc.Transmission = 0.0f;
+                Desc.Emission     = 2.1f;
+                MatchedDomain     = true;
+                break;
+            }
+        }
+
+        // 3) Photometric / IES spot luminaire entries -> Studio Fresnel Barn-Door Lamp silhouette
+        if (!MatchedDomain)
+        {
+            for (const ShowcasePhotometricLightLink& PhotoBind : Bundle.PhotometricLightBindings)
+            {
+                if (PhotoBind.SlotToken != Token)
+                {
+                    continue;
+                }
+                Mathematics::LinearRGB Col = PhotoBind.BasePeakIntensityRgb;
+                if (Col.R + Col.G + Col.B <= 1.0e-4f &&
+                    PhotoBind.RadiatorIndex < Bundle.Scene.PhotometricRadiators.size())
+                {
+                    Col = Bundle.Scene.PhotometricRadiators[PhotoBind.RadiatorIndex].PeakIntensityRgb;
+                }
+                Desc.Category     = ContentCategory::Photometry;
+                Desc.SubMode      = 7u; // Studio Fresnel / IES Spot Lamp
+                Desc.Tint         = LinearColorToSrgbTint(Col.R, Col.G, Col.B);
+                Desc.Metallic     = 0.35f;
+                Desc.Roughness    = 0.32f;
+                Desc.Clearcoat    = 0.0f;
+                Desc.Transmission = 0.0f;
+                Desc.Emission     = 2.4f;
+                MatchedDomain     = true;
+                break;
+            }
+        }
+
+        // 4) Camera entries -> Cinema Camera Rig silhouette with subtle camera-slot color differentiation
+        if (!MatchedDomain &&
+            (Entry->Category == ConstructSlotCategory::OpticsCamera || Entry->DomainTag.starts_with("camera:")))
+        {
+            static constexpr ColorRgba CameraBodyTints[4] = {
+                ColorRgba { 112u, 134u, 168u, 255u },
+                ColorRgba { 156u, 128u, 104u, 255u },
+                ColorRgba { 104u, 152u, 136u, 255u },
+                ColorRgba { 148u, 118u, 158u, 255u },
+            };
+            Desc.Category     = ContentCategory::Geometry;
+            Desc.SubMode      = 8u; // Cinema Camera Rig
+            Desc.Tint         = CameraBodyTints[CameraCursor % 4u];
+            Desc.Metallic     = 0.72f;
+            Desc.Roughness    = 0.24f;
+            Desc.Clearcoat    = 0.35f;
+            Desc.Transmission = 0.0f;
+            Desc.Emission     = 0.0f;
+            ++CameraCursor;
+            MatchedDomain = true;
+        }
+
+        if (MatchedDomain)
+        {
+            Entry->IconTileIndex = InOutRepository.BakeAndRegisterSpecimenTile(Entry->Title, Desc);
+            ++BakedCount;
+        }
+        else
+        {
+            Entry->IconTileIndex = OutlinerNoIconTile;
+        }
+    }
+
+    return BakedCount;
 }
 
 } // namespace Frontier::GeometricRaster

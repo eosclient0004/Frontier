@@ -20,6 +20,11 @@
 #include <string_view>
 #include <vector>
 
+namespace Frontier
+{
+class ThumbnailSheetRepository;
+}
+
 namespace Frontier::GeometricRaster
 {
 
@@ -216,5 +221,11 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
     float                           NormalizedU,
     float                           NormalizedV,
     float                           HalfHeightMeters) noexcept;
+
+// Bakes unique GPU 128x128 specimen icons for every geometry, light, and camera row in OutlinerPanel
+uint32_t BakeShowcaseOutlinerIcons(
+    OutlinerPanel&                  InOutOutliner,
+    const ShowcaseWorldSceneBundle& Bundle,
+    ThumbnailSheetRepository&       InOutRepository);
 
 } // namespace Frontier::GeometricRaster

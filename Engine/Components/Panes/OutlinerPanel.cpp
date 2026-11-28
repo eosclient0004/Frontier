@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Panes/OutlinerPanel.h"
+#include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 #include "Engine/Constants/EngineConstants.h"
@@ -96,6 +97,11 @@ void OutlinerPanel::ConfigureConstructTemplates(std::span<const OutlinerConstruc
 void OutlinerPanel::ConfigureFooterReadings(const OutlinerFooterReadings& Readings)
 {
     FooterReadings = Readings;
+}
+
+void OutlinerPanel::AttachIconSheetRepository(const ThumbnailSheetRepository* Repository) noexcept
+{
+    IconSheetRepository = Repository;
 }
 
 const char* OutlinerPanel::QueryHeadingText() const noexcept
@@ -1586,13 +1592,38 @@ void OutlinerPanel::Render(
             }
             else
             {
-                WorkspaceAppearance::ConstructSlotCategoryIcon(
-                    Surface,
-                    Entry->Category,
-                    IconOrigin,
-                    24.0f,
-                    Entry->FolderTint,
-                    RowAlpha);
+                bool DrewBakedIcon = false;
+                if (IconSheetRepository != nullptr && Entry->IconTileIndex != OutlinerNoIconTile)
+                {
+                    const ThumbnailUvQuad TileUv = IconSheetRepository->QueryTileUv(Entry->IconTileIndex);
+                    if (TileUv.Valid && TileUv.TexturePointer != nullptr)
+                    {
+                        const Rectangle2D IconRect{ IconOrigin.X, IconOrigin.Y, 24.0f, 24.0f };
+                        Surface.FillTexturedRectangle(
+                            IconRect,
+                            TileUv.TexturePointer,
+                            TileUv.UvMin,
+                            TileUv.UvMax,
+                            5.0f,
+                            ColorRgba{ 255u, 255u, 255u, 255u }.ScaledAlpha(RowAlpha));
+                        Surface.StrokeRectangle(
+                            IconRect,
+                            ColorRgba{ 255u, 255u, 255u, 32u }.ScaledAlpha(RowAlpha),
+                            5.0f,
+                            1.0f);
+                        DrewBakedIcon = true;
+                    }
+                }
+                if (!DrewBakedIcon)
+                {
+                    WorkspaceAppearance::ConstructSlotCategoryIcon(
+                        Surface,
+                        Entry->Category,
+                        IconOrigin,
+                        24.0f,
+                        Entry->FolderTint,
+                        RowAlpha);
+                }
             }
 
             // Right-side visibility status indicator & eye toggle
@@ -2371,10 +2402,14 @@ void OutlinerPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
             (Rec.CastShadows ? 16ull : 0ull) |
             (static_cast<uint64_t>(Rec.Category) << 5u);
         Sig = RetainedCanvasCache::MixHash(Sig, Bits);
+        Sig = RetainedCanvasCache::MixHash(Sig, static_cast<uint64_t>(Rec.IconTileIndex));
         Sig = MixString(Sig, Rec.Title);
         Sig = MixString(Sig, Rec.Subtitle);
         Sig = MixString(Sig, Rec.DomainTag);
     }
+    Sig = RetainedCanvasCache::MixHash(
+        Sig,
+        IconSheetRepository != nullptr ? static_cast<uint64_t>(IconSheetRepository->PageCount() + 1u) : 0ull);
     const double NowSec = ImGui::GetTime();
     if (LastRealtimeCanvasLatchSec < 0.0 || (NowSec - LastRealtimeCanvasLatchSec) >= 0.50)
     {
